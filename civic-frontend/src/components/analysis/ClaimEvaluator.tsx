@@ -118,8 +118,11 @@ const ClaimEvaluator: React.FC<ClaimEvaluatorProps> = ({
 
   return (
     <div>
-      {/* Show processing status when in progress */}
-      {isEvaluating && (
+        {/* 
+        Don't show processing status here when in initial video processing flow
+        Only show if this component is rendering standalone (not during initial page load)
+        */}
+        {isEvaluating && !window.location.pathname.includes('/analysis') && processingClaimIndex >= 0 && (
         <div className="glass-panel p-6 mb-6">
           <h2 className="text-xl font-semibold mb-6 text-gray-900 flex items-center">
             <Shield className="mr-2 h-5 w-5 text-blue-600" />

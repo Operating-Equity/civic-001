@@ -164,56 +164,442 @@ const HomePage: React.FC = () => {
       <section id="analysis" className={`py-8 ${hasResults ? 'bg-gray-50' : 'bg-white'}`}>
         <div className="container mx-auto px-4">
           <div className={`mx-auto ${hasResults ? 'max-w-6xl' : 'max-w-3xl'}`}>
-            {!hasResults && (
-              <div className="mb-8 text-center">
-                <h2 className="text-2xl font-bold text-gray-900">
-                  Verify a Video
-                </h2>
-                <p className="text-gray-700 mt-2">
-                  Enter a YouTube URL or upload a video to start the verification process
-                </p>
-              </div>
+            {!hasResults && !isLoading && (
+              <>
+                <div className="mb-8 text-center">
+                  <h2 className="text-2xl font-bold text-gray-900">
+                    Verify a Video
+                  </h2>
+                  <p className="text-gray-700 mt-2">
+                    Enter a YouTube URL or upload a video to start the verification process
+                  </p>
+                </div>
+                
+                <VideoInput 
+                  onVideoSubmit={handleVideoSubmit} 
+                  isProcessing={false} 
+                  error={error}
+                />
+              </>
             )}
             
-            {!hasResults && (
-              <VideoInput 
-                onVideoSubmit={handleVideoSubmit} 
-                isProcessing={isLoading} 
-                error={error}
-                processingStage={processingStage}
-              />
-            )}
-            
-            {/* Enhanced Loading Indicator */}
+            {/* Single unified loading indicator */}
             {isLoading && (
-                <div className="mt-8 bg-white p-8 rounded-lg border border-gray-200 shadow-sm">
-                    <div className="flex justify-center mb-6">
-                    <div className="h-16 w-16 rounded-full border-4 border-blue-600 border-t-transparent animate-spin"></div>
-                    </div>
-                    <h3 className="text-xl font-medium text-gray-800 text-center mb-3">Processing Your Video</h3>
-                    
-                    {/* Dynamic subtitle based on processing stage */}
-                    <p className="text-gray-700 text-center mb-8">
+              <div className="mt-8 bg-white p-8 rounded-lg border border-gray-200 shadow-sm">
+                <div className="text-center mb-6">
+                  <h3 className="text-xl font-medium text-gray-800 mb-3">Processing Your Video</h3>
+                  <p className="text-gray-700">
                     {processingStage === 'extracting_transcript' && "Extracting transcript from your video..."}
                     {processingStage === 'identifying_speakers' && "Identifying speakers in your video..."}
                     {processingStage === 'extracting_claims' && "Identifying empirical claims in your content..."}
                     {processingStage === 'verifying_claims' && "Verifying claims with multiple AI models..."}
-                    </p>
+                  </p>
+                  <div className="h-16 w-16 rounded-full border-4 border-blue-600 border-t-transparent animate-spin mx-auto mt-4"></div>
+                </div>
+                
+                {/* Only one processing indicator */}
+                <div className="max-w-3xl mx-auto">
+                  <div className="space-y-4">
+                    {/* Step 1: Transcript Extraction */}
+                    <div className="flex items-center">
+                      <div className={`w-8 h-8 rounded-full flex items-center justify-center mr-3
+                        ${processingStage === 'extracting_transcript' 
+                          ? 'bg-blue-100 text-blue-600' 
+                          : processingStage === 'idle' ? 'bg-gray-100 text-gray-600' : 'bg-green-100 text-green-600'}`}>
+                        {processingStage === 'extracting_transcript' ? (
+                          <span className="text-sm font-medium">1</span>
+                        ) : processingStage === 'idle' ? (
+                          <span className="text-sm font-medium">1</span>
+                        ) : (
+                          <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <path d="M5 12L10 17L20 7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                          </svg>
+                        )}
+                      </div>
+                      <div className="flex-1">
+                        <div className="flex justify-between text-sm mb-1">
+                          <span className="font-medium text-gray-800">Extracting Audio and Transcript</span>
+                          <span className={
+                            processingStage === 'extracting_transcript' 
+                              ? 'text-blue-600 font-medium' 
+                              : processingStage === 'idle' ? 'text-gray-600' : 'text-green-600 font-medium'
+                          }>
+                            {processingStage === 'extracting_transcript' ? 'In Progress' : processingStage === 'idle' ? 'Waiting' : 'Complete'}
+                          </span>
+                        </div>
+                        <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
+                          <div className={`h-full rounded-full ${
+                            processingStage === 'extracting_transcript' 
+                              ? 'bg-blue-600 animate-pulse w-3/4' 
+                              : processingStage === 'idle' ? 'bg-gray-400 w-0' : 'bg-green-600 w-full'
+                          }`}></div>
+                        </div>
+                      </div>
+                    </div>
                     
-                    {/* Only show the VideoInput progress bars when not in claim verification */}
-                    {processingStage !== 'verifying_claims' ? (
-                    <VideoInput 
-                        onVideoSubmit={handleVideoSubmit} 
-                        isProcessing={isLoading} 
-                        error={error}
-                        processingStage={processingStage}
-                        totalClaims={empiricalClaims.length}
-                        currentClaimIndex={processingClaimIndex}
-                    />
-                    ) : (
-                    /* When verifying claims, show the ClaimEvaluator progress instead */
-                    <div className="max-w-3xl mx-auto">
-                        <ClaimEvaluator 
+                    {/* Step 2: Speaker Identification */}
+                    <div className="flex items-center">
+                      <div className={`w-8 h-8 rounded-full flex items-center justify-center mr-3
+                        ${processingStage === 'identifying_speakers' 
+                          ? 'bg-blue-100 text-blue-600' 
+                          : processingStage === 'idle' || processingStage === 'extracting_transcript' 
+                            ? 'bg-gray-100 text-gray-600' 
+                            : 'bg-green-100 text-green-600'}`}>
+                        {processingStage === 'identifying_speakers' ? (
+                          <span className="text-sm font-medium">2</span>
+                        ) : processingStage === 'idle' || processingStage === 'extracting_transcript' ? (
+                          <span className="text-sm font-medium">2</span>
+                        ) : (
+                          <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <path d="M5 12L10 17L20 7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                          </svg>
+                        )}
+                      </div>
+                      <div className="flex-1">
+                        <div className="flex justify-between text-sm mb-1">
+                          <span className="font-medium text-gray-800">Identifying Speakers</span>
+                          <span className={
+                            processingStage === 'identifying_speakers' 
+                              ? 'text-blue-600 font-medium' 
+                              : processingStage === 'idle' || processingStage === 'extracting_transcript' 
+                                ? 'text-gray-600' 
+                                : 'text-green-600 font-medium'
+                          }>
+                            {processingStage === 'identifying_speakers' 
+                              ? 'In Progress' 
+                              : processingStage === 'idle' || processingStage === 'extracting_transcript' 
+                                ? 'Waiting' 
+                                : 'Complete'}
+                          </span>
+                        </div>
+                        <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
+                          <div className={`h-full rounded-full ${
+                            processingStage === 'identifying_speakers' 
+                              ? 'bg-blue-600 animate-pulse w-3/4' 
+                              : processingStage === 'idle' || processingStage === 'extracting_transcript' 
+                                ? 'bg-gray-400 w-0' 
+                                : 'bg-green-600 w-full'
+                          }`}></div>
+                        </div>
+                      </div>
+                    </div>
+                    
+                    {/* Step 3: Extracting Claims */}
+                    <div className="flex items-center">
+                      <div className={`w-8 h-8 rounded-full flex items-center justify-center mr-3
+                        ${processingStage === 'extracting_claims' 
+                          ? 'bg-blue-100 text-blue-600' 
+                          : processingStage === 'idle' || 
+                            processingStage === 'extracting_transcript' || 
+                            processingStage === 'identifying_speakers' 
+                            ? 'bg-gray-100 text-gray-600' 
+                            : 'bg-green-100 text-green-600'}`}>
+                        {processingStage === 'extracting_claims' ? (
+                          <span className="text-sm font-medium">3</span>
+                        ) : processingStage === 'idle' || 
+                            processingStage === 'extracting_transcript' || 
+                            processingStage === 'identifying_speakers' ? (
+                          <span className="text-sm font-medium">3</span>
+                        ) : (
+                          <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <path d="M5 12L10 17L20 7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                          </svg>
+                        )}
+                      </div>
+                      <div className="flex-1">
+                        <div className="flex justify-between text-sm mb-1">
+                          <span className="font-medium text-gray-800">Extracting Empirical Claims</span>
+                          <span className={
+                            processingStage === 'extracting_claims' 
+                              ? 'text-blue-600 font-medium' 
+                              : processingStage === 'idle' || 
+                                processingStage === 'extracting_transcript' || 
+                                processingStage === 'identifying_speakers' 
+                                ? 'text-gray-600' 
+                                : 'text-green-600 font-medium'
+                          }>
+                            {processingStage === 'extracting_claims' 
+                              ? 'In Progress' 
+                              : processingStage === 'idle' || 
+                                processingStage === 'extracting_transcript' || 
+                                processingStage === 'identifying_speakers' 
+                                ? 'Waiting' 
+                                : 'Complete'}
+                          </span>
+                        </div>
+                        <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
+                          <div className={`h-full rounded-full ${
+                            processingStage === 'extracting_claims' 
+                              ? 'bg-blue-600 animate-pulse w-3/4' 
+                              : processingStage === 'idle' || 
+                                processingStage === 'extracting_transcript' || 
+                                processingStage === 'identifying_speakers' 
+                                ? 'bg-gray-400 w-0' 
+                                : 'bg-green-600 w-full'
+                          }`}></div>
+                        </div>
+                      </div>
+                    </div>
+                    
+                    {/* Step 4: Verifying Claims */}
+                    <div className="flex items-center">
+                      <div className={`w-8 h-8 rounded-full flex items-center justify-center mr-3
+                        ${processingStage === 'verifying_claims' 
+                          ? 'bg-blue-100 text-blue-600' 
+                          : processingStage === 'idle' || 
+                            processingStage === 'extracting_transcript' || 
+                            processingStage === 'identifying_speakers' ||
+                            processingStage === 'extracting_claims' 
+                            ? 'bg-gray-100 text-gray-600' 
+                            : 'bg-green-100 text-green-600'}`}>
+                        {processingStage === 'verifying_claims' ? (
+                          <span className="text-sm font-medium">4</span>
+                        ) : processingStage === 'idle' || 
+                            processingStage === 'extracting_transcript' || 
+                            processingStage === 'identifying_speakers' ||
+                            processingStage === 'extracting_claims' ? (
+                          <span className="text-sm font-medium">4</span>
+                        ) : (
+                          <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <path d="M5 12L10 17L20 7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                          </svg>
+                        )}
+                      </div>
+                      <div className="flex-1">
+                        <div className="flex justify-between text-sm mb-1">
+                          <span className="font-medium text-gray-800">Verifying Claims with Multiple AI Models</span>
+                          <span className={
+                            processingStage === 'verifying_claims' 
+                              ? 'text-blue-600 font-medium' 
+                              : processingStage === 'idle' || 
+                                processingStage === 'extracting_transcript' || 
+                                processingStage === 'identifying_speakers' ||
+                                processingStage === 'extracting_claims' 
+                                ? 'text-gray-600' 
+                                : 'text-green-600 font-medium'
+                          }>
+                            {processingStage === 'verifying_claims' 
+                              ? 'In Progress' 
+                              : processingStage === 'idle' || 
+                                processingStage === 'extracting_transcript' || 
+                                processingStage === 'identifying_speakers' ||
+                                processingStage === 'extracting_claims' 
+                                ? 'Waiting' 
+                                : 'Complete'}
+                          </span>
+                        </div>
+                        <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
+                          <div className={`h-full rounded-full ${
+                            processingStage === 'verifying_claims' 
+                              ? 'bg-blue-600 animate-pulse w-3/4' 
+                              : processingStage === 'idle' || 
+                                processingStage === 'extracting_transcript' || 
+                                processingStage === 'identifying_speakers' ||
+                                processingStage === 'extracting_claims' 
+                                ? 'bg-gray-400 w-0' 
+                                : 'bg-green-600 w-full'
+                          }`}></div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Parallel Processing Indicator for Claims */}
+                    {processingStage === 'verifying_claims' && empiricalClaims.length > 0 && (
+                      <div className="mt-6 rounded-lg bg-blue-50 border border-blue-100 p-4">
+                        <div className="flex items-center justify-between text-sm mb-2">
+                          <span className="text-blue-700 font-medium">Processing claims in parallel</span>
+                          <span className="text-blue-600 text-xs font-medium bg-white px-2 py-0.5 rounded-full">
+                            {empiricalClaims.length} claims
+                          </span>
+                        </div>
+                        
+                        {/* Visual representation of parallel processing */}
+                        <div className="flex justify-between mt-3">
+                          {Array.from({ length: Math.min(empiricalClaims.length, 7) }).map((_, i) => (
+                            <div 
+                              key={i} 
+                              className="flex flex-col items-center"
+                            >
+                              <div className={`w-5 h-5 flex items-center justify-center rounded-full text-xs 
+                                ${i <= processingClaimIndex % empiricalClaims.length ? 'bg-blue-600 text-white' : 'bg-blue-100 text-blue-600'}`}>
+                                {i+1}
+                              </div>
+                              <div className="h-1 w-8 mt-1 bg-blue-100"></div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+                
+                <p className="text-center text-gray-600 text-sm mt-6">
+                  This may take several minutes for longer videos. Please don't close this window.
+                </p>
+              </div>
+            )}
+            
+            {/* Results Section (shown after processing is complete) */}
+            {hasResults && (
+              <div ref={resultsRef}>
+                {activeSection === 'dashboard' && (
+                  <>
+                    {/* Dashboard View */}
+                    <div className="mb-8">
+                      <h2 className="text-2xl font-bold text-gray-900 mb-6">Verification Dashboard</h2>
+                      
+                      {/* Video Info Card */}
+                      <div className="bg-white p-6 rounded-lg border border-gray-200 shadow-sm mb-6">
+                        <div className="flex items-start">
+                          {thumbnailUrl && (
+                            <div className="w-32 h-24 rounded overflow-hidden mr-4 flex-shrink-0">
+                              <img 
+                                src={thumbnailUrl} 
+                                alt="Video Thumbnail" 
+                                className="w-full h-full object-cover"
+                              />
+                            </div>
+                          )}
+                          
+                          <div className="flex-1">
+                            <h3 className="text-xl font-semibold text-gray-900 mb-2">{videoTitle}</h3>
+                            
+                            <div className="flex flex-wrap gap-3 mt-3">
+                              <div className="flex items-center px-3 py-1 bg-gray-100 rounded-full text-sm text-gray-700">
+                                <FileSearch className="h-4 w-4 mr-1.5 text-gray-500" />
+                                <span>{stats.totalClaims} Claims Analyzed</span>
+                              </div>
+                              
+                              {stats.speakerCount > 0 && (
+                                <div className="flex items-center px-3 py-1 bg-gray-100 rounded-full text-sm text-gray-700">
+                                  <Users className="h-4 w-4 mr-1.5 text-gray-500" />
+                                  <span>{stats.speakerCount} Speakers Identified</span>
+                                </div>
+                              )}
+                              
+                              <div className="flex items-center px-3 py-1 bg-gray-100 rounded-full text-sm text-gray-700">
+                                <BarChart className="h-4 w-4 mr-1.5 text-gray-500" />
+                                <span>{stats.avgConfidence}% Avg. Confidence</span>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                      
+                      {/* Stats Grid */}
+                      <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-6">
+                        <div className="bg-white p-6 rounded-lg border border-gray-200 shadow-sm text-center">
+                          <h3 className="text-gray-600 text-sm mb-1">Analyzed Claims</h3>
+                          <p className="text-3xl font-bold text-gray-900">{stats.totalClaims}</p>
+                          <div className="text-xs text-gray-500 mt-2">Empirical statements verified</div>
+                        </div>
+                        
+                        <div className="bg-white p-6 rounded-lg border border-gray-200 shadow-sm text-center">
+                          <h3 className="text-green-600 text-sm mb-1">Verified True</h3>
+                          <p className="text-3xl font-bold text-green-600">{stats.counts.TRUE}</p>
+                          <div className="text-xs text-gray-500 mt-2">Claims with factual support</div>
+                        </div>
+                        
+                        <div className="bg-white p-6 rounded-lg border border-gray-200 shadow-sm text-center">
+                          <h3 className="text-red-600 text-sm mb-1">Verified False</h3>
+                          <p className="text-3xl font-bold text-red-600">{stats.counts.FALSE}</p>
+                          <div className="text-xs text-gray-500 mt-2">Claims contradicted by evidence</div>
+                        </div>
+                        
+                        <div className="bg-white p-6 rounded-lg border border-gray-200 shadow-sm text-center">
+                          <h3 className="text-amber-600 text-sm mb-1">Unverified</h3>
+                          <p className="text-3xl font-bold text-amber-600">{stats.counts.UNVERIFIED}</p>
+                          <div className="text-xs text-gray-500 mt-2">Claims needing more evidence</div>
+                        </div>
+                      </div>
+                      
+                      {/* Summary and Quick Actions */}
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                        <div className="md:col-span-2">
+                          <div className="bg-white p-6 rounded-lg border border-gray-200 shadow-sm h-full">
+                            <h3 className="text-xl font-semibold text-gray-900 mb-4">Content Summary</h3>
+                            <p className="text-gray-700 whitespace-pre-line">{summary}</p>
+                          </div>
+                        </div>
+                        
+                        <div className="bg-white p-6 rounded-lg border border-gray-200 shadow-sm">
+                          <h3 className="text-xl font-semibold text-gray-900 mb-4">Quick Actions</h3>
+                          <div className="space-y-3">
+                            <button 
+                              onClick={() => setActiveSection('analysis')}
+                              className="w-full flex items-center justify-between p-3 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-lg transition-colors text-left"
+                            >
+                              <div className="flex items-center">
+                                <CheckCircle className="h-5 w-5 mr-2" />
+                                <span className="font-medium">View Verification Details</span>
+                              </div>
+                              <ArrowRight className="h-4 w-4" />
+                            </button>
+                            
+                            <button 
+                              onClick={() => setActiveSection('evidence')}
+                              className="w-full flex items-center justify-between p-3 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-lg transition-colors text-left"
+                            >
+                              <div className="flex items-center">
+                                <Search className="h-5 w-5 mr-2" />
+                                <span className="font-medium">Search for Evidence</span>
+                              </div>
+                              <ArrowRight className="h-4 w-4" />
+                            </button>
+                            
+                            <button 
+                              onClick={() => setActiveSection('certificate')}
+                              className="w-full flex items-center justify-between p-3 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-lg transition-colors text-left"
+                            >
+                              <div className="flex items-center">
+                                <Award className="h-5 w-5 mr-2" />
+                                <span className="font-medium">Generate Certificate</span>
+                              </div>
+                              <ArrowRight className="h-4 w-4" />
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </>
+                )}
+                
+                {activeSection === 'analysis' && (
+                  <>
+                    <div className="mb-8">
+                      <div className="flex items-center justify-between">
+                        <h2 className="text-2xl font-bold text-gray-900">Verification Analysis</h2>
+                        <button
+                          onClick={() => setActiveSection('dashboard')}
+                          className="flex items-center text-blue-600 hover:text-blue-800 text-sm"
+                        >
+                          <Settings className="h-4 w-4 mr-1.5" />
+                          <span>Back to Dashboard</span>
+                        </button>
+                      </div>
+                    </div>
+                    
+                    {/* Video Thumbnail */}
+                    <VideoThumbnail thumbnailUrl={thumbnailUrl} videoTitle={videoTitle} />
+                    
+                    {/* Analysis Results */}
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
+                      <Summary summary={summary} videoTitle={videoTitle} />
+                      <TranscriptDisplay transcript={transcript} />
+                    </div>
+                    
+                    {/* Speaker Identification */}
+                    {speakersData && (
+                      <div className="mt-6">
+                        <SpeakerIdentification 
+                          speakersData={speakersData}
+                          claims={empiricalClaims}
+                        />
+                      </div>
+                    )}
+                    
+                    <div className="mt-8">
+                      <ClaimEvaluator 
                         empiricalClaims={empiricalClaims}
                         perplexityResults={perplexityResults}
                         openAIResults={openAIResults}
@@ -221,12 +607,71 @@ const HomePage: React.FC = () => {
                         speakersData={speakersData}
                         videoTitle={videoTitle}
                         thumbnailUrl={thumbnailUrl}
-                        processingClaimIndex={processingClaimIndex}
-                        />
+                        processingClaimIndex={-1} // Set to -1 to indicate processing is complete
+                      />
                     </div>
-                    )}
-                </div>
+                  </>
                 )}
+                
+                {activeSection === 'evidence' && (
+                  <>
+                    <div className="mb-8">
+                      <div className="flex items-center justify-between">
+                        <h2 className="text-2xl font-bold text-gray-900">Evidence Search</h2>
+                        <button
+                          onClick={() => setActiveSection('dashboard')}
+                          className="flex items-center text-blue-600 hover:text-blue-800 text-sm"
+                        >
+                          <Settings className="h-4 w-4 mr-1.5" />
+                          <span>Back to Dashboard</span>
+                        </button>
+                      </div>
+                    </div>
+                    
+                    <div className="mt-6">
+                      <KeywordGeneration
+                        keywordResults={keywordResults}
+                        onSearch={searchForEvidence}
+                        isSearching={isSearching}
+                      />
+                    </div>
+                    
+                    <div className="mt-8" id="evidence-section">
+                      <EvidenceResults
+                        searchResults={searchResults}
+                        isSearching={isSearching}
+                      />
+                    </div>
+                  </>
+                )}
+                
+                {activeSection === 'certificate' && (
+                  <>
+                    <div className="mb-8">
+                      <div className="flex items-center justify-between">
+                        <h2 className="text-2xl font-bold text-gray-900">Verification Certificate</h2>
+                        <button
+                          onClick={() => setActiveSection('dashboard')}
+                          className="flex items-center text-blue-600 hover:text-blue-800 text-sm"
+                        >
+                          <Settings className="h-4 w-4 mr-1.5" />
+                          <span>Back to Dashboard</span>
+                        </button>
+                      </div>
+                    </div>
+                    
+                    <VerificationCertificate
+                      videoTitle={videoTitle || 'Analyzed Video'}
+                      thumbnailUrl={thumbnailUrl}
+                      claims={empiricalClaims}
+                      perplexityResults={perplexityResults}
+                      openAIResults={openAIResults}
+                      anthropicResults={anthropicResults}
+                    />
+                  </>
+                )}
+              </div>
+            )}
           </div>
         </div>
       </section>
@@ -267,243 +712,6 @@ const HomePage: React.FC = () => {
                 <h3 className="text-lg font-semibold text-gray-900 mb-2">Verification Certificate</h3>
                 <p className="text-gray-700 text-sm">Shareable verification certificates with transparent analysis for your audience</p>
               </div>
-            </div>
-          </div>
-        </section>
-      )}
-      
-      {/* Results Section (conditionally rendered) */}
-      {hasResults && (
-        <section className="py-6 bg-gray-50" ref={resultsRef}>
-          <div className="container mx-auto px-4">
-            <div className="max-w-6xl mx-auto">
-              {activeSection === 'dashboard' && (
-                <>
-                  {/* Dashboard View */}
-                  <div className="mb-8">
-                    <h2 className="text-2xl font-bold text-gray-900 mb-6">Verification Dashboard</h2>
-                    
-                    {/* Video Info Card */}
-                    <div className="bg-white p-6 rounded-lg border border-gray-200 shadow-sm mb-6">
-                      <div className="flex items-start">
-                        {thumbnailUrl && (
-                          <div className="w-32 h-24 rounded overflow-hidden mr-4 flex-shrink-0">
-                            <img 
-                              src={thumbnailUrl} 
-                              alt="Video Thumbnail" 
-                              className="w-full h-full object-cover"
-                            />
-                          </div>
-                        )}
-                        
-                        <div className="flex-1">
-                          <h3 className="text-xl font-semibold text-gray-900 mb-2">{videoTitle}</h3>
-                          
-                          <div className="flex flex-wrap gap-3 mt-3">
-                            <div className="flex items-center px-3 py-1 bg-gray-100 rounded-full text-sm text-gray-700">
-                              <FileSearch className="h-4 w-4 mr-1.5 text-gray-500" />
-                              <span>{stats.totalClaims} Claims Analyzed</span>
-                            </div>
-                            
-                            {stats.speakerCount > 0 && (
-                              <div className="flex items-center px-3 py-1 bg-gray-100 rounded-full text-sm text-gray-700">
-                                <Users className="h-4 w-4 mr-1.5 text-gray-500" />
-                                <span>{stats.speakerCount} Speakers Identified</span>
-                              </div>
-                            )}
-                            
-                            <div className="flex items-center px-3 py-1 bg-gray-100 rounded-full text-sm text-gray-700">
-                              <BarChart className="h-4 w-4 mr-1.5 text-gray-500" />
-                              <span>{stats.avgConfidence}% Avg. Confidence</span>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                    
-                    {/* Stats Grid */}
-                    <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-6">
-                      <div className="bg-white p-6 rounded-lg border border-gray-200 shadow-sm text-center">
-                        <h3 className="text-gray-600 text-sm mb-1">Analyzed Claims</h3>
-                        <p className="text-3xl font-bold text-gray-900">{stats.totalClaims}</p>
-                        <div className="text-xs text-gray-500 mt-2">Empirical statements verified</div>
-                      </div>
-                      
-                      <div className="bg-white p-6 rounded-lg border border-gray-200 shadow-sm text-center">
-                        <h3 className="text-green-600 text-sm mb-1">Verified True</h3>
-                        <p className="text-3xl font-bold text-green-600">{stats.counts.TRUE}</p>
-                        <div className="text-xs text-gray-500 mt-2">Claims with factual support</div>
-                      </div>
-                      
-                      <div className="bg-white p-6 rounded-lg border border-gray-200 shadow-sm text-center">
-                        <h3 className="text-red-600 text-sm mb-1">Verified False</h3>
-                        <p className="text-3xl font-bold text-red-600">{stats.counts.FALSE}</p>
-                        <div className="text-xs text-gray-500 mt-2">Claims contradicted by evidence</div>
-                      </div>
-                      
-                      <div className="bg-white p-6 rounded-lg border border-gray-200 shadow-sm text-center">
-                        <h3 className="text-amber-600 text-sm mb-1">Unverified</h3>
-                        <p className="text-3xl font-bold text-amber-600">{stats.counts.UNVERIFIED}</p>
-                        <div className="text-xs text-gray-500 mt-2">Claims needing more evidence</div>
-                      </div>
-                    </div>
-                    
-                    {/* Summary and Quick Actions */}
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                      <div className="md:col-span-2">
-                        <div className="bg-white p-6 rounded-lg border border-gray-200 shadow-sm h-full">
-                          <h3 className="text-xl font-semibold text-gray-900 mb-4">Content Summary</h3>
-                          <p className="text-gray-700 whitespace-pre-line">{summary}</p>
-                        </div>
-                      </div>
-                      
-                      <div className="bg-white p-6 rounded-lg border border-gray-200 shadow-sm">
-                        <h3 className="text-xl font-semibold text-gray-900 mb-4">Quick Actions</h3>
-                        <div className="space-y-3">
-                          <button 
-                            onClick={() => setActiveSection('analysis')}
-                            className="w-full flex items-center justify-between p-3 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-lg transition-colors text-left"
-                          >
-                            <div className="flex items-center">
-                              <CheckCircle className="h-5 w-5 mr-2" />
-                              <span className="font-medium">View Verification Details</span>
-                            </div>
-                            <ArrowRight className="h-4 w-4" />
-                          </button>
-                          
-                          <button 
-                            onClick={() => setActiveSection('evidence')}
-                            className="w-full flex items-center justify-between p-3 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-lg transition-colors text-left"
-                          >
-                            <div className="flex items-center">
-                              <Search className="h-5 w-5 mr-2" />
-                              <span className="font-medium">Search for Evidence</span>
-                            </div>
-                            <ArrowRight className="h-4 w-4" />
-                          </button>
-                          
-                          <button 
-                            onClick={() => setActiveSection('certificate')}
-                            className="w-full flex items-center justify-between p-3 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-lg transition-colors text-left"
-                          >
-                            <div className="flex items-center">
-                              <Award className="h-5 w-5 mr-2" />
-                              <span className="font-medium">Generate Certificate</span>
-                            </div>
-                            <ArrowRight className="h-4 w-4" />
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </>
-              )}
-              
-              {activeSection === 'analysis' && (
-                <>
-                  <div className="mb-8">
-                    <div className="flex items-center justify-between">
-                      <h2 className="text-2xl font-bold text-gray-900">Verification Analysis</h2>
-                      <button
-                        onClick={() => setActiveSection('dashboard')}
-                        className="flex items-center text-blue-600 hover:text-blue-800 text-sm"
-                      >
-                        <Settings className="h-4 w-4 mr-1.5" />
-                        <span>Back to Dashboard</span>
-                      </button>
-                    </div>
-                  </div>
-                  
-                  {/* Video Thumbnail */}
-                  <VideoThumbnail thumbnailUrl={thumbnailUrl} videoTitle={videoTitle} />
-                  
-                  {/* Analysis Results */}
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
-                    <Summary summary={summary} videoTitle={videoTitle} />
-                    <TranscriptDisplay transcript={transcript} />
-                  </div>
-                  
-                  {/* Speaker Identification */}
-                  {speakersData && (
-                    <div className="mt-6">
-                      <SpeakerIdentification 
-                        speakersData={speakersData}
-                        claims={empiricalClaims}
-                      />
-                    </div>
-                  )}
-                  
-                  <div className="mt-8">
-                    <ClaimEvaluator 
-                      empiricalClaims={empiricalClaims}
-                      perplexityResults={perplexityResults}
-                      openAIResults={openAIResults}
-                      anthropicResults={anthropicResults}
-                      speakersData={speakersData}
-                      videoTitle={videoTitle}
-                      thumbnailUrl={thumbnailUrl}
-                    />
-                  </div>
-                </>
-              )}
-              
-              {activeSection === 'evidence' && (
-                <>
-                  <div className="mb-8">
-                    <div className="flex items-center justify-between">
-                      <h2 className="text-2xl font-bold text-gray-900">Evidence Search</h2>
-                      <button
-                        onClick={() => setActiveSection('dashboard')}
-                        className="flex items-center text-blue-600 hover:text-blue-800 text-sm"
-                      >
-                        <Settings className="h-4 w-4 mr-1.5" />
-                        <span>Back to Dashboard</span>
-                      </button>
-                    </div>
-                  </div>
-                  
-                  <div className="mt-6">
-                    <KeywordGeneration
-                      keywordResults={keywordResults}
-                      onSearch={searchForEvidence}
-                      isSearching={isSearching}
-                    />
-                  </div>
-                  
-                  <div className="mt-8" id="evidence-section">
-                    <EvidenceResults
-                      searchResults={searchResults}
-                      isSearching={isSearching}
-                    />
-                  </div>
-                </>
-              )}
-              
-              {activeSection === 'certificate' && (
-                <>
-                  <div className="mb-8">
-                    <div className="flex items-center justify-between">
-                      <h2 className="text-2xl font-bold text-gray-900">Verification Certificate</h2>
-                      <button
-                        onClick={() => setActiveSection('dashboard')}
-                        className="flex items-center text-blue-600 hover:text-blue-800 text-sm"
-                      >
-                        <Settings className="h-4 w-4 mr-1.5" />
-                        <span>Back to Dashboard</span>
-                      </button>
-                    </div>
-                  </div>
-                  
-                  <VerificationCertificate
-                    videoTitle={videoTitle || 'Analyzed Video'}
-                    thumbnailUrl={thumbnailUrl}
-                    claims={empiricalClaims}
-                    perplexityResults={perplexityResults}
-                    openAIResults={openAIResults}
-                    anthropicResults={anthropicResults}
-                  />
-                </>
-              )}
             </div>
           </div>
         </section>
