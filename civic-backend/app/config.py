@@ -15,6 +15,7 @@ class Config:
     ANTHROPIC_API_KEY = os.environ.get('ANTHROPIC_API_KEY')
     EXA_API_KEY = os.environ.get('EXA_API_KEY')
     ASSEMBLY_AI_KEY = os.environ.get('ASSEMBLY_AI_KEY')
+    RAPIDAPI_KEY = os.environ.get('RAPIDAPI_KEY')
     
     # File upload settings
     UPLOAD_FOLDER = os.path.join(os.getcwd(), 'uploads')
