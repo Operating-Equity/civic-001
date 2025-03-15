@@ -1,5 +1,5 @@
 from flask import request, jsonify
-from app.api.routes import api
+from app.api.api_routes import api
 from app.services.claim_analysis import identify_claims, generate_summary
 from app.services.openai_service import evaluate_with_openai
 from app.services.anthropic_service import evaluate_with_anthropic
