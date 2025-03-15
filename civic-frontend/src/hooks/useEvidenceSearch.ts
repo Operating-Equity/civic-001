@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect } from 'react';
-import { ClaimAnalysis, KeywordResult, ClaimSearchResults } from '../types';
+import { ClaimAnalysis, KeywordResult, ClaimSearchResults, SearchResult } from '../types';
 import { generateKeywords, searchEvidence } from '../services/api';
 
 export const useEvidenceSearch = (
@@ -64,7 +64,7 @@ export const useEvidenceSearch = (
     setError(null);
     
     try {
-      const keywordResults = [];
+      const keywordResults: { keyword: string; results: SearchResult[] }[] = [];
       
       for (const keyword of keywords) {
         try {
