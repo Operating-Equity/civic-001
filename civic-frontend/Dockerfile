@@ -11,7 +11,7 @@ RUN npm ci
 COPY . .
 
 # Set the API base URL for production
-ENV REACT_APP_API_URL=http://api:5000
+ENV REACT_APP_API_URL=http://api:5002
 
 # Build the application
 RUN npm run build
