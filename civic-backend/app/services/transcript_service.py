@@ -1,44 +1,69 @@
 import requests
 import json
 import time
+import logging
+import traceback
 from youtube_transcript_api import YouTubeTranscriptApi, TranscriptsDisabled, NoTranscriptFound
 import assemblyai as aai
 from flask import current_app
+
+# Set up logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+def is_valid_youtube_id(video_id):
+    """Validates if the video ID has the correct format (typically 11 chars)"""
+    return video_id and isinstance(video_id, str) and len(video_id) >= 11
 
 def get_youtube_transcript(video_id):
     """
     Fetch transcript from YouTube video using YouTube Transcript API.
     If unavailable, fall back to using the RapidAPI service.
     """
+    if not is_valid_youtube_id(video_id):
+        raise ValueError(f"Invalid YouTube video ID format: {video_id}")
+        
+    logger.info(f"Fetching transcript for YouTube video ID: {video_id}")
     primary_error = None
     
     # First attempt with YouTubeTranscriptApi with retries
     for attempt in range(3):  # Try up to 3 times
         try:
+            logger.info(f"YouTubeTranscriptApi attempt {attempt+1}/3")
             transcript_list = YouTubeTranscriptApi.get_transcript(video_id)
+            
+            if not transcript_list:
+                logger.warning(f"Empty transcript returned for video ID {video_id}")
+                raise Exception("Empty transcript returned")
+                
             transcript_text = " ".join([item['text'] for item in transcript_list])
             
             # For title, we need to query YouTube API or scrape
             # Using a placeholder for now
             video_title = f"YouTube Video ({video_id})"
             
+            logger.info(f"Successfully fetched transcript via YouTubeTranscriptApi for {video_id}")
             return transcript_text, video_title
             
         except (TranscriptsDisabled, NoTranscriptFound) as e:
             # No transcript available, don't retry but move to fallback
             primary_error = str(e)
+            logger.warning(f"No transcript available for {video_id}: {primary_error}")
             break
             
         except Exception as e:
             # Other errors - network issues, etc.
             primary_error = str(e)
+            logger.warning(f"Error in YouTubeTranscriptApi attempt {attempt+1}: {primary_error}")
             if attempt < 2:  # Don't sleep on the last attempt
-                time.sleep(1)  # Short delay before retry
+                time.sleep(2)  # Slightly longer delay before retry
     
     # Fall back to RapidAPI service
     try:
+        logger.info(f"Falling back to RapidAPI for {video_id}")
         rapid_api_key = current_app.config.get('RAPIDAPI_KEY', '')
         if not rapid_api_key:
+            logger.error("RAPIDAPI_KEY is not configured")
             raise Exception("RAPIDAPI_KEY is not configured")
             
         headers = {
@@ -47,59 +72,120 @@ def get_youtube_transcript(video_id):
         }
         
         # Increase timeout to avoid 502 errors
-        response = requests.get(
-            f"https://youtube-transcriptor.p.rapidapi.com/transcript?video_id={video_id}&lang=en",
-            headers=headers,
-            timeout=60  # 60 second timeout
-        )
-        
-        if response.status_code != 200:
+        try:
+            logger.info(f"Sending request to RapidAPI for {video_id}")
+            response = requests.get(
+                f"https://youtube-transcriptor.p.rapidapi.com/transcript?video_id={video_id}&lang=en",
+                headers=headers,
+                timeout=90  # 90 second timeout
+            )
+            
+            response.raise_for_status()  # Raise exception for 4XX/5XX status codes
+            
+            data = response.json()
+            
+            if not data or not isinstance(data, list) or len(data) == 0:
+                logger.error(f"Invalid or empty response from RapidAPI for {video_id}")
+                raise Exception("No transcript data available for this video")
+                
+            video_title = data[0].get('title', f"YouTube Video ({video_id})")
+            
+            if not data[0].get('transcription'):
+                logger.error(f"No transcription data in RapidAPI response for {video_id}")
+                raise Exception("No transcription data in API response")
+                
+            transcript_text = " ".join(
+                [segment.get('subtitle', '') for segment in data[0].get('transcription', [])]
+            )
+            
+            if not transcript_text or transcript_text.strip() == "":
+                logger.error(f"Empty transcript text from RapidAPI for {video_id}")
+                raise Exception("Empty transcript result")
+                
+            logger.info(f"Successfully fetched transcript via RapidAPI for {video_id}")
+            return transcript_text, video_title
+            
+        except requests.exceptions.Timeout:
+            logger.error(f"RapidAPI request timed out for {video_id}")
+            raise Exception("RapidAPI request timed out")
+            
+        except requests.exceptions.HTTPError as http_err:
+            logger.error(f"RapidAPI HTTP error for {video_id}: {http_err}")
             raise Exception(f"RapidAPI returned status code {response.status_code}")
             
-        data = response.json()
-        
-        if not data or not isinstance(data, list) or len(data) == 0:
-            raise Exception("No transcript data available for this video")
-            
-        video_title = data[0].get('title', f"YouTube Video ({video_id})")
-        transcript_text = " ".join(
-            [segment.get('subtitle', '') for segment in data[0].get('transcription', [])]
-        )
-        
-        return transcript_text, video_title
-        
     except Exception as fallback_error:
         error_message = f"Failed to get YouTube transcript: {primary_error}. Fallback also failed: {str(fallback_error)}"
-        current_app.logger.error(error_message)
-        raise Exception(error_message)
+        logger.error(f"{error_message}\n{traceback.format_exc()}")
+        
+        # Return a user-friendly error
+        raise Exception("Unable to process this YouTube video. The video may be unavailable or have no transcript.")
 
 def get_video_transcript(file_path):
     """
     Extract transcript from uploaded video file using AssemblyAI.
     """
     try:
+        logger.info(f"Starting transcription for file: {file_path}")
+        
+        # Validate file
+        import os
+        if not os.path.exists(file_path):
+            logger.error(f"File does not exist: {file_path}")
+            raise FileNotFoundError(f"File not found: {file_path}")
+            
+        if not os.path.isfile(file_path):
+            logger.error(f"Path is not a file: {file_path}")
+            raise ValueError("Path is not a valid file")
+            
+        # Check file size
+        file_size = os.path.getsize(file_path)
+        logger.info(f"File size: {file_size / (1024*1024):.2f} MB")
+        
+        # 100MB is our configured limit
+        if file_size > 100 * 1024 * 1024:
+            logger.error(f"File exceeds size limit: {file_size / (1024*1024):.2f} MB")
+            raise ValueError("File exceeds the maximum size limit of 100MB")
+        
         # Set your API key
         assembly_ai_key = current_app.config.get('ASSEMBLY_AI_KEY')
         if not assembly_ai_key:
+            logger.error("ASSEMBLY_AI_KEY is not configured")
             raise Exception("ASSEMBLY_AI_KEY is not configured in the application")
             
         aai.settings.api_key = assembly_ai_key
         
-        # Create a transcriber instance
-        transcriber = aai.Transcriber()
-        
-        # Transcribe the audio file with increased timeout
-        # Note: AssemblyAI handles large files by streaming and has its own retry logic
-        transcript = transcriber.transcribe(file_path)
-        
-        # Check if transcription is complete
-        if not transcript.text:
-            raise Exception("Transcription resulted in empty text")
+        try:
+            # Create a transcriber instance
+            logger.info("Initializing AssemblyAI transcriber")
+            transcriber = aai.Transcriber()
             
-        # Return the transcript text
-        return transcript.text
+            # Transcribe the audio file with increased timeout
+            # Note: AssemblyAI handles large files by streaming and has its own retry logic
+            logger.info("Starting transcription with AssemblyAI")
+            transcript = transcriber.transcribe(file_path)
+            
+            logger.info("Transcription completed, checking results")
+            
+            # Check if transcription is complete
+            if not transcript or not hasattr(transcript, 'text') or not transcript.text:
+                logger.error("Transcription resulted in empty text")
+                raise Exception("Transcription resulted in empty text")
                 
+            # Return the transcript text
+            logger.info(f"Successfully transcribed file with {len(transcript.text)} characters")
+            return transcript.text
+                
+        except aai.exceptions.AuthorizationError:
+            logger.error("AssemblyAI authorization error - invalid API key")
+            raise Exception("Invalid AssemblyAI API key")
+            
+        except aai.exceptions.RequestTimeoutError:
+            logger.error("AssemblyAI request timed out")
+            raise Exception("Transcription service timed out. Please try again with a shorter video.")
+            
     except Exception as e:
         error_message = f"Failed to transcribe video file: {str(e)}"
-        current_app.logger.error(error_message)
-        raise Exception(error_message)
+        logger.error(f"{error_message}\n{traceback.format_exc()}")
+        
+        # Return a user-friendly error
+        raise Exception("Unable to process this video file. Please ensure it contains audio and is in a supported format.")
