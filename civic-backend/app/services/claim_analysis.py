@@ -68,25 +68,59 @@ def parse_claim_content(text):
     
     # Helper to find specific content
     def find_line(prefix):
-        for line in lines:
+        for i, line in enumerate(lines):
             if re.search(fr'^(?:\d*\.?\s*)?{prefix}\s*:?\s*', line, re.IGNORECASE):
                 # Remove the prefix and clean up
                 content = re.sub(fr'^(?:\d*\.?\s*)?{prefix}\s*:?\s*', '', line, flags=re.IGNORECASE)
+                
+                # Check if the next line might be a continuation
+                if i + 1 < len(lines) and not re.search(r'^(?:\d*\.?\s*)?(claim|context|validation|background|verify|statement)\s*:?\s*', lines[i+1], re.IGNORECASE):
+                    # Combine with next line(s) until we hit another key or run out of lines
+                    j = i + 1
+                    while j < len(lines) and not re.search(r'^(?:\d*\.?\s*)?(claim|context|validation|background|verify|statement)\s*:?\s*', lines[j], re.IGNORECASE):
+                        content += " " + lines[j].strip()
+                        j += 1
+                
                 return clean_text(content)
         return ''
     
-    # Default: if structured parsing fails, take first line as claim
+    # Try various patterns for claim
     claim = find_line('claim') or find_line('statement')
     if not claim and lines:
         claim = clean_text(lines[0])
-        
-    context = find_line('context') or find_line('background') or ''
-    validation = find_line('validation') or find_line('verify') or ''
+    
+    # Enhanced context search - looks for multiple variations
+    context = find_line('context') or find_line('background') or find_line('relevant context')
+    
+    # Enhanced validation search - looks for multiple variations
+    validation = (find_line('validation') or find_line('verify') or 
+                 find_line('validation approach') or find_line('validation potential') or 
+                 find_line('how to verify'))
+    
+    # Generate context if missing
+    if not context:
+        # Extract any information that might provide context
+        for line in lines:
+            # If line isn't the claim or validation but has content
+            if (line and clean_text(line) != claim and 
+                not re.search(r'^(?:\d*\.?\s*)?(validation|verify)', line, re.IGNORECASE)):
+                context = clean_text(line)
+                if context and context != claim:
+                    break
+    
+    # Generate validation approach if missing
+    if not validation:
+        # Try to find anything about verification methods
+        for line in lines:
+            if re.search(r'(verify|check|test|measure|assess|evaluate|compare|review)', line, re.IGNORECASE):
+                validation = clean_text(line)
+                if validation and validation != claim and validation != context:
+                    break
     
     return {
         "claim": claim,
-        "context": context or "No context provided",
-        "validationPotential": validation or "No validation approach specified"
+        "context": context or "Reference specific events, locations, or timeframes that provide background for this claim",
+        "validationPotential": validation or "Describe methods to verify this claim using data, documentation, or expert testimony"
     }
 
 def clean_text(text):
