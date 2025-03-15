@@ -94,16 +94,17 @@ ${claim.validationPotential}
         // Evaluate claim with all models
         const results = await evaluateClaim(claim.claim, context);
         
-        // Update results for each model
-        if (results.perplexity) {
+        // Always update results for each model when present in the response
+        // This ensures error messages are displayed to the user
+        if ('perplexity' in results) {
           setPerplexityResults(prev => [...prev, results.perplexity]);
         }
         
-        if (results.openai) {
+        if ('openai' in results) {
           setOpenAIResults(prev => [...prev, results.openai]);
         }
         
-        if (results.anthropic) {
+        if ('anthropic' in results) {
           setAnthropicResults(prev => [...prev, results.anthropic]);
         }
       } catch (error) {
