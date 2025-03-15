@@ -8,6 +8,9 @@ interface ClaimEvaluatorProps {
   empiricalClaims: ClaimAnalysis[];
 }
 
+// Define a type for possible service statuses
+type ServiceStatusType = 'idle' | 'loading' | 'success' | 'error';
+
 const ClaimEvaluator: React.FC<ClaimEvaluatorProps> = ({ empiricalClaims }) => {
   const [isEvaluating, setIsEvaluating] = useState(false);
   const [evaluationStarted, setEvaluationStarted] = useState(false);
@@ -18,11 +21,15 @@ const ClaimEvaluator: React.FC<ClaimEvaluatorProps> = ({ empiricalClaims }) => {
   const [openAIResults, setOpenAIResults] = useState<Claim[]>([]);
   const [anthropicResults, setAnthropicResults] = useState<Claim[]>([]);
   
-  // Service statuses
-  const [serviceStatus, setServiceStatus] = useState({
-    perplexity: 'idle' as const,
-    openai: 'idle' as const,
-    anthropic: 'idle' as const
+  // Service statuses - fixed type definition
+  const [serviceStatus, setServiceStatus] = useState<{
+    perplexity: ServiceStatusType;
+    openai: ServiceStatusType;
+    anthropic: ServiceStatusType;
+  }>({
+    perplexity: 'idle',
+    openai: 'idle',
+    anthropic: 'idle'
   });
   
   // Error messages

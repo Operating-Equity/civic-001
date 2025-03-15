@@ -1,8 +1,8 @@
-import requests
-import json
 import time
+import json
 from flask import current_app
 from app.services.openai_service import call_openai_api
+from exa_py import Exa
 
 MAX_RETRIES = 3
 RETRY_DELAY = 1  # 1 second
@@ -63,78 +63,63 @@ Each search query should be optimized to return reliable and comprehensive infor
 
 def search_evidence(query):
     """
-    Search for evidence related to a query using Exa.ai
+    Search for evidence related to a query using Exa SDK
     Returns a list of search results
     """
     api_key = current_app.config.get('EXA_API_KEY')
     if not api_key:
         raise Exception("Exa API key not configured")
-        
-    headers = {
-        'Content-Type': 'application/json',
-        'Authorization': f'Bearer {api_key}',
-        'Accept': 'application/json'
-    }
     
-    payload = {
-        "query": query,
-        "numResults": 25,
-        "useAutoprompt": True,
-        "searchDepth": "advanced",
-        "highlights": True,
-        "recencyDays": 365,
-        "similarityThreshold": 0.7,
-        "sortBy": "date"
-    }
+    # Initialize Exa client
+    exa = Exa(api_key)
     
     for attempt in range(MAX_RETRIES):
         try:
-            response = requests.post(
-                'https://api.exa.ai/discuss/search',
-                headers=headers,
-                json=payload
+            # Use search_and_contents method to get both search results and their text content
+            response = exa.search_and_contents(
+                query=query,
+                text=True,               # Include full text
+                highlights=True,         # Include relevant highlights
+                num_results=25,
+                use_autoprompt=True,
+                # The SDK handles the recency and sorting automatically
             )
             
-            if response.status_code != 200:
-                raise Exception(f"Exa.ai API error: {response.status_code} - {response.text}")
-                
-            data = response.json()
-            results = data.get('results', [])
+            results = response.results
             
             # Filter out disqualified sources
             filtered_results = [
                 result for result in results
-                if not any(source.lower() in result.get('title', '').lower() 
+                if not any(source.lower() in result.title.lower() if result.title else False
                           for source in DISQUALIFIED_SOURCES)
             ]
             
             # Process results to add summaries
             processed_results = []
             for result in filtered_results:
-                # Add a summary using text snippet if full text is not available
-                if 'text' not in result or not result['text']:
-                    result['text'] = result.get('snippet', '')
-                    
                 # Generate a summary if we have enough text
-                if len(result.get('text', '')) > 200:
+                if hasattr(result, 'text') and result.text and len(result.text) > 200:
                     try:
-                        summary = summarize_text(result['text'])
-                        result['summary'] = summary
+                        summary = summarize_text(result.text)
                     except Exception as e:
                         print(f"Error generating summary: {str(e)}")
-                        result['summary'] = result.get('snippet', '')[:200] + '...'
+                        summary = result.text[:200] + '...' if result.text else ''
                 else:
-                    result['summary'] = result.get('text', '')[:200]
+                    # Use highlights as summary if available
+                    if hasattr(result, 'highlights') and result.highlights and len(result.highlights) > 0:
+                        summary = result.highlights[0]
+                    else:
+                        summary = result.text[:200] + '...' if hasattr(result, 'text') and result.text else ''
                 
                 # Clean up and standardize fields
                 processed_result = {
-                    'title': result.get('title', 'Untitled'),
-                    'url': result.get('url', ''),
-                    'publishedDate': result.get('publishedDate', ''),
-                    'author': result.get('author', 'Unknown'),
-                    'score': result.get('score', 0),
-                    'text': result.get('text', ''),
-                    'summary': result.get('summary', '')
+                    'title': result.title if hasattr(result, 'title') and result.title else 'Untitled',
+                    'url': result.url,
+                    'publishedDate': result.published_date if hasattr(result, 'published_date') else '',
+                    'author': result.author if hasattr(result, 'author') and result.author else 'Unknown',
+                    'score': result.score if hasattr(result, 'score') else 0,
+                    'text': result.text if hasattr(result, 'text') else '',
+                    'summary': summary
                 }
                 
                 processed_results.append(processed_result)
@@ -146,7 +131,7 @@ def search_evidence(query):
             
         except Exception as e:
             if attempt < MAX_RETRIES - 1:
-                print(f"Error in Exa.ai search (attempt {attempt+1}): {str(e)}")
+                print(f"Error in Exa search (attempt {attempt+1}): {str(e)}")
                 time.sleep(RETRY_DELAY * (2 ** attempt))
             else:
                 raise Exception(f"Failed to search for evidence: {str(e)}")
