@@ -14,7 +14,14 @@ def evaluate_with_anthropic(statement, context=""):
     """
     api_key = current_app.config.get('ANTHROPIC_API_KEY')
     if not api_key:
-        raise Exception("Anthropic API key not configured")
+        print("[ANTHROPIC] Warning: Anthropic API key not configured in environment variables")
+        return {
+            "statement": statement,
+            "classification": "UNVERIFIED",
+            "confidence": 0,
+            "supportingFacts": "Unable to evaluate: Anthropic API key not configured. Please add ANTHROPIC_API_KEY to your environment variables.",
+            "model": "Anthropic (Unconfigured)"
+        }
         
     headers = {
         "x-api-key": api_key,
