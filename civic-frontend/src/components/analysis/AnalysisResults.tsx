@@ -137,7 +137,7 @@ const AnalysisResults: React.FC<AnalysisResultsProps> = ({
               ))
             ) : (
               <div className="text-center py-12">
-                <CircleAlert className="h-12 w-12 text-white/30 mx-auto mb-4" />
+                <AlertCircle className="h-12 w-12 text-white/30 mx-auto mb-4" />
                 <p className="text-white/70">No Perplexity results available yet.</p>
               </div>
             )}
