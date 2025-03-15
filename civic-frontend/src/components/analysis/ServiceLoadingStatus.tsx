@@ -13,13 +13,17 @@ interface ServiceLoadingStatusProps {
     openai?: string;
     anthropic?: string;
   };
+  currentClaimIndex?: number; // Add this to show which claim is being processed
+  totalClaims?: number; // Add this to show progress through claims
 }
 
 const ServiceLoadingStatus: React.FC<ServiceLoadingStatusProps> = ({
   perplexityStatus,
   openAIStatus,
   anthropicStatus,
-  errorMessages = {}
+  errorMessages = {},
+  currentClaimIndex = -1,
+  totalClaims = 0
 }) => {
   // Function to get the appropriate icon for a status
   const getStatusIcon = (status: ServiceStatus) => {
@@ -91,13 +95,39 @@ const ServiceLoadingStatus: React.FC<ServiceLoadingStatusProps> = ({
     const loadingCount = statuses.filter(status => status === 'loading').length;
     
     // Each completed service counts as 100%, each loading counts as 50%
-    return Math.round((completedCount * 100 + loadingCount * 50) / 3);
+    let modelProgress = (completedCount * 100 + loadingCount * 50) / 3;
+    
+    // If we have claim information, incorporate it into the progress calculation
+    if (totalClaims > 0 && currentClaimIndex >= 0) {
+      // Calculate progress through claims (0-100%)
+      const claimProgress = Math.min(((currentClaimIndex + 1) / totalClaims) * 100, 100);
+      
+      // Combine model progress with claim progress
+      return Math.round((modelProgress + claimProgress) / 2);
+    }
+    
+    return Math.round(modelProgress);
   };
 
   const overallProgress = calculateOverallProgress();
 
   return (
     <div className="space-y-6">
+      {/* Current Claim Indicator (if we have claim data) */}
+      {totalClaims > 0 && currentClaimIndex >= 0 && (
+        <div className="bg-blue-50 border border-blue-100 rounded-lg p-3">
+          <p className="text-blue-700 text-sm font-medium">
+            Processing claim {currentClaimIndex + 1} of {totalClaims}
+          </p>
+          <div className="h-2 bg-blue-100 rounded-full overflow-hidden mt-2">
+            <div 
+              className="h-full bg-blue-600 rounded-full transition-all duration-300"
+              style={{ width: `${Math.min(((currentClaimIndex + 1) / totalClaims) * 100, 100)}%` }}
+            ></div>
+          </div>
+        </div>
+      )}
+    
       {/* Overall progress */}
       <div className="space-y-2">
         <div className="flex justify-between items-center">

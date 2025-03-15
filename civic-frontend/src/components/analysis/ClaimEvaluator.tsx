@@ -13,6 +13,7 @@ interface ClaimEvaluatorProps {
   speakersData?: SpeakersData | null;
   videoTitle?: string;
   thumbnailUrl?: string;
+  processingClaimIndex?: number; // Add this prop
 }
 
 // Define a type for possible service statuses
@@ -25,7 +26,8 @@ const ClaimEvaluator: React.FC<ClaimEvaluatorProps> = ({
   anthropicResults = [],
   speakersData,
   videoTitle,
-  thumbnailUrl
+  thumbnailUrl,
+  processingClaimIndex = -1 // Add default value
 }) => {
   const [isEvaluating, setIsEvaluating] = useState(false);
   const [evaluationStarted, setEvaluationStarted] = useState(false);
@@ -117,6 +119,8 @@ const ClaimEvaluator: React.FC<ClaimEvaluatorProps> = ({
             openAIStatus={serviceStatus.openai}
             anthropicStatus={serviceStatus.anthropic}
             errorMessages={errorMessages}
+            currentClaimIndex={currentClaimIndex}
+            totalClaims={empiricalClaims.length}
           />
           
           <p className="text-gray-600 text-sm mt-6 text-center">
@@ -163,6 +167,7 @@ const ClaimEvaluator: React.FC<ClaimEvaluatorProps> = ({
           isLoading={isEvaluating}
           serviceStatus={serviceStatus}
           errorMessages={errorMessages}
+          processingClaimIndex={processingClaimIndex || currentClaimIndex}
         />
       )}
       

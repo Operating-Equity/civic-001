@@ -28,6 +28,9 @@ const HomePage: React.FC = () => {
     speakersData,
     isLoading,
     error,
+    processingClaimIndex,
+    processingStage,
+    serviceStatus,
     handleVideoSubmit
   } = useVideoAnalysis();
   
@@ -172,78 +175,244 @@ const HomePage: React.FC = () => {
               </div>
             )}
             
-            {!hasResults && <VideoInput onVideoSubmit={handleVideoSubmit} isProcessing={isLoading} error={error} />}
+            {!hasResults && (
+              <VideoInput 
+                onVideoSubmit={handleVideoSubmit} 
+                isProcessing={isLoading} 
+                error={error}
+                processingStage={processingStage}
+              />
+            )}
             
-            {/* Single, unified loading indicator */}
+            {/* Enhanced Loading Indicator */}
             {isLoading && (
               <div className="mt-8 bg-white p-8 rounded-lg border border-gray-200 shadow-sm">
                 <div className="flex justify-center mb-6">
                   <div className="h-16 w-16 rounded-full border-4 border-blue-600 border-t-transparent animate-spin"></div>
                 </div>
                 <h3 className="text-xl font-medium text-gray-800 text-center mb-3">Processing Your Video</h3>
-                <p className="text-gray-700 text-center mb-8">Our AI models are verifying claims and identifying speakers</p>
+                
+                {/* Dynamic subtitle based on processing stage */}
+                <p className="text-gray-700 text-center mb-8">
+                  {processingStage === 'extracting_transcript' && "Extracting transcript from your video..."}
+                  {processingStage === 'identifying_speakers' && "Identifying speakers in your video..."}
+                  {processingStage === 'extracting_claims' && "Identifying empirical claims in your content..."}
+                  {processingStage === 'verifying_claims' && "Verifying claims with multiple AI models..."}
+                </p>
                 
                 <div className="max-w-md mx-auto space-y-4">
                   <div className="flex items-center">
-                    <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center mr-4">
-                      <span className="text-blue-600 text-sm font-medium">1</span>
+                    <div className={`w-8 h-8 rounded-full flex items-center justify-center mr-4 ${
+                      processingStage === 'extracting_transcript' 
+                        ? 'bg-blue-100 text-blue-600' 
+                        : processingStage === 'idle' ? 'bg-gray-100 text-gray-600' : 'bg-green-100 text-green-600'
+                    }`}>
+                      {processingStage === 'extracting_transcript' ? (
+                        <span className="text-sm font-medium">1</span>
+                      ) : processingStage === 'idle' ? (
+                        <span className="text-sm font-medium">1</span>
+                      ) : (
+                        <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                          <path d="M5 12L10 17L20 7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                        </svg>
+                      )}
                     </div>
                     <div className="flex-1">
                       <div className="flex justify-between text-sm mb-1">
                         <span className="font-medium text-gray-800">Extracting Transcript</span>
-                        <span className="text-blue-600 font-medium">In Progress</span>
+                        <span className={
+                          processingStage === 'extracting_transcript' 
+                            ? 'text-blue-600 font-medium' 
+                            : processingStage === 'idle' ? 'text-gray-600' : 'text-green-600 font-medium'
+                        }>
+                          {processingStage === 'extracting_transcript' ? 'In Progress' : processingStage === 'idle' ? 'Waiting' : 'Complete'}
+                        </span>
                       </div>
                       <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
-                        <div className="h-full bg-blue-600 rounded-full w-3/4 animate-pulse"></div>
+                        <div className={`h-full rounded-full ${
+                          processingStage === 'extracting_transcript' 
+                            ? 'bg-blue-600 animate-pulse w-3/4' 
+                            : processingStage === 'idle' ? 'bg-gray-400 w-0' : 'bg-green-600 w-full'
+                        }`}></div>
                       </div>
                     </div>
                   </div>
                   
                   <div className="flex items-center">
-                    <div className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center mr-4">
-                      <span className="text-gray-600 text-sm font-medium">2</span>
+                    <div className={`w-8 h-8 rounded-full flex items-center justify-center mr-4 ${
+                      processingStage === 'identifying_speakers' 
+                        ? 'bg-blue-100 text-blue-600' 
+                        : processingStage === 'idle' || processingStage === 'extracting_transcript' 
+                          ? 'bg-gray-100 text-gray-600' 
+                          : 'bg-green-100 text-green-600'
+                    }`}>
+                      {processingStage === 'identifying_speakers' ? (
+                        <span className="text-sm font-medium">2</span>
+                      ) : processingStage === 'idle' || processingStage === 'extracting_transcript' ? (
+                        <span className="text-sm font-medium">2</span>
+                      ) : (
+                        <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                          <path d="M5 12L10 17L20 7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                        </svg>
+                      )}
                     </div>
                     <div className="flex-1">
                       <div className="flex justify-between text-sm mb-1">
                         <span className="font-medium text-gray-800">Identifying Speakers</span>
-                        <span className="text-gray-600 font-medium">Waiting</span>
+                        <span className={
+                          processingStage === 'identifying_speakers' 
+                            ? 'text-blue-600 font-medium' 
+                            : processingStage === 'idle' || processingStage === 'extracting_transcript' 
+                              ? 'text-gray-600' 
+                              : 'text-green-600 font-medium'
+                        }>
+                          {processingStage === 'identifying_speakers' 
+                            ? 'In Progress' 
+                            : processingStage === 'idle' || processingStage === 'extracting_transcript' 
+                              ? 'Waiting' 
+                              : 'Complete'}
+                        </span>
                       </div>
                       <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
-                        <div className="h-full bg-gray-400 rounded-full w-0"></div>
+                        <div className={`h-full rounded-full ${
+                          processingStage === 'identifying_speakers' 
+                            ? 'bg-blue-600 animate-pulse w-3/4' 
+                            : processingStage === 'idle' || processingStage === 'extracting_transcript' 
+                              ? 'bg-gray-400 w-0' 
+                              : 'bg-green-600 w-full'
+                        }`}></div>
                       </div>
                     </div>
                   </div>
                   
                   <div className="flex items-center">
-                    <div className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center mr-4">
-                      <span className="text-gray-600 text-sm font-medium">3</span>
+                    <div className={`w-8 h-8 rounded-full flex items-center justify-center mr-4 ${
+                      processingStage === 'extracting_claims' 
+                        ? 'bg-blue-100 text-blue-600' 
+                        : processingStage === 'idle' || 
+                          processingStage === 'extracting_transcript' || 
+                          processingStage === 'identifying_speakers' 
+                          ? 'bg-gray-100 text-gray-600' 
+                          : 'bg-green-100 text-green-600'
+                    }`}>
+                      {processingStage === 'extracting_claims' ? (
+                        <span className="text-sm font-medium">3</span>
+                      ) : processingStage === 'idle' || 
+                          processingStage === 'extracting_transcript' || 
+                          processingStage === 'identifying_speakers' ? (
+                        <span className="text-sm font-medium">3</span>
+                      ) : (
+                        <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                          <path d="M5 12L10 17L20 7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                        </svg>
+                      )}
                     </div>
                     <div className="flex-1">
                       <div className="flex justify-between text-sm mb-1">
                         <span className="font-medium text-gray-800">Extracting Empirical Claims</span>
-                        <span className="text-gray-600 font-medium">Waiting</span>
+                        <span className={
+                          processingStage === 'extracting_claims' 
+                            ? 'text-blue-600 font-medium' 
+                            : processingStage === 'idle' || 
+                              processingStage === 'extracting_transcript' || 
+                              processingStage === 'identifying_speakers' 
+                              ? 'text-gray-600' 
+                              : 'text-green-600 font-medium'
+                        }>
+                          {processingStage === 'extracting_claims' 
+                            ? 'In Progress' 
+                            : processingStage === 'idle' || 
+                              processingStage === 'extracting_transcript' || 
+                              processingStage === 'identifying_speakers' 
+                              ? 'Waiting' 
+                              : 'Complete'}
+                        </span>
                       </div>
                       <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
-                        <div className="h-full bg-gray-400 rounded-full w-0"></div>
+                        <div className={`h-full rounded-full ${
+                          processingStage === 'extracting_claims' 
+                            ? 'bg-blue-600 animate-pulse w-3/4' 
+                            : processingStage === 'idle' || 
+                              processingStage === 'extracting_transcript' || 
+                              processingStage === 'identifying_speakers' 
+                              ? 'bg-gray-400 w-0' 
+                              : 'bg-green-600 w-full'
+                        }`}></div>
                       </div>
                     </div>
                   </div>
                   
                   <div className="flex items-center">
-                    <div className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center mr-4">
-                      <span className="text-gray-600 text-sm font-medium">4</span>
+                    <div className={`w-8 h-8 rounded-full flex items-center justify-center mr-4 ${
+                      processingStage === 'verifying_claims' 
+                        ? 'bg-blue-100 text-blue-600' 
+                        : processingStage === 'idle' || 
+                          processingStage === 'extracting_transcript' || 
+                          processingStage === 'identifying_speakers' ||
+                          processingStage === 'extracting_claims' 
+                          ? 'bg-gray-100 text-gray-600' 
+                          : 'bg-green-100 text-green-600'
+                    }`}>
+                      {processingStage === 'verifying_claims' ? (
+                        <span className="text-sm font-medium">4</span>
+                      ) : processingStage === 'idle' || 
+                          processingStage === 'extracting_transcript' || 
+                          processingStage === 'identifying_speakers' ||
+                          processingStage === 'extracting_claims' ? (
+                        <span className="text-sm font-medium">4</span>
+                      ) : (
+                        <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                          <path d="M5 12L10 17L20 7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                        </svg>
+                      )}
                     </div>
                     <div className="flex-1">
                       <div className="flex justify-between text-sm mb-1">
                         <span className="font-medium text-gray-800">Verifying Claims</span>
-                        <span className="text-gray-600 font-medium">Waiting</span>
+                        <span className={
+                          processingStage === 'verifying_claims' 
+                            ? 'text-blue-600 font-medium' 
+                            : processingStage === 'idle' || 
+                              processingStage === 'extracting_transcript' || 
+                              processingStage === 'identifying_speakers' ||
+                              processingStage === 'extracting_claims' 
+                              ? 'text-gray-600' 
+                              : 'text-green-600 font-medium'
+                        }>
+                          {processingStage === 'verifying_claims' 
+                            ? 'In Progress' 
+                            : processingStage === 'idle' || 
+                              processingStage === 'extracting_transcript' || 
+                              processingStage === 'identifying_speakers' ||
+                              processingStage === 'extracting_claims' 
+                              ? 'Waiting' 
+                              : 'Complete'}
+                        </span>
                       </div>
                       <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
-                        <div className="h-full bg-gray-400 rounded-full w-0"></div>
+                        <div className={`h-full rounded-full ${
+                          processingStage === 'verifying_claims' 
+                            ? 'bg-blue-600 animate-pulse w-3/4' 
+                            : processingStage === 'idle' || 
+                              processingStage === 'extracting_transcript' || 
+                              processingStage === 'identifying_speakers' ||
+                              processingStage === 'extracting_claims' 
+                              ? 'bg-gray-400 w-0' 
+                              : 'bg-green-600 w-full'
+                        }`}></div>
                       </div>
                     </div>
                   </div>
                 </div>
+                
+                {/* Show processing time message */}
+                {processingStage === 'verifying_claims' && processingClaimIndex >= 0 && (
+                  <div className="text-center mt-4">
+                    <p className="text-sm text-blue-600 font-medium">
+                      Verifying claim {processingClaimIndex + 1} of {empiricalClaims.length}
+                    </p>
+                  </div>
+                )}
                 
                 <p className="text-center text-gray-600 text-sm mt-8">
                   This may take several minutes for longer videos. Please don't close this window.
@@ -446,7 +615,7 @@ const HomePage: React.FC = () => {
                     <TranscriptDisplay transcript={transcript} />
                   </div>
                   
-                  {/* Speaker Identification - Add here */}
+                  {/* Speaker Identification */}
                   {speakersData && (
                     <div className="mt-6">
                       <SpeakerIdentification 

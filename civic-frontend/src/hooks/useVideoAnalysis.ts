@@ -13,6 +13,9 @@ import {
   evaluateMultipleClaims
 } from '../services/api';
 
+// Define processing stages for tracking progress
+export type ProcessingStage = 'idle' | 'extracting_transcript' | 'identifying_speakers' | 'extracting_claims' | 'verifying_claims' | 'complete';
+
 export const useVideoAnalysis = () => {
   // Refs for scrolling
   const scrollPositionRef = useRef(0);
@@ -30,6 +33,9 @@ export const useVideoAnalysis = () => {
   
   // Single loading state to prevent duplicate loading indicators
   const [isLoading, setIsLoading] = useState(false);
+  
+  // Added new state to track the current processing stage
+  const [processingStage, setProcessingStage] = useState<ProcessingStage>('idle');
   
   // Track loading state for each service
   const [serviceStatus, setServiceStatus] = useState({
@@ -80,6 +86,7 @@ export const useVideoAnalysis = () => {
       anthropic: ''
     });
     setProcessingClaimIndex(-1);
+    setProcessingStage('idle');
   }, []);
   
   const handleVideoSubmit = useCallback(async (input: { type: 'file' | 'url'; value: File | string; with_speakers?: boolean }) => {
@@ -90,6 +97,9 @@ export const useVideoAnalysis = () => {
     setIsLoading(true);
     setError(null);
     resetStates();
+    
+    // Set initial processing stage
+    setProcessingStage('extracting_transcript');
     
     try {
       let result: VideoAnalysisResult;
@@ -110,15 +120,27 @@ export const useVideoAnalysis = () => {
         setThumbnailUrl(result.thumbnailUrl);
       }
       
+      // Update stage for speaker identification if available
+      if (input.with_speakers) {
+        setProcessingStage('identifying_speakers');
+      }
+      
       if (result.speakers_data) {
         setSpeakersData(result.speakers_data);
       }
       
+      // Update stage for claim extraction
+      setProcessingStage('extracting_claims');
+      
       // Process claims with AI models
       if (result.empiricalClaims.length > 0) {
+        // Update stage before processing claims
+        setProcessingStage('verifying_claims');
+        
         processClaims(result.empiricalClaims, result.summary);
       } else {
         // If no claims to process, set loading to false
+        setProcessingStage('complete');
         setIsLoading(false);
       }
       
@@ -129,6 +151,7 @@ export const useVideoAnalysis = () => {
       setError(error.message || 'Failed to process video');
       console.error('Error processing video:', error);
       setIsLoading(false); // Make sure to set loading to false on error
+      setProcessingStage('idle');
     }
   }, [resetStates, saveScrollPosition, restoreScrollPosition]);
 
@@ -136,6 +159,7 @@ export const useVideoAnalysis = () => {
   const processClaims = useCallback(async (claims: ClaimAnalysis[], summary: string) => {
     if (!claims.length) {
       setIsLoading(false); // Set loading to false if no claims
+      setProcessingStage('complete');
       return;
     }
     
@@ -158,11 +182,13 @@ export const useVideoAnalysis = () => {
       }));
       
       console.log(`[DEBUG] Processing ${claims.length} claims in parallel`);
+      setProcessingClaimIndex(0); // Start with the first claim
       
       // Call the batch API to process all claims at once in parallel
       const results = await evaluateMultipleClaims(formattedClaims, globalContext);
       
       console.log('[DEBUG] Batch processing complete, processing results');
+      setProcessingClaimIndex(claims.length - 1); // All claims processed
       
       // Process results for each claim and model
       if (results && typeof results === 'object') {
@@ -178,7 +204,12 @@ export const useVideoAnalysis = () => {
         };
         
         // Process each claim's results
+        let claimIndex = 0;
         for (const [claimId, claimResults] of Object.entries(results)) {
+          // Update current claim index for UI display
+          setProcessingClaimIndex(claimIndex);
+          claimIndex++;
+          
           if (claimResults.perplexity) {
             perplexityResultsList.push({
               ...claimResults.perplexity,
@@ -254,6 +285,7 @@ export const useVideoAnalysis = () => {
       // Set loading to false when all processing is complete
       setIsLoading(false);
       setProcessingClaimIndex(-1);
+      setProcessingStage('complete');
       
       // Restore scroll position
       setTimeout(restoreScrollPosition, 100);
@@ -299,6 +331,7 @@ export const useVideoAnalysis = () => {
     serviceStatus,
     errorMessages,
     processingClaimIndex,
+    processingStage, // Expose the processing stage state
     
     // Actions
     handleVideoSubmit,

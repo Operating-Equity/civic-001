@@ -29,6 +29,7 @@ interface AnalysisResultsProps {
     openai?: string;
     anthropic?: string;
   };
+  processingClaimIndex?: number; // Add this prop
 }
 
 type TabType = 'dashboard' | 'claims' | 'perplexity' | 'openai' | 'anthropic' | 'comparison' | 'certificate';
@@ -47,7 +48,8 @@ const AnalysisResults: React.FC<AnalysisResultsProps> = ({
     openai: 'idle',
     anthropic: 'idle'
   },
-  errorMessages = {}
+  errorMessages = {},
+  processingClaimIndex = -1 // Add default value
 }) => {
   const [activeTab, setActiveTab] = useState<TabType>('dashboard');
   
@@ -117,6 +119,8 @@ const AnalysisResults: React.FC<AnalysisResultsProps> = ({
           openAIStatus={serviceStatus.openai}
           anthropicStatus={serviceStatus.anthropic}
           errorMessages={errorMessages}
+          currentClaimIndex={processingClaimIndex}
+          totalClaims={empiricalClaims.length}
         />
         
         <p className="text-gray-700 text-sm mt-6 text-center">
