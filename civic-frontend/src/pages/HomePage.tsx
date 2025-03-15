@@ -1,14 +1,16 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Shield, CheckCircle, AlertTriangle, File, ArrowRight, Search } from 'lucide-react';
 import VideoInput from '../components/video/VideoInput';
 import VideoThumbnail from '../components/video/VideoThumbnail';
 import TranscriptDisplay from '../components/video/TranscriptDisplay';
 import Summary from '../components/analysis/Summary';
+import ClaimEvaluator from '../components/analysis/ClaimEvaluator';
 import AnalysisResults from '../components/analysis/AnalysisResults';
 import KeywordGeneration from '../components/search/KeywordGeneration';
 import EvidenceResults from '../components/search/EvidenceResults';
 import { useVideoAnalysis } from '../hooks/useVideoAnalysis';
 import { useEvidenceSearch } from '../hooks/useEvidenceSearch';
+import ServiceLoadingStatus from '../components/analysis/ServiceLoadingStatus';
 
 const HomePage: React.FC = () => {
   const [activeSection, setActiveSection] = useState<'analysis' | 'evidence'>('analysis');
@@ -24,6 +26,9 @@ const HomePage: React.FC = () => {
     anthropicResults,
     isLoading,
     error,
+    serviceStatus,
+    errorMessages,
+    processingClaimIndex,
     handleVideoSubmit
   } = useVideoAnalysis();
   
@@ -36,6 +41,18 @@ const HomePage: React.FC = () => {
   } = useEvidenceSearch(empiricalClaims, videoTitle);
   
   const hasResults = transcript && !isLoading;
+  const isProcessingClaims = processingClaimIndex >= 0;
+  
+  // Debug logging for tracking state changes
+  useEffect(() => {
+    console.log("[DEBUG] Processing Claim Index:", processingClaimIndex);
+    console.log("[DEBUG] Service Status:", serviceStatus);
+    console.log("[DEBUG] Result counts:", {
+      perplexity: perplexityResults.length,
+      openAI: openAIResults.length,
+      anthropic: anthropicResults.length
+    });
+  }, [processingClaimIndex, serviceStatus, perplexityResults, openAIResults, anthropicResults]);
   
   // Feature icons for homepage
   const features = [
@@ -130,7 +147,7 @@ const HomePage: React.FC = () => {
           </h2>
           
           <div className="max-w-4xl mx-auto">
-            <VideoInput onVideoSubmit={handleVideoSubmit} isProcessing={isLoading} />
+            <VideoInput onVideoSubmit={handleVideoSubmit} isProcessing={isLoading} error={error} />
             
             {error && (
               <div className="mt-6 p-4 bg-red-900/50 border border-red-500/50 rounded-lg text-white">
@@ -209,12 +226,36 @@ const HomePage: React.FC = () => {
                     <Summary summary={summary} videoTitle={videoTitle} />
                   </div>
                   
+                  {/* Display processing status if claims are being evaluated */}
+                  {isProcessingClaims && (
+                    <div className="mt-8 glass-panel p-6">
+                      <h2 className="text-xl font-semibold mb-6 text-white flex items-center">
+                        <AlertTriangle className="mr-2 h-5 w-5 text-primary" />
+                        Analyzing Claims
+                      </h2>
+                      
+                      <ServiceLoadingStatus 
+                        perplexityStatus={serviceStatus.perplexity}
+                        openAIStatus={serviceStatus.openai}
+                        anthropicStatus={serviceStatus.anthropic}
+                        errorMessages={errorMessages}
+                      />
+                      
+                      <p className="text-white/70 text-sm mt-6 text-center">
+                        Processing claim {processingClaimIndex + 1} of {empiricalClaims.length}. This may take a minute.
+                      </p>
+                    </div>
+                  )}
+                  
                   <div className="mt-8">
                     <AnalysisResults
                       empiricalClaims={empiricalClaims}
                       perplexityResults={perplexityResults}
                       openAIResults={openAIResults}
                       anthropicResults={anthropicResults}
+                      isLoading={isProcessingClaims}
+                      serviceStatus={serviceStatus}
+                      errorMessages={errorMessages}
                     />
                   </div>
                 </>

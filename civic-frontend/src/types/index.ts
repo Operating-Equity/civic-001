@@ -16,6 +16,7 @@ export interface DetailedAnalysis {
 }
 
 export interface ClaimAnalysis {
+  id?: string;
   claim: string;
   context: string;
   validationPotential: string;
@@ -25,12 +26,26 @@ export type ClassificationType = 'TRUE' | 'FALSE' | 'UNVERIFIED';
 
 export interface Claim {
   statement: string;
-  classification: ClassificationType;
-  supportingFacts: string;
+  classification: 'TRUE' | 'FALSE' | 'UNVERIFIED';
   confidence: number;
-  detailedAnalysis?: DetailedAnalysis;
+  supportingFacts: string;
   model?: string;
-  error?: string;  // For handling API errors (missing keys, etc.)
+  claimId?: string;
+  error?: string;
+  detailedAnalysis?: {
+    definitions?: string[];
+    principles?: string[];
+    evidence?: {
+      fact: string;
+      source: string;
+    }[];
+    keyTerms?: string[];
+    thinking?: string[];
+    logicalAnalysis?: string[];
+    evidenceAssessment?: string[];
+    analysis?: string;
+    conclusion?: string;
+  };
 }
 
 export interface SearchResult {
@@ -69,4 +84,18 @@ export interface ModelComparisonItem {
   results: {
     [model: string]: Claim;
   };
+}
+
+export type ServiceStatus = 'idle' | 'loading' | 'success' | 'error';
+
+export interface ErrorMessages {
+  perplexity?: string;
+  openai?: string;
+  anthropic?: string;
+}
+
+export interface ServiceStatuses {
+  perplexity: ServiceStatus;
+  openai: ServiceStatus;
+  anthropic: ServiceStatus;
 }

@@ -3,6 +3,7 @@ import { CheckCircle, XCircle, AlertCircle, BarChart4 } from 'lucide-react';
 import { ClaimAnalysis, Claim } from '../../types';
 import FactCheckCard from './FactCheckCard';
 import ModelComparison from './ModelComparison';
+import ServiceLoadingStatus, { ServiceStatus } from './ServiceLoadingStatus';
 
 interface AnalysisResultsProps {
   empiricalClaims: ClaimAnalysis[];
@@ -10,6 +11,16 @@ interface AnalysisResultsProps {
   openAIResults: Claim[];
   anthropicResults: Claim[];
   isLoading?: boolean;
+  serviceStatus?: {
+    perplexity: ServiceStatus;
+    openai: ServiceStatus;
+    anthropic: ServiceStatus;
+  };
+  errorMessages?: {
+    perplexity?: string;
+    openai?: string;
+    anthropic?: string;
+  };
 }
 
 type TabType = 'claims' | 'perplexity' | 'openai' | 'anthropic' | 'comparison';
@@ -20,15 +31,33 @@ const AnalysisResults: React.FC<AnalysisResultsProps> = ({
   openAIResults,
   anthropicResults,
   isLoading = false,
+  serviceStatus = {
+    perplexity: 'idle',
+    openai: 'idle',
+    anthropic: 'idle'
+  },
+  errorMessages = {}
 }) => {
   const [activeTab, setActiveTab] = useState<TabType>('claims');
   
   if (isLoading) {
     return (
-      <div className="glass-panel p-6 min-h-[400px] flex flex-col items-center justify-center">
-        <div className="animate-spin h-10 w-10 border-4 border-primary border-t-transparent rounded-full mb-4"></div>
-        <p className="text-white font-medium">Analyzing claims...</p>
-        <p className="text-white/70 text-sm mt-2">This may take a minute</p>
+      <div className="glass-panel p-6 min-h-[400px]">
+        <h2 className="text-xl font-semibold mb-6 text-white flex items-center">
+          <AlertCircle className="mr-2 h-5 w-5 text-primary" />
+          Analyzing Claims
+        </h2>
+        
+        <ServiceLoadingStatus 
+          perplexityStatus={serviceStatus.perplexity}
+          openAIStatus={serviceStatus.openai}
+          anthropicStatus={serviceStatus.anthropic}
+          errorMessages={errorMessages}
+        />
+        
+        <p className="text-white/70 text-sm mt-6 text-center">
+          This may take a minute. We're evaluating claims using multiple AI services.
+        </p>
       </div>
     );
   }
@@ -135,6 +164,14 @@ const AnalysisResults: React.FC<AnalysisResultsProps> = ({
               perplexityResults.map((claim, index) => (
                 <FactCheckCard key={index} claim={claim} />
               ))
+            ) : serviceStatus.perplexity === 'loading' ? (
+              <div className="py-6">
+                <ServiceLoadingStatus 
+                  perplexityStatus={serviceStatus.perplexity}
+                  openAIStatus="idle"
+                  anthropicStatus="idle"
+                />
+              </div>
             ) : (
               <div className="text-center py-12">
                 <AlertCircle className="h-12 w-12 text-white/30 mx-auto mb-4" />
@@ -150,6 +187,14 @@ const AnalysisResults: React.FC<AnalysisResultsProps> = ({
               openAIResults.map((claim, index) => (
                 <FactCheckCard key={index} claim={claim} />
               ))
+            ) : serviceStatus.openai === 'loading' ? (
+              <div className="py-6">
+                <ServiceLoadingStatus 
+                  perplexityStatus="idle"
+                  openAIStatus={serviceStatus.openai}
+                  anthropicStatus="idle"
+                />
+              </div>
             ) : (
               <div className="text-center py-12">
                 <AlertCircle className="h-12 w-12 text-white/30 mx-auto mb-4" />
@@ -165,6 +210,14 @@ const AnalysisResults: React.FC<AnalysisResultsProps> = ({
               anthropicResults.map((claim, index) => (
                 <FactCheckCard key={index} claim={claim} />
               ))
+            ) : serviceStatus.anthropic === 'loading' ? (
+              <div className="py-6">
+                <ServiceLoadingStatus 
+                  perplexityStatus="idle"
+                  openAIStatus="idle"
+                  anthropicStatus={serviceStatus.anthropic}
+                />
+              </div>
             ) : (
               <div className="text-center py-12">
                 <AlertCircle className="h-12 w-12 text-white/30 mx-auto mb-4" />

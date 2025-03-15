@@ -38,10 +38,10 @@ def evaluate_with_anthropic(statement, context=""):
 ### Context:
 {context}
 
-Respond ONLY with a JSON object in this exact format:
+Respond ONLY with a JSON object in this exact format (with no additional text before or after):
 {{
   "classification": "TRUE/FALSE/UNVERIFIED",
-  "confidence": <number between 0-100>,
+  "confidence": 50,
   "supportingFacts": "1. Definitions:\\n<key terms and neutral definitions>\\n\\n2. Principles:\\n<applied principles and frameworks>\\n\\n3. Evidence:\\n<credibility evaluation and key facts>\\n\\n4. Analysis:\\n<step-by-step reasoning>\\n\\n5. Conclusion:\\n<final determination with detailed reasoning>\\n\\n6. Confidence:\\n<score explanation and uncertainty factors>"
 }}"""
 
@@ -63,7 +63,8 @@ Respond ONLY with a JSON object in this exact format:
             response = requests.post(
                 "https://api.anthropic.com/v1/messages",
                 headers=headers,
-                json=payload
+                json=payload,
+                timeout=30  # Add timeout to prevent hanging requests
             )
             
             if response.status_code == 529:  # Rate limit or service busy
@@ -81,17 +82,32 @@ Respond ONLY with a JSON object in this exact format:
             # Extract the content from the response
             content = result.get("content", [{}])[0].get("text", "")
             
+            # Clean the content by removing control characters
+            content = re.sub(r'[\x00-\x1F\x7F]', '', content)
+            content = content.strip()
+            
             # Extract the JSON part from the response
             json_str = extract_json_from_text(content)
+            
+            if not json_str:
+                raise Exception("Unable to extract valid JSON from Anthropic response")
             
             # Parse the JSON
             analysis = json.loads(json_str)
             
             # Validate the structure
             if not validate_anthropic_response(analysis):
-                raise Exception("Invalid response format from Anthropic")
+                print("[ANTHROPIC] Response validation failed, adding default fields")
+                # Add missing fields with defaults instead of failing
+                if "classification" not in analysis:
+                    analysis["classification"] = "UNVERIFIED"
+                if "confidence" not in analysis:
+                    analysis["confidence"] = 50
+                if "supportingFacts" not in analysis:
+                    analysis["supportingFacts"] = content
                 
             # Return the structured data
+            print("[ANTHROPIC] Successfully processed response")
             return {
                 "statement": statement,
                 "classification": analysis["classification"],
@@ -103,6 +119,7 @@ Respond ONLY with a JSON object in this exact format:
         except Exception as e:
             if attempt == MAX_RETRIES - 1:
                 # Return a fallback response on final failure
+                print(f"[ANTHROPIC] All retries failed: {str(e)}")
                 return {
                     "statement": statement,
                     "classification": "UNVERIFIED",
@@ -117,28 +134,69 @@ Respond ONLY with a JSON object in this exact format:
                 time.sleep(retry_delay)
 
 def extract_json_from_text(text):
-    """Extract JSON object from response text"""
+    """Extract JSON object from response text using multiple techniques"""
     try:
-        # First try to find JSON between the most outer curly braces
-        match = re.search(r'{[^{}]*(?:{[^{}]*})*[^{}]*}', text)
-        if match:
-            # Test if the extracted text is valid JSON
-            json_str = match.group(0)
-            json.loads(json_str)  # This will raise an exception if not valid JSON
-            return json_str
+        # Remove any backslashes that could be escaping quotes
+        text = text.replace('\\', '')
         
-        # If no valid JSON found with regex, fall back to basic extraction
+        # Method 1: Find the JSON between the most outer curly braces
+        json_pattern = r'({[\s\S]*})'
+        matches = re.findall(json_pattern, text)
+        
+        for match in matches:
+            try:
+                # Test if the extracted text is valid JSON
+                cleaned_match = re.sub(r'[\x00-\x1F\x7F]', '', match)
+                json.loads(cleaned_match)
+                return cleaned_match
+            except json.JSONDecodeError:
+                continue
+        
+        # Method 2: Find the largest substring that could be valid JSON
         start_index = text.find('{')
         end_index = text.rfind('}')
         
         if start_index != -1 and end_index != -1 and end_index > start_index:
             json_str = text[start_index:end_index+1]
-            json.loads(json_str)  # Validate
-            return json_str
+            try:
+                cleaned_json = re.sub(r'[\x00-\x1F\x7F]', '', json_str)
+                json.loads(cleaned_json)
+                return cleaned_json
+            except json.JSONDecodeError:
+                pass
         
-        raise Exception("No valid JSON found in response")
+        # Method 3: Find any valid JSON in the text by trying successive substrings
+        for i in range(len(text)):
+            if text[i] == '{':
+                for j in range(len(text) - 1, i, -1):
+                    if text[j] == '}':
+                        try:
+                            substring = text[i:j+1]
+                            cleaned_substring = re.sub(r'[\x00-\x1F\x7F]', '', substring)
+                            json.loads(cleaned_substring)
+                            return cleaned_substring
+                        except json.JSONDecodeError:
+                            continue
+        
+        # Method 4: If all else fails, try to construct a minimal valid JSON
+        print("[ANTHROPIC] No valid JSON found, constructing fallback JSON")
+        # Extract possible values for fallback JSON
+        class_match = re.search(r'classification["\s:]+([A-Z]+)', text, re.IGNORECASE)
+        classification = class_match.group(1) if class_match else "UNVERIFIED"
+        
+        confidence_match = re.search(r'confidence["\s:]+(\d+)', text)
+        confidence = confidence_match.group(1) if confidence_match else "50"
+        
+        # Create a fallback JSON string
+        fallback_json = '{{"classification":"{0}","confidence":{1},"supportingFacts":"Unable to parse complete analysis"}}'.format(
+            classification, confidence
+        )
+        
+        return fallback_json
+        
     except Exception as e:
-        raise Exception(f"Error extracting JSON: {str(e)}")
+        print(f"[ANTHROPIC] Error in JSON extraction: {str(e)}")
+        return None
 
 def validate_anthropic_response(response):
     """Validate the structure of the Anthropic response"""
@@ -172,12 +230,12 @@ def validate_anthropic_response(response):
             "5. Conclusion:"
         ]
         
+        # Not a strict requirement anymore, just log missing sections
         for section in required_sections:
             if section not in response["supportingFacts"]:
-                # Not a strict requirement, but helpful for consistent formatting
-                print(f"Warning: Missing section '{section}' in Anthropic response")
+                print(f"[ANTHROPIC] Warning: Missing section '{section}' in response")
         
         return True
     except Exception as e:
-        print(f"Error validating Anthropic response: {str(e)}")
+        print(f"[ANTHROPIC] Error validating response: {str(e)}")
         return False

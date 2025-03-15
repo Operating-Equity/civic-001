@@ -54,7 +54,10 @@ def evaluate_with_perplexity(claim, context="", model="sonar-reasoning-pro"):
 Context information:
 {context}
 
-Respond in this exact JSON format:
+IMPORTANT: Your response must be a valid JSON object with the following structure. 
+Do not include any text, markdown formatting, or explanations outside of this JSON object.
+Just return the raw JSON without any code blocks:
+
 {{
   "statement": "the exact claim being evaluated",
   "classification": "TRUE/FALSE/UNVERIFIED",
@@ -68,7 +71,7 @@ Respond in this exact JSON format:
     "context": "Detailed background information and context",
     "citations": ["array of citation URLs"]
   }},
-  "confidence": percentage between 0-100,
+  "confidence": 50,
   "fullAnalysis": "A detailed explanation that combines all available evidence"
 }}"""
 
@@ -88,7 +91,7 @@ Respond in this exact JSON format:
         "stream": False,
         "presence_penalty": 0,
         "frequency_penalty": 1,
-        "response_format": None,
+        # Note: Perplexity doesn't support the same response_format parameter as OpenAI
         "search": True
     }
     
@@ -97,7 +100,8 @@ Respond in this exact JSON format:
             response = requests.post(
                 "https://api.perplexity.ai/chat/completions",
                 headers=headers,
-                json=payload
+                json=payload,
+                timeout=30  # Add timeout to prevent hanging requests
             )
             
             if response.status_code != 200:
@@ -107,16 +111,46 @@ Respond in this exact JSON format:
             result = data["choices"][0]["message"]["content"]
             
             # Parse the JSON response
+            parsed_result = None
+            
             try:
-                # First attempt: direct JSON parse
-                parsed_result = json.loads(result)
-            except json.JSONDecodeError:
-                # Second attempt: try to extract JSON if there's additional text
-                json_match = re.search(r'{[\s\S]*}', result)
-                if json_match:
-                    parsed_result = json.loads(json_match.group(0))
-                else:
-                    raise Exception("No valid JSON found in response")
+                # First attempt: clean the string and parse
+                clean_result = result.strip()
+                # Replace invalid control characters that might be present
+                clean_result = re.sub(r'[\x00-\x1F\x7F]', '', clean_result)
+                parsed_result = json.loads(clean_result)
+            except json.JSONDecodeError as e:
+                print(f"[PERPLEXITY] JSON parsing error: {str(e)}")
+                try:
+                    # Second attempt: try to extract JSON if there's additional text
+                    json_match = re.search(r'({[\s\S]*})', clean_result)
+                    if json_match:
+                        json_str = json_match.group(1)
+                        # Further clean the extracted JSON
+                        json_str = re.sub(r'[\x00-\x1F\x7F]', '', json_str)
+                        parsed_result = json.loads(json_str)
+                    else:
+                        raise Exception("No valid JSON found in response")
+                except Exception as inner_e:
+                    print(f"[PERPLEXITY] Second JSON parsing attempt failed: {str(inner_e)}")
+                    # If we're on the last retry, return a fallback structure
+                    if attempt == MAX_RETRIES - 1:
+                        # Create a basic structure from the text
+                        parsed_result = {
+                            "statement": claim,
+                            "classification": "UNVERIFIED",
+                            "confidence": 50,
+                            "researchData": {
+                                "facts": [],
+                                "context": context,
+                                "citations": []
+                            },
+                            "fullAnalysis": result
+                        }
+                    else:
+                        # Try again
+                        time.sleep(RETRY_DELAY * (2 ** attempt))
+                        continue
             
             # Ensure required fields are present with defaults
             if "statement" not in parsed_result:
@@ -139,13 +173,14 @@ Respond in this exact JSON format:
                 parsed_result["fullAnalysis"] = result
             
             # Convert to standard response format
+            print("[PERPLEXITY] Successfully parsed response")
             return {
                 "statement": parsed_result["statement"],
                 "classification": parsed_result["classification"],
                 "confidence": parsed_result["confidence"],
                 "supportingFacts": parsed_result["fullAnalysis"],
                 "detailedAnalysis": {
-                    "evidence": parsed_result["researchData"]["facts"],
+                    "evidence": parsed_result.get("researchData", {}).get("facts", []),
                     "keyTerms": [],
                     "thinking": [],
                     "definitions": [],
@@ -164,6 +199,7 @@ Respond in this exact JSON format:
                 time.sleep(RETRY_DELAY * (2 ** attempt))
             else:
                 # Return fallback response on final failure
+                print(f"[PERPLEXITY] All retries failed: {str(e)}")
                 return {
                     "statement": claim,
                     "classification": "UNVERIFIED",
