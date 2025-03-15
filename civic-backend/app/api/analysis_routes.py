@@ -35,9 +35,6 @@ def create_summary():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-import concurrent.futures
-from threading import Thread
-
 @api.route('/analysis/evaluate', methods=['POST'])
 def evaluate_claim():
     """Evaluate a claim using multiple AI providers"""
