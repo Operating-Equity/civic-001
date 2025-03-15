@@ -4,6 +4,8 @@ from app.services.claim_analysis import identify_claims, generate_summary
 from app.services.openai_service import evaluate_with_openai
 from app.services.anthropic_service import evaluate_with_anthropic
 from app.services.perplexity_service import evaluate_with_perplexity
+import concurrent.futures
+from threading import Thread
 
 @api.route('/analysis/claims', methods=['POST'])
 def extract_claims():
