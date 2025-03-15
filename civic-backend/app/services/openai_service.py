@@ -42,6 +42,18 @@ def evaluate_with_openai(statement, context=""):
     Evaluate a claim for factual accuracy using OpenAI
     Returns a structured analysis including classification, confidence score, and supporting facts
     """
+    # First check if the API key is available - if not, return a helpful response
+    api_key = current_app.config.get('OPENAI_API_KEY')
+    if not api_key:
+        print("[OPENAI] Warning: OpenAI API key not configured in environment variables")
+        return {
+            "statement": statement,
+            "classification": "UNVERIFIED",
+            "confidence": 0,
+            "supportingFacts": "Unable to evaluate: OpenAI API key not configured. Please add OPENAI_API_KEY to your environment variables.",
+            "model": "OpenAI (Unconfigured)"
+        }
+    
     system_message = """You are tasked with evaluating the truthfulness of statements using a rigorous, first-principles approach. Bias is unacceptable in any form."""
     
     user_message = f"""You are tasked with evaluating the truthfulness of a statement using a rigorous, first-principles approach. Follow these steps systematically:
@@ -83,10 +95,23 @@ Format your response with these sections:
 """
 
     try:
-        response = call_openai_api("gpt-4o", [
-            {"role": "system", "content": system_message},
-            {"role": "user", "content": user_message}
-        ], temperature=0.2, max_tokens=2000)
+        try:
+            response = call_openai_api("gpt-4o", [
+                {"role": "system", "content": system_message},
+                {"role": "user", "content": user_message}
+            ], temperature=0.2, max_tokens=2000)
+        except Exception as api_error:
+            # If the error is related to API key configuration, return a specific response
+            if "API key not configured" in str(api_error):
+                return {
+                    "statement": statement,
+                    "classification": "UNVERIFIED",
+                    "confidence": 0,
+                    "supportingFacts": f"Error: {str(api_error)}",
+                    "model": "OpenAI (Unconfigured)"
+                }
+            # Otherwise re-raise the exception to be caught by the general handler
+            raise
         
         content = response['choices'][0]['message']['content']
         
