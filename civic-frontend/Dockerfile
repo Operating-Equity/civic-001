@@ -5,7 +5,8 @@ WORKDIR /app
 
 # Install dependencies with space optimization
 COPY package.json package-lock.json ./
-RUN npm install --no-audit --prefer-offline && \
+# Split into separate RUN commands for better layer caching and cleanup
+RUN npm install --production=false --no-audit --prefer-offline && \
     npm cache clean --force
 
 # Copy source code
@@ -15,8 +16,9 @@ COPY . .
 ENV REACT_APP_API_URL=http://api:5002
 ENV BACKEND_PORT=5002
 
-# Build the application
-RUN npm run build
+# Build the application with cleanup to save space
+RUN npm run build && \
+    rm -rf node_modules/.cache
 
 # Production stage
 FROM nginx:alpine
