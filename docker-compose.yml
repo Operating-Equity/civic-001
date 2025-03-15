@@ -1,0 +1,37 @@
+version: '3.8'
+
+services:
+  # Backend API service
+  api:
+    build: ./civic-backend
+    container_name: civic-api
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    env_file:
+      - ./civic-backend/.env
+    volumes:
+      - ./civic-backend:/app
+      - uploads:/app/uploads
+    networks:
+      - civic-network
+
+  # Frontend service
+  web:
+    build: ./civic-frontend
+    container_name: civic-web
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      - api
+    networks:
+      - civic-network
+
+networks:
+  civic-network:
+    driver: bridge
+
+volumes:
+  uploads:
+    driver: local
