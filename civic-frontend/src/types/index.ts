@@ -30,6 +30,7 @@ export interface Claim {
   confidence: number;
   detailedAnalysis?: DetailedAnalysis;
   model?: string;
+  error?: string;  // For handling API errors (missing keys, etc.)
 }
 
 export interface SearchResult {
