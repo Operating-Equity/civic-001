@@ -3,13 +3,15 @@ FROM python:3.10-slim
 WORKDIR /app
 
 # Install system dependencies for audio processing (required for Whisper)
-RUN apt-get update --allow-insecure-repositories && apt-get install -y --allow-unauthenticated \
+RUN apt-get update --allow-insecure-repositories && \
+    apt-get install -y --allow-unauthenticated --no-install-recommends \
     ffmpeg \
     libsm6 \
     libxext6 \
     libsndfile1 \
     build-essential \
-    && rm -rf /var/lib/apt/lists/*
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
 # Install dependencies
 COPY requirements.txt .
