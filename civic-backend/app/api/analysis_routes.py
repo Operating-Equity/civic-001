@@ -86,15 +86,15 @@ def evaluate_claim():
                     
                     return model_name, result
                 except Exception as model_error:
-                print(f"[EVALUATE] {model_name.capitalize()} evaluation failed: {str(model_error)}")
-                error_result = {
-                    "statement": claim,
-                    "classification": "UNVERIFIED",
-                    "confidence": 0,
-                    "supportingFacts": f"Error: {str(model_error)}",
-                    "model": model_name.capitalize()
-                }
-                return model_name, error_result
+                    print(f"[EVALUATE] {model_name.capitalize()} evaluation failed: {str(model_error)}")
+                    error_result = {
+                        "statement": claim,
+                        "classification": "UNVERIFIED",
+                        "confidence": 0,
+                        "supportingFacts": f"Error: {str(model_error)}",
+                        "model": model_name.capitalize()
+                    }
+                    return model_name, error_result
         
         # Process models in parallel using ThreadPoolExecutor
         with concurrent.futures.ThreadPoolExecutor(max_workers=len(models_to_evaluate)) as executor:
