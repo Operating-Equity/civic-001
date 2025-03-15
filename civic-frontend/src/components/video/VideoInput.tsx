@@ -1,6 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { AlertCircle, Upload, Link, X } from 'lucide-react';
-import { Button } from '../ui/Button';
+import { AlertCircle, Upload, Link2, X } from 'lucide-react';
 
 interface VideoInputProps {
   onVideoSubmit: (input: { type: 'file' | 'url'; value: File | string }) => void;
@@ -67,24 +66,24 @@ const VideoInput: React.FC<VideoInputProps> = ({
   
   return (
     <div className="glass-panel p-6">
-      {/* Input Type Selector */}
-      <div className="flex mb-6 bg-white/5 rounded-lg p-1 w-fit">
+      {/* Input Type Selector - Simplified */}
+      <div className="flex mb-6 bg-white/5 rounded-full p-1 w-fit mx-auto">
         <button
           onClick={() => setInputType('url')}
-          className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+          className={`px-5 py-2 rounded-full text-sm font-medium transition-colors flex items-center ${
             inputType === 'url' 
-              ? 'bg-primary text-white' 
+              ? 'bg-primary text-white shadow-sm' 
               : 'text-white/70 hover:text-white hover:bg-white/10'
           }`}
         >
-          <Link className="h-4 w-4 inline-block mr-2" />
+          <Link2 className="h-4 w-4 inline-block mr-2" />
           YouTube URL
         </button>
         <button
           onClick={() => setInputType('file')}
-          className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+          className={`px-5 py-2 rounded-full text-sm font-medium transition-colors flex items-center ${
             inputType === 'file' 
-              ? 'bg-primary text-white' 
+              ? 'bg-primary text-white shadow-sm' 
               : 'text-white/70 hover:text-white hover:bg-white/10'
           }`}
         >
@@ -93,9 +92,9 @@ const VideoInput: React.FC<VideoInputProps> = ({
         </button>
       </div>
       
-      {/* Error Message */}
+      {/* Error Message - Clean Design */}
       {error && (
-        <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-4 mb-6">
+        <div className="bg-red-500/5 border border-red-500/20 rounded-lg p-4 mb-6">
           <div className="flex items-start">
             <AlertCircle className="h-5 w-5 text-red-400 mt-0.5 mr-2 flex-shrink-0" />
             <p className="text-red-200 text-sm">{error}</p>
@@ -103,42 +102,49 @@ const VideoInput: React.FC<VideoInputProps> = ({
         </div>
       )}
       
-      {/* URL Input */}
+      {/* URL Input - Cleaner Design */}
       {inputType === 'url' && (
         <form onSubmit={handleUrlSubmit} className="space-y-4">
           <div>
-            <label htmlFor="videoUrl" className="block text-white font-medium mb-2">
-              Enter a YouTube Video URL
-            </label>
-            <input
-              type="text"
-              id="videoUrl"
-              value={videoUrl}
-              onChange={(e) => setVideoUrl(e.target.value)}
-              placeholder="https://www.youtube.com/watch?v=..."
-              className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-lg text-white placeholder:text-white/30 focus:outline-none focus:ring-2 focus:ring-primary"
-              disabled={isProcessing}
-            />
+            <div className="bg-white/5 border border-white/10 focus-within:border-primary/30 transition-colors rounded-xl overflow-hidden">
+              <input
+                type="text"
+                value={videoUrl}
+                onChange={(e) => setVideoUrl(e.target.value)}
+                placeholder="Paste YouTube URL here (e.g., https://www.youtube.com/watch?v=...)"
+                className="w-full px-4 py-3 bg-transparent text-white placeholder:text-white/30 focus:outline-none"
+                disabled={isProcessing}
+              />
+            </div>
           </div>
           
-          <Button 
-            type="submit" 
-            disabled={!videoUrl.trim() || isProcessing}
-            isLoading={isProcessing && inputType === 'url'}
-          >
-            {isProcessing ? 'Processing Video...' : 'Analyze Video'}
-          </Button>
+          <div className="flex justify-center">
+            <button 
+              type="submit" 
+              disabled={!videoUrl.trim() || isProcessing}
+              className="px-5 py-2.5 font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center min-w-[180px] bg-primary hover:bg-primary-600 active:bg-primary-700 text-white shadow-sm"
+            >
+              {isProcessing ? (
+                <>
+                  <div className="h-4 w-4 rounded-full border-2 border-white border-t-transparent animate-spin mr-2"></div>
+                  <span>Analyzing...</span>
+                </>
+              ) : (
+                <span>Verify Video</span>
+              )}
+            </button>
+          </div>
         </form>
       )}
       
-      {/* File Upload */}
+      {/* File Upload - Cleaner Design */}
       {inputType === 'file' && (
         <form onSubmit={handleFileSubmit} className="space-y-4">
           <div
             className={`
-              border-2 border-dashed rounded-lg p-6
-              ${isDragging ? 'border-primary bg-primary/10' : 'border-white/20 bg-white/5'}
-              ${selectedFile ? 'border-green-500/50 bg-green-500/10' : ''}
+              border-2 border-dashed rounded-xl p-6
+              ${isDragging ? 'border-primary bg-primary/5' : 'border-white/10 bg-white/5'}
+              ${selectedFile ? 'border-primary/50 bg-primary/5' : ''}
               transition-colors duration-200
             `}
             onDragOver={handleDragOver}
@@ -163,12 +169,12 @@ const VideoInput: React.FC<VideoInputProps> = ({
               </div>
             ) : (
               <div className="text-center">
-                <Upload className="h-10 w-10 text-white/30 mx-auto mb-3" />
-                <p className="text-white mb-2">Drag & drop your video file here</p>
+                <Upload className="h-10 w-10 text-primary/70 mx-auto mb-3" />
+                <p className="text-white mb-2">Drop your video file here</p>
                 <p className="text-white/50 text-sm mb-4">Or select a file from your computer</p>
                 <label
                   htmlFor="fileInput"
-                  className="inline-block px-4 py-2 bg-white/10 hover:bg-white/20 text-white rounded-md cursor-pointer transition-colors"
+                  className="inline-block px-4 py-2 bg-white/10 hover:bg-white/15 text-white rounded-lg cursor-pointer transition-colors"
                 >
                   Browse Files
                 </label>
@@ -185,27 +191,23 @@ const VideoInput: React.FC<VideoInputProps> = ({
             )}
           </div>
           
-          <Button 
-            type="submit" 
-            disabled={!selectedFile || isProcessing}
-            isLoading={isProcessing && inputType === 'file'}
-          >
-            {isProcessing ? 'Processing Video...' : 'Analyze Video'}
-          </Button>
-        </form>
-      )}
-      
-      {/* Loading Status */}
-      {isProcessing && (
-        <div className="mt-6 pt-6 border-t border-white/10">
-          <div className="flex items-center space-x-3">
-            <div className="h-4 w-4 rounded-full border-2 border-primary border-t-transparent animate-spin"></div>
-            <p className="text-white font-medium">Processing video</p>
+          <div className="flex justify-center">
+            <button 
+              type="submit" 
+              disabled={!selectedFile || isProcessing}
+              className="px-5 py-2.5 font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center min-w-[180px] bg-primary hover:bg-primary-600 active:bg-primary-700 text-white shadow-sm"
+            >
+              {isProcessing ? (
+                <>
+                  <div className="h-4 w-4 rounded-full border-2 border-white border-t-transparent animate-spin mr-2"></div>
+                  <span>Analyzing...</span>
+                </>
+              ) : (
+                <span>Verify Video</span>
+              )}
+            </button>
           </div>
-          <p className="text-white/50 text-sm mt-2">
-            This may take several minutes for longer videos. Please don't close this window.
-          </p>
-        </div>
+        </form>
       )}
     </div>
   );

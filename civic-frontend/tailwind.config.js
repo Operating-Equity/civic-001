@@ -5,45 +5,45 @@ module.exports = {
     extend: {
       colors: {
         primary: {
-          DEFAULT: "#0062FF",
+          DEFAULT: "#0055DB", // Slightly deeper blue for credibility
           50: "#E6F0FF",
           100: "#CCE0FF",
           200: "#99C2FF",
           300: "#66A3FF",
           400: "#3385FF",
-          500: "#0062FF",
-          600: "#0050CC",
-          700: "#003D99",
-          800: "#002A66",
-          900: "#001733",
-          950: "#000D1A"
+          500: "#0055DB", // Primary color
+          600: "#0044B0",
+          700: "#003385",
+          800: "#00225A",
+          900: "#00112D",
+          950: "#000A1A"
         },
         secondary: {
-          DEFAULT: "#6B7280",
-          50: "#F9FAFB",
-          100: "#F3F4F6",
-          200: "#E5E7EB",
-          300: "#D1D5DB",
-          400: "#9CA3AF",
-          500: "#6B7280",
-          600: "#4B5563",
-          700: "#374151",
-          800: "#1F2937",
-          900: "#111827",
-          950: "#0D1424"
+          DEFAULT: "#64748B", // More professional slate
+          50: "#F8FAFC",
+          100: "#F1F5F9",
+          200: "#E2E8F0",
+          300: "#CBD5E1",
+          400: "#94A3B8",
+          500: "#64748B",
+          600: "#475569",
+          700: "#334155",
+          800: "#1E293B",
+          900: "#0F172A",
+          950: "#020617"
         },
         status: {
-          true: "#10B981",
-          false: "#EF4444",
-          unverified: "#F59E0B"
+          true: "#059669", // Slightly darker green for better contrast
+          false: "#DC2626", // Slightly darker red
+          unverified: "#D97706" // Slightly darker amber
         },
         background: {
-          dark: "#030711",
-          card: "rgba(17, 24, 39, 0.7)"
+          dark: "#0A101F", // Slightly bluer dark background
+          card: "rgba(15, 23, 42, 0.7)" // Darker card bg
         },
         glass: {
-          DEFAULT: "rgba(255, 255, 255, 0.1)",
-          dark: "rgba(0, 0, 0, 0.1)"
+          DEFAULT: "rgba(255, 255, 255, 0.08)",
+          dark: "rgba(0, 0, 0, 0.2)"
         }
       },
       fontFamily: {
@@ -61,7 +61,6 @@ module.exports = {
       backgroundImage: {
         'gradient-radial': 'radial-gradient(var(--tw-gradient-stops))',
         'gradient-conic': 'conic-gradient(from 180deg at 50% 50%, var(--tw-gradient-stops))',
-        'hero-pattern': "url('/src/assets/grid-pattern.svg')"
       },
       animation: {
         'shimmer': 'shimmer 2s infinite',
@@ -72,6 +71,13 @@ module.exports = {
           '0%, 100%': { opacity: 1 },
           '50%': { opacity: 0.5 }
         }
+      },
+      borderRadius: {
+        'xl': '0.75rem',
+        '2xl': '1rem',
+      },
+      boxShadow: {
+        card: '0 4px 12px rgba(0, 0, 0, 0.1)'
       }
     }
   },

@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@100;200;300;400;500;600;700;800;900&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
 
 @tailwind base;
 @tailwind components;
@@ -6,8 +6,8 @@
 
 :root {
   --foreground-rgb: 255, 255, 255;
-  --background-start-rgb: 3, 7, 17;
-  --background-end-rgb: 12, 20, 36;
+  --background-start-rgb: 10, 16, 31;
+  --background-end-rgb: 15, 23, 42;
 }
 
 body {
@@ -19,53 +19,91 @@ body {
     )
     rgb(var(--background-start-rgb));
   min-height: 100vh;
+  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
-/* Custom scrollbar */
+/* Custom scrollbar - minimalist style */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 5px;
+  height: 5px;
 }
 
 ::-webkit-scrollbar-track {
-  background: rgba(255, 255, 255, 0.05);
+  background: rgba(255, 255, 255, 0.03);
   border-radius: 10px;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.15);
   border-radius: 10px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.3);
+  background: rgba(255, 255, 255, 0.25);
 }
 
-/* Glass panel styling */
+/* Glass panel styling - simplified and more subtle */
 .glass-panel {
-  @apply backdrop-blur-lg bg-background-card border border-white/10 shadow-xl rounded-xl;
-  box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.37);
+  @apply backdrop-blur-md bg-background-card/90 border border-white/8 shadow-lg rounded-xl;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.2), 0 1px 2px rgba(255, 255, 255, 0.05) inset;
 }
 
-/* Shimmer effect */
-.shimmer {
-  @apply relative overflow-hidden before:absolute before:inset-0 before:-translate-x-full before:animate-shimmer before:bg-gradient-to-r before:from-transparent before:via-white/10 before:to-transparent;
+/* Improved focus styles for accessibility */
+*:focus-visible {
+  @apply outline-none ring-2 ring-primary ring-offset-1 ring-offset-background-dark;
 }
 
-/* Animation for gradient backgrounds */
-@keyframes moveGradient {
-  0% {
-    background-position: 0% 50%;
-  }
-  50% {
-    background-position: 100% 50%;
-  }
-  100% {
-    background-position: 0% 50%;
-  }
+/* Refined badge styles */
+.verification-badge {
+  @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium;
 }
 
-.bg-gradient-animate {
-  background-size: 200% 200%;
-  animation: moveGradient 15s ease infinite;
+.verification-badge.true {
+  @apply bg-status-true/20 text-status-true border border-status-true/30;
+}
+
+.verification-badge.false {
+  @apply bg-status-false/20 text-status-false border border-status-false/30;
+}
+
+.verification-badge.unverified {
+  @apply bg-status-unverified/20 text-status-unverified border border-status-unverified/30;
+}
+
+/* Improved typography for readability */
+h1, h2, h3, h4, h5, h6 {
+  @apply tracking-tight;
+}
+
+p {
+  @apply leading-relaxed;
+}
+
+/* Subtle separators */
+.separator {
+  @apply h-px w-full bg-gradient-to-r from-transparent via-white/10 to-transparent my-6;
+}
+
+/* Sleek button styling */
+.btn {
+  @apply px-4 py-2 rounded-lg transition-all duration-200 font-medium;
+}
+
+.btn-primary {
+  @apply bg-primary text-white hover:bg-primary-600 active:bg-primary-700;
+}
+
+.btn-secondary {
+  @apply bg-white/10 text-white hover:bg-white/15 active:bg-white/20;
+}
+
+/* Clean card styling */
+.card {
+  @apply glass-panel p-6 transition-all duration-200;
+}
+
+.card-interactive {
+  @apply hover:border-primary/30 hover:shadow-primary/5 cursor-pointer;
 }

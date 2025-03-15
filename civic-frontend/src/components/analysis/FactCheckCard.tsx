@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
-import { ChevronDown, ChevronUp, ExternalLink } from 'lucide-react';
-import StatusBadge from '../../components/ui/StatusBadge';
+import { ChevronDown, ChevronUp, ExternalLink, BarChart2 } from 'lucide-react';
 import { Claim } from '../../types';
 
 interface FactCheckCardProps {
@@ -41,130 +40,143 @@ const FactCheckCard: React.FC<FactCheckCardProps> = ({ claim }) => {
     return processedLines.join('\n').replace(/\n/g, '<br />');
   };
   
-  const renderDetailedAnalysis = () => {
-    const analysis = claim.detailedAnalysis;
-    if (!analysis) return null;
-    
-    return (
-      <div className="mt-4 space-y-4">
-        {analysis.definitions && analysis.definitions.length > 0 && (
-          <div className="space-y-1">
-            <h4 className="text-white font-medium">Definitions</h4>
-            <ul className="list-disc pl-5 text-white/90 text-sm">
-              {analysis.definitions.map((definition, index) => (
-                <li key={index}>{definition}</li>
-              ))}
-            </ul>
+  const getVerificationBadge = () => {
+    switch (claim.classification) {
+      case 'TRUE':
+        return (
+          <div className="px-3 py-1.5 bg-status-true/10 text-status-true border border-status-true/20 rounded-full font-medium text-sm flex items-center">
+            <svg className="w-4 h-4 mr-1.5" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M7.75 12.75L10 15.25L16.25 8.75" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+              <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2"/>
+            </svg>
+            Verified True
           </div>
-        )}
-        
-        {analysis.principles && analysis.principles.length > 0 && (
-          <div className="space-y-1">
-            <h4 className="text-white font-medium">Principles</h4>
-            <ul className="list-disc pl-5 text-white/90 text-sm">
-              {analysis.principles.map((principle, index) => (
-                <li key={index}>{principle}</li>
-              ))}
-            </ul>
+        );
+      case 'FALSE':
+        return (
+          <div className="px-3 py-1.5 bg-status-false/10 text-status-false border border-status-false/20 rounded-full font-medium text-sm flex items-center">
+            <svg className="w-4 h-4 mr-1.5" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M15 9L9 15M9 9L15 15" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+              <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2"/>
+            </svg>
+            False Claim
           </div>
-        )}
-        
-        {analysis.evidence && analysis.evidence.length > 0 && (
-          <div className="space-y-1">
-            <h4 className="text-white font-medium">Evidence</h4>
-            <ul className="list-disc pl-5 text-white/90 text-sm">
-              {analysis.evidence.map((item, index) => (
-                <li key={index}>
-                  {item.fact}
-                  {item.source && (
-                    <div className="text-xs text-white/70 mt-1">
-                      Source: {item.source.startsWith('http') ? (
-                        <a 
-                          href={item.source} 
-                          target="_blank" 
-                          rel="noopener noreferrer"
-                          className="text-primary hover:underline inline-flex items-center"
-                        >
-                          {item.source.substring(0, 50)}...
-                          <ExternalLink className="h-3 w-3 ml-1" />
-                        </a>
-                      ) : item.source}
-                    </div>
-                  )}
-                </li>
-              ))}
-            </ul>
+        );
+      case 'UNVERIFIED':
+      default:
+        return (
+          <div className="px-3 py-1.5 bg-status-unverified/10 text-status-unverified border border-status-unverified/20 rounded-full font-medium text-sm flex items-center">
+            <svg className="w-4 h-4 mr-1.5" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M12 16V12M12 8H12.01" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+              <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2"/>
+            </svg>
+            Needs Verification
           </div>
-        )}
-        
-        {analysis.analysis && (
-          <div className="space-y-1">
-            <h4 className="text-white font-medium">Analysis</h4>
-            <p className="text-white/90 text-sm whitespace-pre-line">{analysis.analysis}</p>
-          </div>
-        )}
-        
-        {analysis.conclusion && (
-          <div className="space-y-1">
-            <h4 className="text-white font-medium">Conclusion</h4>
-            <p className="text-white/90 text-sm">{analysis.conclusion}</p>
-          </div>
-        )}
-      </div>
-    );
+        );
+    }
   };
 
   return (
     <div className="glass-panel p-6">
-      <div className="flex justify-between items-start mb-4">
-        <div className="space-y-2">
-          <p className="font-medium text-white text-lg">{claim.statement}</p>
-          <StatusBadge status={claim.classification} />
+      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-4 mb-4">
+        <div className="space-y-3">
+          <div>
+            {getVerificationBadge()}
+          </div>
+          <p className="font-medium text-white text-lg leading-tight">{claim.statement}</p>
         </div>
         
-        <div className="flex items-center space-x-3">
-          <div className="text-sm text-white bg-white/10 px-3 py-1 rounded-full">
-            Confidence: {claim.confidence?.toFixed(1) ?? 0}%
-          </div>
-          
-          {claim.model && (
-            <div className="text-xs text-white/70 bg-white/5 px-2 py-1 rounded-full">
-              {claim.model}
+        <div className="flex flex-col items-end gap-2">
+          <div className="flex items-center space-x-1.5 gap-1.5">
+            <div className="flex items-center bg-white/10 px-3 py-1 rounded-lg text-sm">
+              <BarChart2 className="h-3.5 w-3.5 text-white/70 mr-1.5" />
+              <span className="text-white font-medium">{claim.confidence}%</span>
+              <span className="text-white/70 ml-1">confidence</span>
             </div>
-          )}
+            
+            {claim.model && (
+              <div className="text-xs text-white/70 bg-white/5 px-2 py-1 rounded-lg border border-white/10">
+                {claim.model}
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
       <div className="text-white/90 text-sm">
         {claim.error ? (
-          <div className="p-4 mb-4 border border-yellow-300 rounded-lg bg-yellow-50/10">
+          <div className="p-4 mb-4 border border-yellow-500/30 rounded-lg bg-yellow-500/5">
             <div className="flex items-center">
-              <svg className="w-5 h-5 mr-2 text-yellow-500" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg">
-                <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd"></path>
+              <svg className="w-5 h-5 mr-2 text-yellow-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
               </svg>
-              <h3 className="text-lg font-medium text-yellow-500">API Service Issue</h3>
+              <h3 className="text-base font-medium text-yellow-500">Verification Issue</h3>
             </div>
-            <div className="mt-2 text-yellow-300">
+            <div className="mt-2 text-yellow-200">
               <p>{claim.error}</p>
             </div>
           </div>
         ) : expanded ? (
           <>
-            {claim.detailedAnalysis ? (
-              renderDetailedAnalysis()
-            ) : claim.supportingFacts ? (
-              <div 
-                className="text-white/90 whitespace-pre-line"
-                dangerouslySetInnerHTML={{ __html: formatSupportingFacts(claim.supportingFacts) }}
-              />
-            ) : (
-              <div className="text-white/70 italic">
-                No supporting facts available for this claim.
-              </div>
-            )}
+            <div className="p-4 rounded-lg bg-white/5 border border-white/10">
+              {claim.detailedAnalysis ? (
+                <div className="space-y-4">
+                  {claim.detailedAnalysis.analysis && (
+                    <div>
+                      <h4 className="text-white font-medium mb-2">Analysis</h4>
+                      <p className="text-white/90 whitespace-pre-line">{claim.detailedAnalysis.analysis}</p>
+                    </div>
+                  )}
+                  
+                  {claim.detailedAnalysis.evidence && claim.detailedAnalysis.evidence.length > 0 && (
+                    <div>
+                      <h4 className="text-white font-medium mb-2">Evidence</h4>
+                      <ul className="list-disc pl-5 text-white/90 space-y-2">
+                        {claim.detailedAnalysis.evidence.map((item, index) => (
+                          <li key={index}>
+                            {item.fact}
+                            {item.source && (
+                              <div className="text-xs text-white/70 mt-1">
+                                Source: {item.source.startsWith('http') ? (
+                                  <a 
+                                    href={item.source} 
+                                    target="_blank" 
+                                    rel="noopener noreferrer"
+                                    className="text-primary hover:underline inline-flex items-center"
+                                  >
+                                    {item.source.substring(0, 40)}...
+                                    <ExternalLink className="h-3 w-3 ml-1" />
+                                  </a>
+                                ) : item.source}
+                              </div>
+                            )}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  
+                  {claim.detailedAnalysis.conclusion && (
+                    <div>
+                      <h4 className="text-white font-medium mb-2">Conclusion</h4>
+                      <p className="text-white/90">{claim.detailedAnalysis.conclusion}</p>
+                    </div>
+                  )}
+                </div>
+              ) : claim.supportingFacts ? (
+                <div 
+                  className="text-white/90 text-sm"
+                  dangerouslySetInnerHTML={{ __html: formatSupportingFacts(claim.supportingFacts) }}
+                />
+              ) : (
+                <div className="text-white/70 italic">
+                  No supporting facts available for this claim.
+                </div>
+              )}
+            </div>
           </>
         ) : (
-          <div className="line-clamp-3 text-white/90">
+          <div className="p-4 rounded-lg bg-white/5 line-clamp-3 text-white/90 border border-white/10">
             {claim.supportingFacts ? 
               `${claim.supportingFacts.substring(0, 200)}...` : 
               claim.error ? 
@@ -187,7 +199,7 @@ const FactCheckCard: React.FC<FactCheckCardProps> = ({ claim }) => {
         ) : (
           <>
             <ChevronDown className="h-4 w-4 mr-1" />
-            Show More
+            Show Verification Details
           </>
         )}
       </button>
