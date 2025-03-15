@@ -19,11 +19,10 @@ const ClaimEvaluator: React.FC<ClaimEvaluatorProps> = ({ empiricalClaims }) => {
   const [anthropicResults, setAnthropicResults] = useState<Claim[]>([]);
   
   // Service statuses
-  type ServiceStatus = 'idle' | 'loading' | 'success' | 'error';
   const [serviceStatus, setServiceStatus] = useState({
-    perplexity: 'idle' as ServiceStatus,
-    openai: 'idle' as ServiceStatus,
-    anthropic: 'idle' as ServiceStatus
+    perplexity: 'idle' as const,
+    openai: 'idle' as const,
+    anthropic: 'idle' as const
   });
   
   // Error messages
@@ -33,19 +32,29 @@ const ClaimEvaluator: React.FC<ClaimEvaluatorProps> = ({ empiricalClaims }) => {
     anthropic: ''
   });
   
-  useEffect(() => {
-    console.log("[DEBUG ClaimEvaluator] Current status:", {
-      evaluationStarted,
-      isEvaluating,
-      currentClaimIndex,
-      serviceStatus,
-      resultCounts: {
-        perplexity: perplexityResults.length,
-        openai: openAIResults.length,
-        anthropic: anthropicResults.length
-      }
-    });
-  }, [evaluationStarted, isEvaluating, currentClaimIndex, serviceStatus, perplexityResults, openAIResults, anthropicResults]);
+  // Immediately update results as they come in
+  const handleServiceCompletion = (
+    modelName: 'perplexity' | 'openai' | 'anthropic',
+    result: Claim,
+    claimId?: string
+  ) => {
+    console.log(`[DEBUG] Service ${modelName} completed with result:`, result);
+    
+    // Immediately update the service status
+    setServiceStatus(prev => ({
+      ...prev,
+      [modelName]: 'success'
+    }));
+    
+    // Add the result to the appropriate array
+    if (modelName === 'perplexity') {
+      setPerplexityResults(prev => [...prev, { ...result, claimId }]);
+    } else if (modelName === 'openai') {
+      setOpenAIResults(prev => [...prev, { ...result, claimId }]);
+    } else if (modelName === 'anthropic') {
+      setAnthropicResults(prev => [...prev, { ...result, claimId }]);
+    }
+  };
   
   // Function to evaluate a single claim
   const evaluateClaim = async (claim: ClaimAnalysis) => {
@@ -61,37 +70,68 @@ const ClaimEvaluator: React.FC<ClaimEvaluatorProps> = ({ empiricalClaims }) => {
     try {
       console.log("[DEBUG] Starting evaluation for claim:", claim.claim.substring(0, 50));
       
-      const response = await fetch('/api/analysis/evaluate', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          claim: claim.claim,
-          context: claim.context,
-          model: 'all'
-        })
-      });
+      // Setup for individual model tracking
+      const modelResults: Record<string, any> = {};
+      const modelPromises: Promise<void>[] = [];
       
-      const data = await response.json();
-      console.log("[DEBUG] API response:", data);
-      console.log("[DEBUG] Models in response:", Object.keys(data));
-      
-      // Create fallback results for missing models
-      const modelResults = {
-        perplexity: data.perplexity || createFallbackResult(claim.claim, 'perplexity'),
-        openai: data.openai || createFallbackResult(claim.claim, 'openai'),
-        anthropic: data.anthropic || createFallbackResult(claim.claim, 'anthropic')
+      // Function to process a single model result
+      const processModel = async (modelName: 'perplexity' | 'openai' | 'anthropic') => {
+        try {
+          // Make individual API call for each model to get faster results
+          const response = await fetch('/api/analysis/evaluate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              claim: claim.claim,
+              context: claim.context,
+              model: modelName
+            })
+          });
+          
+          const data = await response.json();
+          console.log(`[DEBUG] ${modelName} API response:`, data);
+          
+          // Check if we have results for this model
+          if (data && data[modelName]) {
+            modelResults[modelName] = data[modelName];
+            // Immediately update UI with this model's result
+            handleServiceCompletion(modelName, data[modelName], claim.id);
+          } else {
+            throw new Error(`No results returned for ${modelName}`);
+          }
+        } catch (error) {
+          console.error(`Error with ${modelName}:`, error);
+          setServiceStatus(prev => ({ ...prev, [modelName]: 'error' }));
+          setErrorMessages(prev => ({ 
+            ...prev, 
+            [modelName]: `Failed to get results from ${modelName.charAt(0).toUpperCase() + modelName.slice(1)}` 
+          }));
+          
+          // Add fallback result
+          const fallbackResult = createFallbackResult(claim.claim, modelName);
+          if (modelName === 'perplexity') {
+            setPerplexityResults(prev => [...prev, { ...fallbackResult, claimId: claim.id }]);
+          } else if (modelName === 'openai') {
+            setOpenAIResults(prev => [...prev, { ...fallbackResult, claimId: claim.id }]);
+          } else if (modelName === 'anthropic') {
+            setAnthropicResults(prev => [...prev, { ...fallbackResult, claimId: claim.id }]);
+          }
+        }
       };
       
-      // Process results for all models, using fallbacks if needed
-      processModelResult('perplexity', data, claim, modelResults.perplexity);
-      processModelResult('openai', data, claim, modelResults.openai);
-      processModelResult('anthropic', data, claim, modelResults.anthropic);
+      // Start all model evaluations in parallel but handle each independently
+      modelPromises.push(processModel('perplexity'));
+      modelPromises.push(processModel('openai'));
+      modelPromises.push(processModel('anthropic'));
       
+      // Wait for all models to complete (but UI will update as each finishes)
+      await Promise.all(modelPromises);
+      
+      console.log("[DEBUG] All models processed:", Object.keys(modelResults));
+            
     } catch (error) {
       console.error('Error evaluating claim:', error);
-      // Update all services to error state
+      // This should rarely happen now because each model is handled separately
       setServiceStatus({
         perplexity: 'error',
         openai: 'error',
@@ -102,86 +142,9 @@ const ClaimEvaluator: React.FC<ClaimEvaluatorProps> = ({ empiricalClaims }) => {
         openai: 'Network error occurred',
         anthropic: 'Network error occurred'
       });
-      
-      // Still add fallback results for all models
-      const fallbackResult = createFallbackResult(claim.claim, 'error');
-      setPerplexityResults(prev => [...prev, {...fallbackResult, model: 'Perplexity', claimId: claim.id}]);
-      setOpenAIResults(prev => [...prev, {...fallbackResult, model: 'OpenAI', claimId: claim.id}]);
-      setAnthropicResults(prev => [...prev, {...fallbackResult, model: 'Anthropic', claimId: claim.id}]);
     } finally {
       setIsEvaluating(false);
-      
-      // Move to the next claim
       setCurrentClaimIndex(prev => prev + 1);
-    }
-  };
-  
-  // Helper function to process results for a specific model
-  const processModelResult = (
-    modelName: 'perplexity' | 'openai' | 'anthropic', 
-    data: any, 
-    claim: ClaimAnalysis,
-    fallbackResult: Claim
-  ) => {
-    // First, determine if this model has results
-    const hasResults = modelName in data && data[modelName];
-    
-    // Set the appropriate state for this model
-    if (modelName === 'perplexity') {
-      // Add the result (or fallback) to the results array
-      setPerplexityResults(prev => [...prev, {
-        ...(hasResults ? data[modelName] : fallbackResult),
-        claimId: claim.id
-      }]);
-      
-      // Update service status and error message if needed
-      setServiceStatus(prev => ({
-        ...prev,
-        perplexity: hasResults ? 'success' : 'error'
-      }));
-      
-      if (!hasResults) {
-        setErrorMessages(prev => ({
-          ...prev,
-          perplexity: `Failed to get results from Perplexity`
-        }));
-      }
-    } 
-    else if (modelName === 'openai') {
-      setOpenAIResults(prev => [...prev, {
-        ...(hasResults ? data[modelName] : fallbackResult),
-        claimId: claim.id
-      }]);
-      
-      setServiceStatus(prev => ({
-        ...prev,
-        openai: hasResults ? 'success' : 'error'
-      }));
-      
-      if (!hasResults) {
-        setErrorMessages(prev => ({
-          ...prev,
-          openai: `Failed to get results from OpenAI`
-        }));
-      }
-    }
-    else if (modelName === 'anthropic') {
-      setAnthropicResults(prev => [...prev, {
-        ...(hasResults ? data[modelName] : fallbackResult),
-        claimId: claim.id
-      }]);
-      
-      setServiceStatus(prev => ({
-        ...prev,
-        anthropic: hasResults ? 'success' : 'error'
-      }));
-      
-      if (!hasResults) {
-        setErrorMessages(prev => ({
-          ...prev,
-          anthropic: `Failed to get results from Anthropic`
-        }));
-      }
     }
   };
   
