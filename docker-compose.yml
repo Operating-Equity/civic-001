@@ -24,9 +24,11 @@ services:
   web:
     build: 
       context: ./civic-frontend
+      # Pass build arguments to configure the build process
       args:
         - REACT_APP_API_URL=http://api:5002
         - BACKEND_PORT=5002
+        - NODE_ENV=production
     container_name: civic-web
     restart: unless-stopped
     ports:
