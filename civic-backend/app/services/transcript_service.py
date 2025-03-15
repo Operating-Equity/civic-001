@@ -30,7 +30,7 @@ def download_audio_from_youtube(video_id, output_dir=None):
         output_dir (str): Directory to save the downloaded audio.
         
     Returns:
-        str: Path to the downloaded audio file.
+        tuple: (path to the downloaded audio file, video title)
     """
     try:
         logger.info(f"Downloading audio for YouTube video ID: {video_id}")
@@ -39,42 +39,53 @@ def download_audio_from_youtube(video_id, output_dir=None):
         video_url = f"https://www.youtube.com/watch?v={video_id}"
         yt = YouTube(video_url)
         
-        # Get title for better logging
-        video_title = yt.title
-        logger.info(f"Video title: {video_title}")
+        # Get title for better logging - with safe fallback
+        video_title = f"YouTube Video {video_id}"  # Default fallback title
+        try:
+            if hasattr(yt, 'title') and yt.title:
+                video_title = yt.title
+                logger.info(f"Video title: {video_title}")
+        except Exception as title_error:
+            # Just log the title error, but continue with the download
+            logger.warning(f"Could not get video title, using default: {str(title_error)}")
         
         # Select the first audio-only stream available
-        audio_stream = yt.streams.filter(only_audio=True).first()
-        
-        if not audio_stream:
-            logger.error(f"No audio stream found for video {video_id}")
-            raise Exception("No audio stream found for this video")
-        
-        # Set output directory and filename
-        if not output_dir:
-            output_dir = os.path.join(current_app.config['UPLOAD_FOLDER'], 'temp_audio')
+        try:
+            audio_stream = yt.streams.filter(only_audio=True).first()
             
-        # Create directory if it doesn't exist
-        os.makedirs(output_dir, exist_ok=True)
-        
-        # Download audio stream
-        output_path = os.path.join(output_dir, f"{video_id}.mp4")
-        logger.info(f"Downloading audio to {output_path}")
-        
-        audio_stream.download(output_path=output_dir, filename=f"{video_id}.mp4")
-        
-        # Check if file was successfully downloaded
-        if not os.path.exists(output_path):
-            logger.error(f"Failed to download audio for {video_id}")
-            raise Exception("Failed to download audio")
+            if not audio_stream:
+                logger.error(f"No audio stream found for video {video_id}")
+                raise Exception("No audio stream found for this video")
             
-        logger.info(f"Successfully downloaded audio for {video_id}")
-        return output_path, video_title
-        
+            # Set output directory and filename
+            if not output_dir:
+                output_dir = os.path.join(current_app.config['UPLOAD_FOLDER'], 'temp_audio')
+                
+            # Create directory if it doesn't exist
+            os.makedirs(output_dir, exist_ok=True)
+            
+            # Download audio stream
+            output_path = os.path.join(output_dir, f"{video_id}.mp4")
+            logger.info(f"Downloading audio to {output_path}")
+            
+            audio_stream.download(output_path=output_dir, filename=f"{video_id}.mp4")
+            
+            # Check if file was successfully downloaded
+            if not os.path.exists(output_path):
+                logger.error(f"Failed to download audio for {video_id}")
+                raise Exception("Failed to download audio file")
+                
+            logger.info(f"Successfully downloaded audio for {video_id}")
+            return output_path, video_title
+            
+        except Exception as stream_error:
+            logger.error(f"Error downloading audio stream: {str(stream_error)}")
+            raise Exception(f"Failed to download audio stream: {str(stream_error)}")
+            
     except Exception as e:
         logger.error(f"Error downloading audio from YouTube: {str(e)}\n{traceback.format_exc()}")
         raise Exception(f"Failed to download audio: {str(e)}")
-
+        
 def transcribe_audio_with_whisper(audio_file, with_speakers=False):
     """
     Transcribes the given audio file using the Whisper model.
@@ -271,7 +282,7 @@ def get_youtube_transcript(video_id, languages=['en'], with_speakers=False):
         with_speakers (bool): Whether to attempt speaker identification
     
     Returns:
-        tuple: (transcript_text, video_title, speakers_data)
+        tuple: (transcript_text, video_title) or (transcript_text, video_title, speakers_data) if with_speakers=True
     
     Raises:
         Exception: If all transcription methods fail.
@@ -293,10 +304,15 @@ def get_youtube_transcript(video_id, languages=['en'], with_speakers=False):
                 
             transcript_text = " ".join([item['text'] for item in transcript_list])
             
-            # Get video title separately
-            video_url = f"https://www.youtube.com/watch?v={video_id}"
-            yt = YouTube(video_url)
-            video_title = yt.title
+            # Get video title separately - with better error handling
+            video_title = f"YouTube Video {video_id}"  # Default fallback title
+            try:
+                video_url = f"https://www.youtube.com/watch?v={video_id}"
+                yt = YouTube(video_url)
+                if hasattr(yt, 'title') and yt.title:
+                    video_title = yt.title
+            except Exception as title_error:
+                logger.warning(f"Could not get video title, using default: {str(title_error)}")
             
             logger.info(f"Successfully fetched transcript using captions for {video_id}")
             
@@ -327,7 +343,11 @@ def get_youtube_transcript(video_id, languages=['en'], with_speakers=False):
                     logger.error(f"Failed to get speaker data: {str(e)}")
                     # Continue without speaker data if it fails
             
-            return transcript_text, video_title, speakers_data
+            # Return different values based on whether speakers_data was requested
+            if with_speakers:
+                return transcript_text, video_title, speakers_data
+            else:
+                return transcript_text, video_title
             
         except (TranscriptsDisabled, NoTranscriptFound) as e:
             logger.warning(f"No transcript available via captions for {video_id}: {str(e)}")
@@ -341,8 +361,12 @@ def get_youtube_transcript(video_id, languages=['en'], with_speakers=False):
     # Second attempt: Fallback to pytube + Whisper
     logger.info(f"Attempting fallback method (pytube + Whisper) for {video_id}")
     try:
-        # Download audio
-        audio_path, video_title = download_audio_from_youtube(video_id)
+        # Download audio with robust error handling
+        try:
+            audio_path, video_title = download_audio_from_youtube(video_id)
+        except Exception as download_error:
+            logger.error(f"Failed to download audio: {str(download_error)}")
+            raise Exception(f"Failed to download audio: {str(download_error)}")
         
         try:
             # Transcribe audio with optional speaker identification
@@ -351,21 +375,36 @@ def get_youtube_transcript(video_id, languages=['en'], with_speakers=False):
             speakers_data = transcription_result.get('speakers_data')
             
             logger.info(f"Successfully transcribed using pytube + Whisper fallback for {video_id}")
-            return transcript_text, video_title, speakers_data
             
-        finally:
             # Clean up audio file
             try:
                 if os.path.exists(audio_path):
                     os.remove(audio_path)
                     logger.info(f"Removed temporary audio file: {audio_path}")
-            except Exception as e:
-                logger.error(f"Failed to remove temporary audio file {audio_path}: {str(e)}")
+            except Exception as cleanup_error:
+                logger.error(f"Failed to remove temporary audio file {audio_path}: {str(cleanup_error)}")
                 
+            # Return different values based on whether speakers_data was requested
+            if with_speakers:
+                return transcript_text, video_title, speakers_data
+            else:
+                return transcript_text, video_title
+                
+        except Exception as transcribe_error:
+            # Clean up audio file even if transcription fails
+            try:
+                if 'audio_path' in locals() and os.path.exists(audio_path):
+                    os.remove(audio_path)
+            except:
+                pass
+                
+            logger.error(f"Failed to transcribe audio: {str(transcribe_error)}")
+            raise Exception(f"Failed to transcribe audio: {str(transcribe_error)}")
+            
     except Exception as e:
         logger.error(f"All transcription methods failed for {video_id}: {str(e)}")
         raise Exception(f"Unable to transcribe this video: {str(e)}")
-
+    
 def get_video_transcript(file_path, with_speakers=False):
     """
     Extract transcript from an uploaded video file using AssemblyAI or Whisper.
