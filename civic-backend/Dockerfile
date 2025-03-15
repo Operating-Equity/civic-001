@@ -1,25 +1,26 @@
-FROM python:3.10-slim
+# Multi-stage build to minimize disk space usage
+FROM python:3.10-alpine AS builder
 
 WORKDIR /app
 
-# Minimal install of essential libraries for audio processing
-# Uses a two-phase approach to avoid downloading packages twice
-RUN apt-get update --allow-insecure-repositories && \
-    mkdir -p /tmp/apt-cache && \
-    apt-get -o Dir::Cache::Archives=/tmp/apt-cache \
-        -y --allow-unauthenticated --no-install-recommends \
-        install libsndfile1 libgomp1 && \
-    rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
+# Install build dependencies
+RUN apk add --no-cache gcc musl-dev libsndfile-dev
 
-# Install build tools only if absolutely necessary
-RUN apt-get update --allow-insecure-repositories && \
-    apt-get -y --allow-unauthenticated --no-install-recommends \
-        install gcc && \
-    rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
-
-# Install dependencies
+# Copy and install Python dependencies
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
+
+# Final stage with minimal runtime dependencies
+FROM python:3.10-alpine
+
+WORKDIR /app
+
+# Install only runtime dependencies
+RUN apk add --no-cache libsndfile
+
+# Copy Python packages from builder stage
+COPY --from=builder /usr/local/lib/python3.10/site-packages/ /usr/local/lib/python3.10/site-packages/
+COPY --from=builder /usr/local/bin/ /usr/local/bin/
 
 # Copy application code
 COPY . .
