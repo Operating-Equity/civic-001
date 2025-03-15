@@ -15,6 +15,40 @@ import time
 # Set up logging
 logger = logging.getLogger(__name__)
 
+@api.route('/analysis/summary', methods=['POST'])
+def generate_summary_route():
+    """Generate a summary of the transcript"""
+    if not request.json or 'transcript' not in request.json:
+        return jsonify({'error': 'No transcript provided'}), 400
+    
+    transcript = request.json.get('transcript')
+    video_title = request.json.get('video_title', '')
+    
+    try:
+        summary = generate_summary(transcript, video_title)
+        return jsonify({'summary': summary})
+    except Exception as e:
+        logger.error(f"Error generating summary: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@api.route('/analysis/claims', methods=['POST'])
+def extract_claims_route():
+    """Extract empirical claims from a transcript"""
+    if not request.json or 'transcript' not in request.json:
+        return jsonify({'error': 'No transcript provided'}), 400
+    
+    transcript = request.json.get('transcript')
+    video_title = request.json.get('video_title', '')
+    speakers_data = request.json.get('speakers_data')
+    
+    try:
+        claims = identify_claims(transcript, video_title, speakers_data)
+        return jsonify({'claims': claims})
+    except Exception as e:
+        logger.error(f"Error extracting claims: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+    
+    
 @api.route('/analysis/evaluate', methods=['POST'])
 def evaluate_claim():
     """Evaluate a single claim or multiple claims using multiple AI providers in parallel"""

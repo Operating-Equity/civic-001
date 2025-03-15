@@ -98,7 +98,39 @@ def download_audio_from_youtube(video_id, output_dir=None):
             
     except Exception as e:
         logger.error(f"Error downloading audio from YouTube: {str(e)}\n{traceback.format_exc()}")
-        raise Exception(f"Failed to download audio: {str(e)}")
+        
+        # Add additional fallback: Try using yt-dlp instead of pytube
+        try:
+            logger.info(f"Attempting fallback with yt-dlp for {video_id}")
+            if not output_dir:
+                output_dir = os.path.join(current_app.config['UPLOAD_FOLDER'], 'temp_audio')
+                
+            os.makedirs(output_dir, exist_ok=True)
+            output_path = os.path.join(output_dir, f"{video_id}.mp4")
+            
+            # Use subprocess to call yt-dlp
+            import subprocess
+            video_url = f"https://www.youtube.com/watch?v={video_id}"
+            cmd = [
+                "yt-dlp", 
+                "--extract-audio", 
+                "--audio-format", "mp3", 
+                "--audio-quality", "0",
+                "-o", output_path,
+                video_url
+            ]
+            
+            subprocess.run(cmd, check=True)
+            
+            if os.path.exists(output_path):
+                logger.info(f"Successfully downloaded audio with yt-dlp for {video_id}")
+                return output_path, f"YouTube Video {video_id}"
+            else:
+                raise Exception("yt-dlp did not produce the expected output file")
+                
+        except Exception as fallback_error:
+            logger.error(f"Fallback download also failed: {str(fallback_error)}")
+            raise Exception(f"Cannot download audio: YouTube is restricting access to this video")
 
 def get_youtube_transcript(video_id, languages=['en'], with_speakers=False):
     """
@@ -161,6 +193,12 @@ def get_youtube_transcript(video_id, languages=['en'], with_speakers=False):
                         if os.path.exists(audio_path):
                             os.remove(audio_path)
                             logger.info(f"Removed temporary audio file: {audio_path}")
+                        if not speakers_data:
+                            logger.info("Falling back to text-based speaker identification")
+                            speakers_data = identify_speakers_from_text(transcript_text)
+                            if speakers_data:
+                                logger.info(f"Successfully identified speakers using text analysis")
+
                     except Exception as e:
                         logger.error(f"Speaker identification failed: {str(e)}")
                         # Continue without speaker data if it fails
@@ -722,3 +760,78 @@ def transcribe_with_assemblyai(file_path, with_speakers=False):
     except aai.exceptions.RequestTimeoutError:
         logger.error("AssemblyAI request timed out")
         raise Exception("Transcription service timed out. Please try again with a shorter video.")
+    
+# app/services/transcript_service.py
+import re
+import numpy as np
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.cluster import KMeans
+
+def identify_speakers_from_text(transcript, num_speakers=None):
+    """Text-based speaker identification when audio diarization fails"""
+    # Split transcript into logical segments 
+    segments = re.split(r'\n\n|\.\s+', transcript)
+    segments = [s.strip() for s in segments if len(s.strip()) > 20]
+    
+    if len(segments) < 10:
+        logger.warning("Transcript too short for reliable text-based speaker identification")
+        return None
+    
+    try:
+        # Estimate number of speakers if not provided
+        if num_speakers is None:
+            # Simple heuristic: estimate based on text length and structure
+            num_speakers = min(max(2, len(segments) // 30), 5)
+        
+        # Use TF-IDF vectorization for text features
+        vectorizer = TfidfVectorizer(
+            max_features=100, 
+            stop_words='english',
+            ngram_range=(1, 2)
+        )
+        X = vectorizer.fit_transform(segments)
+        
+        # Apply K-means clustering
+        kmeans = KMeans(n_clusters=num_speakers, random_state=42)
+        clusters = kmeans.fit_predict(X)
+        
+        # Build speaker data structure
+        speaker_segments = []
+        speakers = {}
+        
+        for i, (segment, cluster_id) in enumerate(zip(segments, clusters)):
+            speaker_id = f"speaker_{cluster_id}"
+            speaker_name = f"Speaker {chr(65 + cluster_id)}"  # A, B, C, etc.
+            
+            # Add speaker if new
+            if speaker_id not in speakers:
+                speakers[speaker_id] = speaker_name
+            
+            # Estimate timing (approximate)
+            duration = max(3, len(segment.split()) * 0.4)  # ~0.4 seconds per word
+            
+            if speaker_segments:
+                start = speaker_segments[-1]['end']
+            else:
+                start = 0
+                
+            end = start + duration
+            
+            speaker_segments.append({
+                'speaker': speaker_id,
+                'start': start,
+                'end': end,
+                'text': segment
+            })
+        
+        logger.info(f"Successfully performed text-based speaker identification with {num_speakers} speakers")
+        
+        return {
+            "speakers": speakers,
+            "segments": speaker_segments,
+            "method": "text-based"  # Mark as text-based for lower confidence indication
+        }
+            
+    except Exception as e:
+        logger.error(f"Error in text-based speaker identification: {str(e)}")
+        return None

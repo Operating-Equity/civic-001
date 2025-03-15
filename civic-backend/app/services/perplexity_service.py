@@ -75,23 +75,21 @@ def evaluate_with_perplexity(claim: str, context: str = "", model: str = "sonar-
 Context information:
 {context}
 
-IMPORTANT: Format your response EXACTLY as a valid JSON object with this structure.
-You must avoid any explanation outside the JSON and return ONLY the raw JSON:
+CRUCIAL INSTRUCTION: Your response MUST be formatted ONLY as a valid JSON object with no markdown formatting. You must avoid any explanation outside the JSON and return ONLY the raw JSON:
 
 {{
   "statement": "the exact claim being evaluated",
   "classification": "TRUE/FALSE/UNVERIFIED",
   "confidence": 50,
-  "fullAnalysis": "A detailed explanation that combines all available evidence",
+  "fullAnalysis": "A detailed explanation of the evaluation",
   "researchData": {{
     "facts": [
-      {{
-        "fact": "Specific fact found during research",
-        "source": "Citation or URL for the fact"
-      }}
+      {{ "fact": "Found fact", "source": "Source" }}
     ]
   }}
-}}'''
+}}
+
+'''
 
     payload = {
         "model": model,
@@ -186,45 +184,55 @@ You must avoid any explanation outside the JSON and return ONLY the raw JSON:
                 return result
 
 def extract_json_with_fallback(content: str, claim: str, model: str) -> Dict[str, Any]:
-    """
-    Extract JSON from the API response with multiple fallback strategies
-    
-    Args:
-        content: The raw API response content
-        claim: The original claim (for fallback)
-        model: The model name
-        
-    Returns:
-        Dictionary of parsed content or fallback values
-    """
+    """Enhanced JSON extraction with better fallback strategies"""
     # Clean the content
     clean_content = re.sub(r'[\x00-\x1F\x7F]', '', content.strip())
     
-    # Multiple extraction strategies
-    strategies = [
-        # Strategy 1: Direct JSON parsing
-        lambda text: json.loads(text),
-        
-        # Strategy 2: Find JSON between markers
-        lambda text: json.loads(re.search(r'({[\s\S]*})', text).group(1)),
-        
-        # Strategy 3: Extract just the JSON block with regex
-        lambda text: json.loads(re.search(r'```(?:json)?\s*({[\s\S]*?})\s*```', text).group(1)),
-        
-        # Strategy 4: Search for valid JSON braces
-        lambda text: find_json_object(text)
-    ]
-    
-    # Try each strategy in order
-    for i, strategy in enumerate(strategies):
+    # Strategy 1: Look for JSON between triple backticks with 'json' language marker
+    json_code_match = re.search(r'```json\s*([\s\S]*?)\s*```', clean_content)
+    if json_code_match:
         try:
-            logger.debug(f"[PERPLEXITY] Trying JSON extraction strategy {i+1}")
-            return strategy(clean_content)
-        except (json.JSONDecodeError, AttributeError, ValueError, IndexError) as e:
-            logger.debug(f"[PERPLEXITY] Strategy {i+1} failed: {str(e)}")
-            continue
+            return json.loads(json_code_match.group(1))
+        except json.JSONDecodeError:
+            logger.debug("[PERPLEXITY] Failed to parse JSON from code block with json marker")
     
-    # If all strategies fail, extract classification and build fallback
+    # Strategy 2: Look for any JSON between triple backticks
+    code_block_match = re.search(r'```\s*([\s\S]*?)\s*```', clean_content)
+    if code_block_match:
+        try:
+            return json.loads(code_block_match.group(1))
+        except json.JSONDecodeError:
+            logger.debug("[PERPLEXITY] Failed to parse JSON from general code block")
+    
+    # Strategy 3: Direct JSON parsing if the response is clean JSON
+    try:
+        return json.loads(clean_content)
+    except json.JSONDecodeError:
+        logger.debug("[PERPLEXITY] Failed direct JSON parsing")
+    
+    # Strategy 4: Fix common JSON errors and try again
+    try:
+        # Fix missing quotes around property names
+        fixed_content = re.sub(r'(\s*?)(\w+)(\s*?):', r'\1"\2"\3:', clean_content)
+        # Fix single quotes used instead of double quotes
+        fixed_content = fixed_content.replace("'", '"')
+        # Fix trailing commas
+        fixed_content = re.sub(r',\s*}', '}', fixed_content)
+        fixed_content = re.sub(r',\s*]', ']', fixed_content)
+        
+        return json.loads(fixed_content)
+    except json.JSONDecodeError:
+        logger.debug("[PERPLEXITY] Failed to parse JSON after fixing common errors")
+    
+    # Last resort: Extract JSON-like structure
+    try:
+        start = clean_content.find('{')
+        end = clean_content.rfind('}')
+        if start != -1 and end != -1 and end > start:
+            return json.loads(clean_content[start:end+1])
+    except json.JSONDecodeError:
+        logger.debug("[PERPLEXITY] Failed to extract JSON with brace matching")
+    
     logger.warning("[PERPLEXITY] All JSON extraction strategies failed, using text extraction fallback")
     return extract_classification_from_text(clean_content, claim, model)
 
