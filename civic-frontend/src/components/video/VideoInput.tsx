@@ -66,14 +66,14 @@ const VideoInput: React.FC<VideoInputProps> = ({
   
   return (
     <div className="glass-panel p-6">
-      {/* Input Type Selector - Simplified */}
-      <div className="flex mb-6 bg-white/5 rounded-full p-1 w-fit mx-auto">
+      {/* Input Type Selector - Light Theme */}
+      <div className="flex mb-6 bg-gray-100 rounded-full p-1 w-fit mx-auto">
         <button
           onClick={() => setInputType('url')}
           className={`px-5 py-2 rounded-full text-sm font-medium transition-colors flex items-center ${
             inputType === 'url' 
-              ? 'bg-primary text-white shadow-sm' 
-              : 'text-white/70 hover:text-white hover:bg-white/10'
+              ? 'bg-blue-600 text-white shadow-sm' 
+              : 'text-gray-600 hover:text-gray-900 hover:bg-gray-200'
           }`}
         >
           <Link2 className="h-4 w-4 inline-block mr-2" />
@@ -83,8 +83,8 @@ const VideoInput: React.FC<VideoInputProps> = ({
           onClick={() => setInputType('file')}
           className={`px-5 py-2 rounded-full text-sm font-medium transition-colors flex items-center ${
             inputType === 'file' 
-              ? 'bg-primary text-white shadow-sm' 
-              : 'text-white/70 hover:text-white hover:bg-white/10'
+              ? 'bg-blue-600 text-white shadow-sm' 
+              : 'text-gray-600 hover:text-gray-900 hover:bg-gray-200'
           }`}
         >
           <Upload className="h-4 w-4 inline-block mr-2" />
@@ -92,27 +92,27 @@ const VideoInput: React.FC<VideoInputProps> = ({
         </button>
       </div>
       
-      {/* Error Message - Clean Design */}
+      {/* Error Message - Light Theme */}
       {error && (
-        <div className="bg-red-500/5 border border-red-500/20 rounded-lg p-4 mb-6">
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6">
           <div className="flex items-start">
-            <AlertCircle className="h-5 w-5 text-red-400 mt-0.5 mr-2 flex-shrink-0" />
-            <p className="text-red-200 text-sm">{error}</p>
+            <AlertCircle className="h-5 w-5 text-red-500 mt-0.5 mr-2 flex-shrink-0" />
+            <p className="text-red-600 text-sm">{error}</p>
           </div>
         </div>
       )}
       
-      {/* URL Input - Cleaner Design */}
+      {/* URL Input - Light Theme */}
       {inputType === 'url' && (
         <form onSubmit={handleUrlSubmit} className="space-y-4">
           <div>
-            <div className="bg-white/5 border border-white/10 focus-within:border-primary/30 transition-colors rounded-xl overflow-hidden">
+            <div className="bg-white border border-gray-300 focus-within:border-blue-500 focus-within:ring-1 focus-within:ring-blue-500 transition-colors rounded-xl overflow-hidden">
               <input
                 type="text"
                 value={videoUrl}
                 onChange={(e) => setVideoUrl(e.target.value)}
                 placeholder="Paste YouTube URL here (e.g., https://www.youtube.com/watch?v=...)"
-                className="w-full px-4 py-3 bg-transparent text-white placeholder:text-white/30 focus:outline-none"
+                className="w-full px-4 py-3 bg-transparent text-gray-900 placeholder:text-gray-400 focus:outline-none"
                 disabled={isProcessing}
               />
             </div>
@@ -122,7 +122,7 @@ const VideoInput: React.FC<VideoInputProps> = ({
             <button 
               type="submit" 
               disabled={!videoUrl.trim() || isProcessing}
-              className="px-5 py-2.5 font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center min-w-[180px] bg-primary hover:bg-primary-600 active:bg-primary-700 text-white shadow-sm"
+              className="px-5 py-2.5 font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center min-w-[180px] bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white shadow-sm"
             >
               {isProcessing ? (
                 <>
@@ -137,14 +137,14 @@ const VideoInput: React.FC<VideoInputProps> = ({
         </form>
       )}
       
-      {/* File Upload - Cleaner Design */}
+      {/* File Upload - Light Theme */}
       {inputType === 'file' && (
         <form onSubmit={handleFileSubmit} className="space-y-4">
           <div
             className={`
               border-2 border-dashed rounded-xl p-6
-              ${isDragging ? 'border-primary bg-primary/5' : 'border-white/10 bg-white/5'}
-              ${selectedFile ? 'border-primary/50 bg-primary/5' : ''}
+              ${isDragging ? 'border-blue-500 bg-blue-50' : 'border-gray-300 bg-gray-50'}
+              ${selectedFile ? 'border-blue-500 bg-blue-50' : ''}
               transition-colors duration-200
             `}
             onDragOver={handleDragOver}
@@ -154,27 +154,27 @@ const VideoInput: React.FC<VideoInputProps> = ({
             {selectedFile ? (
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-white font-medium">{selectedFile.name}</p>
-                  <p className="text-white/50 text-sm">
+                  <p className="text-gray-800 font-medium">{selectedFile.name}</p>
+                  <p className="text-gray-500 text-sm">
                     {(selectedFile.size / (1024 * 1024)).toFixed(2)} MB
                   </p>
                 </div>
                 <button
                   type="button"
                   onClick={clearFile}
-                  className="text-white/70 hover:text-white p-1 rounded-full hover:bg-white/10"
+                  className="text-gray-500 hover:text-gray-700 p-1 rounded-full hover:bg-gray-200"
                 >
                   <X className="h-5 w-5" />
                 </button>
               </div>
             ) : (
               <div className="text-center">
-                <Upload className="h-10 w-10 text-primary/70 mx-auto mb-3" />
-                <p className="text-white mb-2">Drop your video file here</p>
-                <p className="text-white/50 text-sm mb-4">Or select a file from your computer</p>
+                <Upload className="h-10 w-10 text-blue-400 mx-auto mb-3" />
+                <p className="text-gray-800 mb-2">Drop your video file here</p>
+                <p className="text-gray-500 text-sm mb-4">Or select a file from your computer</p>
                 <label
                   htmlFor="fileInput"
-                  className="inline-block px-4 py-2 bg-white/10 hover:bg-white/15 text-white rounded-lg cursor-pointer transition-colors"
+                  className="inline-block px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-800 rounded-lg cursor-pointer transition-colors"
                 >
                   Browse Files
                 </label>
@@ -195,7 +195,7 @@ const VideoInput: React.FC<VideoInputProps> = ({
             <button 
               type="submit" 
               disabled={!selectedFile || isProcessing}
-              className="px-5 py-2.5 font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center min-w-[180px] bg-primary hover:bg-primary-600 active:bg-primary-700 text-white shadow-sm"
+              className="px-5 py-2.5 font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center min-w-[180px] bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white shadow-sm"
             >
               {isProcessing ? (
                 <>

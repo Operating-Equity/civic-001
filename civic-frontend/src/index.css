@@ -5,19 +5,18 @@
 @tailwind utilities;
 
 :root {
-  --foreground-rgb: 255, 255, 255;
-  --background-start-rgb: 10, 16, 31;
-  --background-end-rgb: 15, 23, 42;
+  --foreground-rgb: 30, 41, 59;
+  --background-start-rgb: 248, 250, 252;
+  --background-end-rgb: 241, 245, 249;
 }
 
 body {
   color: rgb(var(--foreground-rgb));
   background: linear-gradient(
       to bottom,
-      transparent,
+      rgb(var(--background-start-rgb)),
       rgb(var(--background-end-rgb))
-    )
-    rgb(var(--background-start-rgb));
+    );
   min-height: 100vh;
   font-feature-settings: "cv02", "cv03", "cv04", "cv11";
   -webkit-font-smoothing: antialiased;
@@ -31,79 +30,125 @@ body {
 }
 
 ::-webkit-scrollbar-track {
-  background: rgba(255, 255, 255, 0.03);
+  background: rgba(0, 0, 0, 0.03);
   border-radius: 10px;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.15);
+  background: rgba(0, 0, 0, 0.15);
   border-radius: 10px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.25);
+  background: rgba(0, 0, 0, 0.25);
 }
 
-/* Glass panel styling - simplified and more subtle */
+/* Glass panel styling - light version */
 .glass-panel {
-  @apply backdrop-blur-md bg-background-card/90 border border-white/8 shadow-lg rounded-xl;
-  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.2), 0 1px 2px rgba(255, 255, 255, 0.05) inset;
+  backdrop-filter: blur(12px);
+  background-color: rgba(255, 255, 255, 0.9);
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  border-radius: 0.75rem;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.05);
 }
 
-/* Improved focus styles for accessibility */
+/* Focus styling */
 *:focus-visible {
-  @apply outline-none ring-2 ring-primary ring-offset-1 ring-offset-background-dark;
+  outline: none;
+  box-shadow: 0 0 0 2px #0055DB;
 }
 
-/* Refined badge styles */
+/* Badge styles */
 .verification-badge {
-  @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium;
+  display: inline-flex;
+  align-items: center;
+  padding: 0.25rem 0.625rem;
+  border-radius: 9999px;
+  font-size: 0.75rem;
+  font-weight: 500;
 }
 
 .verification-badge.true {
-  @apply bg-status-true/20 text-status-true border border-status-true/30;
+  background-color: rgba(5, 150, 105, 0.1);
+  color: #047857;
+  border: 1px solid rgba(5, 150, 105, 0.3);
 }
 
 .verification-badge.false {
-  @apply bg-status-false/20 text-status-false border border-status-false/30;
+  background-color: rgba(220, 38, 38, 0.1);
+  color: #B91C1C;
+  border: 1px solid rgba(220, 38, 38, 0.3);
 }
 
 .verification-badge.unverified {
-  @apply bg-status-unverified/20 text-status-unverified border border-status-unverified/30;
+  background-color: rgba(217, 119, 6, 0.1);
+  color: #B45309;
+  border: 1px solid rgba(217, 119, 6, 0.3);
 }
 
-/* Improved typography for readability */
+/* Typography */
 h1, h2, h3, h4, h5, h6 {
-  @apply tracking-tight;
+  letter-spacing: -0.025em;
+  color: #111827;
 }
 
 p {
-  @apply leading-relaxed;
+  line-height: 1.625;
 }
 
-/* Subtle separators */
+/* Separator */
 .separator {
-  @apply h-px w-full bg-gradient-to-r from-transparent via-white/10 to-transparent my-6;
+  height: 1px;
+  width: 100%;
+  background: linear-gradient(to right, transparent, rgba(0, 0, 0, 0.1), transparent);
+  margin: 1.5rem 0;
 }
 
-/* Sleek button styling */
+/* Button styling */
 .btn {
-  @apply px-4 py-2 rounded-lg transition-all duration-200 font-medium;
+  padding: 0.5rem 1rem;
+  border-radius: 0.5rem;
+  transition: all 0.2s;
+  font-weight: 500;
 }
 
 .btn-primary {
-  @apply bg-primary text-white hover:bg-primary-600 active:bg-primary-700;
+  background-color: #0055DB;
+  color: white;
+}
+
+.btn-primary:hover {
+  background-color: #0044B0;
+}
+
+.btn-primary:active {
+  background-color: #003385;
 }
 
 .btn-secondary {
-  @apply bg-white/10 text-white hover:bg-white/15 active:bg-white/20;
+  background-color: rgba(0, 0, 0, 0.05);
+  color: #374151;
 }
 
-/* Clean card styling */
+.btn-secondary:hover {
+  background-color: rgba(0, 0, 0, 0.1);
+}
+
+.btn-secondary:active {
+  background-color: rgba(0, 0, 0, 0.15);
+}
+
+/* Card styling */
 .card {
-  @apply glass-panel p-6 transition-all duration-200;
+  padding: 1.5rem;
+  transition: all 0.2s;
 }
 
 .card-interactive {
-  @apply hover:border-primary/30 hover:shadow-primary/5 cursor-pointer;
+  cursor: pointer;
+}
+
+.card-interactive:hover {
+  border-color: rgba(0, 85, 219, 0.3);
+  box-shadow: 0 4px 12px rgba(0, 85, 219, 0.05);
 }
