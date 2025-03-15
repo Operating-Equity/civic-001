@@ -1,5 +1,5 @@
 from flask import request, jsonify
-from app.api.routes import api
+from app.api.api_routes import api
 from app.services.search_service import search_evidence, generate_keywords
 
 @api.route('/search/keywords', methods=['POST'])
