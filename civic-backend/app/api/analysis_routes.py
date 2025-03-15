@@ -83,9 +83,9 @@ def evaluate_claim():
                         print("[EVALUATE] Anthropic evaluation successful")
                     else:
                         return None, f"Unknown model: {model_name}"
-                
-                return model_name, result
-            except Exception as model_error:
+                    
+                    return model_name, result
+                except Exception as model_error:
                 print(f"[EVALUATE] {model_name.capitalize()} evaluation failed: {str(model_error)}")
                 error_result = {
                     "statement": claim,
