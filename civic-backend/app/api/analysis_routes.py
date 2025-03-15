@@ -64,21 +64,25 @@ def evaluate_claim():
         
         # Define a function to process a single model
         def process_model(model_name):
-            try:
-                if model_name == 'perplexity':
-                    print(f"[EVALUATE] Calling Perplexity API for claim: '{claim[:30]}...'")
-                    result = evaluate_with_perplexity(claim, context)
-                    print("[EVALUATE] Perplexity evaluation successful")
-                elif model_name == 'openai':
-                    print(f"[EVALUATE] Calling OpenAI API for claim: '{claim[:30]}...'")
-                    result = evaluate_with_openai(claim, context)
-                    print("[EVALUATE] OpenAI evaluation successful")
-                elif model_name == 'anthropic':
-                    print(f"[EVALUATE] Calling Anthropic API for claim: '{claim[:30]}...'")
-                    result = evaluate_with_anthropic(claim, context)
-                    print("[EVALUATE] Anthropic evaluation successful")
-                else:
-                    return None, f"Unknown model: {model_name}"
+            # Create a new app instance for this thread
+            app = create_app()
+            # Run within an application context
+            with app.app_context():
+                try:
+                    if model_name == 'perplexity':
+                        print(f"[EVALUATE] Calling Perplexity API for claim: '{claim[:30]}...'")
+                        result = evaluate_with_perplexity(claim, context)
+                        print("[EVALUATE] Perplexity evaluation successful")
+                    elif model_name == 'openai':
+                        print(f"[EVALUATE] Calling OpenAI API for claim: '{claim[:30]}...'")
+                        result = evaluate_with_openai(claim, context)
+                        print("[EVALUATE] OpenAI evaluation successful")
+                    elif model_name == 'anthropic':
+                        print(f"[EVALUATE] Calling Anthropic API for claim: '{claim[:30]}...'")
+                        result = evaluate_with_anthropic(claim, context)
+                        print("[EVALUATE] Anthropic evaluation successful")
+                    else:
+                        return None, f"Unknown model: {model_name}"
                 
                 return model_name, result
             except Exception as model_error:
