@@ -4,7 +4,7 @@ FROM python:3.10-alpine AS builder
 WORKDIR /app
 
 # Install build dependencies
-RUN apk add --no-cache gcc musl-dev libsndfile-dev
+RUN apk add --no-cache gcc g++ musl-dev libsndfile-dev ffmpeg-dev py3-pip
 
 # Copy and install Python dependencies
 COPY requirements.txt .
@@ -16,7 +16,7 @@ FROM python:3.10-alpine
 WORKDIR /app
 
 # Install only runtime dependencies
-RUN apk add --no-cache libsndfile
+RUN apk add --no-cache libsndfile ffmpeg
 
 # Copy Python packages from builder stage
 COPY --from=builder /usr/local/lib/python3.10/site-packages/ /usr/local/lib/python3.10/site-packages/
