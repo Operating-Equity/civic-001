@@ -2,27 +2,20 @@ FROM python:3.10-slim
 
 WORKDIR /app
 
-# Install system dependencies for audio processing (required for Whisper)
-# Split into multiple RUN commands to minimize disk space usage
+# Minimal install of essential libraries for audio processing
+# Uses a two-phase approach to avoid downloading packages twice
 RUN apt-get update --allow-insecure-repositories && \
-    apt-get install -y --allow-unauthenticated --no-install-recommends ffmpeg && \
-    apt-get clean && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
+    mkdir -p /tmp/apt-cache && \
+    apt-get -o Dir::Cache::Archives=/tmp/apt-cache \
+        -y --allow-unauthenticated --no-install-recommends \
+        install libsndfile1 libgomp1 && \
+    rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
+# Install build tools only if absolutely necessary
 RUN apt-get update --allow-insecure-repositories && \
-    apt-get install -y --allow-unauthenticated --no-install-recommends libsm6 && \
-    apt-get clean && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
-
-RUN apt-get update --allow-insecure-repositories && \
-    apt-get install -y --allow-unauthenticated --no-install-recommends libxext6 && \
-    apt-get clean && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
-
-RUN apt-get update --allow-insecure-repositories && \
-    apt-get install -y --allow-unauthenticated --no-install-recommends libsndfile1 && \
-    apt-get clean && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
-
-RUN apt-get update --allow-insecure-repositories && \
-    apt-get install -y --allow-unauthenticated --no-install-recommends build-essential && \
-    apt-get clean && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
+    apt-get -y --allow-unauthenticated --no-install-recommends \
+        install gcc && \
+    rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
 # Install dependencies
 COPY requirements.txt .
