@@ -1,34 +1,42 @@
 # Multi-stage build to minimize disk space usage
-FROM python:3.10-alpine AS builder
 
+# Builder stage
+FROM python:3.10-slim AS builder
 WORKDIR /app
 
 # Install build dependencies
-RUN apk add --no-cache gcc g++ musl-dev libsndfile-dev ffmpeg-dev py3-pip
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    g++ \
+    libsndfile-dev \
+    ffmpeg \
+ && rm -rf /var/lib/apt/lists/*
 
 # Copy and install Python dependencies
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Final stage with minimal runtime dependencies
-FROM python:3.10-alpine
-
+FROM python:3.10-slim
 WORKDIR /app
 
 # Install only runtime dependencies
-RUN apk add --no-cache libsndfile ffmpeg
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libsndfile1 \
+    ffmpeg \
+ && rm -rf /var/lib/apt/lists/*
 
-# Copy Python packages from builder stage
+# Copy Python packages and executables from builder stage
 COPY --from=builder /usr/local/lib/python3.10/site-packages/ /usr/local/lib/python3.10/site-packages/
 COPY --from=builder /usr/local/bin/ /usr/local/bin/
 
-# Copy application code
+# Copy the application code
 COPY . .
 
 # Create upload directory
 RUN mkdir -p uploads
 
-# Expose port
+# Expose the port
 EXPOSE 5002
 
 # Run the application
