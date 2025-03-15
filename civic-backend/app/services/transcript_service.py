@@ -1,7 +1,7 @@
 import requests
 import json
 from youtube_transcript_api import YouTubeTranscriptApi
-from assemblyai import AssemblyAI
+import assemblyai as aai
 from flask import current_app
 
 def get_youtube_transcript(video_id):
@@ -56,20 +56,17 @@ def get_video_transcript(file_path):
     Extract transcript from uploaded video file using AssemblyAI.
     """
     try:
-        client = AssemblyAI(api_key=current_app.config.get('ASSEMBLY_AI_KEY'))
+        # Set your API key
+        aai.settings.api_key = current_app.config.get('ASSEMBLY_AI_KEY')
         
-        # Upload the file to AssemblyAI
-        upload_response = client.transcripts.transcribe_file(file_path)
+        # Create a transcriber instance
+        transcriber = aai.Transcriber()
         
-        # Poll until transcription is complete
-        transcript_id = upload_response.id
+        # Transcribe the audio file
+        transcript = transcriber.transcribe(file_path)
         
-        while True:
-            transcript = client.transcripts.get(transcript_id)
-            if transcript.status == 'completed':
-                return transcript.text
-            elif transcript.status == 'error':
-                raise Exception(f"AssemblyAI error: {transcript.error}")
+        # Return the transcript text
+        return transcript.text
                 
     except Exception as e:
         raise Exception(f"Failed to transcribe video file: {str(e)}")
