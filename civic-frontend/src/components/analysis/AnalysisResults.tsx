@@ -40,11 +40,11 @@ const AnalysisResults: React.FC<AnalysisResultsProps> = ({
   const getTabIcon = (tab: TabType) => {
     switch (tab) {
       case 'claims':
-        return <CircleAlert className="h-5 w-5" />;
+        return <AlertCircle className="h-5 w-5" />;
       case 'perplexity':
       case 'openai':
       case 'anthropic':
-        return <CircleCheck className="h-5 w-5" />;
+        return <CheckCircle className="h-5 w-5" />;
       case 'comparison':
         return <BarChart4 className="h-5 w-5" />;
       default:
