@@ -9,7 +9,8 @@ def call_openai_api(model, messages, temperature=0.3, max_tokens=None):
     """
     api_key = current_app.config.get('OPENAI_API_KEY')
     if not api_key:
-        raise Exception("OpenAI API key not configured")
+        print("[OPENAI] Warning: OpenAI API key not configured in environment variables")
+        raise Exception("OpenAI API key not configured. Please add OPENAI_API_KEY to your environment variables.")
         
     headers = {
         "Authorization": f"Bearer {api_key}",
