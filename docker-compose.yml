@@ -10,11 +10,15 @@ services:
       - "5002:5002"
     env_file:
       - ./civic-backend/.env
+    environment:
+      - FLASK_PORT=5002
+      - PORT=5002
     volumes:
       - ./civic-backend:/app
       - uploads:/app/uploads
     networks:
       - civic-network
+    command: python run.py  # Ensure it runs with our explicit port settings
 
   # Frontend service
   web:
@@ -23,6 +27,9 @@ services:
     restart: unless-stopped
     ports:
       - "80:80"
+    environment:
+      - REACT_APP_API_URL=http://api:5002
+      - API_PORT=5002
     depends_on:
       - api
     networks:
