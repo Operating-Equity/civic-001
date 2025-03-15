@@ -82,25 +82,102 @@ def get_youtube_transcript(video_id):
             
             response.raise_for_status()  # Raise exception for 4XX/5XX status codes
             
+            # Log response for debugging
+            logger.info(f"RapidAPI response status: {response.status_code}")
+            response_text = response.text[:500] + "..." if len(response.text) > 500 else response.text
+            logger.info(f"RapidAPI response preview: {response_text}")
+            
             data = response.json()
             
-            if not data or not isinstance(data, list) or len(data) == 0:
-                logger.error(f"Invalid or empty response from RapidAPI for {video_id}")
+            # More detailed logging and validation
+            if not data:
+                logger.error(f"Empty response from RapidAPI for {video_id}")
+                raise Exception("No transcript data available for this video")
+            
+            if not isinstance(data, list):
+                logger.error(f"Unexpected response format from RapidAPI for {video_id}: not a list")
+                logger.error(f"Response type: {type(data)}")
+                # Try to handle non-list response if possible
+                if isinstance(data, dict) and data.get('transcription'):
+                    # Convert to expected format
+                    data = [data]
+                else:
+                    raise Exception("Unexpected response format from RapidAPI")
+            
+            if len(data) == 0:
+                logger.error(f"Empty list response from RapidAPI for {video_id}")
                 raise Exception("No transcript data available for this video")
                 
-            video_title = data[0].get('title', f"YouTube Video ({video_id})")
-            
-            if not data[0].get('transcription'):
-                logger.error(f"No transcription data in RapidAPI response for {video_id}")
-                raise Exception("No transcription data in API response")
+            # Try to extract title and handle potential missing fields
+            try:
+                video_title = data[0].get('title', f"YouTube Video ({video_id})")
                 
-            transcript_text = " ".join(
-                [segment.get('subtitle', '') for segment in data[0].get('transcription', [])]
-            )
+                # Check for transcription data with more detailed logging
+                if not data[0].get('transcription'):
+                    logger.error(f"No 'transcription' field in RapidAPI response for {video_id}")
+                    logger.error(f"Available fields: {list(data[0].keys())}")
+                    
+                    # Try alternative fields that might contain transcript data
+                    alternate_fields = ['transcript', 'subtitles', 'captions', 'text']
+                    found_field = None
+                    
+                    for field in alternate_fields:
+                        if field in data[0] and data[0][field]:
+                            found_field = field
+                            logger.info(f"Found alternative transcript field: {field}")
+                            break
+                    
+                    if found_field:
+                        # Handle the alternative field format
+                        if isinstance(data[0][found_field], list):
+                            segments = data[0][found_field]
+                            if segments and isinstance(segments[0], dict):
+                                # Try to find text content in different possible keys
+                                text_keys = ['subtitle', 'text', 'content', 'caption']
+                                for key in text_keys:
+                                    if key in segments[0]:
+                                        transcript_text = " ".join([s.get(key, '') for s in segments])
+                                        break
+                            else:
+                                # If segments are strings, join them directly
+                                transcript_text = " ".join([str(s) for s in segments])
+                        elif isinstance(data[0][found_field], str):
+                            # If it's already a string, use it directly
+                            transcript_text = data[0][found_field]
+                        else:
+                            raise Exception("Cannot parse alternative transcript field format")
+                    else:
+                        raise Exception("No transcription data in API response")
+                else:
+                    # Process transcription normally
+                    transcription = data[0].get('transcription', [])
+                    logger.info(f"Found {len(transcription)} transcript segments")
+                    
+                    # Sample the first segment to understand its structure
+                    if transcription and len(transcription) > 0:
+                        logger.info(f"First segment sample: {str(transcription[0])[:100]}")
+                    
+                    transcript_text = " ".join(
+                        [segment.get('subtitle', '') for segment in transcription]
+                    )
+            except (KeyError, IndexError, TypeError) as e:
+                logger.error(f"Error parsing RapidAPI response: {str(e)}")
+                logger.error(f"Response structure: {str(data)[:500]}")
+                raise Exception(f"Failed to parse transcript data: {str(e)}")
             
+            # Validate the extracted transcript
             if not transcript_text or transcript_text.strip() == "":
                 logger.error(f"Empty transcript text from RapidAPI for {video_id}")
-                raise Exception("Empty transcript result")
+                
+                # Try one more approach - direct text extraction if available
+                if isinstance(data[0], dict) and 'text' in data[0]:
+                    transcript_text = data[0]['text']
+                    if transcript_text and transcript_text.strip() != "":
+                        logger.info("Successfully extracted transcript from 'text' field")
+                    else:
+                        raise Exception("Empty transcript result after fallback attempt")
+                else:
+                    raise Exception("Empty transcript result")
                 
             logger.info(f"Successfully fetched transcript via RapidAPI for {video_id}")
             return transcript_text, video_title
