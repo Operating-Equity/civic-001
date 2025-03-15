@@ -36,26 +36,71 @@ def create_summary():
 @api.route('/analysis/evaluate', methods=['POST'])
 def evaluate_claim():
     """Evaluate a claim using multiple AI providers"""
+    # Log that the endpoint was called
+    print(f"[EVALUATE] Endpoint called with request data: {request.json}")
+    
     if not request.json or 'claim' not in request.json:
+        print("[EVALUATE] Error: No claim provided in request")
         return jsonify({'error': 'No claim provided'}), 400
         
     claim = request.json.get('claim')
     context = request.json.get('context', '')
     model = request.json.get('model', 'all')
     
+    print(f"[EVALUATE] Processing claim: '{claim[:50]}...' with model: {model}")
+    
     try:
         results = {}
         
         # Evaluate with specified model or all models
         if model in ['all', 'perplexity']:
-            results['perplexity'] = evaluate_with_perplexity(claim, context)
+            print(f"[EVALUATE] Calling Perplexity API for claim: '{claim[:30]}...'")
+            try:
+                results['perplexity'] = evaluate_with_perplexity(claim, context)
+                print("[EVALUATE] Perplexity evaluation successful")
+            except Exception as model_error:
+                print(f"[EVALUATE] Perplexity evaluation failed: {str(model_error)}")
+                results['perplexity'] = {
+                    "statement": claim,
+                    "classification": "UNVERIFIED",
+                    "confidence": 0,
+                    "supportingFacts": f"Error: {str(model_error)}",
+                    "model": "Perplexity"
+                }
             
         if model in ['all', 'openai']:
-            results['openai'] = evaluate_with_openai(claim, context)
+            print(f"[EVALUATE] Calling OpenAI API for claim: '{claim[:30]}...'")
+            try:
+                results['openai'] = evaluate_with_openai(claim, context)
+                print("[EVALUATE] OpenAI evaluation successful")
+            except Exception as model_error:
+                print(f"[EVALUATE] OpenAI evaluation failed: {str(model_error)}")
+                results['openai'] = {
+                    "statement": claim,
+                    "classification": "UNVERIFIED",
+                    "confidence": 0,
+                    "supportingFacts": f"Error: {str(model_error)}",
+                    "model": "OpenAI"
+                }
             
         if model in ['all', 'anthropic']:
-            results['anthropic'] = evaluate_with_anthropic(claim, context)
-            
+            print(f"[EVALUATE] Calling Anthropic API for claim: '{claim[:30]}...'")
+            try:
+                results['anthropic'] = evaluate_with_anthropic(claim, context)
+                print("[EVALUATE] Anthropic evaluation successful")
+            except Exception as model_error:
+                print(f"[EVALUATE] Anthropic evaluation failed: {str(model_error)}")
+                results['anthropic'] = {
+                    "statement": claim,
+                    "classification": "UNVERIFIED",
+                    "confidence": 0,
+                    "supportingFacts": f"Error: {str(model_error)}",
+                    "model": "Anthropic"
+                }
+        
+        print(f"[EVALUATE] Returning results with {len(results)} model evaluations")
         return jsonify(results)
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        error_message = f"Error evaluating claim: {str(e)}"
+        print(f"[EVALUATE] {error_message}")
+        return jsonify({'error': error_message}), 500
