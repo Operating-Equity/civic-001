@@ -2,7 +2,7 @@ import os
 import uuid
 from flask import request, jsonify, current_app
 from werkzeug.utils import secure_filename
-from app.api.routes import api
+from app.api.api_routes import api
 from app.services.video_service import process_video_file, extract_video_id
 from app.services.transcript_service import get_youtube_transcript, get_video_transcript
 
