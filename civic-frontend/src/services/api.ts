@@ -38,9 +38,26 @@ export const processVideoUrl = async (videoUrl: string): Promise<VideoAnalysisRe
       videoTitle,
       thumbnailUrl
     };
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error processing video URL:', error);
-    throw error;
+    
+    // Enhanced error handling for YouTube video processing
+    if (error.response) {
+      // Server responded with an error status
+      if (error.response.status === 502) {
+        throw new Error('Connection to video processing service timed out. Please try again or use a shorter video.');
+      } else if (error.response.data && error.response.data.error) {
+        throw new Error(`Video processing failed: ${error.response.data.error}`);
+      } else {
+        throw new Error(`Server error (${error.response.status}): Unable to process YouTube video.`);
+      }
+    } else if (error.request) {
+      // Request was made but no response received
+      throw new Error('Unable to connect to the server. Please check your internet connection and try again.');
+    } else {
+      // Something else caused the error
+      throw new Error(error.message || 'An unknown error occurred while processing the video.');
+    }
   }
 };
 
@@ -50,11 +67,18 @@ export const processVideoFile = async (file: File): Promise<VideoAnalysisResult>
     const formData = new FormData();
     formData.append('video_file', file);
     
+    // Check file size before uploading - prevent 413 errors
+    if (file.size > 100 * 1024 * 1024) { // 100MB
+      throw new Error('Video file exceeds the maximum size limit of 100MB.');
+    }
+    
     // Need to update headers for form data
     const transcriptResponse = await axios.post('/api/video/process', formData, {
       headers: {
         'Content-Type': 'multipart/form-data'
-      }
+      },
+      // Increase timeout for large file uploads
+      timeout: 300000 // 5 minutes
     });
     
     const { transcript, video_title: videoTitle } = transcriptResponse.data;
@@ -73,9 +97,28 @@ export const processVideoFile = async (file: File): Promise<VideoAnalysisResult>
       empiricalClaims,
       videoTitle
     };
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error processing video file:', error);
-    throw error;
+    
+    // Enhanced error handling for file upload errors
+    if (error.message === 'Video file exceeds the maximum size limit of 100MB.') {
+      throw error; // Custom error already formatted
+    } else if (error.response) {
+      // Server responded with an error status
+      if (error.response.status === 413) {
+        throw new Error('Video file too large. Please upload a file smaller than 100MB.');
+      } else if (error.response.data && error.response.data.error) {
+        throw new Error(`Video processing failed: ${error.response.data.error}`);
+      } else {
+        throw new Error(`Server error (${error.response.status}): Unable to process video file.`);
+      }
+    } else if (error.request) {
+      // Request was made but no response received (likely timeout)
+      throw new Error('Video upload timed out. Please try a smaller file or check your connection.');
+    } else {
+      // Something else caused the error
+      throw new Error(error.message || 'An unknown error occurred while processing the video.');
+    }
   }
 };
 
