@@ -3,12 +3,14 @@ import {
   ClaimAnalysis, 
   Claim,
   VideoAnalysisResult,
-  ServiceStatus
+  ServiceStatus,
+  SpeakersData
 } from '../types';
 import { 
   processVideoUrl, 
   processVideoFile,
-  evaluateClaim 
+  evaluateClaim,
+  evaluateMultipleClaims
 } from '../services/api';
 
 export const useVideoAnalysis = () => {
@@ -19,6 +21,7 @@ export const useVideoAnalysis = () => {
   const [thumbnailUrl, setThumbnailUrl] = useState('');
   const [summary, setSummary] = useState('');
   const [videoTitle, setVideoTitle] = useState('');
+  const [speakersData, setSpeakersData] = useState<SpeakersData | null>(null);
   
   const [empiricalClaims, setEmpiricalClaims] = useState<ClaimAnalysis[]>([]);
   const [perplexityResults, setPerplexityResults] = useState<Claim[]>([]);
@@ -64,6 +67,7 @@ export const useVideoAnalysis = () => {
     setPerplexityResults([]);
     setOpenAIResults([]);
     setAnthropicResults([]);
+    setSpeakersData(null);
     setError(null);
     setServiceStatus({
       perplexity: 'idle',
@@ -78,7 +82,7 @@ export const useVideoAnalysis = () => {
     setProcessingClaimIndex(-1);
   }, []);
   
-  const handleVideoSubmit = useCallback(async (input: { type: 'file' | 'url'; value: File | string; model?: string }) => {
+  const handleVideoSubmit = useCallback(async (input: { type: 'file' | 'url'; value: File | string; with_speakers?: boolean }) => {
     // Save scroll position before state updates
     saveScrollPosition();
     
@@ -91,9 +95,9 @@ export const useVideoAnalysis = () => {
       let result: VideoAnalysisResult;
       
       if (input.type === 'url') {
-        result = await processVideoUrl(input.value as string);
+        result = await processVideoUrl(input.value as string, input.with_speakers);
       } else {
-        result = await processVideoFile(input.value as File);
+        result = await processVideoFile(input.value as File, input.with_speakers);
       }
       
       // Set the basic video analysis results
@@ -104,6 +108,10 @@ export const useVideoAnalysis = () => {
       
       if (result.thumbnailUrl) {
         setThumbnailUrl(result.thumbnailUrl);
+      }
+      
+      if (result.speakers_data) {
+        setSpeakersData(result.speakers_data);
       }
       
       // Process claims with AI models
@@ -123,145 +131,133 @@ export const useVideoAnalysis = () => {
       setIsLoading(false); // Make sure to set loading to false on error
     }
   }, [resetStates, saveScrollPosition, restoreScrollPosition]);
-  
+
+  // Enhanced parallel processing of all claims at once
   const processClaims = useCallback(async (claims: ClaimAnalysis[], summary: string) => {
     if (!claims.length) {
       setIsLoading(false); // Set loading to false if no claims
       return;
     }
     
-    // Process claims one by one to avoid rate limits
-    for (let i = 0; i < claims.length; i++) {
-      setProcessingClaimIndex(i);
-      const claim = claims[i];
-      
-      // Reset service status for new claim
-      setServiceStatus({
-        perplexity: 'loading',
-        openai: 'loading',
-        anthropic: 'loading'
-      });
-      
-      try {
-        // Create context including summary and specific claim context
-        const context = `
-Video Summary:
-${summary}
-
-Claim Context:
-${claim.context}
-
-Validation Approach:
-${claim.validationPotential}
-        `;
-        
-        // Evaluate claim with all models
-        console.log(`[DEBUG] Evaluating claim ${i + 1}/${claims.length}: "${claim.claim.substring(0, 50)}..."`);
-        const results = await evaluateClaim(claim.claim, context);
-        console.log('[DEBUG] API response:', results);
-        console.log('[DEBUG] Models in response:', Object.keys(results));
-        
-        // Force model results in case the API response is incomplete
-        const modelResults = {
-          perplexity: results.perplexity || createFallbackResult(claim.claim, 'perplexity'),
-          openai: results.openai || createFallbackResult(claim.claim, 'openai'),
-          anthropic: results.anthropic || createFallbackResult(claim.claim, 'anthropic')
-        };
-        
-        console.log('[DEBUG] Processed model results:', Object.keys(modelResults));
-        
-        // Process Perplexity result
-        setPerplexityResults(prev => [...prev, {
-          ...modelResults.perplexity,
-          claimId: claim.id
-        }]);
-        setServiceStatus(prev => ({
-          ...prev,
-          perplexity: results.perplexity ? 'success' : 'error'
-        }));
-        if (!results.perplexity) {
-          setErrorMessages(prev => ({
-            ...prev,
-            perplexity: 'Failed to get results from Perplexity'
-          }));
-        }
-        
-        // Process OpenAI result
-        setOpenAIResults(prev => [...prev, {
-          ...modelResults.openai,
-          claimId: claim.id
-        }]);
-        setServiceStatus(prev => ({
-          ...prev,
-          openai: results.openai ? 'success' : 'error'
-        }));
-        if (!results.openai) {
-          setErrorMessages(prev => ({
-            ...prev,
-            openai: 'Failed to get results from OpenAI'
-          }));
-        }
-        
-        // Process Anthropic result
-        setAnthropicResults(prev => [...prev, {
-          ...modelResults.anthropic,
-          claimId: claim.id
-        }]);
-        setServiceStatus(prev => ({
-          ...prev,
-          anthropic: results.anthropic ? 'success' : 'error'
-        }));
-        if (!results.anthropic) {
-          setErrorMessages(prev => ({
-            ...prev,
-            anthropic: 'Failed to get results from Anthropic'
-          }));
-        }
-        
-        console.log('[DEBUG] Results processed for all services');
-        
-        // Save scroll position whenever we update state
-        saveScrollPosition();
-        
-      } catch (error: any) {
-        console.error(`Error processing claim ${i + 1}:`, error);
-        // Create fallback results for all services
-        const fallbackResult = createFallbackResult(claim.claim, 'error');
-        
-        // Add fallback results for all services
-        setPerplexityResults(prev => [...prev, { ...fallbackResult, model: 'Perplexity', claimId: claim.id }]);
-        setOpenAIResults(prev => [...prev, { ...fallbackResult, model: 'OpenAI', claimId: claim.id }]);
-        setAnthropicResults(prev => [...prev, { ...fallbackResult, model: 'Anthropic', claimId: claim.id }]);
-        
-        // Update all services to error state if the request fails completely
-        setServiceStatus({
-          perplexity: 'error',
-          openai: 'error',
-          anthropic: 'error'
-        });
-        setErrorMessages({
-          perplexity: 'Network error occurred',
-          openai: 'Network error occurred',
-          anthropic: 'Network error occurred'
-        });
-      }
-      
-      // Restore scroll position after processing each claim
-      setTimeout(restoreScrollPosition, 100);
-    }
-    
-    // After processing all claims, log the final results count
-    console.log('[DEBUG] Final result counts:', {
-      perplexity: perplexityResults.length,
-      openai: openAIResults.length,
-      anthropic: anthropicResults.length
+    // Set initial loading state for all services
+    setServiceStatus({
+      perplexity: 'loading',
+      openai: 'loading',
+      anthropic: 'loading'
     });
     
-    // Reset processing index when done
-    setProcessingClaimIndex(-1);
-    
-    // Set loading to false when all processing is complete
-    setIsLoading(false);
+    try {
+      // Create context combining summary and specific claim contexts
+      const globalContext = `Video Summary: ${summary}`;
+      
+      // Format claims for the batch API
+      const formattedClaims = claims.map(claim => ({
+        id: claim.id,
+        claim: claim.claim,
+        context: claim.context
+      }));
+      
+      console.log(`[DEBUG] Processing ${claims.length} claims in parallel`);
+      
+      // Call the batch API to process all claims at once in parallel
+      const results = await evaluateMultipleClaims(formattedClaims, globalContext);
+      
+      console.log('[DEBUG] Batch processing complete, processing results');
+      
+      // Process results for each claim and model
+      if (results && typeof results === 'object') {
+        const perplexityResultsList: Claim[] = [];
+        const openAIResultsList: Claim[] = [];
+        const anthropicResultsList: Claim[] = [];
+        
+        // Track which models succeeded
+        const successfulModels = {
+          perplexity: false,
+          openai: false,
+          anthropic: false
+        };
+        
+        // Process each claim's results
+        for (const [claimId, claimResults] of Object.entries(results)) {
+          if (claimResults.perplexity) {
+            perplexityResultsList.push({
+              ...claimResults.perplexity,
+              claimId
+            });
+            successfulModels.perplexity = true;
+          }
+          
+          if (claimResults.openai) {
+            openAIResultsList.push({
+              ...claimResults.openai,
+              claimId
+            });
+            successfulModels.openai = true;
+          }
+          
+          if (claimResults.anthropic) {
+            anthropicResultsList.push({
+              ...claimResults.anthropic,
+              claimId
+            });
+            successfulModels.anthropic = true;
+          }
+        }
+        
+        // Update results for each model
+        setPerplexityResults(perplexityResultsList);
+        setOpenAIResults(openAIResultsList);
+        setAnthropicResults(anthropicResultsList);
+        
+        // Update service statuses
+        setServiceStatus({
+          perplexity: successfulModels.perplexity ? 'success' : 'error',
+          openai: successfulModels.openai ? 'success' : 'error',
+          anthropic: successfulModels.anthropic ? 'success' : 'error'
+        });
+        
+        // Save scroll position as state is updated
+        saveScrollPosition();
+      } else {
+        throw new Error('Invalid response format from claim evaluation');
+      }
+    } catch (error: any) {
+      console.error('Error processing claims in parallel:', error);
+      
+      // Create fallback results for all services
+      const fallbackResults = claims.map(claim => {
+        const fallbackClaim = createFallbackResult(claim.claim, 'error');
+        return {
+          ...fallbackClaim,
+          claimId: claim.id
+        };
+      });
+      
+      // Update with fallback results
+      setPerplexityResults(fallbackResults.map(result => ({ ...result, model: 'Perplexity' })));
+      setOpenAIResults(fallbackResults.map(result => ({ ...result, model: 'OpenAI' })));
+      setAnthropicResults(fallbackResults.map(result => ({ ...result, model: 'Anthropic' })));
+      
+      // Update all services to error state
+      setServiceStatus({
+        perplexity: 'error',
+        openai: 'error',
+        anthropic: 'error'
+      });
+      
+      setErrorMessages({
+        perplexity: 'Failed to process claims',
+        openai: 'Failed to process claims',
+        anthropic: 'Failed to process claims'
+      });
+    } finally {
+      // Set loading to false when all processing is complete
+      setIsLoading(false);
+      setProcessingClaimIndex(-1);
+      
+      // Restore scroll position
+      setTimeout(restoreScrollPosition, 100);
+    }
   }, [saveScrollPosition, restoreScrollPosition]);
   
   // Helper function to create a fallback result when a model fails
@@ -297,6 +293,7 @@ ${claim.validationPotential}
     perplexityResults,
     openAIResults,
     anthropicResults,
+    speakersData,
     isLoading,
     error,
     serviceStatus,

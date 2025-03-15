@@ -1,5 +1,9 @@
 import React, { useState } from 'react';
-import { ChevronDown, ChevronUp, ExternalLink, BarChart2 } from 'lucide-react';
+import { 
+  ChevronDown, ChevronUp, ExternalLink, BarChart2, 
+  Book, FileText, Lightbulb, Link, CheckCircle, XCircle, AlertCircle,
+  Scale, Brain, Database, AlignLeft
+} from 'lucide-react';
 import { Claim } from '../../types';
 
 interface FactCheckCardProps {
@@ -8,6 +12,7 @@ interface FactCheckCardProps {
 
 const FactCheckCard: React.FC<FactCheckCardProps> = ({ claim }) => {
   const [expanded, setExpanded] = useState(false);
+  const [activeSection, setActiveSection] = useState<'analysis' | 'evidence' | 'reasoning' | 'principles'>('analysis');
   
   const formatSupportingFacts = (text: string) => {
     // Convert markdown-like syntax to HTML
@@ -45,20 +50,14 @@ const FactCheckCard: React.FC<FactCheckCardProps> = ({ claim }) => {
       case 'TRUE':
         return (
           <div className="px-3 py-1.5 bg-green-100 text-green-700 border border-green-200 rounded-full font-medium text-sm flex items-center shadow-sm">
-            <svg className="w-4 h-4 mr-1.5" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <path d="M7.75 12.75L10 15.25L16.25 8.75" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-              <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2"/>
-            </svg>
+            <CheckCircle className="w-4 h-4 mr-1.5" />
             Verified True
           </div>
         );
       case 'FALSE':
         return (
           <div className="px-3 py-1.5 bg-red-100 text-red-700 border border-red-200 rounded-full font-medium text-sm flex items-center shadow-sm">
-            <svg className="w-4 h-4 mr-1.5" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <path d="M15 9L9 15M9 9L15 15" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-              <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2"/>
-            </svg>
+            <XCircle className="w-4 h-4 mr-1.5" />
             False Claim
           </div>
         );
@@ -66,15 +65,63 @@ const FactCheckCard: React.FC<FactCheckCardProps> = ({ claim }) => {
       default:
         return (
           <div className="px-3 py-1.5 bg-amber-100 text-amber-700 border border-amber-200 rounded-full font-medium text-sm flex items-center shadow-sm">
-            <svg className="w-4 h-4 mr-1.5" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <path d="M12 16V12M12 8H12.01" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-              <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2"/>
-            </svg>
+            <AlertCircle className="w-4 h-4 mr-1.5" />
             Needs Verification
           </div>
         );
     }
   };
+  
+  // Extract definitions, principles, evidence, and reasoning from detailed analysis or supporting facts
+  const extractSections = () => {
+    const detailedAnalysis = claim.detailedAnalysis;
+    
+    if (detailedAnalysis) {
+      return {
+        definitions: detailedAnalysis.definitions || [],
+        principles: detailedAnalysis.principles || [],
+        evidence: detailedAnalysis.evidence || [],
+        analysis: detailedAnalysis.analysis || '',
+        conclusion: detailedAnalysis.conclusion || ''
+      };
+    }
+    
+    // If no detailed analysis, try to parse from supporting facts
+    const supportingFacts = claim.supportingFacts || '';
+    
+    // Simple regex-based extraction for sections
+    const definitionsMatch = supportingFacts.match(/Definitions?[:\n]+((?:[\s\S]+?))(?:Principles|Evidence|Analysis|$)/i);
+    const principlesMatch = supportingFacts.match(/Principles?[:\n]+((?:[\s\S]+?))(?:Evidence|Analysis|Definitions|$)/i);
+    const evidenceMatch = supportingFacts.match(/Evidence[:\n]+((?:[\s\S]+?))(?:Analysis|Conclusion|Principles|$)/i);
+    const analysisMatch = supportingFacts.match(/Analysis[:\n]+((?:[\s\S]+?))(?:Conclusion|Evidence|$)/i);
+    const conclusionMatch = supportingFacts.match(/Conclusion[:\n]+((?:[\s\S]+?))(?:Confidence|$)/i);
+    
+    return {
+      definitions: definitionsMatch ? 
+        definitionsMatch[1].split('\n').filter(line => line.trim().length > 0) : [],
+      principles: principlesMatch ? 
+        principlesMatch[1].split('\n').filter(line => line.trim().length > 0) : [],
+      evidence: evidenceMatch ? 
+        extractEvidenceItems(evidenceMatch[1]) : [],
+      analysis: analysisMatch ? analysisMatch[1].trim() : '',
+      conclusion: conclusionMatch ? conclusionMatch[1].trim() : ''
+    };
+  };
+  
+  const extractEvidenceItems = (evidenceText: string) => {
+    // Simple extraction of evidence items
+    const items = evidenceText.split(/\n(?=[-*•]\s)/).filter(item => item.trim());
+    
+    return items.map(item => {
+      const sourceMatch = item.match(/source:\s*(.+)/i);
+      return {
+        fact: item.replace(/source:\s*.+/i, '').trim(),
+        source: sourceMatch ? sourceMatch[1].trim() : 'Not specified'
+      };
+    });
+  };
+  
+  const sections = extractSections();
 
   return (
     <div className="bg-white p-6 border border-gray-200 rounded-lg shadow-sm">
@@ -107,9 +154,7 @@ const FactCheckCard: React.FC<FactCheckCardProps> = ({ claim }) => {
         {claim.error ? (
           <div className="p-4 mb-4 border border-amber-300 rounded-lg bg-amber-50">
             <div className="flex items-center">
-              <svg className="w-5 h-5 mr-2 text-amber-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-              </svg>
+              <AlertCircle className="w-5 h-5 mr-2 text-amber-500" />
               <h3 className="text-base font-medium text-amber-700">Verification Issue</h3>
             </div>
             <div className="mt-2 text-amber-700">
@@ -118,59 +163,186 @@ const FactCheckCard: React.FC<FactCheckCardProps> = ({ claim }) => {
           </div>
         ) : expanded ? (
           <>
+            {/* Analysis Tabs */}
+            <div className="mb-4 border-b border-gray-200">
+              <div className="flex flex-wrap -mb-px overflow-x-auto">
+                <button
+                  onClick={() => setActiveSection('analysis')}
+                  className={`mr-4 py-2 px-3 border-b-2 font-medium text-sm flex items-center space-x-1.5
+                    ${activeSection === 'analysis' 
+                      ? 'border-blue-600 text-blue-600' 
+                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}
+                  `}
+                >
+                  <AlignLeft className="h-4 w-4" />
+                  <span>Analysis</span>
+                </button>
+                
+                <button
+                  onClick={() => setActiveSection('evidence')}
+                  className={`mr-4 py-2 px-3 border-b-2 font-medium text-sm flex items-center space-x-1.5
+                    ${activeSection === 'evidence' 
+                      ? 'border-blue-600 text-blue-600' 
+                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}
+                  `}
+                >
+                  <Database className="h-4 w-4" />
+                  <span>Evidence</span>
+                </button>
+                
+                <button
+                  onClick={() => setActiveSection('reasoning')}
+                  className={`mr-4 py-2 px-3 border-b-2 font-medium text-sm flex items-center space-x-1.5
+                    ${activeSection === 'reasoning' 
+                      ? 'border-blue-600 text-blue-600' 
+                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}
+                  `}
+                >
+                  <Brain className="h-4 w-4" />
+                  <span>Reasoning</span>
+                </button>
+                
+                <button
+                  onClick={() => setActiveSection('principles')}
+                  className={`mr-4 py-2 px-3 border-b-2 font-medium text-sm flex items-center space-x-1.5
+                    ${activeSection === 'principles' 
+                      ? 'border-blue-600 text-blue-600' 
+                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}
+                  `}
+                >
+                  <Scale className="h-4 w-4" />
+                  <span>Principles</span>
+                </button>
+              </div>
+            </div>
+            
+            {/* Tab Content */}
             <div className="p-4 rounded-lg bg-gray-50 border border-gray-200">
-              {claim.detailedAnalysis ? (
+              {activeSection === 'analysis' && (
                 <div className="space-y-4">
-                  {claim.detailedAnalysis.analysis && (
-                    <div>
-                      <h4 className="text-gray-800 font-medium mb-2">Analysis</h4>
-                      <p className="text-gray-700 whitespace-pre-line">{claim.detailedAnalysis.analysis}</p>
-                    </div>
-                  )}
+                  {/* Analysis content */}
+                  <div>
+                    <h4 className="text-gray-800 font-medium mb-2 flex items-center">
+                      <AlignLeft className="h-4 w-4 mr-1.5 text-blue-500" />
+                      Analysis
+                    </h4>
+                    <p className="text-gray-700 whitespace-pre-line">
+                      {sections.analysis || 'No detailed analysis provided.'}
+                    </p>
+                  </div>
                   
-                  {claim.detailedAnalysis.evidence && claim.detailedAnalysis.evidence.length > 0 && (
-                    <div>
-                      <h4 className="text-gray-800 font-medium mb-2">Evidence</h4>
-                      <ul className="list-disc pl-5 text-gray-700 space-y-2">
-                        {claim.detailedAnalysis.evidence.map((item, index) => (
-                          <li key={index}>
-                            {item.fact}
-                            {item.source && (
-                              <div className="text-xs text-gray-500 mt-1">
-                                Source: {item.source.startsWith('http') ? (
-                                  <a 
-                                    href={item.source} 
-                                    target="_blank" 
-                                    rel="noopener noreferrer"
-                                    className="text-blue-600 hover:underline inline-flex items-center"
-                                  >
-                                    {item.source.substring(0, 40)}...
-                                    <ExternalLink className="h-3 w-3 ml-1" />
-                                  </a>
-                                ) : item.source}
-                              </div>
-                            )}
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-                  
-                  {claim.detailedAnalysis.conclusion && (
-                    <div>
-                      <h4 className="text-gray-800 font-medium mb-2">Conclusion</h4>
-                      <p className="text-gray-700">{claim.detailedAnalysis.conclusion}</p>
+                  {sections.conclusion && (
+                    <div className="pt-3 mt-3 border-t border-gray-200">
+                      <h4 className="text-gray-800 font-medium mb-2 flex items-center">
+                        <Lightbulb className="h-4 w-4 mr-1.5 text-blue-500" />
+                        Conclusion
+                      </h4>
+                      <p className="text-gray-700">
+                        {sections.conclusion}
+                      </p>
                     </div>
                   )}
                 </div>
-              ) : claim.supportingFacts ? (
-                <div 
-                  className="text-gray-700 text-sm"
-                  dangerouslySetInnerHTML={{ __html: formatSupportingFacts(claim.supportingFacts) }}
-                />
-              ) : (
-                <div className="text-gray-500 italic">
-                  No supporting facts available for this claim.
+              )}
+              
+              {activeSection === 'evidence' && (
+                <div>
+                  <h4 className="text-gray-800 font-medium mb-3 flex items-center">
+                    <Database className="h-4 w-4 mr-1.5 text-blue-500" />
+                    Supporting Evidence
+                  </h4>
+                  
+                  {sections.evidence && sections.evidence.length > 0 ? (
+                    <ul className="space-y-3">
+                      {sections.evidence.map((item, idx) => (
+                        <li key={idx} className="bg-white p-3 border border-gray-200 rounded-md">
+                          <p className="text-gray-800">{item.fact}</p>
+                          {item.source && item.source !== 'Not specified' && (
+                            <div className="mt-1 text-xs text-gray-500 flex items-center">
+                              <Link className="h-3 w-3 mr-1" />
+                              Source: 
+                              {item.source.startsWith('http') ? (
+                                <a 
+                                  href={item.source} 
+                                  target="_blank" 
+                                  rel="noopener noreferrer"
+                                  className="text-blue-600 hover:underline ml-1 inline-flex items-center"
+                                >
+                                  {item.source.substring(0, 30)}...
+                                  <ExternalLink className="h-3 w-3 ml-1" />
+                                </a>
+                              ) : (
+                                <span className="ml-1">{item.source}</span>
+                              )}
+                            </div>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="text-gray-700 italic">No specific evidence items were provided.</p>
+                  )}
+                </div>
+              )}
+              
+              {activeSection === 'reasoning' && (
+                <div>
+                  <h4 className="text-gray-800 font-medium mb-3 flex items-center">
+                    <Brain className="h-4 w-4 mr-1.5 text-blue-500" />
+                    Reasoning Process
+                  </h4>
+                  
+                  {/* Show raw supporting facts if no specific reasoning sections are available */}
+                  <div className="text-gray-700">
+                    {claim.supportingFacts ? (
+                      <div 
+                        className="whitespace-pre-line"
+                        dangerouslySetInnerHTML={{ __html: formatSupportingFacts(claim.supportingFacts) }}
+                      />
+                    ) : (
+                      <p className="italic">No reasoning details provided.</p>
+                    )}
+                  </div>
+                </div>
+              )}
+              
+              {activeSection === 'principles' && (
+                <div className="space-y-4">
+                  {/* Definitions Section */}
+                  <div>
+                    <h4 className="text-gray-800 font-medium mb-2 flex items-center">
+                      <Book className="h-4 w-4 mr-1.5 text-blue-500" />
+                      Definitions
+                    </h4>
+                    
+                    {sections.definitions && sections.definitions.length > 0 ? (
+                      <ul className="space-y-2 pl-6 list-disc">
+                        {sections.definitions.map((definition, idx) => (
+                          <li key={idx} className="text-gray-700">{definition}</li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p className="text-gray-700 italic">No specific definitions were provided.</p>
+                    )}
+                  </div>
+                  
+                  {/* Principles Section */}
+                  <div className="pt-3 mt-3 border-t border-gray-200">
+                    <h4 className="text-gray-800 font-medium mb-2 flex items-center">
+                      <Scale className="h-4 w-4 mr-1.5 text-blue-500" />
+                      Principles Applied
+                    </h4>
+                    
+                    {sections.principles && sections.principles.length > 0 ? (
+                      <ul className="space-y-2 pl-6 list-disc">
+                        {sections.principles.map((principle, idx) => (
+                          <li key={idx} className="text-gray-700">{principle}</li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p className="text-gray-700 italic">No specific principles were provided.</p>
+                    )}
+                  </div>
                 </div>
               )}
             </div>

@@ -1,11 +1,13 @@
 import time
 import json
+import concurrent.futures
 from flask import current_app
 from app.services.openai_service import call_openai_api
 from exa_py import Exa
 
 MAX_RETRIES = 3
 RETRY_DELAY = 1  # 1 second
+MAX_CONCURRENT_SEARCHES = 8  # Maximum number of concurrent searches
 
 DISQUALIFIED_SOURCES = [
     "RedState", "American Greatness", "NewsBusters", "Twitchy", "The Gateway Pundit",
@@ -135,6 +137,44 @@ def search_evidence(query):
                 time.sleep(RETRY_DELAY * (2 ** attempt))
             else:
                 raise Exception(f"Failed to search for evidence: {str(e)}")
+
+def search_evidence_batch(queries):
+    """
+    Search for evidence across multiple queries in parallel
+    
+    Args:
+        queries (list): List of search queries
+        
+    Returns:
+        list: List of search results for each query
+    """
+    if not queries:
+        return []
+    
+    # Deduplicate queries to avoid redundant searches
+    unique_queries = list(set(queries))
+    
+    # Process searches in parallel
+    results_dict = {}
+    
+    with concurrent.futures.ThreadPoolExecutor(max_workers=min(len(unique_queries), MAX_CONCURRENT_SEARCHES)) as executor:
+        # Submit all searches
+        future_to_query = {executor.submit(search_evidence, query): query for query in unique_queries}
+        
+        # Collect results as they complete
+        for future in concurrent.futures.as_completed(future_to_query):
+            query = future_to_query[future]
+            try:
+                results = future.result()
+                results_dict[query] = results
+            except Exception as e:
+                print(f"Error searching for '{query}': {str(e)}")
+                results_dict[query] = []
+    
+    # Map results back to original query order
+    results = [results_dict.get(query, []) for query in queries]
+    
+    return results
 
 def summarize_text(text, max_length=1500):
     """

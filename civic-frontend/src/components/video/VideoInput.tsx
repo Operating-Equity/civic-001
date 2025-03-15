@@ -1,8 +1,8 @@
 import React, { useState, useRef } from 'react';
-import { AlertCircle, Upload, Link2, X } from 'lucide-react';
+import { AlertCircle, Upload, Link2, X, Users, Info, Cog, Check, Youtube } from 'lucide-react';
 
 interface VideoInputProps {
-  onVideoSubmit: (input: { type: 'file' | 'url'; value: File | string }) => void;
+  onVideoSubmit: (input: { type: 'file' | 'url'; value: File | string; with_speakers?: boolean }) => void;
   isProcessing?: boolean;
   error?: string | null;
 }
@@ -16,19 +16,42 @@ const VideoInput: React.FC<VideoInputProps> = ({
   const [videoUrl, setVideoUrl] = useState('');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isDragging, setIsDragging] = useState(false);
+  const [withSpeakers, setWithSpeakers] = useState(true);
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  
+  // Extract YouTube video ID for thumbnail preview
+  const extractYouTubeId = (url: string) => {
+    const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=)([^#&?]*).*/;
+    const match = url.match(regExp);
+    return (match && match[2].length === 11) ? match[2] : null;
+  };
+  
+  // Get YouTube thumbnail URL
+  const getYouTubeThumbnail = (url: string) => {
+    const videoId = extractYouTubeId(url);
+    return videoId ? `https://img.youtube.com/vi/${videoId}/hqdefault.jpg` : null;
+  };
   
   const handleUrlSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (videoUrl.trim() && !isProcessing) {
-      onVideoSubmit({ type: 'url', value: videoUrl.trim() });
+      onVideoSubmit({ 
+        type: 'url', 
+        value: videoUrl.trim(),
+        with_speakers: withSpeakers
+      });
     }
   };
   
   const handleFileSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (selectedFile && !isProcessing) {
-      onVideoSubmit({ type: 'file', value: selectedFile });
+      onVideoSubmit({ 
+        type: 'file', 
+        value: selectedFile,
+        with_speakers: withSpeakers
+      });
     }
   };
   
@@ -64,6 +87,9 @@ const VideoInput: React.FC<VideoInputProps> = ({
     }
   };
   
+  // YouTube thumbnail preview
+  const thumbnailUrl = videoUrl ? getYouTubeThumbnail(videoUrl) : null;
+  
   return (
     <div className="bg-white border border-gray-200 rounded-lg shadow-sm p-6">
       {/* Input Type Selector - Light Theme */}
@@ -76,7 +102,7 @@ const VideoInput: React.FC<VideoInputProps> = ({
               : 'text-gray-600 hover:text-gray-900 hover:bg-gray-200'
           }`}
         >
-          <Link2 className="h-4 w-4 inline-block mr-2" />
+          <Youtube className="h-4 w-4 inline-block mr-2" />
           YouTube URL
         </button>
         <button
@@ -118,11 +144,80 @@ const VideoInput: React.FC<VideoInputProps> = ({
             </div>
           </div>
           
+          {/* YouTube thumbnail preview */}
+          {thumbnailUrl && !isProcessing && (
+            <div className="mt-2 mb-4">
+              <div className="relative w-full max-w-md mx-auto rounded-lg overflow-hidden border border-gray-200">
+                <img 
+                  src={thumbnailUrl} 
+                  alt="Video thumbnail" 
+                  className="w-full h-auto"
+                  onError={(e) => {
+                    // Hide thumbnail container if image fails to load
+                    (e.target as HTMLElement).parentElement?.classList.add('hidden');
+                  }}
+                />
+                <div className="absolute inset-0 bg-black bg-opacity-20 flex items-center justify-center">
+                  <div className="flex items-center justify-center rounded-full bg-white bg-opacity-80 w-12 h-12">
+                    <Youtube className="h-6 w-6 text-red-600" />
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+          
+          {/* Advanced Options Toggle */}
+          <div className="flex justify-center">
+            <button
+              type="button"
+              onClick={() => setShowAdvanced(!showAdvanced)}
+              className="flex items-center text-gray-600 hover:text-gray-800 text-sm"
+            >
+              <Cog className="h-4 w-4 mr-1.5" />
+              {showAdvanced ? 'Hide Advanced Options' : 'Show Advanced Options'}
+            </button>
+          </div>
+          
+          {/* Advanced Options */}
+          {showAdvanced && (
+            <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
+              <div className="flex items-center justify-between mb-1">
+                <div className="flex items-center">
+                  <Users className="h-4 w-4 text-gray-600 mr-2" />
+                  <label htmlFor="with-speakers" className="text-sm font-medium text-gray-700">
+                    Speaker Identification
+                  </label>
+                </div>
+                <div>
+                  <button
+                    type="button"
+                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 ${
+                      withSpeakers ? 'bg-blue-600' : 'bg-gray-200'
+                    }`}
+                    onClick={() => setWithSpeakers(!withSpeakers)}
+                    id="with-speakers"
+                    role="switch"
+                    aria-checked={withSpeakers}
+                  >
+                    <span
+                      className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                        withSpeakers ? 'translate-x-6' : 'translate-x-1'
+                      }`}
+                    />
+                  </button>
+                </div>
+              </div>
+              <p className="text-xs text-gray-500 ml-6">
+                Identify individual speakers in the video. May increase processing time.
+              </p>
+            </div>
+          )}
+          
           <div className="flex justify-center">
             <button 
               type="submit" 
               disabled={!videoUrl.trim() || isProcessing}
-              className="px-5 py-2.5 font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center min-w-[180px] bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white shadow-sm"
+              className="px-6 py-3 font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center min-w-[180px] bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white shadow-sm"
             >
               {isProcessing ? (
                 <>
@@ -191,11 +286,58 @@ const VideoInput: React.FC<VideoInputProps> = ({
             )}
           </div>
           
+          {/* Advanced Options Toggle */}
+          <div className="flex justify-center">
+            <button
+              type="button"
+              onClick={() => setShowAdvanced(!showAdvanced)}
+              className="flex items-center text-gray-600 hover:text-gray-800 text-sm"
+            >
+              <Cog className="h-4 w-4 mr-1.5" />
+              {showAdvanced ? 'Hide Advanced Options' : 'Show Advanced Options'}
+            </button>
+          </div>
+          
+          {/* Advanced Options */}
+          {showAdvanced && (
+            <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
+              <div className="flex items-center justify-between mb-1">
+                <div className="flex items-center">
+                  <Users className="h-4 w-4 text-gray-600 mr-2" />
+                  <label htmlFor="with-speakers-file" className="text-sm font-medium text-gray-700">
+                    Speaker Identification
+                  </label>
+                </div>
+                <div>
+                  <button
+                    type="button"
+                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 ${
+                      withSpeakers ? 'bg-blue-600' : 'bg-gray-200'
+                    }`}
+                    onClick={() => setWithSpeakers(!withSpeakers)}
+                    id="with-speakers-file"
+                    role="switch"
+                    aria-checked={withSpeakers}
+                  >
+                    <span
+                      className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                        withSpeakers ? 'translate-x-6' : 'translate-x-1'
+                      }`}
+                    />
+                  </button>
+                </div>
+              </div>
+              <p className="text-xs text-gray-500 ml-6">
+                Identify individual speakers in the video. May increase processing time.
+              </p>
+            </div>
+          )}
+          
           <div className="flex justify-center">
             <button 
               type="submit" 
               disabled={!selectedFile || isProcessing}
-              className="px-5 py-2.5 font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center min-w-[180px] bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white shadow-sm"
+              className="px-6 py-3 font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center min-w-[180px] bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white shadow-sm"
             >
               {isProcessing ? (
                 <>
@@ -217,11 +359,48 @@ const VideoInput: React.FC<VideoInputProps> = ({
             <div className="h-4 w-4 rounded-full border-2 border-blue-600 border-t-transparent animate-spin"></div>
             <p className="text-gray-800 font-medium">Processing video</p>
           </div>
-          <p className="text-gray-600 text-sm mt-2">
+          <div className="mt-4 space-y-2">
+            <div className="flex items-center">
+              <div className="w-6 h-6 rounded-full bg-blue-100 flex items-center justify-center mr-3">
+                <span className="text-blue-600 text-xs font-medium">1</span>
+              </div>
+              <div className="text-sm text-gray-700">Extracting audio and transcript</div>
+              {withSpeakers && (
+                <div className="ml-2 text-xs px-2 py-0.5 bg-blue-100 text-blue-700 rounded-full">
+                  With Speaker ID
+                </div>
+              )}
+            </div>
+            <div className="flex items-center">
+              <div className="w-6 h-6 rounded-full bg-gray-100 flex items-center justify-center mr-3">
+                <span className="text-gray-600 text-xs font-medium">2</span>
+              </div>
+              <div className="text-sm text-gray-700">Identifying empirical claims</div>
+            </div>
+            <div className="flex items-center">
+              <div className="w-6 h-6 rounded-full bg-gray-100 flex items-center justify-center mr-3">
+                <span className="text-gray-600 text-xs font-medium">3</span>
+              </div>
+              <div className="text-sm text-gray-700">Verifying claims with multiple AI models</div>
+            </div>
+          </div>
+          <p className="text-gray-600 text-sm mt-4">
             This may take several minutes for longer videos. Please don't close this window.
           </p>
         </div>
       )}
+      
+      {/* Transparency Note */}
+      <div className="mt-6 pt-4 border-t border-gray-200">
+        <div className="flex items-start text-xs text-gray-500">
+          <Info className="h-4 w-4 text-gray-400 mt-0.5 mr-2 flex-shrink-0" />
+          <p>
+            Civic verifies videos using multiple AI models (OpenAI, Anthropic, and Perplexity) to ensure accurate, 
+            balanced fact-checking. All processing is transparent, with detailed reasoning and evidence available 
+            for each verification result.
+          </p>
+        </div>
+      </div>
     </div>
   );
 };

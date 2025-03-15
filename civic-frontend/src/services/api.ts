@@ -14,7 +14,7 @@ const api = axios.create({
   headers: {
     'Content-Type': 'application/json'
   },
-  timeout: 30000, // 30 seconds default timeout
+  timeout: 60000, // Increased to 60 seconds default timeout for batch operations
 });
 
 // Configure axios to retry failed requests
@@ -38,15 +38,23 @@ api.interceptors.response.use(undefined, async (error) => {
   return Promise.reject(error);
 });
 
-// Process video from URL with expanded timeout
-export const processVideoUrl = async (videoUrl: string): Promise<VideoAnalysisResult> => {
+// Process video from URL with expanded timeout and speaker identification
+export const processVideoUrl = async (videoUrl: string, withSpeakers = false): Promise<VideoAnalysisResult> => {
   try {
     // First get transcript with longer timeout for video processing
-    const transcriptResponse = await api.post('/video/process', { video_url: videoUrl }, {
-      timeout: 120000 // 2 minute timeout for video processing
+    const transcriptResponse = await api.post('/video/process', { 
+      video_url: videoUrl,
+      with_speakers: withSpeakers 
+    }, {
+      timeout: 180000 // 3 minute timeout for video processing with speaker identification
     });
     
-    const { transcript, video_title: videoTitle, thumbnail_url: thumbnailUrl } = transcriptResponse.data;
+    const { 
+      transcript, 
+      video_title: videoTitle, 
+      thumbnail_url: thumbnailUrl,
+      speakers_data: speakersData 
+    } = transcriptResponse.data;
     
     if (!transcript || !transcript.trim()) {
       throw new Error('No transcript could be extracted from this video.');
@@ -55,7 +63,10 @@ export const processVideoUrl = async (videoUrl: string): Promise<VideoAnalysisRe
     // Generate summary (separate try-catch to continue if this fails)
     let summary = '';
     try {
-      const summaryResponse = await api.post('/analysis/summary', { transcript });
+      const summaryResponse = await api.post('/analysis/summary', { 
+        transcript,
+        video_title: videoTitle 
+      });
       summary = summaryResponse.data.summary;
     } catch (summaryError) {
       console.error('Error generating summary:', summaryError);
@@ -65,7 +76,11 @@ export const processVideoUrl = async (videoUrl: string): Promise<VideoAnalysisRe
     // Extract claims (separate try-catch to continue if this fails)
     let empiricalClaims: ClaimAnalysis[] = [];
     try {
-      const claimsResponse = await api.post('/analysis/claims', { transcript });
+      const claimsResponse = await api.post('/analysis/claims', { 
+        transcript,
+        video_title: videoTitle,
+        speakers_data: speakersData
+      });
       empiricalClaims = claimsResponse.data.claims || [];
     } catch (claimsError) {
       console.error('Error extracting claims:', claimsError);
@@ -76,7 +91,8 @@ export const processVideoUrl = async (videoUrl: string): Promise<VideoAnalysisRe
       summary,
       empiricalClaims,
       videoTitle,
-      thumbnailUrl
+      thumbnailUrl,
+      speakers_data: speakersData
     };
   } catch (error) {
     console.error('Error processing video URL:', error);
@@ -110,11 +126,16 @@ export const processVideoUrl = async (videoUrl: string): Promise<VideoAnalysisRe
   }
 };
 
-// Process video from file upload
-export const processVideoFile = async (file: File): Promise<VideoAnalysisResult> => {
+// Process video from file upload with speaker identification support
+export const processVideoFile = async (file: File, withSpeakers = false): Promise<VideoAnalysisResult> => {
   try {
     const formData = new FormData();
     formData.append('video_file', file);
+    
+    // Add speaker identification flag
+    if (withSpeakers) {
+      formData.append('with_speakers', 'true');
+    }
     
     // Check file size before uploading - prevent 413 errors
     if (file.size > 100 * 1024 * 1024) { // 100MB
@@ -135,7 +156,11 @@ export const processVideoFile = async (file: File): Promise<VideoAnalysisResult>
       }
     });
     
-    const { transcript, video_title: videoTitle } = transcriptResponse.data;
+    const { 
+      transcript, 
+      video_title: videoTitle,
+      speakers_data: speakersData 
+    } = transcriptResponse.data;
     
     if (!transcript || !transcript.trim()) {
       throw new Error('No audio could be extracted from this video file.');
@@ -144,7 +169,10 @@ export const processVideoFile = async (file: File): Promise<VideoAnalysisResult>
     // Generate summary (separate try-catch to continue if this fails)
     let summary = '';
     try {
-      const summaryResponse = await api.post('/analysis/summary', { transcript });
+      const summaryResponse = await api.post('/analysis/summary', { 
+        transcript,
+        video_title: videoTitle 
+      });
       summary = summaryResponse.data.summary;
     } catch (summaryError) {
       console.error('Error generating summary:', summaryError);
@@ -154,7 +182,11 @@ export const processVideoFile = async (file: File): Promise<VideoAnalysisResult>
     // Extract claims (separate try-catch to continue if this fails)
     let empiricalClaims: ClaimAnalysis[] = [];
     try {
-      const claimsResponse = await api.post('/analysis/claims', { transcript });
+      const claimsResponse = await api.post('/analysis/claims', { 
+        transcript,
+        video_title: videoTitle,
+        speakers_data: speakersData
+      });
       empiricalClaims = claimsResponse.data.claims || [];
     } catch (claimsError) {
       console.error('Error extracting claims:', claimsError);
@@ -164,7 +196,8 @@ export const processVideoFile = async (file: File): Promise<VideoAnalysisResult>
       transcript,
       summary,
       empiricalClaims,
-      videoTitle
+      videoTitle,
+      speakers_data: speakersData
     };
   } catch (error) {
     console.error('Error processing video file:', error);
@@ -208,10 +241,70 @@ export const evaluateClaim = async (
       claim, 
       context,
       model
+    }, {
+      timeout: 45000 // 45 seconds for claim evaluation
     });
     return response.data;
   } catch (error) {
     console.error('Error evaluating claim:', error);
+    throw error;
+  }
+};
+
+// New method to evaluate multiple claims in parallel
+export const evaluateMultipleClaims = async (
+  claims: { id?: string; claim: string; context?: string }[],
+  context: string = '',
+  model: string = 'all'
+): Promise<Record<string, { [model: string]: Claim }>> => {
+  try {
+    const response = await api.post('/analysis/evaluate', { 
+      claims, 
+      context,
+      model
+    }, {
+      timeout: Math.max(60000, claims.length * 20000) // Base timeout + additional time per claim
+    });
+    return response.data;
+  } catch (error) {
+    console.error('Error evaluating multiple claims:', error);
+    throw error;
+  }
+};
+
+// Process and verify a video in one request
+export const processAndVerifyVideo = async (
+  input: { type: 'url' | 'file'; value: string | File; with_speakers?: boolean }
+): Promise<VideoAnalysisResult> => {
+  try {
+    if (input.type === 'url') {
+      const videoUrl = input.value as string;
+      const response = await api.post('/video/process-and-verify', {
+        video_url: videoUrl,
+        with_speakers: input.with_speakers
+      }, {
+        timeout: 300000 // 5 minutes for complete processing
+      });
+      return response.data;
+    } else {
+      const file = input.value as File;
+      const formData = new FormData();
+      formData.append('video_file', file);
+      
+      if (input.with_speakers) {
+        formData.append('with_speakers', 'true');
+      }
+      
+      const response = await axios.post('/api/video/process-and-verify', formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data'
+        },
+        timeout: 300000 // 5 minutes
+      });
+      return response.data;
+    }
+  } catch (error) {
+    console.error('Error in process and verify:', error);
     throw error;
   }
 };
@@ -237,6 +330,23 @@ export const generateKeywords = async (
   }
 };
 
+// Generate keywords for multiple claims in parallel
+export const generateKeywordsBatch = async (
+  claims: ClaimAnalysis[],
+  videoTitle: string = ''
+): Promise<KeywordResult[]> => {
+  try {
+    const response = await api.post('/search/keywords/batch', {
+      claims,
+      video_title: videoTitle
+    });
+    return response.data.results;
+  } catch (error) {
+    console.error('Error generating batch keywords:', error);
+    throw error;
+  }
+};
+
 // Search for evidence
 export const searchEvidence = async (query: string): Promise<SearchResult[]> => {
   try {
@@ -244,6 +354,53 @@ export const searchEvidence = async (query: string): Promise<SearchResult[]> => 
     return response.data.results;
   } catch (error) {
     console.error('Error searching for evidence:', error);
+    throw error;
+  }
+};
+
+// Search for evidence across multiple queries in parallel
+export const searchEvidenceBatch = async (queries: string[]): Promise<SearchResult[][]> => {
+  try {
+    const response = await api.post('/search/evidence/batch', { queries });
+    return response.data.results;
+  } catch (error) {
+    console.error('Error in batch evidence search:', error);
+    throw error;
+  }
+};
+
+// Search for evidence for a specific claim
+export const searchEvidenceForClaim = async (
+  claim: ClaimAnalysis,
+  videoTitle: string = ''
+): Promise<ClaimSearchResults> => {
+  try {
+    const response = await api.post('/search/evidence/for-claim', {
+      claim: claim.claim,
+      context: claim.context,
+      validation_potential: claim.validationPotential,
+      video_title: videoTitle
+    });
+    return response.data;
+  } catch (error) {
+    console.error('Error searching evidence for claim:', error);
+    throw error;
+  }
+};
+
+// Search for evidence for multiple claims in parallel
+export const searchEvidenceForClaims = async (
+  claims: ClaimAnalysis[],
+  videoTitle: string = ''
+): Promise<ClaimSearchResults[]> => {
+  try {
+    const response = await api.post('/search/evidence/for-claims', {
+      claims,
+      video_title: videoTitle
+    });
+    return response.data.results;
+  } catch (error) {
+    console.error('Error searching evidence for multiple claims:', error);
     throw error;
   }
 };

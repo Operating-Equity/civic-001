@@ -1,27 +1,38 @@
 import React, { useState, useEffect } from 'react';
-import { ClaimAnalysis, Claim } from '../../types';
+import { Shield, ArrowRight, RefreshCw, Download, Award } from 'lucide-react';
+import { ClaimAnalysis, Claim, SpeakersData } from '../../types';
 import AnalysisResults from './AnalysisResults';
 import ServiceLoadingStatus from './ServiceLoadingStatus';
-import { AlertTriangle } from 'lucide-react';
+import VerificationCertificate from './VerificationCertificate';
 
 interface ClaimEvaluatorProps {
   empiricalClaims: ClaimAnalysis[];
+  perplexityResults?: Claim[];
+  openAIResults?: Claim[];
+  anthropicResults?: Claim[];
+  speakersData?: SpeakersData | null;
+  videoTitle?: string;
+  thumbnailUrl?: string;
 }
 
 // Define a type for possible service statuses
 type ServiceStatusType = 'idle' | 'loading' | 'success' | 'error';
 
-const ClaimEvaluator: React.FC<ClaimEvaluatorProps> = ({ empiricalClaims }) => {
+const ClaimEvaluator: React.FC<ClaimEvaluatorProps> = ({ 
+  empiricalClaims,
+  perplexityResults = [],
+  openAIResults = [],
+  anthropicResults = [],
+  speakersData,
+  videoTitle,
+  thumbnailUrl
+}) => {
   const [isEvaluating, setIsEvaluating] = useState(false);
   const [evaluationStarted, setEvaluationStarted] = useState(false);
   const [currentClaimIndex, setCurrentClaimIndex] = useState(0);
+  const [showCertificate, setShowCertificate] = useState(false);
   
-  // Results for each service
-  const [perplexityResults, setPerplexityResults] = useState<Claim[]>([]);
-  const [openAIResults, setOpenAIResults] = useState<Claim[]>([]);
-  const [anthropicResults, setAnthropicResults] = useState<Claim[]>([]);
-  
-  // Service statuses - fixed type definition
+  // Service statuses
   const [serviceStatus, setServiceStatus] = useState<{
     perplexity: ServiceStatusType;
     openai: ServiceStatusType;
@@ -39,178 +50,65 @@ const ClaimEvaluator: React.FC<ClaimEvaluatorProps> = ({ empiricalClaims }) => {
     anthropic: ''
   });
   
-  // Immediately update results as they come in
-  const handleServiceCompletion = (
-    modelName: 'perplexity' | 'openai' | 'anthropic',
-    result: Claim,
-    claimId?: string
-  ) => {
-    console.log(`[DEBUG] Service ${modelName} completed with result:`, result);
-    
-    // Immediately update the service status
-    setServiceStatus(prev => ({
-      ...prev,
-      [modelName]: 'success'
-    }));
-    
-    // Add the result to the appropriate array
-    if (modelName === 'perplexity') {
-      setPerplexityResults(prev => [...prev, { ...result, claimId }]);
-    } else if (modelName === 'openai') {
-      setOpenAIResults(prev => [...prev, { ...result, claimId }]);
-    } else if (modelName === 'anthropic') {
-      setAnthropicResults(prev => [...prev, { ...result, claimId }]);
-    }
+  // Track if all processing is complete
+  const [processingComplete, setProcessingComplete] = useState(false);
+  
+  // Check if we have results for claims
+  const hasPerplexityResults = perplexityResults.length > 0;
+  const hasOpenAIResults = openAIResults.length > 0;
+  const hasAnthropicResults = anthropicResults.length > 0;
+  
+  // Check if all models have results
+  const hasAllResults = 
+    hasPerplexityResults && 
+    hasOpenAIResults && 
+    hasAnthropicResults &&
+    perplexityResults.length === empiricalClaims.length &&
+    openAIResults.length === empiricalClaims.length &&
+    anthropicResults.length === empiricalClaims.length;
+  
+  // Handle certificate generation
+  const handleViewCertificate = () => {
+    setShowCertificate(true);
   };
   
-  // Function to evaluate a single claim
-  const evaluateClaim = async (claim: ClaimAnalysis) => {
-    if (!claim) return;
-    
-    setIsEvaluating(true);
-    setServiceStatus({
-      perplexity: 'loading',
-      openai: 'loading',
-      anthropic: 'loading'
-    });
-    
-    try {
-      console.log("[DEBUG] Starting evaluation for claim:", claim.claim.substring(0, 50));
-      
-      // Setup for individual model tracking
-      const modelResults: Record<string, any> = {};
-      const modelPromises: Promise<void>[] = [];
-      
-      // Function to process a single model result
-      const processModel = async (modelName: 'perplexity' | 'openai' | 'anthropic') => {
-        try {
-          // Make individual API call for each model to get faster results
-          const response = await fetch('/api/analysis/evaluate', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              claim: claim.claim,
-              context: claim.context,
-              model: modelName
-            })
-          });
-          
-          const data = await response.json();
-          console.log(`[DEBUG] ${modelName} API response:`, data);
-          
-          // Check if we have results for this model
-          if (data && data[modelName]) {
-            modelResults[modelName] = data[modelName];
-            // Immediately update UI with this model's result
-            handleServiceCompletion(modelName, data[modelName], claim.id);
-          } else {
-            throw new Error(`No results returned for ${modelName}`);
-          }
-        } catch (error) {
-          console.error(`Error with ${modelName}:`, error);
-          setServiceStatus(prev => ({ ...prev, [modelName]: 'error' }));
-          setErrorMessages(prev => ({ 
-            ...prev, 
-            [modelName]: `Failed to get results from ${modelName.charAt(0).toUpperCase() + modelName.slice(1)}` 
-          }));
-          
-          // Add fallback result
-          const fallbackResult = createFallbackResult(claim.claim, modelName);
-          if (modelName === 'perplexity') {
-            setPerplexityResults(prev => [...prev, { ...fallbackResult, claimId: claim.id }]);
-          } else if (modelName === 'openai') {
-            setOpenAIResults(prev => [...prev, { ...fallbackResult, claimId: claim.id }]);
-          } else if (modelName === 'anthropic') {
-            setAnthropicResults(prev => [...prev, { ...fallbackResult, claimId: claim.id }]);
-          }
-        }
-      };
-      
-      // Start all model evaluations in parallel but handle each independently
-      modelPromises.push(processModel('perplexity'));
-      modelPromises.push(processModel('openai'));
-      modelPromises.push(processModel('anthropic'));
-      
-      // Wait for all models to complete (but UI will update as each finishes)
-      await Promise.all(modelPromises);
-      
-      console.log("[DEBUG] All models processed:", Object.keys(modelResults));
-            
-    } catch (error) {
-      console.error('Error evaluating claim:', error);
-      // This should rarely happen now because each model is handled separately
+  const handleCloseCertificate = () => {
+    setShowCertificate(false);
+  };
+  
+  // Effects to handle claim processing state
+  useEffect(() => {
+    // If results are provided rather than generated within this component
+    if (hasAllResults && !evaluationStarted) {
+      setProcessingComplete(true);
       setServiceStatus({
-        perplexity: 'error',
-        openai: 'error',
-        anthropic: 'error'
+        perplexity: 'success',
+        openai: 'success',
+        anthropic: 'success'
       });
-      setErrorMessages({
-        perplexity: 'Network error occurred',
-        openai: 'Network error occurred',
-        anthropic: 'Network error occurred'
-      });
-    } finally {
-      setIsEvaluating(false);
-      setCurrentClaimIndex(prev => prev + 1);
     }
-  };
-  
-  // Helper function to create a fallback result when a model fails
-  const createFallbackResult = (claim: string, errorSource: string): Claim => {
-    return {
-      statement: claim,
-      classification: 'UNVERIFIED',
-      confidence: 0,
-      supportingFacts: `Error: Could not evaluate claim with ${errorSource}`,
-      error: `Failed to get evaluation from ${errorSource}`,
-      model: errorSource.charAt(0).toUpperCase() + errorSource.slice(1)
-    };
-  };
-  
-  // Start evaluation when claims are provided
-  useEffect(() => {
-    if (empiricalClaims.length > 0 && !evaluationStarted) {
-      setEvaluationStarted(true);
-      console.log("[DEBUG] Starting evaluation process with", empiricalClaims.length, "claims");
-    }
-  }, [empiricalClaims, evaluationStarted]);
-  
-  // Process claims one by one
-  useEffect(() => {
-    const processClaims = async () => {
-      if (evaluationStarted && !isEvaluating && currentClaimIndex < empiricalClaims.length) {
-        console.log("[DEBUG] Processing claim", currentClaimIndex + 1, "of", empiricalClaims.length);
-        await evaluateClaim(empiricalClaims[currentClaimIndex]);
-      }
-    };
-    
-    processClaims();
-  }, [evaluationStarted, isEvaluating, currentClaimIndex, empiricalClaims]);
-  
-  // Check if all claims have been evaluated
-  const allClaimsEvaluated = currentClaimIndex >= empiricalClaims.length;
-  
-  // Loading state shows until all claims are evaluated
-  const loading = evaluationStarted && !allClaimsEvaluated;
+  }, [hasAllResults, evaluationStarted, empiricalClaims]);
   
   // Display error if no claims to evaluate
   if (empiricalClaims.length === 0) {
     return (
       <div className="glass-panel p-6 text-center">
-        <AlertTriangle className="h-12 w-12 text-amber-500 mx-auto mb-4" />
-        <h3 className="text-gray-900 text-lg font-medium mb-2">No Claims to Evaluate</h3>
-        <p className="text-gray-600">No empirical claims were found for evaluation.</p>
+        <div className="bg-amber-50 p-6 rounded-lg border border-amber-200">
+          <Shield className="h-12 w-12 text-amber-500 mx-auto mb-4" />
+          <h3 className="text-gray-900 text-lg font-medium mb-2">No Claims to Evaluate</h3>
+          <p className="text-gray-600">No empirical claims were found for evaluation in this video.</p>
+        </div>
       </div>
     );
   }
 
   return (
     <div>
-      {/* Show loading status when processing claims */}
-      {loading && (
+      {/* Show processing status when in progress */}
+      {isEvaluating && (
         <div className="glass-panel p-6 mb-6">
           <h2 className="text-xl font-semibold mb-6 text-gray-900 flex items-center">
-            <AlertTriangle className="mr-2 h-5 w-5 text-blue-600" />
+            <Shield className="mr-2 h-5 w-5 text-blue-600" />
             Analyzing Claims
           </h2>
           
@@ -227,21 +125,73 @@ const ClaimEvaluator: React.FC<ClaimEvaluatorProps> = ({ empiricalClaims }) => {
         </div>
       )}
       
-      <AnalysisResults
-        empiricalClaims={empiricalClaims}
-        perplexityResults={perplexityResults}
-        openAIResults={openAIResults}
-        anthropicResults={anthropicResults}
-        isLoading={loading}
-        serviceStatus={serviceStatus}
-        errorMessages={errorMessages}
-      />
+      {/* Show certificate when requested */}
+      {showCertificate ? (
+        <div className="mb-6">
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-xl font-semibold text-gray-900 flex items-center">
+              <Award className="mr-2 h-5 w-5 text-blue-600" />
+              Verification Certificate
+            </h2>
+            <button
+              onClick={handleCloseCertificate}
+              className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg text-sm flex items-center"
+            >
+              <ArrowRight className="h-4 w-4 mr-1.5 transform rotate-180" />
+              <span>Back to Results</span>
+            </button>
+          </div>
+          
+          <VerificationCertificate
+            videoTitle={videoTitle || 'Analyzed Video'}
+            thumbnailUrl={thumbnailUrl}
+            claims={empiricalClaims}
+            perplexityResults={perplexityResults}
+            openAIResults={openAIResults}
+            anthropicResults={anthropicResults}
+          />
+        </div>
+      ) : (
+        <AnalysisResults
+          empiricalClaims={empiricalClaims}
+          perplexityResults={perplexityResults}
+          openAIResults={openAIResults}
+          anthropicResults={anthropicResults}
+          speakersData={speakersData}
+          videoTitle={videoTitle}
+          thumbnailUrl={thumbnailUrl}
+          isLoading={isEvaluating}
+          serviceStatus={serviceStatus}
+          errorMessages={errorMessages}
+        />
+      )}
       
-      {evaluationStarted && allClaimsEvaluated && (
-        <div className="mt-4 p-4 bg-green-50 border border-green-200 rounded-md">
-          <p className="text-green-800 text-center font-medium">
-            All claims have been evaluated! Check the tabs above to see results from each service.
-          </p>
+      {/* Action buttons after processing */}
+      {processingComplete && !showCertificate && (
+        <div className="mt-6 flex flex-wrap justify-center sm:justify-end gap-3">
+          <button 
+            className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-800 rounded-lg border border-gray-200 text-sm font-medium flex items-center transition-colors"
+            onClick={() => window.open('mailto:?subject=Civic%20Verification%20Results&body=I%20wanted%20to%20share%20these%20verification%20results%20with%20you.%0A%0AVideo:%20' + encodeURIComponent(videoTitle || 'Video Verification') + '%0A%0AVerified%20by%20Civic:%20https://civic-tech.org/verify')}
+          >
+            <RefreshCw className="h-4 w-4 mr-1.5" />
+            <span>Re-analyze Video</span>
+          </button>
+          
+          <button 
+            className="px-4 py-2 bg-blue-100 hover:bg-blue-200 text-blue-800 rounded-lg border border-blue-200 text-sm font-medium flex items-center transition-colors"
+            onClick={() => window.open('mailto:?subject=Civic%20Verification%20Results&body=I%20wanted%20to%20share%20these%20verification%20results%20with%20you.%0A%0AVideo:%20' + encodeURIComponent(videoTitle || 'Video Verification') + '%0A%0AVerified%20by%20Civic:%20https://civic-tech.org/verify')}
+          >
+            <Download className="h-4 w-4 mr-1.5" />
+            <span>Export Results</span>
+          </button>
+          
+          <button 
+            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium flex items-center transition-colors"
+            onClick={handleViewCertificate}
+          >
+            <Award className="h-4 w-4 mr-1.5" />
+            <span>View Certificate</span>
+          </button>
         </div>
       )}
     </div>

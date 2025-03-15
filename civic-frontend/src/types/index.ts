@@ -15,18 +15,36 @@ export interface DetailedAnalysis {
   conclusion?: string;
 }
 
+export interface Speaker {
+  id: string;
+  name?: string;
+}
+
+export interface SpeakerSegment {
+  speaker: string;
+  start: number;
+  end: number;
+  text: string;
+}
+
+export interface SpeakersData {
+  speakers: Record<string, string>;
+  segments: SpeakerSegment[];
+}
+
 export interface ClaimAnalysis {
   id?: string;
   claim: string;
   context: string;
   validationPotential: string;
+  speaker?: Speaker; // Added speaker information
 }
 
 export type ClassificationType = 'TRUE' | 'FALSE' | 'UNVERIFIED';
 
 export interface Claim {
   statement: string;
-  classification: 'TRUE' | 'FALSE' | 'UNVERIFIED';
+  classification: ClassificationType;
   confidence: number;
   supportingFacts: string;
   model?: string;
@@ -35,10 +53,7 @@ export interface Claim {
   detailedAnalysis?: {
     definitions?: string[];
     principles?: string[];
-    evidence?: {
-      fact: string;
-      source: string;
-    }[];
+    evidence?: EvidenceItem[];
     keyTerms?: string[];
     thinking?: string[];
     logicalAnalysis?: string[];
@@ -77,6 +92,8 @@ export interface VideoAnalysisResult {
   empiricalClaims: ClaimAnalysis[];
   videoTitle: string;
   thumbnailUrl?: string;
+  speakers_data?: SpeakersData;
+  verification_certificate?: VerificationCertificate;
 }
 
 export interface ModelComparisonItem {
@@ -98,4 +115,17 @@ export interface ServiceStatuses {
   perplexity: ServiceStatus;
   openai: ServiceStatus;
   anthropic: ServiceStatus;
+}
+
+export interface VerificationCertificate {
+  certificate_id: string;
+  video_title: string;
+  verification_date: string;
+  claim_counts: {
+    TRUE: number;
+    FALSE: number;
+    UNVERIFIED: number;
+  };
+  thumbnail_url?: string;
+  verification_url: string;
 }

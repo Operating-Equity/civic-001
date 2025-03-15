@@ -11,6 +11,7 @@ function App() {
         <Routes>
           <Route path="/" element={<HomePage />} />
           <Route path="/analysis/:id" element={<AnalysisPage />} />
+          <Route path="/certificate/:id" element={<AnalysisPage certificateView={true} />} />
           <Route path="*" element={<HomePage />} />
         </Routes>
       </Layout>
