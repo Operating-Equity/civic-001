@@ -62,11 +62,12 @@ def evaluate_claim():
         else:
             models_to_evaluate = [model]
         
+        # Store the current application for use in threads
+        app = current_app._get_current_object()
+        
         # Define a function to process a single model
         def process_model(model_name):
-            # Create a new app instance for this thread
-            app = create_app()
-            # Run within an application context
+            # Establish application context for this thread
             with app.app_context():
                 try:
                     if model_name == 'perplexity':
@@ -96,19 +97,192 @@ def evaluate_claim():
                     }
                     return model_name, error_result
         
-        # Process models in parallel using ThreadPoolExecutor
-        with concurrent.futures.ThreadPoolExecutor(max_workers=len(models_to_evaluate)) as executor:
-            # Submit all tasks
-            future_to_model = {
-                executor.submit(process_model, model_name): model_name 
-                for model_name in models_to_evaluate
-            }
+        # Process models in parallel using ThreadPoolExecutor with reasonable timeout
+        with concurrent.futures.ThreadPoolExecutor(max_workers=min(len(models_to_evaluate), 3)) as executor:
+            # Submit all tasks with timeout
+            future_to_model = {}
+            for model_name in models_to_evaluate:
+                future = executor.submit(process_model, model_name)
+                future_to_model[future] = model_name
             
-            # Process results as they complete
-            for future in concurrent.futures.as_completed(future_to_model):
-                model_name, result = future.result()
-                if model_name and result:
-                    results[model_name] = result
+            # Process results as they complete with a timeout
+            timeout_per_model = 30  # 30 seconds per model
+            total_timeout = timeout_per_model * len(models_to_evaluate)
+            
+            try:
+                for future in concurrent.futures.as_completed(future_to_model, timeout=total_timeout):
+                    model_name = future_to_model[future]
+                    try:
+                        model_result = future.result(timeout=timeout_per_model)
+                        if model_result:
+                            result_model_name, result = model_result
+                            if result_model_name and result:
+                                results[result_model_name] = result
+                    except concurrent.futures.TimeoutError:
+                        print(f"[EVALUATE] Timeout for model: {model_name}")
+                        results[model_name] = {
+                            "statement": claim,
+                            "classification": "UNVERIFIED",
+                            "confidence": 0,
+                            "supportingFacts": f"Evaluation timed out after {timeout_per_model} seconds",
+                            "model": model_name.capitalize()
+                        }
+                    except Exception as e:
+                        print(f"[EVALUATE] Error processing result for {model_name}: {str(e)}")
+                        results[model_name] = {
+                            "statement": claim,
+                            "classification": "UNVERIFIED",
+                            "confidence": 0,
+                            "supportingFacts": f"Error: {str(e)}",
+                            "model": model_name.capitalize()
+                        }
+            except concurrent.futures.TimeoutError:
+                print(f"[EVALUATE] Overall evaluation timed out after {total_timeout} seconds")
+                # For any models that didn't complete, add timeout results
+                for model_name in models_to_evaluate:
+                    if model_name not in results:
+                        results[model_name] = {
+                            "statement": claim,
+                            "classification": "UNVERIFIED",
+                            "confidence": 0,
+                            "supportingFacts": f"Evaluation timed out after {total_timeout} seconds",
+                            "model": model_name.capitalize()
+                        }
+        
+        # Ensure we always return results, even if some evaluations failed
+        for model_name in models_to_evaluate:
+            if model_name not in results:
+                results[model_name] = {
+                    "statement": claim,
+                    "classification": "UNVERIFIED",
+                    "confidence": 0,
+                    "supportingFacts": "Evaluation failed to complete",
+                    "model": model_name.capitalize()
+                }
+        
+        print(f"[EVALUATE] Returning results with {len(results)} model evaluations")
+        return jsonify(results)
+    except Exception as e:
+        error_message = f"Error evaluating claim: {str(e)}"
+        print(f"[EVALUATE] {error_message}")
+        return jsonify({'error': error_message}), 500
+    """Evaluate a claim using multiple AI providers"""
+    # Log that the endpoint was called
+    print(f"[EVALUATE] Endpoint called with request data: {request.json}")
+    
+    if not request.json or 'claim' not in request.json:
+        print("[EVALUATE] Error: No claim provided in request")
+        return jsonify({'error': 'No claim provided'}), 400
+        
+    claim = request.json.get('claim')
+    context = request.json.get('context', '')
+    model = request.json.get('model', 'all')
+    
+    print(f"[EVALUATE] Processing claim: '{claim[:50]}...' with model: {model}")
+    
+    try:
+        results = {}
+        
+        # Determine which models to evaluate
+        models_to_evaluate = []
+        if model == 'all':
+            models_to_evaluate = ['perplexity', 'openai', 'anthropic']
+        else:
+            models_to_evaluate = [model]
+        
+        # Define a function to process a single model
+        def process_model(model_name):
+            try:
+                # Use current_app instead of creating a new app instance
+                if model_name == 'perplexity':
+                    print(f"[EVALUATE] Calling Perplexity API for claim: '{claim[:30]}...'")
+                    result = evaluate_with_perplexity(claim, context)
+                    print("[EVALUATE] Perplexity evaluation successful")
+                elif model_name == 'openai':
+                    print(f"[EVALUATE] Calling OpenAI API for claim: '{claim[:30]}...'")
+                    result = evaluate_with_openai(claim, context)
+                    print("[EVALUATE] OpenAI evaluation successful")
+                elif model_name == 'anthropic':
+                    print(f"[EVALUATE] Calling Anthropic API for claim: '{claim[:30]}...'")
+                    result = evaluate_with_anthropic(claim, context)
+                    print("[EVALUATE] Anthropic evaluation successful")
+                else:
+                    return None, f"Unknown model: {model_name}"
+                
+                return model_name, result
+            except Exception as model_error:
+                print(f"[EVALUATE] {model_name.capitalize()} evaluation failed: {str(model_error)}")
+                error_result = {
+                    "statement": claim,
+                    "classification": "UNVERIFIED",
+                    "confidence": 0,
+                    "supportingFacts": f"Error: {str(model_error)}",
+                    "model": model_name.capitalize()
+                }
+                return model_name, error_result
+        
+        # Process models in parallel using ThreadPoolExecutor with reasonable timeout
+        with concurrent.futures.ThreadPoolExecutor(max_workers=min(len(models_to_evaluate), 3)) as executor:
+            # Submit all tasks with timeout
+            future_to_model = {}
+            for model_name in models_to_evaluate:
+                future = executor.submit(process_model, model_name)
+                future_to_model[future] = model_name
+            
+            # Process results as they complete with a timeout
+            timeout_per_model = 30  # 30 seconds per model
+            total_timeout = timeout_per_model * len(models_to_evaluate)
+            
+            try:
+                for future in concurrent.futures.as_completed(future_to_model, timeout=total_timeout):
+                    model_name = future_to_model[future]
+                    try:
+                        model_result = future.result(timeout=timeout_per_model)
+                        if model_result:
+                            result_model_name, result = model_result
+                            if result_model_name and result:
+                                results[result_model_name] = result
+                    except concurrent.futures.TimeoutError:
+                        print(f"[EVALUATE] Timeout for model: {model_name}")
+                        results[model_name] = {
+                            "statement": claim,
+                            "classification": "UNVERIFIED",
+                            "confidence": 0,
+                            "supportingFacts": f"Evaluation timed out after {timeout_per_model} seconds",
+                            "model": model_name.capitalize()
+                        }
+                    except Exception as e:
+                        print(f"[EVALUATE] Error processing result for {model_name}: {str(e)}")
+                        results[model_name] = {
+                            "statement": claim,
+                            "classification": "UNVERIFIED",
+                            "confidence": 0,
+                            "supportingFacts": f"Error: {str(e)}",
+                            "model": model_name.capitalize()
+                        }
+            except concurrent.futures.TimeoutError:
+                print(f"[EVALUATE] Overall evaluation timed out after {total_timeout} seconds")
+                # For any models that didn't complete, add timeout results
+                for model_name in models_to_evaluate:
+                    if model_name not in results:
+                        results[model_name] = {
+                            "statement": claim,
+                            "classification": "UNVERIFIED",
+                            "confidence": 0,
+                            "supportingFacts": f"Evaluation timed out after {total_timeout} seconds",
+                            "model": model_name.capitalize()
+                        }
+        
+        # Ensure we always return results, even if some evaluations failed
+        for model_name in models_to_evaluate:
+            if model_name not in results:
+                results[model_name] = {
+                    "statement": claim,
+                    "classification": "UNVERIFIED",
+                    "confidence": 0,
+                    "supportingFacts": "Evaluation failed to complete",
+                    "model": model_name.capitalize()
+                }
         
         print(f"[EVALUATE] Returning results with {len(results)} model evaluations")
         return jsonify(results)
