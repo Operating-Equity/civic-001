@@ -136,20 +136,41 @@ const FactCheckCard: React.FC<FactCheckCardProps> = ({ claim }) => {
       </div>
 
       <div className="text-white/90 text-sm">
-        {expanded ? (
+        {claim.error ? (
+          <div className="p-4 mb-4 border border-yellow-300 rounded-lg bg-yellow-50/10">
+            <div className="flex items-center">
+              <svg className="w-5 h-5 mr-2 text-yellow-500" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg">
+                <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd"></path>
+              </svg>
+              <h3 className="text-lg font-medium text-yellow-500">API Service Issue</h3>
+            </div>
+            <div className="mt-2 text-yellow-300">
+              <p>{claim.error}</p>
+            </div>
+          </div>
+        ) : expanded ? (
           <>
             {claim.detailedAnalysis ? (
               renderDetailedAnalysis()
-            ) : (
+            ) : claim.supportingFacts ? (
               <div 
                 className="text-white/90 whitespace-pre-line"
                 dangerouslySetInnerHTML={{ __html: formatSupportingFacts(claim.supportingFacts) }}
               />
+            ) : (
+              <div className="text-white/70 italic">
+                No supporting facts available for this claim.
+              </div>
             )}
           </>
         ) : (
           <div className="line-clamp-3 text-white/90">
-            {claim.supportingFacts.substring(0, 200)}...
+            {claim.supportingFacts ? 
+              `${claim.supportingFacts.substring(0, 200)}...` : 
+              claim.error ? 
+                `Error: ${claim.error}` : 
+                'No supporting facts available for this claim.'
+            }
           </div>
         )}
       </div>
