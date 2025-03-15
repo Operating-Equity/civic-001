@@ -13,8 +13,9 @@ interface ServiceLoadingStatusProps {
     openai?: string;
     anthropic?: string;
   };
-  currentClaimIndex?: number; // Add this to show which claim is being processed
-  totalClaims?: number; // Add this to show progress through claims
+  currentClaimIndex?: number;
+  totalClaims?: number;
+  showProgressNumber?: boolean; // Added to control whether to show numeric progress
 }
 
 const ServiceLoadingStatus: React.FC<ServiceLoadingStatusProps> = ({
@@ -23,7 +24,8 @@ const ServiceLoadingStatus: React.FC<ServiceLoadingStatusProps> = ({
   anthropicStatus,
   errorMessages = {},
   currentClaimIndex = -1,
-  totalClaims = 0
+  totalClaims = 0,
+  showProgressNumber = false
 }) => {
   // Function to get the appropriate icon for a status
   const getStatusIcon = (status: ServiceStatus) => {
@@ -116,15 +118,42 @@ const ServiceLoadingStatus: React.FC<ServiceLoadingStatusProps> = ({
       {/* Current Claim Indicator (if we have claim data) */}
       {totalClaims > 0 && currentClaimIndex >= 0 && (
         <div className="bg-blue-50 border border-blue-100 rounded-lg p-3">
-          <p className="text-blue-700 text-sm font-medium">
-            Processing claim {currentClaimIndex + 1} of {totalClaims}
-          </p>
-          <div className="h-2 bg-blue-100 rounded-full overflow-hidden mt-2">
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-blue-700 text-sm font-medium">
+              {showProgressNumber ? 
+                `Processing claim ${currentClaimIndex + 1} of ${totalClaims}` : 
+                `Processing claims in parallel`
+              }
+            </p>
+            <span className="text-blue-600 text-xs font-medium bg-white px-2 py-0.5 rounded-full">
+              {Math.round(Math.min(((currentClaimIndex + 1) / totalClaims) * 100, 100))}%
+            </span>
+          </div>
+          <div className="h-2 bg-blue-100 rounded-full overflow-hidden">
             <div 
               className="h-full bg-blue-600 rounded-full transition-all duration-300"
               style={{ width: `${Math.min(((currentClaimIndex + 1) / totalClaims) * 100, 100)}%` }}
             ></div>
           </div>
+          
+          {/* Visual representation of parallel processing */}
+          {!showProgressNumber && (
+            <div className="mt-3 flex justify-between">
+              {Array.from({ length: Math.min(totalClaims, 7) }).map((_, i) => (
+                <div 
+                  key={i} 
+                  className="flex flex-col items-center"
+                >
+                  <div className={`w-3 h-3 rounded-full mb-1 ${
+                    i <= currentClaimIndex % totalClaims ? 'bg-blue-600' : 'bg-blue-200'
+                  }`}></div>
+                  <div className={`w-10 h-1 ${
+                    i <= currentClaimIndex % totalClaims ? 'bg-blue-200' : 'bg-gray-100'
+                  }`}></div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
     

@@ -184,8 +184,23 @@ export const useVideoAnalysis = () => {
       console.log(`[DEBUG] Processing ${claims.length} claims in parallel`);
       setProcessingClaimIndex(0); // Start with the first claim
       
+      // Set up a timer to update the processing claim index to simulate progress
+      // This doesn't reflect actual processing order but gives visual feedback
+      let progressCounter = 0;
+      const progressTimer = setInterval(() => {
+        if (progressCounter < claims.length - 1) {
+          progressCounter++;
+          setProcessingClaimIndex(progressCounter);
+        } else {
+          clearInterval(progressTimer);
+        }
+      }, 1500); // Update every 1.5 seconds
+      
       // Call the batch API to process all claims at once in parallel
       const results = await evaluateMultipleClaims(formattedClaims, globalContext);
+      
+      // Clear the progress timer
+      clearInterval(progressTimer);
       
       console.log('[DEBUG] Batch processing complete, processing results');
       setProcessingClaimIndex(claims.length - 1); // All claims processed
@@ -207,7 +222,6 @@ export const useVideoAnalysis = () => {
         let claimIndex = 0;
         for (const [claimId, claimResults] of Object.entries(results)) {
           // Update current claim index for UI display
-          setProcessingClaimIndex(claimIndex);
           claimIndex++;
           
           if (claimResults.perplexity) {
@@ -331,7 +345,7 @@ export const useVideoAnalysis = () => {
     serviceStatus,
     errorMessages,
     processingClaimIndex,
-    processingStage, // Expose the processing stage state
+    processingStage,
     
     // Actions
     handleVideoSubmit,

@@ -1,19 +1,23 @@
 import React, { useState, useRef } from 'react';
 import { AlertCircle, Upload, Link2, X, Users, Info, Cog, Youtube } from 'lucide-react';
-import { ProcessingStage } from '../../hooks/useVideoAnalysis'; // Import the new type
+import { ProcessingStage } from '../../hooks/useVideoAnalysis';
 
 interface VideoInputProps {
   onVideoSubmit: (input: { type: 'file' | 'url'; value: File | string; with_speakers?: boolean }) => void;
   isProcessing?: boolean;
   error?: string | null;
-  processingStage?: ProcessingStage; // Add new prop
+  processingStage?: ProcessingStage;
+  totalClaims?: number; // Added to show total claims
+  currentClaimIndex?: number; // Added to show current claim index
 }
 
 const VideoInput: React.FC<VideoInputProps> = ({ 
   onVideoSubmit, 
   isProcessing = false, 
   error = null,
-  processingStage = 'idle' // Default to idle
+  processingStage = 'idle',
+  totalClaims = 0,
+  currentClaimIndex = -1 
 }) => {
   const [inputType, setInputType] = useState<'file' | 'url'>('url');
   const [videoUrl, setVideoUrl] = useState('');
@@ -99,25 +103,25 @@ const VideoInput: React.FC<VideoInputProps> = ({
       <div className="flex mb-6 bg-gray-100 rounded-full p-1 w-fit mx-auto">
         <button
           onClick={() => setInputType('url')}
-          className={`px-5 py-2 rounded-full text-sm font-medium transition-colors flex items-center ${
-            inputType === 'url' 
-              ? 'bg-blue-600 text-white shadow-sm' 
-              : 'text-gray-600 hover:text-gray-900 hover:bg-gray-200'
-          }`}
+          className={`mr-4 py-3 px-3 border-b-2 font-medium text-sm flex items-center space-x-1.5
+            ${inputType === 'url' 
+              ? 'bg-blue-600 text-white shadow-sm rounded-full' 
+              : 'text-gray-600 hover:text-gray-900 hover:bg-gray-200 rounded-full'}
+          `}
         >
           <Youtube className="h-4 w-4 inline-block mr-2" />
-          YouTube URL
+          <span>YouTube URL</span>
         </button>
         <button
           onClick={() => setInputType('file')}
-          className={`px-5 py-2 rounded-full text-sm font-medium transition-colors flex items-center ${
-            inputType === 'file' 
-              ? 'bg-blue-600 text-white shadow-sm' 
-              : 'text-gray-600 hover:text-gray-900 hover:bg-gray-200'
-          }`}
+          className={`mr-4 py-3 px-3 border-b-2 font-medium text-sm flex items-center space-x-1.5
+            ${inputType === 'file' 
+              ? 'bg-blue-600 text-white shadow-sm rounded-full' 
+              : 'text-gray-600 hover:text-gray-900 hover:bg-gray-200 rounded-full'}
+          `}
         >
           <Upload className="h-4 w-4 inline-block mr-2" />
-          Upload Video
+          <span>Upload Video</span>
         </button>
       </div>
       
@@ -355,13 +359,15 @@ const VideoInput: React.FC<VideoInputProps> = ({
         </form>
       )}
       
-      {/* Processing Status with Dynamic Updates - Light Theme */}
+      {/* Processing Status (shown only when not in ClaimEvaluator) */}
       {isProcessing && (
         <div className="mt-6 pt-6 border-t border-gray-200">
           <div className="flex items-center space-x-3">
             <div className="h-4 w-4 rounded-full border-2 border-blue-600 border-t-transparent animate-spin"></div>
             <p className="text-gray-800 font-medium">Processing video</p>
           </div>
+          
+          {/* Show processing stage info */}
           <div className="mt-4 space-y-2">
             {/* Step 1: Transcript Extraction - always appears */}
             <div className="flex items-center">
@@ -595,6 +601,42 @@ const VideoInput: React.FC<VideoInputProps> = ({
               </div>
             </div>
           </div>
+          
+          {/* Show parallel processing status for claims */}
+          {processingStage === 'verifying_claims' && totalClaims > 0 && (
+            <div className="mt-6 rounded-lg bg-blue-50 border border-blue-100 p-4">
+              <div className="flex items-center justify-between text-sm mb-2">
+                <span className="text-blue-700 font-medium">Claims processed:</span>
+                <span className="text-blue-700 font-medium">Processing in parallel</span>
+              </div>
+              
+              <div className="relative">
+                <div className="h-2 bg-blue-100 rounded-full overflow-hidden">
+                  <div 
+                    className="h-full bg-blue-600 rounded-full transition-all duration-300 animate-pulse"
+                    style={{ width: `${Math.min(((currentClaimIndex + 1) / totalClaims) * 100, 100)}%` }}
+                  ></div>
+                </div>
+                
+                {/* Small dots representing each claim */}
+                <div className="flex items-center justify-between absolute w-full top-0 mt-4">
+                  {Array.from({ length: totalClaims }).map((_, i) => (
+                    <div 
+                      key={i}
+                      className={`h-2 w-2 rounded-full ${
+                        i <= currentClaimIndex ? 'bg-blue-600' : 'bg-blue-200'
+                      }`}
+                    ></div>
+                  ))}
+                </div>
+              </div>
+              
+              <p className="text-xs text-blue-700 mt-8 text-center">
+                All {totalClaims} claims are being verified simultaneously for faster results
+              </p>
+            </div>
+          )}
+          
           <p className="text-gray-600 text-sm mt-4">
             This may take several minutes for longer videos. Please don't close this window.
           </p>

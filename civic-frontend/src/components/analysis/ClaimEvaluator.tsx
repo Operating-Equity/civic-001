@@ -13,7 +13,7 @@ interface ClaimEvaluatorProps {
   speakersData?: SpeakersData | null;
   videoTitle?: string;
   thumbnailUrl?: string;
-  processingClaimIndex?: number; // Add this prop
+  processingClaimIndex?: number;
 }
 
 // Define a type for possible service statuses
@@ -27,7 +27,7 @@ const ClaimEvaluator: React.FC<ClaimEvaluatorProps> = ({
   speakersData,
   videoTitle,
   thumbnailUrl,
-  processingClaimIndex = -1 // Add default value
+  processingClaimIndex = -1
 }) => {
   const [isEvaluating, setIsEvaluating] = useState(false);
   const [evaluationStarted, setEvaluationStarted] = useState(false);
@@ -78,10 +78,22 @@ const ClaimEvaluator: React.FC<ClaimEvaluatorProps> = ({
     setShowCertificate(false);
   };
   
-  // Effects to handle claim processing state
+  // Set processing status based on prop values
   useEffect(() => {
-    // If results are provided rather than generated within this component
-    if (hasAllResults && !evaluationStarted) {
+    // If we have a valid processing claim index, we're in evaluation mode
+    const stillProcessing = processingClaimIndex >= 0;
+    setIsEvaluating(stillProcessing);
+    
+    if (stillProcessing) {
+      setCurrentClaimIndex(processingClaimIndex);
+      setEvaluationStarted(true);
+      setServiceStatus({
+        perplexity: 'loading',
+        openai: 'loading',
+        anthropic: 'loading'
+      });
+    } else if (hasAllResults) {
+      // If we have all results, mark as complete
       setProcessingComplete(true);
       setServiceStatus({
         perplexity: 'success',
@@ -89,7 +101,7 @@ const ClaimEvaluator: React.FC<ClaimEvaluatorProps> = ({
         anthropic: 'success'
       });
     }
-  }, [hasAllResults, evaluationStarted, empiricalClaims]);
+  }, [processingClaimIndex, hasAllResults, empiricalClaims.length]);
   
   // Display error if no claims to evaluate
   if (empiricalClaims.length === 0) {
@@ -121,11 +133,15 @@ const ClaimEvaluator: React.FC<ClaimEvaluatorProps> = ({
             errorMessages={errorMessages}
             currentClaimIndex={currentClaimIndex}
             totalClaims={empiricalClaims.length}
+            showProgressNumber={false} // Don't show sequential numbers
           />
           
-          <p className="text-gray-600 text-sm mt-6 text-center">
-            Processing claim {currentClaimIndex + 1} of {empiricalClaims.length}. This may take a minute.
-          </p>
+          <div className="bg-blue-50 border border-blue-100 rounded-lg p-4 mt-6">
+            <p className="text-blue-700 text-sm font-medium">Parallel Processing</p>
+            <p className="text-blue-600 text-xs mt-1">
+              All {empiricalClaims.length} claims are being processed simultaneously by our AI models
+            </p>
+          </div>
         </div>
       )}
       
