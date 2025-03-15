@@ -44,7 +44,7 @@ const FactCheckCard: React.FC<FactCheckCardProps> = ({ claim }) => {
     switch (claim.classification) {
       case 'TRUE':
         return (
-          <div className="px-3 py-1.5 bg-green-100 text-green-700 border border-green-200 rounded-full font-medium text-sm flex items-center">
+          <div className="px-3 py-1.5 bg-green-100 text-green-700 border border-green-200 rounded-full font-medium text-sm flex items-center shadow-sm">
             <svg className="w-4 h-4 mr-1.5" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
               <path d="M7.75 12.75L10 15.25L16.25 8.75" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
               <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2"/>
@@ -54,7 +54,7 @@ const FactCheckCard: React.FC<FactCheckCardProps> = ({ claim }) => {
         );
       case 'FALSE':
         return (
-          <div className="px-3 py-1.5 bg-red-100 text-red-700 border border-red-200 rounded-full font-medium text-sm flex items-center">
+          <div className="px-3 py-1.5 bg-red-100 text-red-700 border border-red-200 rounded-full font-medium text-sm flex items-center shadow-sm">
             <svg className="w-4 h-4 mr-1.5" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
               <path d="M15 9L9 15M9 9L15 15" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
               <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2"/>
@@ -65,7 +65,7 @@ const FactCheckCard: React.FC<FactCheckCardProps> = ({ claim }) => {
       case 'UNVERIFIED':
       default:
         return (
-          <div className="px-3 py-1.5 bg-amber-100 text-amber-700 border border-amber-200 rounded-full font-medium text-sm flex items-center">
+          <div className="px-3 py-1.5 bg-amber-100 text-amber-700 border border-amber-200 rounded-full font-medium text-sm flex items-center shadow-sm">
             <svg className="w-4 h-4 mr-1.5" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
               <path d="M12 16V12M12 8H12.01" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
               <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2"/>
@@ -77,7 +77,7 @@ const FactCheckCard: React.FC<FactCheckCardProps> = ({ claim }) => {
   };
 
   return (
-    <div className="glass-panel p-6">
+    <div className="bg-white p-6 border border-gray-200 rounded-lg shadow-sm">
       <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-4 mb-4">
         <div className="space-y-3">
           <div>
@@ -88,7 +88,7 @@ const FactCheckCard: React.FC<FactCheckCardProps> = ({ claim }) => {
         
         <div className="flex flex-col items-end gap-2">
           <div className="flex items-center space-x-1.5 gap-1.5">
-            <div className="flex items-center bg-gray-100 px-3 py-1 rounded-lg text-sm">
+            <div className="flex items-center bg-gray-100 px-3 py-1 rounded-lg text-sm border border-gray-200">
               <BarChart2 className="h-3.5 w-3.5 text-gray-500 mr-1.5" />
               <span className="text-gray-800 font-medium">{claim.confidence}%</span>
               <span className="text-gray-500 ml-1">confidence</span>

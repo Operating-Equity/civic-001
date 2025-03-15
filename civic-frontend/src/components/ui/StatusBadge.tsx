@@ -18,32 +18,35 @@ const StatusBadge: React.FC<StatusBadgeProps> = ({
       case 'TRUE':
         return {
           label: 'True',
-          color: 'bg-status-true',
-          textColor: 'text-white',
-          hoverColor: 'hover:bg-green-600',
+          bgColor: 'bg-green-100',
+          borderColor: 'border-green-200',
+          textColor: 'text-green-700',
+          hoverColor: 'hover:bg-green-200',
           icon: CheckCircle
         };
       case 'FALSE':
         return {
           label: 'False',
-          color: 'bg-status-false',
-          textColor: 'text-white',
-          hoverColor: 'hover:bg-red-600',
+          bgColor: 'bg-red-100',
+          borderColor: 'border-red-200',
+          textColor: 'text-red-700',
+          hoverColor: 'hover:bg-red-200',
           icon: XCircle
         };
       case 'UNVERIFIED':
       default:
         return {
           label: 'Unverified',
-          color: 'bg-status-unverified',
-          textColor: 'text-white',
-          hoverColor: 'hover:bg-amber-600',
+          bgColor: 'bg-amber-100',
+          borderColor: 'border-amber-200',
+          textColor: 'text-amber-700',
+          hoverColor: 'hover:bg-amber-200',
           icon: AlertCircle
         };
     }
   };
 
-  const { label, color, textColor, icon: Icon } = getStatusConfig();
+  const { label, bgColor, borderColor, textColor, icon: Icon } = getStatusConfig();
   
   const sizeClasses = {
     sm: 'text-xs px-2 py-0.5',
@@ -53,9 +56,9 @@ const StatusBadge: React.FC<StatusBadgeProps> = ({
 
   return (
     <span className={`
-      ${color} ${textColor} ${sizeClasses[size]} 
+      ${bgColor} ${textColor} ${sizeClasses[size]} 
       rounded-full font-medium inline-flex items-center justify-center
-      shadow-sm
+      border ${borderColor} shadow-sm
     `}>
       {withIcon && (
         <Icon className={`

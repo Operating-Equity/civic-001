@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Shield, CheckCircle, Search, ArrowRight } from 'lucide-react';
 import VideoInput from '../components/video/VideoInput';
 import VideoThumbnail from '../components/video/VideoThumbnail';
@@ -12,6 +12,7 @@ import { useEvidenceSearch } from '../hooks/useEvidenceSearch';
 
 const HomePage: React.FC = () => {
   const [activeSection, setActiveSection] = useState<'analysis' | 'evidence'>('analysis');
+  const resultsRef = useRef<HTMLDivElement>(null);
   
   const {
     transcript,
@@ -34,8 +35,30 @@ const HomePage: React.FC = () => {
   
   const hasResults = transcript && !isLoading;
 
+  // Scroll to results when they become available
+  useEffect(() => {
+    if (hasResults && resultsRef.current) {
+      // Wait for DOM to update before scrolling
+      setTimeout(() => {
+        resultsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 100);
+    }
+  }, [hasResults]);
+
   return (
     <div className="min-h-screen">
+      {/* Very minimal top "navigation" - just logo */}
+      <div className="bg-white py-4 px-6 shadow-sm">
+        <div className="container mx-auto flex items-center">
+          <div className="flex items-center space-x-2 group">
+            <div className="p-2 bg-blue-100 rounded-md">
+              <Shield className="h-5 w-5 text-blue-600" />
+            </div>
+            <span className="text-lg font-semibold text-gray-900">Civic</span>
+          </div>
+        </div>
+      </div>
+    
       {/* Simplified Hero Section - Light Theme */}
       <section className="relative py-16 bg-white">
         <div className="container mx-auto px-4 relative z-10">
@@ -50,7 +73,7 @@ const HomePage: React.FC = () => {
               The Video Truth Standard
             </h1>
             
-            <p className="text-lg text-gray-600 mb-6">
+            <p className="text-lg text-gray-700 mb-6">
               Civic analyzes videos with multi-model AI verification, adding a layer of credibility with objective fact-checking you can trust.
             </p>
           </div>
@@ -65,18 +88,19 @@ const HomePage: React.FC = () => {
               <h2 className="text-2xl font-bold text-gray-900">
                 Verify a Video
               </h2>
-              <p className="text-gray-600 mt-2">
+              <p className="text-gray-700 mt-2">
                 Enter a YouTube URL or upload a video to start the verification process
               </p>
             </div>
             
             <VideoInput onVideoSubmit={handleVideoSubmit} isProcessing={isLoading} error={error} />
             
+            {/* Single, unified loading indicator */}
             {isLoading && (
-              <div className="mt-8 glass-panel p-8 flex flex-col items-center justify-center">
-                <div className="animate-spin h-10 w-10 border-3 border-blue-600 border-t-transparent rounded-full mb-4"></div>
+              <div className="mt-8 loading-indicator">
+                <div className="loading-spinner"></div>
                 <p className="text-lg font-medium text-gray-800">Analyzing for Factual Accuracy</p>
-                <p className="text-gray-600 mt-2">Our AI models are verifying claims in your video</p>
+                <p className="text-gray-700 mt-2">Our AI models are verifying claims in your video</p>
               </div>
             )}
           </div>
@@ -92,7 +116,7 @@ const HomePage: React.FC = () => {
                 <CheckCircle className="h-6 w-6 text-blue-600" />
               </div>
               <h3 className="text-lg font-semibold text-gray-900 mb-2">Multi-Model Verification</h3>
-              <p className="text-gray-600 text-sm">Cross-checking claims using OpenAI, Anthropic, and Perplexity for balanced analysis</p>
+              <p className="text-gray-700 text-sm">Cross-checking claims using OpenAI, Anthropic, and Perplexity for balanced analysis</p>
             </div>
             
             <div className="flex flex-col items-center text-center px-4 py-6">
@@ -100,7 +124,7 @@ const HomePage: React.FC = () => {
                 <Search className="h-6 w-6 text-blue-600" />
               </div>
               <h3 className="text-lg font-semibold text-gray-900 mb-2">Evidence-Based Results</h3>
-              <p className="text-gray-600 text-sm">Automatic search for supporting sources to back every verification decision</p>
+              <p className="text-gray-700 text-sm">Automatic search for supporting sources to back every verification decision</p>
             </div>
             
             <div className="flex flex-col items-center text-center px-4 py-6">
@@ -108,7 +132,7 @@ const HomePage: React.FC = () => {
                 <Shield className="h-6 w-6 text-blue-600" />
               </div>
               <h3 className="text-lg font-semibold text-gray-900 mb-2">Verification Confidence</h3>
-              <p className="text-gray-600 text-sm">Clear confidence scores and supporting evidence for transparent verification</p>
+              <p className="text-gray-700 text-sm">Clear confidence scores and supporting evidence for transparent verification</p>
             </div>
           </div>
         </div>
@@ -116,12 +140,12 @@ const HomePage: React.FC = () => {
       
       {/* Results Section (conditionally rendered) - Light Theme */}
       {hasResults && (
-        <section className="py-12 bg-gray-50">
+        <section className="py-12 bg-gray-50" ref={resultsRef}>
           <div className="container mx-auto px-4">
             <div className="max-w-4xl mx-auto">
               <div className="text-center mb-8">
                 <h2 className="text-2xl font-bold text-gray-900">Verification Results</h2>
-                <p className="text-gray-600 mt-2">
+                <p className="text-gray-700 mt-2">
                   {videoTitle ? `Analysis for: ${videoTitle}` : 'Video analysis complete'}
                 </p>
               </div>
@@ -191,7 +215,7 @@ const HomePage: React.FC = () => {
           <h2 className="text-2xl font-bold text-white mb-4">
             Add credibility to your content
           </h2>
-          <p className="text-lg text-white/90 mb-6 max-w-xl mx-auto">
+          <p className="text-lg text-white mb-6 max-w-xl mx-auto">
             Join content creators and organizations using Civic to verify their videos before sharing.
           </p>
           <button className="px-6 py-3 bg-white text-blue-600 hover:bg-gray-100 font-medium rounded-lg shadow transition-all">

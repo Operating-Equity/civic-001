@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { 
   ClaimAnalysis, 
   Claim,
@@ -12,6 +12,9 @@ import {
 } from '../services/api';
 
 export const useVideoAnalysis = () => {
+  // Refs for scrolling
+  const scrollPositionRef = useRef(0);
+  
   const [transcript, setTranscript] = useState('');
   const [thumbnailUrl, setThumbnailUrl] = useState('');
   const [summary, setSummary] = useState('');
@@ -21,6 +24,9 @@ export const useVideoAnalysis = () => {
   const [perplexityResults, setPerplexityResults] = useState<Claim[]>([]);
   const [openAIResults, setOpenAIResults] = useState<Claim[]>([]);
   const [anthropicResults, setAnthropicResults] = useState<Claim[]>([]);
+  
+  // Single loading state to prevent duplicate loading indicators
+  const [isLoading, setIsLoading] = useState(false);
   
   // Track loading state for each service
   const [serviceStatus, setServiceStatus] = useState({
@@ -36,9 +42,18 @@ export const useVideoAnalysis = () => {
     anthropic: ''
   });
   
-  const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [processingClaimIndex, setProcessingClaimIndex] = useState(-1);
+  
+  // Function to save scroll position
+  const saveScrollPosition = useCallback(() => {
+    scrollPositionRef.current = window.scrollY;
+  }, []);
+  
+  // Function to restore scroll position
+  const restoreScrollPosition = useCallback(() => {
+    window.scrollTo(0, scrollPositionRef.current);
+  }, []);
   
   const resetStates = useCallback(() => {
     setTranscript('');
@@ -64,6 +79,10 @@ export const useVideoAnalysis = () => {
   }, []);
   
   const handleVideoSubmit = useCallback(async (input: { type: 'file' | 'url'; value: File | string; model?: string }) => {
+    // Save scroll position before state updates
+    saveScrollPosition();
+    
+    // Reset loading state to ensure only one loading indicator
     setIsLoading(true);
     setError(null);
     resetStates();
@@ -90,18 +109,26 @@ export const useVideoAnalysis = () => {
       // Process claims with AI models
       if (result.empiricalClaims.length > 0) {
         processClaims(result.empiricalClaims, result.summary);
+      } else {
+        // If no claims to process, set loading to false
+        setIsLoading(false);
       }
+      
+      // Restore scroll position after state updates
+      setTimeout(restoreScrollPosition, 100);
       
     } catch (error: any) {
       setError(error.message || 'Failed to process video');
       console.error('Error processing video:', error);
-    } finally {
-      setIsLoading(false);
+      setIsLoading(false); // Make sure to set loading to false on error
     }
-  }, [resetStates]);
+  }, [resetStates, saveScrollPosition, restoreScrollPosition]);
   
   const processClaims = useCallback(async (claims: ClaimAnalysis[], summary: string) => {
-    if (!claims.length) return;
+    if (!claims.length) {
+      setIsLoading(false); // Set loading to false if no claims
+      return;
+    }
     
     // Process claims one by one to avoid rate limits
     for (let i = 0; i < claims.length; i++) {
@@ -193,6 +220,9 @@ ${claim.validationPotential}
         
         console.log('[DEBUG] Results processed for all services');
         
+        // Save scroll position whenever we update state
+        saveScrollPosition();
+        
       } catch (error: any) {
         console.error(`Error processing claim ${i + 1}:`, error);
         // Create fallback results for all services
@@ -215,6 +245,9 @@ ${claim.validationPotential}
           anthropic: 'Network error occurred'
         });
       }
+      
+      // Restore scroll position after processing each claim
+      setTimeout(restoreScrollPosition, 100);
     }
     
     // After processing all claims, log the final results count
@@ -226,7 +259,10 @@ ${claim.validationPotential}
     
     // Reset processing index when done
     setProcessingClaimIndex(-1);
-  }, []);
+    
+    // Set loading to false when all processing is complete
+    setIsLoading(false);
+  }, [saveScrollPosition, restoreScrollPosition]);
   
   // Helper function to create a fallback result when a model fails
   const createFallbackResult = (claim: string, errorSource: string): Claim => {
@@ -239,6 +275,17 @@ ${claim.validationPotential}
       model: errorSource.charAt(0).toUpperCase() + errorSource.slice(1)
     };
   };
+  
+  // Effect to handle scroll position management when new content appears
+  useEffect(() => {
+    // Restore scroll position when components render
+    restoreScrollPosition();
+    
+    // Clean up event listeners when component unmounts
+    return () => {
+      // Nothing to clean up since we're not using event listeners directly
+    };
+  }, [restoreScrollPosition, empiricalClaims.length, perplexityResults.length]);
   
   return {
     // State

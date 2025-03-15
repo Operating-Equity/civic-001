@@ -25,17 +25,17 @@ const ServiceLoadingStatus: React.FC<ServiceLoadingStatusProps> = ({
   const getStatusIcon = (status: ServiceStatus) => {
     switch (status) {
       case 'idle':
-        return <Clock className="h-5 w-5 text-white/50" />;
+        return <Clock className="h-5 w-5 text-gray-400" />;
       case 'loading':
         return (
-          <div className="h-5 w-5 rounded-full border-2 border-primary border-t-transparent animate-spin"></div>
+          <div className="h-5 w-5 rounded-full border-2 border-blue-600 border-t-transparent animate-spin"></div>
         );
       case 'success':
-        return <CheckCircle className="h-5 w-5 text-green-500" />;
+        return <CheckCircle className="h-5 w-5 text-green-600" />;
       case 'error':
-        return <XCircle className="h-5 w-5 text-red-500" />;
+        return <XCircle className="h-5 w-5 text-red-600" />;
       default:
-        return <AlertCircle className="h-5 w-5 text-white/50" />;
+        return <AlertCircle className="h-5 w-5 text-gray-400" />;
     }
   };
 
@@ -58,13 +58,13 @@ const ServiceLoadingStatus: React.FC<ServiceLoadingStatusProps> = ({
   const getProgressBarColorClass = (status: ServiceStatus) => {
     switch (status) {
       case 'loading':
-        return 'bg-primary';
+        return 'bg-blue-600';
       case 'success':
-        return 'bg-green-500';
+        return 'bg-green-600';
       case 'error':
-        return 'bg-red-500';
+        return 'bg-red-600';
       default:
-        return 'bg-white/20';
+        return 'bg-gray-200';
     }
   };
 
@@ -101,12 +101,12 @@ const ServiceLoadingStatus: React.FC<ServiceLoadingStatusProps> = ({
       {/* Overall progress */}
       <div className="space-y-2">
         <div className="flex justify-between items-center">
-          <div className="text-white font-medium">Overall Progress</div>
-          <div className="text-white/70 text-sm">{overallProgress}%</div>
+          <div className="text-gray-800 font-medium">Overall Progress</div>
+          <div className="text-gray-600 text-sm">{overallProgress}%</div>
         </div>
-        <div className="h-2 bg-white/10 rounded-full overflow-hidden">
+        <div className="h-2 bg-gray-100 rounded-full overflow-hidden border border-gray-200">
           <div 
-            className="h-full bg-primary rounded-full transition-all duration-500" 
+            className="h-full bg-blue-600 rounded-full transition-all duration-500" 
             style={{ width: `${overallProgress}%` }}
           ></div>
         </div>
@@ -119,22 +119,22 @@ const ServiceLoadingStatus: React.FC<ServiceLoadingStatusProps> = ({
           <div className="flex justify-between items-center">
             <div className="flex items-center space-x-2">
               {getStatusIcon(perplexityStatus)}
-              <span className="text-white font-medium">Perplexity</span>
+              <span className="text-gray-800 font-medium">Perplexity</span>
             </div>
-            <div className="text-white/70 text-sm">
+            <div className="text-gray-600 text-sm">
               {getProgressPercentage(perplexityStatus)}%
             </div>
           </div>
-          <div className="h-2 bg-white/10 rounded-full overflow-hidden">
+          <div className="h-2 bg-gray-100 rounded-full overflow-hidden border border-gray-200">
             <div 
               className={`h-full rounded-full transition-all duration-500 ${getProgressBarColorClass(perplexityStatus)}`}
               style={{ width: `${getProgressPercentage(perplexityStatus)}%` }}
             ></div>
           </div>
-          <div className="text-sm text-white/70">
+          <div className="text-sm text-gray-600">
             {getStatusText(perplexityStatus, 'Perplexity')}
             {perplexityStatus === 'error' && errorMessages.perplexity && (
-              <div className="text-red-400 text-xs mt-1">{errorMessages.perplexity}</div>
+              <div className="text-red-600 text-xs mt-1">{errorMessages.perplexity}</div>
             )}
           </div>
         </div>
@@ -144,22 +144,22 @@ const ServiceLoadingStatus: React.FC<ServiceLoadingStatusProps> = ({
           <div className="flex justify-between items-center">
             <div className="flex items-center space-x-2">
               {getStatusIcon(openAIStatus)}
-              <span className="text-white font-medium">OpenAI</span>
+              <span className="text-gray-800 font-medium">OpenAI</span>
             </div>
-            <div className="text-white/70 text-sm">
+            <div className="text-gray-600 text-sm">
               {getProgressPercentage(openAIStatus)}%
             </div>
           </div>
-          <div className="h-2 bg-white/10 rounded-full overflow-hidden">
+          <div className="h-2 bg-gray-100 rounded-full overflow-hidden border border-gray-200">
             <div 
               className={`h-full rounded-full transition-all duration-500 ${getProgressBarColorClass(openAIStatus)}`}
               style={{ width: `${getProgressPercentage(openAIStatus)}%` }}
             ></div>
           </div>
-          <div className="text-sm text-white/70">
+          <div className="text-sm text-gray-600">
             {getStatusText(openAIStatus, 'OpenAI')}
             {openAIStatus === 'error' && errorMessages.openai && (
-              <div className="text-red-400 text-xs mt-1">{errorMessages.openai}</div>
+              <div className="text-red-600 text-xs mt-1">{errorMessages.openai}</div>
             )}
           </div>
         </div>
@@ -169,22 +169,22 @@ const ServiceLoadingStatus: React.FC<ServiceLoadingStatusProps> = ({
           <div className="flex justify-between items-center">
             <div className="flex items-center space-x-2">
               {getStatusIcon(anthropicStatus)}
-              <span className="text-white font-medium">Anthropic</span>
+              <span className="text-gray-800 font-medium">Anthropic</span>
             </div>
-            <div className="text-white/70 text-sm">
+            <div className="text-gray-600 text-sm">
               {getProgressPercentage(anthropicStatus)}%
             </div>
           </div>
-          <div className="h-2 bg-white/10 rounded-full overflow-hidden">
+          <div className="h-2 bg-gray-100 rounded-full overflow-hidden border border-gray-200">
             <div 
               className={`h-full rounded-full transition-all duration-500 ${getProgressBarColorClass(anthropicStatus)}`}
               style={{ width: `${getProgressPercentage(anthropicStatus)}%` }}
             ></div>
           </div>
-          <div className="text-sm text-white/70">
+          <div className="text-sm text-gray-600">
             {getStatusText(anthropicStatus, 'Anthropic')}
             {anthropicStatus === 'error' && errorMessages.anthropic && (
-              <div className="text-red-400 text-xs mt-1">{errorMessages.anthropic}</div>
+              <div className="text-red-600 text-xs mt-1">{errorMessages.anthropic}</div>
             )}
           </div>
         </div>

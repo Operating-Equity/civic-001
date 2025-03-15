@@ -65,7 +65,7 @@ const VideoInput: React.FC<VideoInputProps> = ({
   };
   
   return (
-    <div className="glass-panel p-6">
+    <div className="bg-white border border-gray-200 rounded-lg shadow-sm p-6">
       {/* Input Type Selector - Light Theme */}
       <div className="flex mb-6 bg-gray-100 rounded-full p-1 w-fit mx-auto">
         <button
@@ -106,7 +106,7 @@ const VideoInput: React.FC<VideoInputProps> = ({
       {inputType === 'url' && (
         <form onSubmit={handleUrlSubmit} className="space-y-4">
           <div>
-            <div className="bg-white border border-gray-300 focus-within:border-blue-500 focus-within:ring-1 focus-within:ring-blue-500 transition-colors rounded-xl overflow-hidden">
+            <div className="bg-white border border-gray-300 focus-within:border-blue-500 focus-within:ring-1 focus-within:ring-blue-500 transition-colors rounded-lg overflow-hidden">
               <input
                 type="text"
                 value={videoUrl}
@@ -142,9 +142,9 @@ const VideoInput: React.FC<VideoInputProps> = ({
         <form onSubmit={handleFileSubmit} className="space-y-4">
           <div
             className={`
-              border-2 border-dashed rounded-xl p-6
+              border-2 border-dashed rounded-lg p-6
               ${isDragging ? 'border-blue-500 bg-blue-50' : 'border-gray-300 bg-gray-50'}
-              ${selectedFile ? 'border-blue-500 bg-blue-50' : ''}
+              ${selectedFile ? 'border-blue-500/40 bg-blue-50/40' : ''}
               transition-colors duration-200
             `}
             onDragOver={handleDragOver}
@@ -208,6 +208,19 @@ const VideoInput: React.FC<VideoInputProps> = ({
             </button>
           </div>
         </form>
+      )}
+      
+      {/* Processing Status - Light Theme */}
+      {isProcessing && (
+        <div className="mt-6 pt-6 border-t border-gray-200">
+          <div className="flex items-center space-x-3">
+            <div className="h-4 w-4 rounded-full border-2 border-blue-600 border-t-transparent animate-spin"></div>
+            <p className="text-gray-800 font-medium">Processing video</p>
+          </div>
+          <p className="text-gray-600 text-sm mt-2">
+            This may take several minutes for longer videos. Please don't close this window.
+          </p>
+        </div>
       )}
     </div>
   );

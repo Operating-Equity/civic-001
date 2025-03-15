@@ -197,9 +197,9 @@ const ClaimEvaluator: React.FC<ClaimEvaluatorProps> = ({ empiricalClaims }) => {
   if (empiricalClaims.length === 0) {
     return (
       <div className="glass-panel p-6 text-center">
-        <AlertTriangle className="h-12 w-12 text-yellow-500 mx-auto mb-4" />
-        <h3 className="text-white text-lg font-medium mb-2">No Claims to Evaluate</h3>
-        <p className="text-white/70">No empirical claims were found for evaluation.</p>
+        <AlertTriangle className="h-12 w-12 text-amber-500 mx-auto mb-4" />
+        <h3 className="text-gray-900 text-lg font-medium mb-2">No Claims to Evaluate</h3>
+        <p className="text-gray-600">No empirical claims were found for evaluation.</p>
       </div>
     );
   }
@@ -209,8 +209,8 @@ const ClaimEvaluator: React.FC<ClaimEvaluatorProps> = ({ empiricalClaims }) => {
       {/* Show loading status when processing claims */}
       {loading && (
         <div className="glass-panel p-6 mb-6">
-          <h2 className="text-xl font-semibold mb-6 text-white flex items-center">
-            <AlertTriangle className="mr-2 h-5 w-5 text-primary" />
+          <h2 className="text-xl font-semibold mb-6 text-gray-900 flex items-center">
+            <AlertTriangle className="mr-2 h-5 w-5 text-blue-600" />
             Analyzing Claims
           </h2>
           
@@ -221,7 +221,7 @@ const ClaimEvaluator: React.FC<ClaimEvaluatorProps> = ({ empiricalClaims }) => {
             errorMessages={errorMessages}
           />
           
-          <p className="text-white/70 text-sm mt-6 text-center">
+          <p className="text-gray-600 text-sm mt-6 text-center">
             Processing claim {currentClaimIndex + 1} of {empiricalClaims.length}. This may take a minute.
           </p>
         </div>
@@ -238,8 +238,8 @@ const ClaimEvaluator: React.FC<ClaimEvaluatorProps> = ({ empiricalClaims }) => {
       />
       
       {evaluationStarted && allClaimsEvaluated && (
-        <div className="mt-4 p-4 bg-green-500/20 border border-green-500/30 rounded-md">
-          <p className="text-white text-center">
+        <div className="mt-4 p-4 bg-green-50 border border-green-200 rounded-md">
+          <p className="text-green-800 text-center font-medium">
             All claims have been evaluated! Check the tabs above to see results from each service.
           </p>
         </div>

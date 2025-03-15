@@ -65,10 +65,10 @@ const AnalysisPage: React.FC = () => {
     return (
       <div className="container mx-auto px-4 py-16">
         <div className="max-w-4xl mx-auto">
-          <div className="glass-panel p-12 flex flex-col items-center justify-center">
-            <div className="animate-spin h-12 w-12 border-4 border-primary border-t-transparent rounded-full mb-4"></div>
-            <p className="text-xl font-medium text-white">Loading Analysis</p>
-            <p className="text-white/70 mt-2">Please wait...</p>
+          <div className="bg-white p-12 rounded-lg shadow-sm border border-gray-200 flex flex-col items-center justify-center">
+            <div className="animate-spin h-12 w-12 border-4 border-blue-600 border-t-transparent rounded-full mb-4"></div>
+            <p className="text-xl font-medium text-gray-800">Loading Analysis</p>
+            <p className="text-gray-600 mt-2">Please wait...</p>
           </div>
         </div>
       </div>
@@ -79,15 +79,15 @@ const AnalysisPage: React.FC = () => {
     return (
       <div className="container mx-auto px-4 py-16">
         <div className="max-w-4xl mx-auto">
-          <div className="glass-panel p-8">
-            <div className="flex items-center space-x-3 text-white mb-4">
+          <div className="bg-white p-8 rounded-lg shadow-sm border border-gray-200">
+            <div className="flex items-center space-x-3 text-gray-800 mb-4">
               <AlertTriangle className="h-6 w-6 text-red-500" />
               <h2 className="text-xl font-semibold">Error</h2>
             </div>
-            <p className="text-white/90 mb-6">{error || 'Failed to load analysis'}</p>
+            <p className="text-gray-700 mb-6">{error || 'Failed to load analysis'}</p>
             <button
               onClick={() => navigate('/')}
-              className="flex items-center space-x-2 px-4 py-2 bg-white/10 hover:bg-white/20 text-white rounded-lg transition-colors"
+              className="flex items-center space-x-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-800 rounded-lg transition-colors border border-gray-200"
             >
               <ArrowLeft className="h-4 w-4" />
               <span>Return to Home</span>
@@ -105,24 +105,24 @@ const AnalysisPage: React.FC = () => {
         <div className="flex flex-wrap items-center justify-between mb-8">
           <button
             onClick={() => navigate('/')}
-            className="flex items-center space-x-2 px-4 py-2 bg-white/10 hover:bg-white/20 text-white rounded-lg transition-colors"
+            className="flex items-center space-x-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-800 rounded-lg transition-colors border border-gray-200"
           >
             <ArrowLeft className="h-4 w-4" />
             <span>Back</span>
           </button>
           
           <div className="flex items-center space-x-3 mt-4 sm:mt-0">
-            <button className="flex items-center space-x-1 px-3 py-1.5 bg-white/5 hover:bg-white/10 text-white rounded-lg transition-colors text-sm">
+            <button className="flex items-center space-x-1 px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-800 rounded-lg transition-colors border border-gray-200 text-sm">
               <Download className="h-4 w-4" />
               <span>Export</span>
             </button>
             
-            <button className="flex items-center space-x-1 px-3 py-1.5 bg-white/5 hover:bg-white/10 text-white rounded-lg transition-colors text-sm">
+            <button className="flex items-center space-x-1 px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-800 rounded-lg transition-colors border border-gray-200 text-sm">
               <Share2 className="h-4 w-4" />
               <span>Share</span>
             </button>
             
-            <button className="flex items-center space-x-1 px-3 py-1.5 bg-white/5 hover:bg-white/10 text-white rounded-lg transition-colors text-sm">
+            <button className="flex items-center space-x-1 px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-800 rounded-lg transition-colors border border-gray-200 text-sm">
               <Bookmark className="h-4 w-4" />
               <span>Save</span>
             </button>
@@ -130,7 +130,7 @@ const AnalysisPage: React.FC = () => {
         </div>
         
         {/* Title */}
-        <h1 className="text-2xl font-bold text-white mb-6">{data.videoTitle}</h1>
+        <h1 className="text-2xl font-bold text-gray-900 mb-6">{data.videoTitle}</h1>
         
         {/* Analysis Content */}
         <div className="space-y-8">

@@ -20,18 +20,18 @@ const Loading: React.FC<LoadingProps> = ({
   };
   
   const containerClasses = fullScreen
-    ? 'fixed inset-0 z-50 flex items-center justify-center bg-background-dark/80'
+    ? 'fixed inset-0 z-50 flex items-center justify-center bg-white/80'
     : 'flex flex-col items-center justify-center';
 
   return (
     <div className={containerClasses}>
       <div className="flex flex-col items-center space-y-4">
         <div
-          className={`animate-spin rounded-full border-t-transparent border-primary ${sizeClasses[size]}`}
+          className={`animate-spin rounded-full border-t-transparent border-blue-600 ${sizeClasses[size]}`}
         />
         <div className="text-center">
-          {text && <p className="text-white font-medium">{text}</p>}
-          {subText && <p className="text-white/70 text-sm mt-1">{subText}</p>}
+          {text && <p className="text-gray-800 font-medium">{text}</p>}
+          {subText && <p className="text-gray-600 text-sm mt-1">{subText}</p>}
         </div>
       </div>
     </div>

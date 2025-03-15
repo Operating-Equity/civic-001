@@ -18,27 +18,29 @@ const KeywordGeneration: React.FC<KeywordGenerationProps> = ({
   return (
     <div className="glass-panel p-6">
       <div className="flex items-center space-x-2 mb-6">
-        <Key className="h-5 w-5 text-primary" />
-        <h2 className="text-xl font-semibold text-white">Search Keywords</h2>
+        <div className="p-1.5 bg-blue-100 rounded-md">
+          <Key className="h-5 w-5 text-blue-600" />
+        </div>
+        <h2 className="text-xl font-semibold text-gray-900">Search Keywords</h2>
       </div>
       
       <div className="space-y-6">
         {keywordResults.map((result, index) => (
-          <div key={index} className="glass-panel p-4">
-            <h3 className="font-medium text-white text-base mb-3">Claim:</h3>
-            <p className="text-white/90 text-sm mb-4 p-3 bg-white/5 rounded-lg border border-white/10">
+          <div key={index} className="bg-white p-5 border border-gray-200 rounded-lg shadow-sm">
+            <h3 className="font-medium text-gray-800 text-base mb-3">Claim:</h3>
+            <p className="text-gray-700 text-sm mb-4 p-3 bg-gray-50 rounded-lg border border-gray-200">
               {result.claim}
             </p>
             
-            <h4 className="font-medium text-white text-sm mb-2">Generated Search Queries:</h4>
+            <h4 className="font-medium text-gray-800 text-sm mb-2">Generated Search Queries:</h4>
             <ul className="space-y-2">
               {result.searchQueries.map((query, queryIndex) => (
                 <li key={queryIndex} className="flex items-center">
-                  <div className="p-2 flex-grow bg-white/5 rounded-l-md text-white/90 text-sm border border-white/10 border-r-0">
+                  <div className="p-2 flex-grow bg-gray-50 rounded-l-md text-gray-700 text-sm border border-gray-200 border-r-0">
                     {query}
                   </div>
                   <button
-                    className="p-2 bg-primary hover:bg-primary-600 text-white rounded-r-md transition-colors"
+                    className="p-2 bg-blue-600 hover:bg-blue-700 text-white rounded-r-md transition-colors"
                     onClick={() => onSearch(result.claim, [query])}
                     disabled={isSearching}
                   >
@@ -53,7 +55,7 @@ const KeywordGeneration: React.FC<KeywordGenerationProps> = ({
             </ul>
             
             <button
-              className="mt-4 w-full flex items-center justify-center space-x-2 p-2 bg-primary/20 hover:bg-primary/30 text-primary font-medium rounded-md transition-colors border border-primary/30"
+              className="mt-4 w-full flex items-center justify-center space-x-2 p-2 bg-blue-100 hover:bg-blue-200 text-blue-700 font-medium rounded-md transition-colors border border-blue-200"
               onClick={() => onSearch(result.claim, result.searchQueries)}
               disabled={isSearching}
             >

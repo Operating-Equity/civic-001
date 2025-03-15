@@ -21,15 +21,15 @@ const Button = forwardRef<HTMLButtonElement, ButtonProps>(
     ...props 
   }, ref) => {
     // Base styles
-    const baseStyles = "inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 disabled:opacity-50 disabled:pointer-events-none";
+    const baseStyles = "inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 disabled:opacity-50 disabled:pointer-events-none";
     
-    // Variant styles
+    // Variant styles for light theme
     const variantStyles = {
-      default: "bg-primary text-white hover:bg-primary-600 active:bg-primary-700",
-      secondary: "bg-white/10 text-white hover:bg-white/20 active:bg-white/30",
-      outline: "border border-white/20 text-white hover:bg-white/10 active:bg-white/20",
-      ghost: "text-white hover:bg-white/10 active:bg-white/20",
-      link: "text-primary underline-offset-4 hover:underline",
+      default: "bg-blue-600 text-white hover:bg-blue-700 active:bg-blue-800 shadow-sm",
+      secondary: "bg-gray-100 text-gray-800 hover:bg-gray-200 active:bg-gray-300 border border-gray-200",
+      outline: "border border-gray-300 text-gray-800 hover:bg-gray-100 active:bg-gray-200",
+      ghost: "text-gray-700 hover:bg-gray-100 active:bg-gray-200",
+      link: "text-blue-600 underline-offset-4 hover:underline",
     };
     
     // Size styles

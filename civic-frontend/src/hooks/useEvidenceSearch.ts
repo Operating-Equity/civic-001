@@ -99,6 +99,15 @@ export const useEvidenceSearch = (
           }
         ]);
       }
+      
+      // Scroll to the evidence section when results are loaded
+      setTimeout(() => {
+        const evidenceSection = document.getElementById('evidence-section');
+        if (evidenceSection) {
+          evidenceSection.scrollIntoView({ behavior: 'smooth' });
+        }
+      }, 100);
+      
     } catch (error: any) {
       setError(error.message || 'Failed to search for evidence');
       console.error('Error searching for evidence:', error);

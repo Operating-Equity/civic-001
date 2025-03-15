@@ -4,6 +4,7 @@ import { ClaimAnalysis, Claim } from '../../types';
 import FactCheckCard from './FactCheckCard';
 import ModelComparison from './ModelComparison';
 import ServiceLoadingStatus, { ServiceStatus } from './ServiceLoadingStatus';
+import ClaimCard from './ClaimCard';
 
 interface AnalysisResultsProps {
   empiricalClaims: ClaimAnalysis[];
@@ -45,10 +46,10 @@ const AnalysisResults: React.FC<AnalysisResultsProps> = ({
       <div className="glass-panel p-6 min-h-[300px]">
         <div className="mb-6">
           <div className="flex items-center space-x-2 mb-3">
-            <div className="p-1.5 bg-primary/10 rounded-md">
-              <Shield className="h-5 w-5 text-primary" />
+            <div className="p-1.5 bg-blue-100 rounded-md">
+              <Shield className="h-5 w-5 text-blue-600" />
             </div>
-            <h2 className="text-xl font-semibold text-white">Verification in Progress</h2>
+            <h2 className="text-xl font-semibold text-gray-900">Verification in Progress</h2>
           </div>
         </div>
         
@@ -59,7 +60,7 @@ const AnalysisResults: React.FC<AnalysisResultsProps> = ({
           errorMessages={errorMessages}
         />
         
-        <p className="text-white/70 text-sm mt-6 text-center">
+        <p className="text-gray-700 text-sm mt-6 text-center">
           Cross-referencing claims across multiple verification models for accuracy
         </p>
       </div>
@@ -74,26 +75,26 @@ const AnalysisResults: React.FC<AnalysisResultsProps> = ({
     <div className="glass-panel p-6">
       <div className="mb-6">
         <div className="flex items-center space-x-2 mb-3">
-          <div className="p-1.5 bg-primary/10 rounded-md">
-            <Shield className="h-5 w-5 text-primary" />
+          <div className="p-1.5 bg-blue-100 rounded-md">
+            <Shield className="h-5 w-5 text-blue-600" />
           </div>
-          <h2 className="text-xl font-semibold text-white">Verification Results</h2>
+          <h2 className="text-xl font-semibold text-gray-900">Verification Results</h2>
         </div>
         
-        <div className="py-2 px-4 bg-white/5 border border-white/10 rounded-lg text-sm text-white/80">
+        <div className="py-2 px-4 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-700">
           <p>We've identified {empiricalClaims.length} verifiable claim{empiricalClaims.length !== 1 ? 's' : ''} in this video</p>
         </div>
       </div>
       
       {/* Tabs - Cleaner Design */}
-      <div className="border-b border-white/10 mb-6">
+      <div className="border-b border-gray-200 mb-6">
         <div className="flex flex-wrap -mb-px">
           <button
             onClick={() => setActiveTab('claims')}
             className={`mr-4 py-3 px-1 border-b-2 font-medium text-sm flex items-center space-x-1.5
               ${activeTab === 'claims' 
-                ? 'border-primary text-primary' 
-                : 'border-transparent text-white/70 hover:text-white/90 hover:border-white/20'}
+                ? 'border-blue-600 text-blue-600' 
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}
             `}
           >
             <FileText className="h-4 w-4" />
@@ -104,8 +105,8 @@ const AnalysisResults: React.FC<AnalysisResultsProps> = ({
             onClick={() => setActiveTab('perplexity')}
             className={`mr-4 py-3 px-1 border-b-2 font-medium text-sm flex items-center space-x-1.5
               ${activeTab === 'perplexity' 
-                ? 'border-primary text-primary' 
-                : 'border-transparent text-white/70 hover:text-white/90 hover:border-white/20'}
+                ? 'border-blue-600 text-blue-600' 
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}
             `}
           >
             <div className="h-3 w-3 bg-blue-500 rounded-full"></div>
@@ -116,8 +117,8 @@ const AnalysisResults: React.FC<AnalysisResultsProps> = ({
             onClick={() => setActiveTab('openai')}
             className={`mr-4 py-3 px-1 border-b-2 font-medium text-sm flex items-center space-x-1.5
               ${activeTab === 'openai' 
-                ? 'border-primary text-primary' 
-                : 'border-transparent text-white/70 hover:text-white/90 hover:border-white/20'}
+                ? 'border-blue-600 text-blue-600' 
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}
             `}
           >
             <div className="h-3 w-3 bg-green-500 rounded-full"></div>
@@ -128,8 +129,8 @@ const AnalysisResults: React.FC<AnalysisResultsProps> = ({
             onClick={() => setActiveTab('anthropic')}
             className={`mr-4 py-3 px-1 border-b-2 font-medium text-sm flex items-center space-x-1.5
               ${activeTab === 'anthropic' 
-                ? 'border-primary text-primary' 
-                : 'border-transparent text-white/70 hover:text-white/90 hover:border-white/20'}
+                ? 'border-blue-600 text-blue-600' 
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}
             `}
           >
             <div className="h-3 w-3 bg-purple-500 rounded-full"></div>
@@ -140,8 +141,8 @@ const AnalysisResults: React.FC<AnalysisResultsProps> = ({
             onClick={() => setActiveTab('comparison')}
             className={`mr-4 py-3 px-1 border-b-2 font-medium text-sm flex items-center space-x-1.5
               ${activeTab === 'comparison' 
-                ? 'border-primary text-primary' 
-                : 'border-transparent text-white/70 hover:text-white/90 hover:border-white/20'}
+                ? 'border-blue-600 text-blue-600' 
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}
             `}
           >
             <BarChart4 className="h-4 w-4" />
@@ -155,32 +156,7 @@ const AnalysisResults: React.FC<AnalysisResultsProps> = ({
         {activeTab === 'claims' && (
           <div className="space-y-4">
             {empiricalClaims.map((claim, index) => (
-              <div key={index} className="glass-panel p-6">
-                <div className="flex items-center mb-4">
-                  <div className="h-7 w-7 flex items-center justify-center bg-primary/10 text-primary rounded-full mr-3 font-medium text-sm">
-                    {index + 1}
-                  </div>
-                  <h3 className="font-semibold text-white">Claim to Verify</h3>
-                </div>
-                
-                <div className="space-y-3">
-                  <div className="py-3 px-4 bg-white/5 border border-white/10 rounded-lg">
-                    <p className="text-white/90 font-medium">{claim.claim}</p>
-                  </div>
-                  
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    <div>
-                      <h4 className="text-sm font-medium text-white/70 mb-2">Context:</h4>
-                      <p className="text-white/80 text-sm whitespace-pre-line p-3 bg-white/5 rounded-lg border border-white/10">{claim.context}</p>
-                    </div>
-                    
-                    <div>
-                      <h4 className="text-sm font-medium text-white/70 mb-2">Verification Approach:</h4>
-                      <p className="text-white/80 text-sm p-3 bg-white/5 rounded-lg border border-white/10">{claim.validationPotential}</p>
-                    </div>
-                  </div>
-                </div>
-              </div>
+              <ClaimCard key={index} claim={claim} index={index} />
             ))}
           </div>
         )}
@@ -200,9 +176,9 @@ const AnalysisResults: React.FC<AnalysisResultsProps> = ({
                 />
               </div>
             ) : (
-              <div className="text-center py-10 bg-white/5 rounded-lg border border-white/10">
-                <AlertCircle className="h-10 w-10 text-white/30 mx-auto mb-3" />
-                <p className="text-white/70">No verification results available from Perplexity yet.</p>
+              <div className="text-center py-10 bg-white border border-gray-200 rounded-lg">
+                <AlertCircle className="h-10 w-10 text-gray-300 mx-auto mb-3" />
+                <p className="text-gray-700">No verification results available from Perplexity yet.</p>
               </div>
             )}
           </div>
@@ -223,9 +199,9 @@ const AnalysisResults: React.FC<AnalysisResultsProps> = ({
                 />
               </div>
             ) : (
-              <div className="text-center py-10 bg-white/5 rounded-lg border border-white/10">
-                <AlertCircle className="h-10 w-10 text-white/30 mx-auto mb-3" />
-                <p className="text-white/70">No verification results available from OpenAI yet.</p>
+              <div className="text-center py-10 bg-white border border-gray-200 rounded-lg">
+                <AlertCircle className="h-10 w-10 text-gray-300 mx-auto mb-3" />
+                <p className="text-gray-700">No verification results available from OpenAI yet.</p>
               </div>
             )}
           </div>
@@ -246,9 +222,9 @@ const AnalysisResults: React.FC<AnalysisResultsProps> = ({
                 />
               </div>
             ) : (
-              <div className="text-center py-10 bg-white/5 rounded-lg border border-white/10">
-                <AlertCircle className="h-10 w-10 text-white/30 mx-auto mb-3" />
-                <p className="text-white/70">No verification results available from Anthropic yet.</p>
+              <div className="text-center py-10 bg-white border border-gray-200 rounded-lg">
+                <AlertCircle className="h-10 w-10 text-gray-300 mx-auto mb-3" />
+                <p className="text-gray-700">No verification results available from Anthropic yet.</p>
               </div>
             )}
           </div>
@@ -263,12 +239,12 @@ const AnalysisResults: React.FC<AnalysisResultsProps> = ({
         )}
       </div>
       
-      <div className="mt-6 p-4 bg-white/5 border border-white/10 rounded-lg flex items-center justify-between">
+      <div className="mt-6 p-4 bg-gray-50 border border-gray-200 rounded-lg flex items-center justify-between">
         <div className="flex items-center">
-          <Shield className="h-5 w-5 text-primary mr-2" />
-          <span className="text-sm text-white/90 font-medium">Verified by Civic</span>
+          <Shield className="h-5 w-5 text-blue-600 mr-2" />
+          <span className="text-sm text-gray-800 font-medium">Verified by Civic</span>
         </div>
-        <div className="text-xs text-white/50">
+        <div className="text-xs text-gray-500">
           Multiple AI models cross-referenced to ensure accuracy
         </div>
       </div>

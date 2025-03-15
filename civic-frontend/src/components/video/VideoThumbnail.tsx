@@ -22,20 +22,24 @@ const VideoThumbnail: React.FC<VideoThumbnailProps> = ({ thumbnailUrl, videoTitl
   return (
     <>
       <div className="glass-panel p-6 cursor-pointer" onClick={() => setModalOpen(true)}>
-        <div className="relative group overflow-hidden rounded-lg">
+        <div className="relative group overflow-hidden rounded-lg shadow-md border border-gray-200">
           <img 
             src={thumbnailUrl} 
             alt={videoTitle || "Video thumbnail"} 
-            className="w-full h-auto rounded-lg shadow-lg transform transition-transform duration-300 group-hover:scale-105"
+            className="w-full h-auto rounded-lg transform transition-transform duration-300 group-hover:scale-105"
+            onError={(e) => {
+              // Set a fallback image if thumbnail loading fails
+              e.currentTarget.src = 'https://via.placeholder.com/640x360?text=Video+Thumbnail';
+            }}
           />
-          <div className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-30 opacity-0 group-hover:opacity-100 transition-opacity">
-            <div className="bg-white/30 backdrop-blur-sm p-4 rounded-full">
+          <div className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-20 opacity-0 group-hover:opacity-100 transition-opacity">
+            <div className="bg-white/30 backdrop-blur-sm p-4 rounded-full shadow-lg">
               <Play className="h-10 w-10 text-white" fill="white" />
             </div>
           </div>
           {videoTitle && (
             <div className="absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-black to-transparent">
-              <h3 className="text-white font-medium text-lg">{videoTitle}</h3>
+              <h3 className="text-white font-medium text-lg text-shadow">{videoTitle}</h3>
             </div>
           )}
         </div>
@@ -44,11 +48,11 @@ const VideoThumbnail: React.FC<VideoThumbnailProps> = ({ thumbnailUrl, videoTitl
       {/* Modal */}
       {modalOpen && (
         <div 
-          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80"
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-gray-900/80"
           onClick={() => setModalOpen(false)}
         >
           <div 
-            className="relative w-full max-w-4xl bg-background-dark rounded-xl overflow-hidden"
+            className="relative w-full max-w-4xl bg-white rounded-xl overflow-hidden shadow-xl"
             onClick={(e) => e.stopPropagation()}
           >
             <button 
