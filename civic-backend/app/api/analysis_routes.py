@@ -33,6 +33,9 @@ def create_summary():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+import concurrent.futures
+from threading import Thread
+
 @api.route('/analysis/evaluate', methods=['POST'])
 def evaluate_claim():
     """Evaluate a claim using multiple AI providers"""
@@ -52,51 +55,56 @@ def evaluate_claim():
     try:
         results = {}
         
-        # Evaluate with specified model or all models
-        if model in ['all', 'perplexity']:
-            print(f"[EVALUATE] Calling Perplexity API for claim: '{claim[:30]}...'")
+        # Determine which models to evaluate
+        models_to_evaluate = []
+        if model == 'all':
+            models_to_evaluate = ['perplexity', 'openai', 'anthropic']
+        else:
+            models_to_evaluate = [model]
+        
+        # Define a function to process a single model
+        def process_model(model_name):
             try:
-                results['perplexity'] = evaluate_with_perplexity(claim, context)
-                print("[EVALUATE] Perplexity evaluation successful")
+                if model_name == 'perplexity':
+                    print(f"[EVALUATE] Calling Perplexity API for claim: '{claim[:30]}...'")
+                    result = evaluate_with_perplexity(claim, context)
+                    print("[EVALUATE] Perplexity evaluation successful")
+                elif model_name == 'openai':
+                    print(f"[EVALUATE] Calling OpenAI API for claim: '{claim[:30]}...'")
+                    result = evaluate_with_openai(claim, context)
+                    print("[EVALUATE] OpenAI evaluation successful")
+                elif model_name == 'anthropic':
+                    print(f"[EVALUATE] Calling Anthropic API for claim: '{claim[:30]}...'")
+                    result = evaluate_with_anthropic(claim, context)
+                    print("[EVALUATE] Anthropic evaluation successful")
+                else:
+                    return None, f"Unknown model: {model_name}"
+                
+                return model_name, result
             except Exception as model_error:
-                print(f"[EVALUATE] Perplexity evaluation failed: {str(model_error)}")
-                results['perplexity'] = {
+                print(f"[EVALUATE] {model_name.capitalize()} evaluation failed: {str(model_error)}")
+                error_result = {
                     "statement": claim,
                     "classification": "UNVERIFIED",
                     "confidence": 0,
                     "supportingFacts": f"Error: {str(model_error)}",
-                    "model": "Perplexity"
+                    "model": model_name.capitalize()
                 }
+                return model_name, error_result
+        
+        # Process models in parallel using ThreadPoolExecutor
+        with concurrent.futures.ThreadPoolExecutor(max_workers=len(models_to_evaluate)) as executor:
+            # Submit all tasks
+            future_to_model = {
+                executor.submit(process_model, model_name): model_name 
+                for model_name in models_to_evaluate
+            }
             
-        if model in ['all', 'openai']:
-            print(f"[EVALUATE] Calling OpenAI API for claim: '{claim[:30]}...'")
-            try:
-                results['openai'] = evaluate_with_openai(claim, context)
-                print("[EVALUATE] OpenAI evaluation successful")
-            except Exception as model_error:
-                print(f"[EVALUATE] OpenAI evaluation failed: {str(model_error)}")
-                results['openai'] = {
-                    "statement": claim,
-                    "classification": "UNVERIFIED",
-                    "confidence": 0,
-                    "supportingFacts": f"Error: {str(model_error)}",
-                    "model": "OpenAI"
-                }
-            
-        if model in ['all', 'anthropic']:
-            print(f"[EVALUATE] Calling Anthropic API for claim: '{claim[:30]}...'")
-            try:
-                results['anthropic'] = evaluate_with_anthropic(claim, context)
-                print("[EVALUATE] Anthropic evaluation successful")
-            except Exception as model_error:
-                print(f"[EVALUATE] Anthropic evaluation failed: {str(model_error)}")
-                results['anthropic'] = {
-                    "statement": claim,
-                    "classification": "UNVERIFIED",
-                    "confidence": 0,
-                    "supportingFacts": f"Error: {str(model_error)}",
-                    "model": "Anthropic"
-                }
+            # Process results as they complete
+            for future in concurrent.futures.as_completed(future_to_model):
+                model_name, result = future.result()
+                if model_name and result:
+                    results[model_name] = result
         
         print(f"[EVALUATE] Returning results with {len(results)} model evaluations")
         return jsonify(results)
