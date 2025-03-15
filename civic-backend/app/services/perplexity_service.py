@@ -14,7 +14,14 @@ def evaluate_with_perplexity(claim, context="", model="sonar-reasoning-pro"):
     """
     api_key = current_app.config.get('PERPLEXITY_API_KEY')
     if not api_key:
-        raise Exception("Perplexity API key not configured")
+        print("[PERPLEXITY] Warning: Perplexity API key not configured in environment variables")
+        return {
+            "statement": claim,
+            "classification": "UNVERIFIED",
+            "confidence": 0,
+            "supportingFacts": "Unable to evaluate: Perplexity API key not configured. Please add PERPLEXITY_API_KEY to your environment variables.",
+            "model": "Perplexity (Unconfigured)"
+        }
         
     headers = {
         "Authorization": f"Bearer {api_key}",
