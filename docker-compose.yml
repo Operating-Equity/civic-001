@@ -7,7 +7,7 @@ services:
     container_name: civic-api
     restart: unless-stopped
     ports:
-      - "5000:5000"
+      - "5002:5002"
     env_file:
       - ./civic-backend/.env
     volumes:
