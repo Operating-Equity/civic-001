@@ -1,6 +1,14 @@
 from flask import Flask
 from flask_cors import CORS
 import os
+import logging
+
+# Setup logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
 
 def create_app():
     """Application factory function that creates and configures the Flask app."""

@@ -31,13 +31,21 @@ def download_audio_from_youtube(video_id, output_dir=None):
         
     Returns:
         tuple: (path to the downloaded audio file, video title)
+        
+    Raises:
+        Exception: If download fails with details of the failure
     """
     try:
         logger.info(f"Downloading audio for YouTube video ID: {video_id}")
         
         # Create YouTube object
         video_url = f"https://www.youtube.com/watch?v={video_id}"
-        yt = YouTube(video_url)
+        
+        try:
+            yt = YouTube(video_url)
+        except Exception as yt_error:
+            logger.error(f"Failed to create YouTube object: {str(yt_error)}")
+            raise Exception(f"Failed to access YouTube video: {str(yt_error)}")
         
         # Get title for better logging - with safe fallback
         video_title = f"YouTube Video {video_id}"  # Default fallback title
@@ -79,13 +87,177 @@ def download_audio_from_youtube(video_id, output_dir=None):
             return output_path, video_title
             
         except Exception as stream_error:
-            logger.error(f"Error downloading audio stream: {str(stream_error)}")
-            raise Exception(f"Failed to download audio stream: {str(stream_error)}")
+            # Provide detailed error for debugging
+            error_msg = str(stream_error)
+            if "403" in error_msg:
+                logger.error(f"YouTube is blocking this download (403 Forbidden): {error_msg}")
+                raise Exception(f"Cannot download audio: YouTube is restricting access to this video")
+            else:
+                logger.error(f"Error downloading audio stream: {error_msg}")
+                raise Exception(f"Failed to download audio stream: {error_msg}")
             
     except Exception as e:
         logger.error(f"Error downloading audio from YouTube: {str(e)}\n{traceback.format_exc()}")
         raise Exception(f"Failed to download audio: {str(e)}")
+
+def get_youtube_transcript(video_id, languages=['en'], with_speakers=False):
+    """
+    Fetch transcript from a YouTube video using the YouTube Transcript API.
+    If that fails, falls back to downloading the audio and using Whisper for transcription.
+    
+    Parameters:
+        video_id (str): The YouTube video ID.
+        languages (list): A list of language codes to try for the transcript (default is ['en']).
+        with_speakers (bool): Whether to attempt speaker identification
+    
+    Returns:
+        tuple: (transcript_text, video_title) or (transcript_text, video_title, speakers_data) if with_speakers=True
+    
+    Raises:
+        Exception: If all transcription methods fail.
+    """
+    if not is_valid_youtube_id(video_id):
+        raise ValueError(f"Invalid YouTube video ID format: {video_id}")
         
+    logger.info(f"Fetching transcript for YouTube video ID: {video_id}")
+    
+    # First attempt: Try YouTubeTranscriptApi (captions-based approach)
+    for attempt in range(2):  # Reduced from 3 to 2 attempts to save time if captions aren't available
+        try:
+            logger.info(f"Attempt {attempt+1}/2 using YouTubeTranscriptApi")
+            transcript_list = YouTubeTranscriptApi.get_transcript(video_id, languages=languages)
+            
+            if not transcript_list:
+                logger.warning(f"Empty transcript returned for video ID {video_id}")
+                break
+                
+            transcript_text = " ".join([item['text'] for item in transcript_list])
+            
+            # Get video title separately - with better error handling
+            video_title = f"YouTube Video {video_id}"  # Default fallback title
+            try:
+                video_url = f"https://www.youtube.com/watch?v={video_id}"
+                yt = YouTube(video_url)
+                if hasattr(yt, 'title') and yt.title:
+                    video_title = yt.title
+            except Exception as title_error:
+                logger.warning(f"Could not get video title, using default: {str(title_error)}")
+            
+            logger.info(f"Successfully fetched transcript using captions for {video_id}")
+            
+            # If speaker identification is requested, we still need to download the audio
+            # since captions don't include speaker information
+            speakers_data = None
+            if with_speakers:
+                try:
+                    logger.info("Speaker identification requested, downloading audio for diarization")
+                    audio_path, _ = download_audio_from_youtube(video_id)
+                    
+                    try:
+                        # Identify speakers
+                        speakers_data = identify_speakers(audio_path)
+                        
+                        # Clean up audio file after processing
+                        if os.path.exists(audio_path):
+                            os.remove(audio_path)
+                            logger.info(f"Removed temporary audio file: {audio_path}")
+                    except Exception as e:
+                        logger.error(f"Speaker identification failed: {str(e)}")
+                        # Continue without speaker data if it fails
+                        
+                        # Clean up audio file even if processing fails
+                        if os.path.exists(audio_path):
+                            os.remove(audio_path)
+                except Exception as e:
+                    logger.error(f"Failed to get speaker data: {str(e)}")
+                    # Continue without speaker data if it fails
+                    
+                # Return different values based on successful speaker identification
+                if speakers_data:
+                    return transcript_text, video_title, speakers_data
+                else:
+                    # If speaker identification failed but was requested, still return the transcript
+                    return transcript_text, video_title
+            else:
+                return transcript_text, video_title
+            
+        except (TranscriptsDisabled, NoTranscriptFound) as e:
+            logger.warning(f"No transcript available via captions for {video_id}: {str(e)}")
+            break  # Break immediately as retrying won't help if captions are disabled
+            
+        except Exception as e:
+            logger.warning(f"Error in YouTubeTranscriptApi attempt {attempt+1}: {str(e)}")
+            if attempt < 1:
+                time.sleep(2)
+    
+    # Second attempt: Fallback to pytube + Whisper
+    logger.info(f"Attempting fallback method (pytube + Whisper) for {video_id}")
+    try:
+        # Download audio with robust error handling
+        try:
+            audio_path, video_title = download_audio_from_youtube(video_id)
+        except Exception as download_error:
+            # If download fails and we're trying to get speakers, return just the transcript
+            if with_speakers and 'transcript_text' in locals() and 'video_title' in locals():
+                logger.warning(f"Audio download failed but transcript available: {str(download_error)}")
+                return transcript_text, video_title
+                
+            logger.error(f"Failed to download audio: {str(download_error)}")
+            
+            # If we have a transcript from previous attempts but audio download failed, return what we have
+            if 'transcript_text' in locals() and 'video_title' in locals():
+                return transcript_text, video_title
+                
+            # Otherwise raise the error to trigger failure handling
+            raise Exception(f"Failed to download audio: {str(download_error)}")
+        
+        try:
+            # Transcribe audio with optional speaker identification
+            transcription_result = transcribe_audio_with_whisper(audio_path, with_speakers)
+            transcript_text = transcription_result.get('transcript', '')
+            speakers_data = transcription_result.get('speakers_data')
+            
+            logger.info(f"Successfully transcribed using pytube + Whisper fallback for {video_id}")
+            
+            # Clean up audio file
+            try:
+                if os.path.exists(audio_path):
+                    os.remove(audio_path)
+                    logger.info(f"Removed temporary audio file: {audio_path}")
+            except Exception as cleanup_error:
+                logger.error(f"Failed to remove temporary audio file {audio_path}: {str(cleanup_error)}")
+                
+            # Return different values based on whether speakers_data was requested and available
+            if with_speakers and speakers_data:
+                return transcript_text, video_title, speakers_data
+            else:
+                return transcript_text, video_title
+                
+        except Exception as transcribe_error:
+            # Clean up audio file even if transcription fails
+            try:
+                if 'audio_path' in locals() and os.path.exists(audio_path):
+                    os.remove(audio_path)
+            except:
+                pass
+                
+            logger.error(f"Failed to transcribe audio: {str(transcribe_error)}")
+            
+            # If we have a transcript from previous attempts, return that instead of failing
+            if 'transcript_text' in locals() and 'video_title' in locals():
+                return transcript_text, video_title
+                
+            raise Exception(f"Failed to transcribe audio: {str(transcribe_error)}")
+            
+    except Exception as e:
+        # If we got a transcript from captions but speaker ID failed, return just the transcript
+        if 'transcript_text' in locals() and 'video_title' in locals():
+            logger.warning(f"Using caption transcript due to audio processing failure: {str(e)}")
+            return transcript_text, video_title
+            
+        logger.error(f"All transcription methods failed for {video_id}: {str(e)}")
+        raise Exception(f"Unable to transcribe this video: {str(e)}")
+           
 def transcribe_audio_with_whisper(audio_file, with_speakers=False):
     """
     Transcribes the given audio file using the Whisper model.
@@ -404,7 +576,7 @@ def get_youtube_transcript(video_id, languages=['en'], with_speakers=False):
     except Exception as e:
         logger.error(f"All transcription methods failed for {video_id}: {str(e)}")
         raise Exception(f"Unable to transcribe this video: {str(e)}")
-    
+
 def get_video_transcript(file_path, with_speakers=False):
     """
     Extract transcript from an uploaded video file using AssemblyAI or Whisper.
@@ -416,12 +588,13 @@ def get_video_transcript(file_path, with_speakers=False):
         
     Returns:
         dict: Dictionary containing transcript text and optional speaker data
+              or str: Just the transcript text if with_speakers=False
     
     Raises:
         Exception: If the file is invalid, too large, or transcription fails.
     """
     try:
-        logger.info(f"Starting transcription for file: {file_path}")
+        logger.info(f"Starting transcription for file: {file_path}, with speaker identification: {with_speakers}")
         
         import os
         if not os.path.exists(file_path):
@@ -448,20 +621,32 @@ def get_video_transcript(file_path, with_speakers=False):
         
         if use_assemblyai:
             logger.info("Using AssemblyAI for transcription")
-            return transcribe_with_assemblyai(file_path, with_speakers)
+            result = transcribe_with_assemblyai(file_path, with_speakers)
+            
+            # For consistency in return format
+            if with_speakers:
+                return result  # Dictionary with transcript and speakers_data
+            else:
+                return result["transcript"]  # Just the transcript string
         else:
             logger.info("Using Whisper for transcription")
             # Create a temporary directory for audio extraction if needed
             with tempfile.TemporaryDirectory() as temp_dir:
                 # For now, we'll assume the file is already an audio file
                 # In a real implementation, you might need to extract audio from video
-                return transcribe_audio_with_whisper(file_path, with_speakers)
+                result = transcribe_audio_with_whisper(file_path, with_speakers)
+                
+                # For consistency in return format
+                if with_speakers:
+                    return result  # Dictionary with transcript and speakers_data
+                else:
+                    return result["transcript"]  # Just the transcript string
                 
     except Exception as e:
         error_message = f"Failed to transcribe video file: {str(e)}"
         logger.error(f"{error_message}\n{traceback.format_exc()}")
         raise Exception("Unable to process this video file. Please ensure it contains audio and is in a supported format.")
-
+    
 def transcribe_with_assemblyai(file_path, with_speakers=False):
     """
     Transcribe audio using AssemblyAI with optional speaker diarization.
