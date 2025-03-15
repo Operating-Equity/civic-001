@@ -3,9 +3,10 @@ FROM node:18-alpine as build
 
 WORKDIR /app
 
-# Install dependencies
+# Install dependencies with space optimization
 COPY package.json package-lock.json ./
-RUN npm ci
+RUN npm install --no-audit --prefer-offline && \
+    npm cache clean --force
 
 # Copy source code
 COPY . .
