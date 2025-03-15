@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { CircleCheck, CircleX, CircleAlert, BarChart4 } from 'lucide-react';
+import { CheckCircle, XCircle, AlertCircle, BarChart4 } from 'lucide-react';
 import { ClaimAnalysis, Claim } from '../../types';
 import FactCheckCard from './FactCheckCard';
 import ModelComparison from './ModelComparison';
