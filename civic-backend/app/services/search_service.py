@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 from flask import current_app
 from app.services.openai_service import call_openai_api
 from exa_py import Exa
+from app.models.schemas import SearchResult
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -323,6 +324,65 @@ def _perform_single_search(exa_client, query, claim, signal=None):
         logger.error(f"Error in Exa search: {str(e)}")
         return []  # Return empty results on error
 
+def search_evidence(query: str, claim: str = "") -> List[SearchResult]:
+    """
+    Search for evidence related to a query with improved error handling
+    
+    Args:
+        query: The search query
+        claim: The original claim for context
+        
+    Returns:
+        List of search results
+    """
+    api_key = current_app.config.get('EXA_API_KEY')
+    if not api_key:
+        logger.error("Exa API key not configured")
+        return []
+    
+    # Initialize Exa client
+    exa = Exa(api_key)
+    
+    try:
+        # Get optimal search parameters
+        search_params = determine_search_parameters(query, claim)
+        
+        logger.info(f"Searching with query: {query}")
+        
+        # Execute search with provided parameters
+        response = exa.search_and_contents(
+            query=query,
+            text=True,
+            highlights={
+                "numSentences": 3,
+                "highlightsPerUrl": 2,
+                "query": f"Evidence about {query}"
+            },
+            summary={
+                "query": f"Provide key facts relevant to fact-checking: {claim}" if claim else "Provide key facts for fact-checking"
+            },
+            **search_params
+        )
+        
+        # Filter and rank results
+        filtered_results = [
+            result for result in response.results
+            if not any(source.lower() in (result.title.lower() if result.title else "") or
+                      source.lower() in (result.url.lower() if result.url else "")
+                      for source in DISQUALIFIED_SOURCES)
+        ]
+        
+        # Process and rank results
+        processed_results = process_search_results(filtered_results)
+        ranked_results = rank_results(processed_results, query, claim)
+        
+        # Return top results
+        return ranked_results[:10]
+        
+    except Exception as e:
+        logger.error(f"Error in Exa search: {str(e)}")
+        return []
+    
 # Helper to process search results
 def process_search_results(results):
     """Process raw search results into a standardized format"""
@@ -381,58 +441,6 @@ def process_search_results(results):
         processed_results.append(processed_result)
     
     return processed_results
-
-def search_evidence_batch(queries: List[str], claim: str = "") -> List[List[Dict[str, Any]]]:
-    """
-    Search for evidence across multiple queries in parallel with improved error handling
-    
-    Args:
-        queries: List of search queries
-        claim: The original claim (for parameter optimization)
-        
-    Returns:
-        List of search results for each query
-    """
-    if not queries:
-        return []
-    
-    # Deduplicate queries to avoid redundant searches
-    unique_queries = []
-    seen = set()
-    for query in queries:
-        clean_query = query.strip() if isinstance(query, str) else ""
-        if clean_query and clean_query not in seen:
-            seen.add(clean_query)
-            unique_queries.append(clean_query)
-    
-    logger.info(f"Searching for {len(unique_queries)} unique queries: {unique_queries}")
-    
-    # Process searches in parallel
-    results_dict = {}
-    
-    with concurrent.futures.ThreadPoolExecutor(max_workers=min(len(unique_queries), MAX_CONCURRENT_SEARCHES)) as executor:
-        # Submit all searches
-        future_to_query = {}
-        for query in unique_queries:
-            if query.strip():  # Only search for non-empty queries
-                future = executor.submit(search_evidence, query, claim)
-                future_to_query[future] = query
-        
-        # Collect results as they complete
-        for future in concurrent.futures.as_completed(future_to_query):
-            query = future_to_query[future]
-            try:
-                results = future.result()
-                results_dict[query] = results
-                logger.info(f"Found {len(results)} results for query: {query}")
-            except Exception as e:
-                logger.error(f"Error searching for '{query}': {str(e)}")
-                results_dict[query] = []
-    
-    # Map results back to original query order
-    results = [results_dict.get(query, []) for query in queries]
-    
-    return results
 
 def fetch_specific_content(urls: List[str], query: str = "", claim: str = "") -> List[Dict[str, Any]]:
     """
