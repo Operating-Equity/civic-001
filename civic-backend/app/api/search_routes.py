@@ -1,6 +1,11 @@
-from flask import request, jsonify
+from flask import request, jsonify, current_app
 from app.api.api_routes import api
 from app.services.search_service import search_evidence, generate_keywords, search_evidence_batch
+import logging
+import traceback
+
+# Set up logging
+logger = logging.getLogger(__name__)
 
 @api.route('/search/keywords', methods=['POST'])
 def generate_search_keywords():
@@ -69,7 +74,6 @@ def search_for_evidence():
     
     try:
         logger.info(f"Searching for evidence with query: {query}")
-        start_time = time.time()
         
         # Check if API key is configured
         exa_api_key = current_app.config.get('EXA_API_KEY')
@@ -82,11 +86,6 @@ def search_for_evidence():
         
         # Perform the search
         results = search_evidence(query)
-        
-        # Log search performance
-        duration = time.time() - start_time
-        logger.info(f"Search completed in {duration:.2f}s with {len(results)} results")
-        
         return jsonify({'results': results})
     except Exception as e:
         logger.error(f"Error searching for evidence: {str(e)}\n{traceback.format_exc()}")
@@ -95,7 +94,6 @@ def search_for_evidence():
             'results': [],
             'error': f'Search error: {str(e)}'
         }), 200  # Return 200 status with empty results and error message
-
 
 @api.route('/search/evidence/batch', methods=['POST'])
 def search_for_evidence_batch():
@@ -110,7 +108,6 @@ def search_for_evidence_batch():
     
     try:
         logger.info(f"Batch searching for evidence with {len(queries)} queries")
-        start_time = time.time()
         
         # Check if API key is configured
         exa_api_key = current_app.config.get('EXA_API_KEY')
@@ -124,13 +121,6 @@ def search_for_evidence_batch():
         
         # Process queries in parallel
         results = search_evidence_batch(queries)
-        
-        # Log search performance
-        duration = time.time() - start_time
-        result_counts = [len(r) for r in results]
-        total_results = sum(result_counts)
-        logger.info(f"Batch search completed in {duration:.2f}s with {total_results} total results")
-        
         return jsonify({'results': results})
     except Exception as e:
         logger.error(f"Error in batch evidence search: {str(e)}\n{traceback.format_exc()}")

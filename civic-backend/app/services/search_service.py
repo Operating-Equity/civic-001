@@ -1,9 +1,14 @@
 import time
 import json
+import re
 import concurrent.futures
+import logging
 from flask import current_app
 from app.services.openai_service import call_openai_api
 from exa_py import Exa
+
+# Set up logging
+logger = logging.getLogger(__name__)
 
 MAX_RETRIES = 3
 RETRY_DELAY = 1  # 1 second
@@ -72,7 +77,7 @@ Each search query should be optimized to return reliable information related to 
         
         return cleaned_keywords
     except Exception as e:
-        print(f"Error generating keywords: {str(e)}")
+        logger.error(f"Error generating keywords: {str(e)}")
         return [f"fact check {claim}"]  # Fallback query
 
 def search_evidence(query):
@@ -82,6 +87,7 @@ def search_evidence(query):
     """
     api_key = current_app.config.get('EXA_API_KEY')
     if not api_key:
+        logger.error("Exa API key not configured")
         raise Exception("Exa API key not configured")
     
     # Initialize Exa client
@@ -90,15 +96,20 @@ def search_evidence(query):
     for attempt in range(MAX_RETRIES):
         try:
             # Simplify the query by removing excess quotes if present
-            query = query.replace('"', '').replace('"', '').replace('"', '')
+            simplified_query = query
+            if isinstance(query, str):
+                simplified_query = query.replace('"', '').replace('"', '').replace('"', '')
             
-            # Use broader search parameters
+            logger.info(f"Searching with query: {simplified_query}")
+            
+            # Use search_and_contents method to get both search results and their text content
             response = exa.search_and_contents(
-                query=query,
-                text=True,
-                highlights=True,
+                query=simplified_query,
+                text=True,               # Include full text
+                highlights=True,         # Include relevant highlights
                 num_results=25,
                 use_autoprompt=True,
+                # The SDK handles the recency and sorting automatically
             )
             
             results = response.results
@@ -106,7 +117,7 @@ def search_evidence(query):
             # Filter out disqualified sources
             filtered_results = [
                 result for result in results
-                if not any(source.lower() in result.title.lower() if result.title else False
+                if not any(source.lower() in (result.title.lower() if result.title else "")
                           for source in DISQUALIFIED_SOURCES)
             ]
             
@@ -118,7 +129,7 @@ def search_evidence(query):
                     try:
                         summary = summarize_text(result.text)
                     except Exception as e:
-                        print(f"Error generating summary: {str(e)}")
+                        logger.error(f"Error generating summary: {str(e)}")
                         summary = result.text[:200] + '...' if result.text else ''
                 else:
                     # Use highlights as summary if available
@@ -147,11 +158,12 @@ def search_evidence(query):
             
         except Exception as e:
             if attempt < MAX_RETRIES - 1:
-                print(f"Error in Exa search (attempt {attempt+1}): {str(e)}")
+                logger.error(f"Error in Exa search (attempt {attempt+1}): {str(e)}")
                 time.sleep(RETRY_DELAY * (2 ** attempt))
             else:
+                logger.error(f"Failed to search for evidence: {str(e)}")
                 raise Exception(f"Failed to search for evidence: {str(e)}")
-            
+
 def search_evidence_batch(queries):
     """
     Search for evidence across multiple queries in parallel
@@ -166,14 +178,26 @@ def search_evidence_batch(queries):
         return []
     
     # Deduplicate queries to avoid redundant searches
-    unique_queries = list(set(queries))
+    unique_queries = []
+    seen = set()
+    for query in queries:
+        clean_query = query.strip() if isinstance(query, str) else ""
+        if clean_query and clean_query not in seen:
+            seen.add(clean_query)
+            unique_queries.append(clean_query)
+    
+    logger.info(f"Searching for {len(unique_queries)} unique queries: {unique_queries}")
     
     # Process searches in parallel
     results_dict = {}
     
     with concurrent.futures.ThreadPoolExecutor(max_workers=min(len(unique_queries), MAX_CONCURRENT_SEARCHES)) as executor:
         # Submit all searches
-        future_to_query = {executor.submit(search_evidence, query): query for query in unique_queries}
+        future_to_query = {}
+        for query in unique_queries:
+            if query.strip():  # Only search for non-empty queries
+                future = executor.submit(search_evidence, query)
+                future_to_query[future] = query
         
         # Collect results as they complete
         for future in concurrent.futures.as_completed(future_to_query):
@@ -181,8 +205,9 @@ def search_evidence_batch(queries):
             try:
                 results = future.result()
                 results_dict[query] = results
+                logger.info(f"Found {len(results)} results for query: {query}")
             except Exception as e:
-                print(f"Error searching for '{query}': {str(e)}")
+                logger.error(f"Error searching for '{query}': {str(e)}")
                 results_dict[query] = []
     
     # Map results back to original query order
@@ -215,6 +240,6 @@ Provide a concise summary in 2-3 sentences. Focus only on the factual content wi
         
         return response['choices'][0]['message']['content']
     except Exception as e:
-        print(f"Error summarizing text: {str(e)}")
+        logger.error(f"Error summarizing text: {str(e)}")
         # Fall back to a simple truncation
         return text[:200] + "..."
