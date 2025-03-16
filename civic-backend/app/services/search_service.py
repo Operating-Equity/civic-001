@@ -184,145 +184,203 @@ def determine_search_parameters(query: str, claim: str = "") -> Dict[str, Any]:
         })
     
     return params
-
-def search_evidence(query: str, claim: str = "") -> List[Dict[str, Any]]:
+def search_evidence_batch(queries: List[str], claim: str = "", options: Optional[Dict[str, Any]] = None) -> List[List[SearchResult]]:
     """
-    Search for evidence related to a query using Exa SDK with enhanced parameters
+    Search for evidence across multiple queries in parallel with improved error handling
     
     Args:
-        query: The search query
+        queries: List of search queries
         claim: The original claim (for parameter optimization)
-    
+        options: Optional request options including abort signal
+        
     Returns:
-        List of search results
+        List of search results for each query
     """
-    api_key = current_app.config.get('EXA_API_KEY')
-    if not api_key:
-        logger.error("Exa API key not configured")
-        raise Exception("Exa API key not configured")
+    if not queries:
+        return []
+        
+    # Ensure we have options
+    if options is None:
+        options = {}
     
-    # Initialize Exa client
+    # Get API key outside the thread pool to avoid context issues
+    api_key = None
+    try:
+        from flask import current_app
+        api_key = current_app.config.get('EXA_API_KEY')
+        if not api_key:
+            logger.error("Exa API key not configured")
+            return [[] for _ in queries]  # Return empty results for all queries
+    except Exception as e:
+        logger.error(f"Error getting API key: {str(e)}")
+        return [[] for _ in queries]  # Return empty results for all queries
+    
+    # Deduplicate queries to avoid redundant searches
+    unique_queries = []
+    seen = set()
+    for query in queries:
+        clean_query = query.strip() if isinstance(query, str) else ""
+        if clean_query and clean_query not in seen:
+            seen.add(clean_query)
+            unique_queries.append(clean_query)
+    
+    logger.info(f"Searching for {len(unique_queries)} unique queries: {unique_queries}")
+    
+    # Initialize Exa client with the API key we already retrieved
     exa = Exa(api_key)
     
-    for attempt in range(MAX_RETRIES):
-        try:
-            # Simplify the query by removing excess quotes
-            simplified_query = query
-            if isinstance(query, str):
-                simplified_query = query.replace('"', '').replace('"', '').replace('"', '')
+    # Process searches in parallel
+    results_dict = {}
+    
+    with concurrent.futures.ThreadPoolExecutor(max_workers=min(len(unique_queries), MAX_CONCURRENT_SEARCHES)) as executor:
+        # Submit all searches
+        future_to_query = {}
+        for query in unique_queries:
+            if query.strip():  # Only search for non-empty queries
+                future = executor.submit(
+                    _perform_single_search, 
+                    exa,  # Pass the Exa client directly
+                    query, 
+                    claim,
+                    options.get('signal')
+                )
+                future_to_query[future] = query
+        
+        # Collect results as they complete
+        for future in concurrent.futures.as_completed(future_to_query):
+            query = future_to_query[future]
+            try:
+                search_results = future.result()
+                results_dict[query] = search_results
+                logger.info(f"Found {len(search_results)} results for query: {query}")
+            except Exception as e:
+                logger.error(f"Error searching for '{query}': {str(e)}")
+                results_dict[query] = []
+    
+    # Map results back to original query order
+    results = [results_dict.get(query, []) for query in queries]
+    
+    return results
+
+# Helper function to perform a single search without requiring app context
+def _perform_single_search(exa_client, query, claim, signal=None):
+    """Perform a single search operation with the provided Exa client"""
+    try:
+        # Simplify the query by removing excess quotes
+        simplified_query = query
+        if isinstance(query, str):
+            simplified_query = query.replace('"', '').replace('"', '').replace('"', '')
+        
+        logger.info(f"Searching with query: {simplified_query}")
+        
+        # Get optimal search parameters
+        search_params = determine_search_parameters(simplified_query, claim)
+        
+        # Enhanced summary query for better context
+        summary_query = "Provide key facts relevant to fact-checking"
+        if claim:
+            summary_query = f"Provide key facts relevant to verifying: {claim}"
+        
+        # Use search_and_contents method with advanced parameters
+        response = exa_client.search_and_contents(
+            query=simplified_query,
+            text=True,
+            highlights={
+                "numSentences": 3,
+                "highlightsPerUrl": 2,
+                "query": f"Evidence about {simplified_query}"
+            },
+            summary={
+                "query": summary_query
+            },
+            subpages=1,
+            subpage_target="sources",
+            extras={
+                "links": 3,
+                "image_links": 1
+            },
+            **search_params
+        )
+        
+        results = response.results
+        
+        # Filter out disqualified sources
+        filtered_results = [
+            result for result in results
+            if not any(source.lower() in (result.title.lower() if result.title else "") or
+                      source.lower() in (result.url.lower() if result.url else "")
+                      for source in DISQUALIFIED_SOURCES)
+        ]
+        
+        # Process and rank results
+        processed_results = process_search_results(filtered_results)
+        ranked_results = rank_results(processed_results, simplified_query, claim)
+        
+        # Return top results after ranking
+        return ranked_results[:10]  # Limit to top 10 most relevant results
             
-            logger.info(f"Searching with query: {simplified_query}")
-            
-            # Get optimal search parameters
-            search_params = determine_search_parameters(simplified_query, claim)
-            
-            # Enhanced summary query for better context
-            summary_query = "Provide key facts relevant to fact-checking"
-            if claim:
-                summary_query = f"Provide key facts relevant to verifying: {claim}"
-            
-            # Use search_and_contents method with advanced parameters
-            response = exa.search_and_contents(
-                query=simplified_query,
-                text=True,               # Include full text
-                highlights={             # Enhanced highlight configuration
-                    "numSentences": 3,
-                    "highlightsPerUrl": 2,
-                    "query": f"Evidence about {simplified_query}"
-                },
-                summary={                # Custom summary query
-                    "query": summary_query
-                },
-                subpages=1,              # Get 1 level of subpages
-                subpage_target="sources", # Target source pages
-                extras={                 # Get additional content
-                    "links": 3,          # 3 relevant links
-                    "image_links": 1     # 1 relevant image
-                },
-                **search_params          # Add dynamic parameters
-            )
-            
-            results = response.results
-            
-            # Filter out disqualified sources
-            filtered_results = [
-                result for result in results
-                if not any(source.lower() in (result.title.lower() if result.title else "") or
-                          source.lower() in (result.url.lower() if result.url else "")
-                          for source in DISQUALIFIED_SOURCES)
-            ]
-            
-            # Process results to add credibility scoring
-            processed_results = []
-            for result in filtered_results:
-                # Get the summary from the Exa API response
-                summary = result.summary if hasattr(result, 'summary') and result.summary else ""
-                
-                # If no summary but we have text, generate one
-                if not summary and hasattr(result, 'text') and result.text and len(result.text) > 200:
-                    try:
-                        summary = summarize_text(result.text)
-                    except Exception as e:
-                        logger.error(f"Error generating summary: {str(e)}")
-                        summary = result.text[:200] + '...' if result.text else ''
-                
-                # If still no summary, use highlights
-                if not summary and hasattr(result, 'highlights') and result.highlights and len(result.highlights) > 0:
-                    summary = result.highlights[0]
-                
-                # Calculate a credibility score based on the domain
-                credibility_score = calculate_credibility_score(result.url if hasattr(result, 'url') else "")
-                
-                # Process links from extras if available
-                links = []
-                if hasattr(result, 'extras') and hasattr(result.extras, 'links') and result.extras.links:
-                    links = result.extras.links
-                
-                # Process image links from extras if available
-                image_links = []
-                if hasattr(result, 'extras') and hasattr(result.extras, 'image_links') and result.extras.image_links:
-                    image_links = result.extras.image_links
-                
-                # Get subpages if available
-                subpages = []
-                if hasattr(result, 'subpages') and result.subpages:
-                    subpages = result.subpages
-                
-                # Clean up and standardize fields
-                processed_result = {
-                    'title': result.title if hasattr(result, 'title') and result.title else 'Untitled',
-                    'url': result.url if hasattr(result, 'url') else '',
-                    'publishedDate': result.published_date if hasattr(result, 'published_date') else '',
-                    'author': result.author if hasattr(result, 'author') and result.author else 'Unknown',
-                    'score': result.score if hasattr(result, 'score') else 0,
-                    'text': result.text if hasattr(result, 'text') else '',
-                    'summary': summary,
-                    'credibilityScore': credibility_score,
-                    'domain': extract_domain(result.url if hasattr(result, 'url') else ""),
-                    'highlights': result.highlights if hasattr(result, 'highlights') else [],
-                    'links': links,
-                    'imageLinks': image_links,
-                    'subpages': subpages
-                }
-                
-                processed_results.append(processed_result)
-            
-            # Apply enhanced result ranking
-            ranked_results = rank_results(processed_results, simplified_query, claim)
-            
-            # Return top results after ranking
-            return ranked_results[:10]  # Limit to top 10 most relevant results
-            
-        except Exception as e:
-            logger.error(f"Error in Exa search (attempt {attempt+1}): {str(e)}")
-            
-            if attempt < MAX_RETRIES - 1:
-                # Exponential backoff
-                time.sleep(RETRY_DELAY * (2 ** attempt))
-            else:
-                logger.error(f"Failed to search for evidence: {str(e)}")
-                # Return empty list instead of raising exception
-                return []
+    except Exception as e:
+        logger.error(f"Error in Exa search: {str(e)}")
+        return []  # Return empty results on error
+
+# Helper to process search results
+def process_search_results(results):
+    """Process raw search results into a standardized format"""
+    processed_results = []
+    
+    for result in results:
+        # Get the summary from the Exa API response
+        summary = result.summary if hasattr(result, 'summary') and result.summary else ""
+        
+        # If no summary but we have text, generate one
+        if not summary and hasattr(result, 'text') and result.text and len(result.text) > 200:
+            try:
+                summary = result.text[:200] + '...'  # Simple truncation as fallback
+            except Exception as e:
+                summary = ''
+        
+        # If still no summary, use highlights
+        if not summary and hasattr(result, 'highlights') and result.highlights and len(result.highlights) > 0:
+            summary = result.highlights[0]
+        
+        # Calculate a credibility score based on the domain
+        credibility_score = calculate_credibility_score(result.url if hasattr(result, 'url') else "")
+        
+        # Process links from extras if available
+        links = []
+        if hasattr(result, 'extras') and hasattr(result.extras, 'links') and result.extras.links:
+            links = result.extras.links
+        
+        # Process image links from extras if available
+        image_links = []
+        if hasattr(result, 'extras') and hasattr(result.extras, 'image_links') and result.extras.image_links:
+            image_links = result.extras.image_links
+        
+        # Get subpages if available
+        subpages = []
+        if hasattr(result, 'subpages') and result.subpages:
+            subpages = result.subpages
+        
+        # Clean up and standardize fields
+        processed_result = {
+            'title': result.title if hasattr(result, 'title') and result.title else 'Untitled',
+            'url': result.url if hasattr(result, 'url') else '',
+            'publishedDate': result.published_date if hasattr(result, 'published_date') else '',
+            'author': result.author if hasattr(result, 'author') and result.author else 'Unknown',
+            'score': result.score if hasattr(result, 'score') else 0,
+            'text': result.text if hasattr(result, 'text') else '',
+            'summary': summary,
+            'credibilityScore': credibility_score,
+            'domain': extract_domain(result.url if hasattr(result, 'url') else ""),
+            'highlights': result.highlights if hasattr(result, 'highlights') else [],
+            'links': links,
+            'imageLinks': image_links,
+            'subpages': subpages
+        }
+        
+        processed_results.append(processed_result)
+    
+    return processed_results
 
 def search_evidence_batch(queries: List[str], claim: str = "") -> List[List[Dict[str, Any]]]:
     """

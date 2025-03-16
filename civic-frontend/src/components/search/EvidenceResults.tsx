@@ -1,21 +1,35 @@
 import React, { useState, useEffect } from 'react';
 import { FileSearch, ExternalLink, Calendar, User, ChevronDown, ChevronUp, Bookmark, Search, AlertCircle, Clock, ShieldCheck, AlertTriangle, Link2, Filter, HelpCircle } from 'lucide-react';
+import { ClaimSearchResults, SearchResult } from '../../types';
 
-const EvidenceResults = ({ searchResults, isSearching }) => {
-  const [expandedClaims, setExpandedClaims] = useState({});
-  const [expandedKeywords, setExpandedKeywords] = useState({});
+// Define an extended type for SearchResult that includes the additional properties
+interface ExtendedSearchResult extends SearchResult {
+  credibilityScore?: number;
+  domain?: string;
+  highlights?: string[];
+  isLiveCrawl?: boolean;
+}
+
+interface EvidenceResultsProps {
+  searchResults: ClaimSearchResults[];
+  isSearching: boolean;
+}
+
+const EvidenceResults: React.FC<EvidenceResultsProps> = ({ searchResults, isSearching }) => {
+  const [expandedClaims, setExpandedClaims] = useState<Record<string, boolean>>({});
+  const [expandedKeywords, setExpandedKeywords] = useState<Record<string, boolean>>({});
   const [filterHighCredibility, setFilterHighCredibility] = useState(false);
-  const [sortMethod, setSortMethod] = useState('relevance'); // 'relevance', 'date', 'credibility'
+  const [sortMethod, setSortMethod] = useState<'relevance' | 'date' | 'credibility'>('relevance'); // 'relevance', 'date', 'credibility'
   const [showFilters, setShowFilters] = useState(false);
   
-  const toggleClaimExpansion = (claim) => {
+  const toggleClaimExpansion = (claim: string) => {
     setExpandedClaims(prev => ({
       ...prev,
       [claim]: !prev[claim]
     }));
   };
   
-  const toggleKeywordExpansion = (keyword) => {
+  const toggleKeywordExpansion = (keyword: string) => {
     setExpandedKeywords(prev => ({
       ...prev,
       [keyword]: !prev[keyword]
@@ -23,12 +37,15 @@ const EvidenceResults = ({ searchResults, isSearching }) => {
   };
   
   // Function to determine if a source is high credibility
-  const isHighCredibilitySource = (result) => {
+  const isHighCredibilitySource = (result?: SearchResult): boolean => {
     if (!result) return false;
     
+    // Cast to extended result to safely access additional properties
+    const extendedResult = result as ExtendedSearchResult;
+    
     // If we have a credibility score, use it
-    if (result.credibilityScore !== undefined) {
-      return result.credibilityScore >= 0.8;
+    if (extendedResult.credibilityScore !== undefined) {
+      return extendedResult.credibilityScore >= 0.8;
     }
     
     // Otherwise check the domain
@@ -43,7 +60,7 @@ const EvidenceResults = ({ searchResults, isSearching }) => {
   };
   
   // Format date in a user-friendly way
-  const formatDate = (dateString) => {
+  const formatDate = (dateString?: string): string => {
     if (!dateString) return 'Unknown date';
     
     try {
@@ -59,7 +76,7 @@ const EvidenceResults = ({ searchResults, isSearching }) => {
   };
   
   // Get sorted and filtered results for a keyword
-  const getSortedFilteredResults = (results) => {
+  const getSortedFilteredResults = (results?: SearchResult[]): SearchResult[] => {
     if (!results || results.length === 0) return [];
     
     // Apply high credibility filter if enabled
@@ -79,11 +96,13 @@ const EvidenceResults = ({ searchResults, isSearching }) => {
         // Sort by date (newest first)
         const dateA = a.publishedDate ? new Date(a.publishedDate) : new Date(0);
         const dateB = b.publishedDate ? new Date(b.publishedDate) : new Date(0);
-        return dateB - dateA;
+        return dateB.getTime() - dateA.getTime();
       } else if (sortMethod === 'credibility') {
-        // Sort by credibility score
-        const credA = a.credibilityScore || 0;
-        const credB = b.credibilityScore || 0;
+        // Sort by credibility score - safely cast to extended type
+        const extendedA = a as ExtendedSearchResult;
+        const extendedB = b as ExtendedSearchResult;
+        const credA = extendedA.credibilityScore || 0;
+        const credB = extendedB.credibilityScore || 0;
         return credB - credA;
       } else {
         // Default: sort by relevance (score)
@@ -95,7 +114,7 @@ const EvidenceResults = ({ searchResults, isSearching }) => {
   // Count total results across all claims and keywords
   const totalResults = searchResults.reduce((total, claim) => {
     return total + claim.keywordResults.reduce((keywordTotal, keyword) => {
-      return keywordTotal + keyword.results.length;
+      return keywordTotal + (keyword.results?.length || 0);
     }, 0);
   }, 0);
   
@@ -307,7 +326,7 @@ const EvidenceResults = ({ searchResults, isSearching }) => {
                           } px-2 py-0.5 rounded-full border ${
                             isTimebound ? 'border-blue-200' : 'border-gray-200'
                           }`}>
-                            {keywordResult.results.length} results
+                            {keywordResult.results?.length || 0} results
                           </span>
                           <ChevronDown className={`h-4 w-4 text-gray-500 transition-transform ${expandedKeywords[keywordResult.keyword] ? 'rotate-180' : ''}`} />
                         </div>
@@ -324,100 +343,105 @@ const EvidenceResults = ({ searchResults, isSearching }) => {
                           )}
                           
                           {/* Show when high credibility filter is on but no results match */}
-                          {filterHighCredibility && filteredResults.length === 0 && keywordResult.results.length > 0 && (
+                          {filterHighCredibility && filteredResults.length === 0 && keywordResult.results && keywordResult.results.length > 0 && (
                             <div className="flex items-center px-3 py-2 bg-amber-50 text-amber-700 text-sm rounded-lg border border-amber-100">
                               <AlertTriangle className="h-4 w-4 mr-2 text-amber-600" />
                               <span>No high-credibility sources found. Showing all results.</span>
                             </div>
                           )}
                           
-                          {keywordResult.results.length > 0 ? (
-                            filteredResults.map((result, resultIndex) => (
-                              <div key={resultIndex} className="p-4 border border-gray-200 rounded-lg bg-white shadow-sm">
-                                <div className="flex justify-between items-start">
-                                  <div className="flex-1">
-                                    <h5 className="font-medium text-gray-800 text-base">{result.title}</h5>
-                                    
-                                    {/* Domain display with credibility indicator */}
-                                    {result.domain && (
-                                      <div className="flex items-center mt-1">
-                                        <div className="flex items-center mr-2">
-                                          <Link2 className="h-3 w-3 text-gray-500 mr-1" />
-                                          <span className="text-xs text-gray-600">{result.domain}</span>
-                                        </div>
-                                        
-                                        {/* Credibility indicator */}
-                                        {isHighCredibilitySource(result) && (
-                                          <div className="flex items-center bg-green-50 px-1.5 py-0.5 rounded text-xs text-green-700 border border-green-100">
-                                            <ShieldCheck className="h-3 w-3 mr-0.5" />
-                                            <span>High credibility</span>
+                          {keywordResult.results && keywordResult.results.length > 0 ? (
+                            filteredResults.map((result, resultIndex) => {
+                              // Cast to extended type for accessing additional properties
+                              const extendedResult = result as ExtendedSearchResult;
+                              
+                              return (
+                                <div key={resultIndex} className="p-4 border border-gray-200 rounded-lg bg-white shadow-sm">
+                                  <div className="flex justify-between items-start">
+                                    <div className="flex-1">
+                                      <h5 className="font-medium text-gray-800 text-base">{result.title}</h5>
+                                      
+                                      {/* Domain display with credibility indicator */}
+                                      {extendedResult.domain && (
+                                        <div className="flex items-center mt-1">
+                                          <div className="flex items-center mr-2">
+                                            <Link2 className="h-3 w-3 text-gray-500 mr-1" />
+                                            <span className="text-xs text-gray-600">{extendedResult.domain}</span>
                                           </div>
-                                        )}
+                                          
+                                          {/* Credibility indicator */}
+                                          {isHighCredibilitySource(result) && (
+                                            <div className="flex items-center bg-green-50 px-1.5 py-0.5 rounded text-xs text-green-700 border border-green-100">
+                                              <ShieldCheck className="h-3 w-3 mr-0.5" />
+                                              <span>High credibility</span>
+                                            </div>
+                                          )}
+                                        </div>
+                                      )}
+                                    </div>
+                                    
+                                    <div className="flex items-center space-x-1 text-xs text-gray-500 bg-gray-50 px-2 py-0.5 rounded-full border border-gray-200 ml-2">
+                                      <span>Match:</span>
+                                      <span className="font-mono">{Math.round(result.score * 100)}%</span>
+                                    </div>
+                                  </div>
+                                  
+                                  <p className="text-sm text-gray-700 mt-2 line-clamp-3">
+                                    {result.summary || result.text?.substring(0, 150)}
+                                  </p>
+                                  
+                                  {/* Highlights section */}
+                                  {extendedResult.highlights && extendedResult.highlights.length > 0 && (
+                                    <div className="mt-2 p-2 bg-yellow-50 rounded-md border border-yellow-100">
+                                      <p className="text-xs text-gray-700 italic">
+                                        "{extendedResult.highlights[0]}"
+                                      </p>
+                                    </div>
+                                  )}
+                                  
+                                  <div className="flex flex-wrap items-center mt-3 text-xs text-gray-600 space-x-4">
+                                    {result.author && (
+                                      <div className="flex items-center space-x-1">
+                                        <User className="h-3 w-3" />
+                                        <span>{result.author}</span>
+                                      </div>
+                                    )}
+                                    
+                                    {result.publishedDate && (
+                                      <div className="flex items-center space-x-1">
+                                        <Calendar className="h-3 w-3" />
+                                        <span>{formatDate(result.publishedDate)}</span>
+                                      </div>
+                                    )}
+                                    
+                                    {/* Label for real-time results */}
+                                    {extendedResult.isLiveCrawl && (
+                                      <div className="flex items-center px-1.5 py-0.5 bg-blue-50 text-blue-700 rounded border border-blue-100">
+                                        <Clock className="h-3 w-3 mr-1" />
+                                        <span>Real-time data</span>
                                       </div>
                                     )}
                                   </div>
                                   
-                                  <div className="flex items-center space-x-1 text-xs text-gray-500 bg-gray-50 px-2 py-0.5 rounded-full border border-gray-200 ml-2">
-                                    <span>Match:</span>
-                                    <span className="font-mono">{Math.round(result.score * 100)}%</span>
+                                  <div className="flex justify-between items-center mt-3">
+                                    <a 
+                                      href={result.url} 
+                                      target="_blank" 
+                                      rel="noopener noreferrer"
+                                      className="text-blue-600 hover:text-blue-800 text-sm flex items-center"
+                                    >
+                                      <span>View Source</span>
+                                      <ExternalLink className="h-3 w-3 ml-1" />
+                                    </a>
+                                    
+                                    <button className="text-gray-500 hover:text-gray-700 flex items-center text-xs">
+                                      <Bookmark className="h-3 w-3 mr-1" />
+                                      <span>Save</span>
+                                    </button>
                                   </div>
                                 </div>
-                                
-                                <p className="text-sm text-gray-700 mt-2 line-clamp-3">
-                                  {result.summary || result.text?.substring(0, 150)}
-                                </p>
-                                
-                                {/* Highlights section */}
-                                {result.highlights && result.highlights.length > 0 && (
-                                  <div className="mt-2 p-2 bg-yellow-50 rounded-md border border-yellow-100">
-                                    <p className="text-xs text-gray-700 italic">
-                                      "{result.highlights[0]}"
-                                    </p>
-                                  </div>
-                                )}
-                                
-                                <div className="flex flex-wrap items-center mt-3 text-xs text-gray-600 space-x-4">
-                                  {result.author && (
-                                    <div className="flex items-center space-x-1">
-                                      <User className="h-3 w-3" />
-                                      <span>{result.author}</span>
-                                    </div>
-                                  )}
-                                  
-                                  {result.publishedDate && (
-                                    <div className="flex items-center space-x-1">
-                                      <Calendar className="h-3 w-3" />
-                                      <span>{formatDate(result.publishedDate)}</span>
-                                    </div>
-                                  )}
-                                  
-                                  {/* Label for real-time results */}
-                                  {result.isLiveCrawl && (
-                                    <div className="flex items-center px-1.5 py-0.5 bg-blue-50 text-blue-700 rounded border border-blue-100">
-                                      <Clock className="h-3 w-3 mr-1" />
-                                      <span>Real-time data</span>
-                                    </div>
-                                  )}
-                                </div>
-                                
-                                <div className="flex justify-between items-center mt-3">
-                                  <a 
-                                    href={result.url} 
-                                    target="_blank" 
-                                    rel="noopener noreferrer"
-                                    className="text-blue-600 hover:text-blue-800 text-sm flex items-center"
-                                  >
-                                    <span>View Source</span>
-                                    <ExternalLink className="h-3 w-3 ml-1" />
-                                  </a>
-                                  
-                                  <button className="text-gray-500 hover:text-gray-700 flex items-center text-xs">
-                                    <Bookmark className="h-3 w-3 mr-1" />
-                                    <span>Save</span>
-                                  </button>
-                                </div>
-                              </div>
-                            ))
+                              );
+                            })
                           ) : (
                             <div className="text-center py-6 text-gray-500">
                               <AlertCircle className="h-5 w-5 mx-auto mb-2 text-gray-400" />
@@ -440,7 +464,7 @@ const EvidenceResults = ({ searchResults, isSearching }) => {
 };
 
 // Helper component for sorting arrow
-const ArrowsUpDown = ({ className }) => (
+const ArrowsUpDown = ({ className }: { className: string }) => (
   <svg
     xmlns="http://www.w3.org/2000/svg"
     width="24"

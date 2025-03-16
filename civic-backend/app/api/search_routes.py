@@ -182,9 +182,34 @@ def search_for_evidence_batch():
                 'error': 'Search API key not configured. Please check your server configuration.'
             }), 200
         
+        # Create app context outside the thread pool
+        app = current_app._get_current_object()
+        
         # Process queries in parallel
         start_time = time.time()
-        results = search_evidence_batch(queries, claim)
+        results = []
+        
+        with ThreadPoolExecutor(max_workers=min(8, len(queries))) as executor:
+            futures = []
+            for query in queries:
+                if not query or not isinstance(query, str):
+                    results.append([])
+                    continue
+                
+                # Pass the app to search_evidence function
+                futures.append(executor.submit(
+                    search_with_app_context, app, query, claim
+                ))
+            
+            # Collect results as they complete
+            for future in as_completed(futures):
+                try:
+                    result = future.result()
+                    results.append(result)
+                except Exception as e:
+                    logger.error(f"Error in search thread: {str(e)}")
+                    results.append([])
+                    
         duration = time.time() - start_time
         
         logger.info(f"Batch search completed in {duration:.2f}s")
@@ -209,6 +234,16 @@ def search_for_evidence_batch():
             'error': f'Search error: {str(e)}'
         }), 200
 
+# Helper function to run search with proper app context
+def search_with_app_context(app, query, claim):
+    """Execute search within an app context"""
+    with app.app_context():
+        try:
+            return search_evidence(query, claim)
+        except Exception as e:
+            logger.error(f"Error searching for '{query}': {str(e)}")
+            return []
+        
 @api.route('/search/evidence/for-claim', methods=['POST'])
 def search_for_evidence_for_claim():
     """Generate keywords and search for evidence for a specific claim"""
