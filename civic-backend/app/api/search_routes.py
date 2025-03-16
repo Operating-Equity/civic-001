@@ -49,6 +49,7 @@ def generate_search_keywords_batch():
     try:
         # Process each claim to generate keywords using parallel processing
         results = []
+        app = current_app._get_current_object()  # Get current app for thread safety
         
         with ThreadPoolExecutor(max_workers=min(8, len(claims))) as executor:
             # Create a dictionary to map futures to claim data
@@ -67,9 +68,10 @@ def generate_search_keywords_batch():
                 if not claim:
                     continue
                 
-                # Submit the task to the executor
+                # Submit the task to the executor with app context
                 future = executor.submit(
-                    generate_keywords,
+                    generate_keywords_with_context,
+                    app,
                     claim,
                     context,
                     validation_info,
@@ -101,9 +103,14 @@ def generate_search_keywords_batch():
         logger.error(f"Error in batch keyword generation: {str(e)}\n{traceback.format_exc()}")
         return jsonify({'error': str(e)}), 500
 
+# Helper function to run with proper app context
+def generate_keywords_with_context(app, claim, context, validation_info, video_title):
+    with app.app_context():
+        return generate_keywords(claim, context, validation_info, video_title)
+
 @api.route('/search/evidence', methods=['POST'])
 def search_for_evidence():
-    """Search for evidence related to keywords"""
+    """Search for evidence related to keywords with improved error handling"""
     if not request.json:
         return jsonify({'error': 'Invalid request'}), 400
     
@@ -117,14 +124,39 @@ def search_for_evidence():
     try:
         logger.info(f"Searching for evidence with query: {query}")
         
-        # Check if API key is configured
+        # Detailed check for API key with helpful error message
         exa_api_key = current_app.config.get('EXA_API_KEY')
         if not exa_api_key:
             logger.error("EXA_API_KEY is not configured")
+            logger.error("Please check .env file and Docker environment variables")
+            # Return a more helpful error message
             return jsonify({
                 'results': [],
-                'error': 'Search API key not configured. Please check your server configuration.'
+                'error': 'Search API key not configured. Please add EXA_API_KEY to your .env file.'
             }), 200  # Return empty results but with a 200 status
+            
+        # Log API key status (safely)
+        logger.info(f"Using EXA_API_KEY: {'[CONFIGURED]' if exa_api_key else '[MISSING]'}")
+        logger.info(f"API key length: {len(exa_api_key) if exa_api_key else 0}")
+        
+        # Initialize client only when needed
+        try:
+            from exa_py import Exa
+            # Test initialization
+            exa_client = Exa(exa_api_key)
+            logger.info("Successfully initialized Exa client")
+        except ImportError:
+            logger.error("Failed to import exa_py library. Is it installed?")
+            return jsonify({
+                'results': [],
+                'error': 'Exa library not available. Run: pip install exa-py'
+            }), 200
+        except Exception as e:
+            logger.error(f"Failed to initialize Exa client: {str(e)}")
+            return jsonify({
+                'results': [], 
+                'error': f'Failed to initialize Exa client: {str(e)}'
+            }), 200
         
         # Check if this is a timebound claim that needs special handling
         if detect_timebound and is_timebound_claim(claim):
@@ -150,7 +182,8 @@ def search_for_evidence():
         
         return jsonify(response_data)
     except Exception as e:
-        logger.error(f"Error searching for evidence: {str(e)}\n{traceback.format_exc()}")
+        logger.error(f"Error searching for evidence: {str(e)}")
+        logger.error(f"Stack trace: {traceback.format_exc()}")
         # Return empty results with an explanation rather than a 500 error
         return jsonify({
             'results': [],
@@ -244,76 +277,6 @@ def search_with_app_context(app, query, claim):
             logger.error(f"Error searching for '{query}': {str(e)}")
             return []
         
-@api.route('/search/evidence/for-claim', methods=['POST'])
-def search_for_evidence_for_claim():
-    """Generate keywords and search for evidence for a specific claim"""
-    if not request.json or 'claim' not in request.json:
-        return jsonify({'error': 'No claim provided'}), 400
-        
-    claim = request.json.get('claim')
-    context = request.json.get('context', '')
-    validation_info = request.json.get('validation_potential', '')
-    video_title = request.json.get('video_title', '')
-    
-    try:
-        # First check if this is a timebound claim that needs special handling
-        is_timebound = is_timebound_claim(claim)
-        
-        if is_timebound:
-            logger.info(f"Detected timebound claim: {claim[:50]}...")
-            # Use specialized search for timebound claims
-            timebound_results = search_for_timebound_claim(claim, context)
-            
-            # Also generate some regular queries as backup
-            keywords = generate_keywords(claim, context, validation_info, video_title)
-            
-            # Run regular search in parallel
-            regular_results = search_evidence_batch(keywords, claim)
-            
-            # Format results - combine timebound results with regular results
-            keyword_results = [{
-                'keyword': "Current information (real-time search)",
-                'results': timebound_results
-            }]
-            
-            # Add results from regular keywords
-            for i, query in enumerate(keywords):
-                keyword_results.append({
-                    'keyword': query,
-                    'results': regular_results[i] if i < len(regular_results) else []
-                })
-        else:
-            # Standard approach for non-timebound claims
-            # First generate keywords
-            keywords = generate_keywords(claim, context, validation_info, video_title)
-            
-            # Then search for evidence in parallel
-            search_results = search_evidence_batch(keywords, claim)
-            
-            # Format results
-            keyword_results = []
-            for i, query in enumerate(keywords):
-                keyword_results.append({
-                    'keyword': query,
-                    'results': search_results[i] if i < len(search_results) else []
-                })
-        
-        # Calculate some stats for the response
-        total_results = sum(len(kw['results']) for kw in keyword_results)
-        
-        return jsonify({
-            'claim': claim,
-            'keywordResults': keyword_results,
-            'stats': {
-                'totalResults': total_results,
-                'keywordsUsed': len(keyword_results),
-                'isTimebound': is_timebound
-            }
-        })
-    except Exception as e:
-        logger.error(f"Error searching for claim evidence: {str(e)}\n{traceback.format_exc()}")
-        return jsonify({'error': str(e)}), 500
-
 @api.route('/search/evidence/for-claims', methods=['POST'])
 def search_for_evidence_for_claims():
     """Generate keywords and search for evidence for multiple claims"""
@@ -328,6 +291,7 @@ def search_for_evidence_for_claims():
     
     try:
         all_results = []
+        app = current_app._get_current_object()  # Get current app for thread safety
         
         # Process claims in parallel with ThreadPoolExecutor
         with ThreadPoolExecutor(max_workers=min(4, len(claims))) as executor:
@@ -349,9 +313,10 @@ def search_for_evidence_for_claims():
                 # Check if this is a timebound claim
                 is_timebound = is_timebound_claim(claim)
                 
-                # Submit the task to the executor
+                # Submit the task to the executor with app context
                 future = executor.submit(
-                    process_single_claim_evidence,
+                    process_single_claim_evidence_with_context,
+                    app,
                     claim,
                     context,
                     validation_info,
@@ -380,7 +345,12 @@ def search_for_evidence_for_claims():
         logger.error(f"Error in multi-claim evidence search: {str(e)}\n{traceback.format_exc()}")
         return jsonify({'error': str(e)}), 500
 
-def process_single_claim_evidence(claim, context, validation_info, video_title, is_timebound=False):
+# Helper function to process claim with app context
+def process_single_claim_evidence_with_context(app, claim, context, validation_info, video_title, is_timebound=False):
+    with app.app_context():
+        return process_single_claim_evidence(claim, context, validation_info, video_title, is_timebound)
+
+def process_single_claim_evidence(claim: str, context: str, validation_info: str, video_title: str, is_timebound=False):
     """Helper function to process a single claim for evidence"""
     # First generate keywords
     keywords = generate_keywords(claim, context, validation_info, video_title)
