@@ -337,11 +337,139 @@ def get_youtube_transcript(video_id, languages=['en'], with_speakers=False):
     logger.error(f"All transcription methods failed for {video_id}")
     raise Exception(f"Unable to transcribe this video: No transcript available")
 
+def get_video_title(video_id):
+    """
+    Get YouTube video title with multiple fallback methods.
+    
+    Args:
+        video_id: YouTube video ID
+        
+    Returns:
+        str: Video title or default if not found
+    """
+    default_title = f"YouTube Video {video_id}"
+    
+    # Method 1: Try using pytube with error handling
+    try:
+        from pytube import YouTube
+        yt = YouTube(f"https://www.youtube.com/watch?v={video_id}")
+        if hasattr(yt, 'title') and yt.title:
+            return yt.title
+    except Exception as e:
+        logger.warning(f"Failed to get title with pytube: {str(e)}")
+    
+    # Method 2: Try using youtube-dl if available
+    try:
+        import yt_dlp
+        ydl_opts = {
+            'skip_download': True,
+            'quiet': True,
+        }
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(f"https://www.youtube.com/watch?v={video_id}", download=False)
+            if info and 'title' in info:
+                return info['title']
+    except Exception as e:
+        logger.warning(f"Failed to get title with yt-dlp: {str(e)}")
+    
+    # Method 3: Try using a simple HTTP request to get title from HTML
+    try:
+        import requests
+        import re
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/90.0.4430.212 Safari/537.36'
+        }
+        response = requests.get(f"https://www.youtube.com/watch?v={video_id}", headers=headers, timeout=5)
+        if response.status_code == 200:
+            title_match = re.search(r'<title>(.*?)</title>', response.text)
+            if title_match:
+                title = title_match.group(1)
+                # Remove " - YouTube" suffix if present
+                title = title.replace(" - YouTube", "")
+                return title
+    except Exception as e:
+        logger.warning(f"Failed to get title with HTTP request: {str(e)}")
+    
+    # If all methods fail, return the default title
+    return default_title
+
+def get_youtube_transcript_via_rapidapi(video_id):
+    """
+    Fetch YouTube transcript using RapidAPI's youtube-transcript service.
+    
+    Args:
+        video_id (str): YouTube video ID
+        
+    Returns:
+        tuple: (transcript_text, video_title) where transcript_text is a string of the full transcript
+        
+    Raises:
+        Exception: If transcript retrieval fails
+    """
+    # Get API key from environment
+    rapidapi_key = current_app.config.get('RAPIDAPI_KEY')
+    
+    if not rapidapi_key:
+        logger.error("RAPIDAPI_KEY is not configured")
+        raise Exception("RapidAPI key not configured. Please add RAPIDAPI_KEY to your environment variables.")
+    
+    try:
+        logger.info(f"Fetching transcript from RapidAPI for video ID: {video_id}")
+        
+        # RapidAPI endpoint and headers
+        url = "https://youtube-transcript3.p.rapidapi.com/api/transcript"
+        
+        querystring = {"videoId": video_id}
+        
+        headers = {
+            "x-rapidapi-key": rapidapi_key,
+            "x-rapidapi-host": "youtube-transcript3.p.rapidapi.com"
+        }
+        
+        # Make the request
+        response = requests.get(url, headers=headers, params=querystring, timeout=30)
+        
+        # Check for successful response
+        if response.status_code != 200:
+            logger.error(f"RapidAPI returned status code {response.status_code}: {response.text}")
+            raise Exception(f"Failed to retrieve transcript: HTTP {response.status_code}")
+        
+        # Parse response
+        data = response.json()
+        
+        if not data.get("success", False):
+            error_message = data.get("message", "Unknown error")
+            logger.error(f"RapidAPI transcript request failed: {error_message}")
+            raise Exception(f"Transcript retrieval failed: {error_message}")
+        
+        # Extract transcript segments
+        transcript_segments = data.get("transcript", [])
+        
+        if not transcript_segments:
+            logger.error("RapidAPI returned empty transcript")
+            raise Exception("No transcript segments found in the response")
+        
+        # Combine transcript segments to create a full transcript
+        transcript_text = " ".join(segment.get("text", "") for segment in transcript_segments)
+        
+        if not transcript_text.strip():
+            logger.error("Empty transcript generated from RapidAPI response")
+            raise Exception("Generated transcript is empty")
+        
+        # Get video title using the enhanced method
+        video_title = get_video_title(video_id)
+        
+        logger.info(f"Successfully retrieved transcript via RapidAPI for video ID: {video_id}")
+        
+        return transcript_text, video_title
+        
+    except Exception as e:
+        logger.error(f"Error fetching transcript from RapidAPI: {str(e)}")
+        raise Exception(f"RapidAPI transcript fetching failed: {str(e)}")
+    
 def get_video_transcript(file_path, with_speakers=False):
     """
     Extract transcript from an uploaded video file.
-    In this simplified implementation, we return a placeholder message since
-    we're focusing only on the YouTube transcript functionality.
     
     Parameters:
         file_path (str): Path to the video file.

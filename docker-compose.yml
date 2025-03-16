@@ -1,9 +1,10 @@
 version: '3.8'
-
 services:
   # Backend API service
   api:
-    build: ./civic-backend
+    build: 
+      context: ./civic-backend
+      dockerfile: Dockerfile
     container_name: civic-api
     restart: unless-stopped
     ports:
@@ -13,16 +14,23 @@ services:
     environment:
       - FLASK_PORT=5002
       - PORT=5002
+      - FLASK_ENV=production
+      - FLASK_DEBUG=0
     volumes:
-      - ./civic-backend:/app
-      - uploads:/app/uploads
+      - uploads:/app/uploads  # Changed to only mount the uploads directory
     networks:
       - civic-network
-    command: python run.py  # Ensure it runs with our explicit port settings
-
+    command: gunicorn --workers=4 --bind=0.0.0.0:5002 "wsgi:application"  # Use Gunicorn instead of dev server
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5002/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+      
   # Frontend service
   web:
-    build: 
+    build:
       context: ./civic-frontend
       # Pass build arguments to configure the build process
       args:
@@ -41,11 +49,17 @@ services:
       - api
     networks:
       - civic-network
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
 
 networks:
   civic-network:
     driver: bridge
-
+    
 volumes:
   uploads:
     driver: local

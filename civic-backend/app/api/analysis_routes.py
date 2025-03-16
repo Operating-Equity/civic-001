@@ -107,7 +107,7 @@ def evaluate_single_claim():
         return jsonify({'error': error_message}), 500
 
 def evaluate_multiple_claims():
-    """Evaluate multiple claims in parallel using multiple AI providers"""
+    """Evaluate multiple claims in parallel using multiple AI providers with improved performance"""
     start_time = time.time()
     claims = request.json.get('claims', [])
     context = request.json.get('context', '')
@@ -129,10 +129,12 @@ def evaluate_multiple_claims():
     logger.info(f"[EVALUATE] Processing {len(claims)} claims in parallel with model: {model}")
     
     try:
-        # Determine which models to evaluate
+        # Determine which models to evaluate - use just one model by default to improve performance
         models_to_evaluate = []
         if model == 'all':
-            models_to_evaluate = ['perplexity', 'openai', 'anthropic']
+            # For better performance, prioritize a single model unless specifically requested
+            default_model = 'openai'  # Could be 'perplexity' or 'anthropic' based on your preference
+            models_to_evaluate = [default_model]
         else:
             models_to_evaluate = [model]
         
@@ -141,7 +143,7 @@ def evaluate_multiple_claims():
         
         # Process all claims in parallel using a ThreadPoolExecutor
         all_results = {}
-        max_workers = min(len(claims), 8)  # Limit to 8 parallel threads maximum
+        max_workers = min(len(claims), 4)  # Reduced from 8 to 4 for better resource management
         
         with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
             # Create a dictionary to track futures for each claim
@@ -190,9 +192,11 @@ def evaluate_multiple_claims():
                     logger.error(f"[EVALUATE] Claim {claim_id} generated an exception: {exc}")
                     all_results[claim_id] = {
                         "error": str(exc),
-                        "perplexity": create_error_result(claims[int(claim_id.split('_')[1]) if claim_id.startswith('claim_') else 0].get('claim'), "perplexity", str(exc)),
-                        "openai": create_error_result(claims[int(claim_id.split('_')[1]) if claim_id.startswith('claim_') else 0].get('claim'), "openai", str(exc)),
-                        "anthropic": create_error_result(claims[int(claim_id.split('_')[1]) if claim_id.startswith('claim_') else 0].get('claim'), "anthropic", str(exc))
+                        models_to_evaluate[0]: create_error_result(
+                            claims[int(claim_id.split('_')[1]) if claim_id.startswith('claim_') else 0].get('claim'),
+                            models_to_evaluate[0], 
+                            str(exc)
+                        )
                     }
         
         duration = time.time() - start_time
@@ -206,6 +210,107 @@ def evaluate_multiple_claims():
         error_message = f"Error evaluating multiple claims: {str(e)}"
         logger.error(f"[EVALUATE] {error_message}\n{traceback.format_exc()}")
         return jsonify({'error': error_message}), 500
+
+def run_parallel_evaluation(app, claim, context, models_to_evaluate, claim_id=None):
+    """Run evaluation for a single claim across multiple models in parallel with improved timeouts"""
+    start_time = time.time()
+    results = {}
+    
+    # Check if we already have a cached response for this claim
+    cache_key = f"eval_{hash(claim)}_{hash(context)}_{'_'.join(sorted(models_to_evaluate))}"
+    cached_result = response_cache.get(model="run_parallel", prompt=cache_key, context="")
+    
+    if cached_result:
+        logger.info(f"[EVALUATE] Using cached parallel evaluation for claim: '{claim[:30]}...'")
+        
+        # If a claim ID was provided, add it to each model result
+        if claim_id:
+            for model_name in cached_result:
+                if isinstance(cached_result[model_name], dict):
+                    cached_result[model_name]["claimId"] = claim_id
+                    
+        return cached_result
+    
+    # Define a function to process a single model
+    def process_model(model_name):
+        # Establish application context for this thread
+        with app.app_context():
+            try:
+                if model_name == 'perplexity':
+                    logger.info(f"[EVALUATE] Calling Perplexity API for claim: '{claim[:30]}...'")
+                    result = evaluate_with_perplexity(claim, context)
+                    logger.info("[EVALUATE] Perplexity evaluation successful")
+                elif model_name == 'openai':
+                    logger.info(f"[EVALUATE] Calling OpenAI API for claim: '{claim[:30]}...'")
+                    result = evaluate_with_openai(claim, context)
+                    logger.info("[EVALUATE] OpenAI evaluation successful")
+                elif model_name == 'anthropic':
+                    logger.info(f"[EVALUATE] Calling Anthropic API for claim: '{claim[:30]}...'")
+                    result = evaluate_with_anthropic(claim, context)
+                    logger.info("[EVALUATE] Anthropic evaluation successful")
+                else:
+                    return None, f"Unknown model: {model_name}"
+                
+                # Add the claim ID to the result if provided
+                if claim_id:
+                    result["claimId"] = claim_id
+                    
+                return model_name, result
+            except Exception as model_error:
+                logger.error(f"[EVALUATE] {model_name.capitalize()} evaluation failed: {str(model_error)}")
+                error_result = create_error_result(claim, model_name, str(model_error))
+                return model_name, error_result
+    
+    # Process all models in parallel using ThreadPoolExecutor
+    with concurrent.futures.ThreadPoolExecutor(max_workers=len(models_to_evaluate)) as executor:
+        # Submit all tasks
+        future_to_model = {executor.submit(process_model, model_name): model_name for model_name in models_to_evaluate}
+        
+        # Process results as they complete with a timeout
+        timeout_per_model = 30  # Reduced from 45 to 30 seconds for better performance
+        
+        try:
+            for future in concurrent.futures.as_completed(future_to_model, timeout=timeout_per_model * len(models_to_evaluate)):
+                model_name = future_to_model[future]
+                try:
+                    model_result = future.result(timeout=timeout_per_model)
+                    if model_result:
+                        result_model_name, result = model_result
+                        if result_model_name and result:
+                            results[result_model_name] = result
+                except concurrent.futures.TimeoutError:
+                    logger.error(f"[EVALUATE] Timeout for model: {model_name}")
+                    results[model_name] = create_error_result(
+                        claim, model_name, f"Evaluation timed out after {timeout_per_model} seconds"
+                    )
+                except Exception as e:
+                    logger.error(f"[EVALUATE] Error processing result for {model_name}: {str(e)}")
+                    results[model_name] = create_error_result(
+                        claim, model_name, f"Error: {str(e)}"
+                    )
+        except concurrent.futures.TimeoutError:
+            logger.error(f"[EVALUATE] Overall evaluation timed out")
+            # For any models that didn't complete, add timeout results
+            for model_name in models_to_evaluate:
+                if model_name not in results:
+                    results[model_name] = create_error_result(
+                        claim, model_name, "Evaluation timed out"
+                    )
+    
+    # Ensure we always return results for all requested models
+    for model_name in models_to_evaluate:
+        if model_name not in results:
+            results[model_name] = create_error_result(
+                claim, model_name, "Evaluation failed to complete"
+            )
+    
+    duration = time.time() - start_time
+    logger.info(f"[EVALUATE] Completed parallel evaluation in {duration:.2f}s")
+    
+    # Cache the results
+    response_cache.set(model="run_parallel", prompt=cache_key, value=results, context="")
+    
+    return results
 
 def run_parallel_evaluation(app, claim, context, models_to_evaluate, claim_id=None):
     """Run evaluation for a single claim across multiple models in parallel"""

@@ -16,8 +16,8 @@ from app.models.schemas import SearchResult
 logger = logging.getLogger(__name__)
 
 MAX_RETRIES = 3
-RETRY_DELAY = 1  # 1 second
-MAX_CONCURRENT_SEARCHES = 8  # Maximum number of concurrent searches
+RETRY_DELAY = 1.2  # 1 second
+MAX_CONCURRENT_SEARCHES = 4  # Maximum number of concurrent searches
 
 # List of sources to exclude from search results
 # These sources may have strong political biases or reliability issues
@@ -375,67 +375,90 @@ def search_evidence(query: str, claim: str = "") -> List[SearchResult]:
         
         return []
     
-# Helper function to perform a single search without requiring app context
 def _perform_single_search(exa_client, query, claim, signal=None):
-    """Perform a single search operation with the provided Exa client"""
-    try:
-        # Simplify the query by removing excess quotes
-        simplified_query = query
-        if isinstance(query, str):
-            simplified_query = query.replace('"', '').replace('"', '').replace('"', '')
-        
-        logger.info(f"Searching with query: {simplified_query}")
-        
-        # Get optimal search parameters
-        search_params = determine_search_parameters(simplified_query, claim)
-        
-        # Enhanced summary query for better context
-        summary_query = "Provide key facts relevant to fact-checking"
-        if claim:
-            summary_query = f"Provide key facts relevant to verifying: {claim}"
-        
-        # Use search_and_contents method with parameters exactly as in examples
-        response = exa_client.search_and_contents(
-            query=simplified_query,
-            text=True,
-            highlights={
-                "numSentences": 3,
-                "highlightsPerUrl": 2,
-                "query": f"Evidence about {simplified_query}"
-            },
-            summary={
-                "query": summary_query
-            },
-            subpages=1,
-            subpage_target="sources",
-            extras={
-                "links": 3,
-                "image_links": 1
-            },
-            num_results=10,
-            **search_params
-        )
-        
-        results = response.results
-        
-        # Filter out disqualified sources
-        filtered_results = [
-            result for result in results
-            if not any(source.lower() in (result.title.lower() if result.title else "") or
-                      source.lower() in (result.url.lower() if result.url else "")
-                      for source in DISQUALIFIED_SOURCES)
-        ]
-        
-        # Process and rank results
-        processed_results = process_search_results(filtered_results)
-        ranked_results = rank_results(processed_results, simplified_query, claim)
-        
-        # Return top results after ranking
-        return ranked_results[:10]  # Limit to top 10 most relevant results
+    """Perform a single search operation with the provided Exa client with improved error handling"""
+    for attempt in range(MAX_RETRIES):
+        try:
+            # Simplify the query by removing excess quotes
+            simplified_query = query
+            if isinstance(query, str):
+                simplified_query = query.replace('"', '').replace('"', '').replace('"', '')
             
-    except Exception as e:
-        logger.error(f"Error in Exa search: {str(e)}")
-        return []  # Return empty results on error
+            logger.info(f"Searching with query: {simplified_query}, attempt {attempt+1}/{MAX_RETRIES}")
+            
+            # Get optimal search parameters
+            search_params = determine_search_parameters(simplified_query, claim)
+            
+            # Enhanced summary query for better context
+            summary_query = "Provide key facts relevant to fact-checking"
+            if claim:
+                summary_query = f"Provide key facts relevant to verifying: {claim}"
+            
+            # Use search_and_contents method with parameters exactly as in examples
+            response = exa_client.search_and_contents(
+                query=simplified_query,
+                text=True,
+                highlights={
+                    "numSentences": 3,
+                    "highlightsPerUrl": 2,
+                    "query": f"Evidence about {simplified_query}"
+                },
+                summary={
+                    "query": summary_query
+                },
+                subpages=1,
+                subpage_target="sources",
+                extras={
+                    "links": 3,
+                    "image_links": 1
+                },
+                num_results=10,
+                **search_params
+            )
+            
+            # Validate response format before proceeding
+            if not hasattr(response, 'results'):
+                logger.warning(f"Invalid response format from Exa API on attempt {attempt+1}")
+                if attempt < MAX_RETRIES - 1:
+                    time.sleep(RETRY_DELAY * (2 ** attempt))  # Exponential backoff
+                    continue
+                return []  # Return empty results after all retries
+            
+            results = response.results
+            
+            # Filter out disqualified sources
+            filtered_results = [
+                result for result in results
+                if not any(source.lower() in (result.title.lower() if hasattr(result, 'title') and result.title else "") or
+                          source.lower() in (result.url.lower() if hasattr(result, 'url') and result.url else "")
+                          for source in DISQUALIFIED_SOURCES)
+            ]
+            
+            # Process and rank results
+            processed_results = process_search_results(filtered_results)
+            ranked_results = rank_results(processed_results, simplified_query, claim)
+            
+            # Return top results after ranking
+            return ranked_results[:10]  # Limit to top 10 most relevant results
+                
+        except Exception as e:
+            logger.error(f"Error in Exa search (attempt {attempt+1}/{MAX_RETRIES}): {str(e)}")
+            
+            # Specific handling for HTTP 500 errors
+            if hasattr(e, 'response') and hasattr(e.response, 'status_code') and e.response.status_code == 500:
+                logger.warning(f"Exa API returned 500 error, waiting before retry")
+                
+            # If this isn't our last retry, wait and try again
+            if attempt < MAX_RETRIES - 1:
+                wait_time = RETRY_DELAY * (2 ** attempt)  # Exponential backoff
+                logger.info(f"Retrying in {wait_time} seconds...")
+                time.sleep(wait_time)
+            else:
+                logger.error(f"All {MAX_RETRIES} attempts failed, returning empty results")
+                return []  # Return empty results after all retries
+    
+    # Should not reach here, but just in case
+    return []
 
 def fetch_specific_content(urls: List[str], query: str = "", claim: str = "") -> List[Dict[str, Any]]:
     """

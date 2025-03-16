@@ -15,6 +15,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Copy and install Python dependencies
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install gunicorn  # Explicitly install gunicorn
 
 # Final stage with minimal runtime dependencies
 FROM python:3.10-slim
@@ -36,8 +37,12 @@ COPY . .
 # Create upload directory
 RUN mkdir -p uploads
 
+# Set environment variables for production
+ENV FLASK_ENV=production
+ENV FLASK_DEBUG=0
+
 # Expose the port
 EXPOSE 5002
 
-# Run the application
-CMD ["python", "run.py"]
+# Run the application with Gunicorn in production
+CMD ["gunicorn", "--workers=4", "--bind=0.0.0.0:5002", "wsgi:application"]

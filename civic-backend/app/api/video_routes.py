@@ -65,16 +65,25 @@ def process_youtube_video(video_url, with_speakers=False):
             
             # Initialize speakers_data as None
             speakers_data = None
+            transcript = None
+            video_title = None
             
-            # Change this line to pass the with_speakers parameter
+            # Try to get transcript with speaker identification if requested
             if with_speakers:
                 try:
-                    transcript, video_title, speakers_data = get_youtube_transcript(video_id, with_speakers=True)
+                    result = get_youtube_transcript(video_id, with_speakers=True)
+                    # Properly handle both return formats
+                    if isinstance(result, tuple):
+                        if len(result) == 3:
+                            transcript, video_title, speakers_data = result
+                        elif len(result) == 2:
+                            transcript, video_title = result
                 except Exception as speaker_error:
-                    # If speaker identification fails, fall back to regular transcript
+                    # If speaker identification fails, log error and fall back to regular transcript
                     logger.error(f"Speaker identification failed, falling back to standard transcript: {str(speaker_error)}")
                     transcript, video_title = get_youtube_transcript(video_id, with_speakers=False)
             else:
+                # Standard transcript without speaker identification
                 transcript, video_title = get_youtube_transcript(video_id, with_speakers=False)
             
             # Check if transcript is valid
@@ -92,7 +101,7 @@ def process_youtube_video(video_url, with_speakers=False):
             # Include speakers_data in the response if available
             response_data = {
                 'transcript': transcript,
-                'video_title': video_title,
+                'video_title': video_title or f"YouTube Video {video_id}",  # Ensure we have a title
                 'thumbnail_url': thumbnail_url
             }
             
@@ -125,7 +134,7 @@ def process_youtube_video(video_url, with_speakers=False):
     except Exception as e:
         logger.error(f"Unexpected error processing YouTube URL: {str(e)}\n{traceback.format_exc()}")
         return jsonify({'error': 'Failed to process YouTube video. Please try again later.'}), 500
-
+    
 def process_uploaded_video(video_file, with_speakers=False):
     """Handle uploaded video file processing with speaker identification"""
     start_time = time.time()
