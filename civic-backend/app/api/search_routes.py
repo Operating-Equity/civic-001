@@ -1,8 +1,17 @@
 from flask import request, jsonify, current_app
 from app.api.api_routes import api
-from app.services.search_service import search_evidence, generate_keywords, search_evidence_batch
+from app.services.search_service import (
+    generate_keywords, 
+    search_evidence, 
+    search_evidence_batch,
+    search_for_timebound_claim
+)
 import logging
 import traceback
+import time
+import re
+from datetime import datetime
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -22,6 +31,7 @@ def generate_search_keywords():
         keywords = generate_keywords(claim, context, validation_info, video_title)
         return jsonify({'keywords': keywords})
     except Exception as e:
+        logger.error(f"Error generating keywords: {str(e)}\n{traceback.format_exc()}")
         return jsonify({'error': str(e)}), 500
 
 @api.route('/search/keywords/batch', methods=['POST'])
@@ -37,41 +47,73 @@ def generate_search_keywords_batch():
         return jsonify({'error': 'Claims must be provided as a list'}), 400
     
     try:
-        # Process each claim to generate keywords
+        # Process each claim to generate keywords using parallel processing
         results = []
         
-        for claim_data in claims:
-            if not isinstance(claim_data, dict):
-                continue
+        with ThreadPoolExecutor(max_workers=min(8, len(claims))) as executor:
+            # Create a dictionary to map futures to claim data
+            future_to_claim = {}
+            
+            # Submit tasks for all claims
+            for claim_data in claims:
+                if not isinstance(claim_data, dict):
+                    continue
+                    
+                claim = claim_data.get('claim')
+                context = claim_data.get('context', '')
+                validation_info = claim_data.get('validationPotential', '')
+                claim_id = claim_data.get('id', '')
                 
-            claim = claim_data.get('claim')
-            context = claim_data.get('context', '')
-            validation_info = claim_data.get('validationPotential', '')
-            claim_id = claim_data.get('id', '')
+                if not claim:
+                    continue
+                
+                # Submit the task to the executor
+                future = executor.submit(
+                    generate_keywords,
+                    claim,
+                    context,
+                    validation_info,
+                    video_title
+                )
+                future_to_claim[future] = {'id': claim_id, 'claim': claim}
             
-            if not claim:
-                continue
-            
-            keywords = generate_keywords(claim, context, validation_info, video_title)
-            
-            results.append({
-                'id': claim_id,
-                'claim': claim,
-                'searchQueries': keywords
-            })
+            # Process results as they complete
+            for future in as_completed(future_to_claim):
+                claim_data = future_to_claim[future]
+                try:
+                    keywords = future.result()
+                    results.append({
+                        'id': claim_data['id'],
+                        'claim': claim_data['claim'],
+                        'searchQueries': keywords
+                    })
+                except Exception as e:
+                    logger.error(f"Error generating keywords for claim: {claim_data['claim']}\n{str(e)}")
+                    # Add the claim with a default query as fallback
+                    results.append({
+                        'id': claim_data['id'],
+                        'claim': claim_data['claim'],
+                        'searchQueries': [f"fact check {claim_data['claim'][:50]}"]
+                    })
         
         return jsonify({'results': results})
     except Exception as e:
+        logger.error(f"Error in batch keyword generation: {str(e)}\n{traceback.format_exc()}")
         return jsonify({'error': str(e)}), 500
 
 @api.route('/search/evidence', methods=['POST'])
 def search_for_evidence():
     """Search for evidence related to keywords"""
-    if not request.json or 'query' not in request.json:
+    if not request.json:
+        return jsonify({'error': 'Invalid request'}), 400
+    
+    query = request.json.get('query')
+    claim = request.json.get('claim', '')
+    detect_timebound = request.json.get('detect_timebound', False)
+    
+    if not query:
         return jsonify({'error': 'No search query provided'}), 400
         
-    query = request.json.get('query')
-    
     try:
         logger.info(f"Searching for evidence with query: {query}")
         
@@ -84,9 +126,29 @@ def search_for_evidence():
                 'error': 'Search API key not configured. Please check your server configuration.'
             }), 200  # Return empty results but with a 200 status
         
-        # Perform the search
-        results = search_evidence(query)
-        return jsonify({'results': results})
+        # Check if this is a timebound claim that needs special handling
+        if detect_timebound and is_timebound_claim(claim):
+            logger.info(f"Detected timebound claim, using specialized search")
+            results = search_for_timebound_claim(claim)
+        else:
+            # Perform standard search
+            results = search_evidence(query, claim)
+        
+        # Log stats about the results
+        logger.info(f"Search complete. Found {len(results)} results")
+        
+        # Add additional metadata
+        response_data = {
+            'results': results,
+            'queryInfo': {
+                'query': query,
+                'resultCount': len(results),
+                'timestamp': datetime.now().isoformat(),
+                'isTimebound': detect_timebound and is_timebound_claim(claim)
+            }
+        }
+        
+        return jsonify(response_data)
     except Exception as e:
         logger.error(f"Error searching for evidence: {str(e)}\n{traceback.format_exc()}")
         # Return empty results with an explanation rather than a 500 error
@@ -102,6 +164,7 @@ def search_for_evidence_batch():
         return jsonify({'error': 'No search queries provided'}), 400
         
     queries = request.json.get('queries')
+    claim = request.json.get('claim', '')
     
     if not isinstance(queries, list):
         return jsonify({'error': 'Queries must be provided as a list'}), 400
@@ -120,8 +183,24 @@ def search_for_evidence_batch():
             }), 200
         
         # Process queries in parallel
-        results = search_evidence_batch(queries)
-        return jsonify({'results': results})
+        start_time = time.time()
+        results = search_evidence_batch(queries, claim)
+        duration = time.time() - start_time
+        
+        logger.info(f"Batch search completed in {duration:.2f}s")
+        
+        # Add metadata to response
+        response_data = {
+            'results': results,
+            'queryInfo': {
+                'queryCount': len(queries),
+                'totalResults': sum(len(res) for res in results),
+                'processingTime': f"{duration:.2f}s",
+                'timestamp': datetime.now().isoformat()
+            }
+        }
+        
+        return jsonify(response_data)
     except Exception as e:
         logger.error(f"Error in batch evidence search: {str(e)}\n{traceback.format_exc()}")
         # Return empty results for each query
@@ -142,25 +221,62 @@ def search_for_evidence_for_claim():
     video_title = request.json.get('video_title', '')
     
     try:
-        # First generate keywords
-        keywords = generate_keywords(claim, context, validation_info, video_title)
+        # First check if this is a timebound claim that needs special handling
+        is_timebound = is_timebound_claim(claim)
         
-        # Then search for evidence in parallel
-        search_results = search_evidence_batch(keywords)
+        if is_timebound:
+            logger.info(f"Detected timebound claim: {claim[:50]}...")
+            # Use specialized search for timebound claims
+            timebound_results = search_for_timebound_claim(claim, context)
+            
+            # Also generate some regular queries as backup
+            keywords = generate_keywords(claim, context, validation_info, video_title)
+            
+            # Run regular search in parallel
+            regular_results = search_evidence_batch(keywords, claim)
+            
+            # Format results - combine timebound results with regular results
+            keyword_results = [{
+                'keyword': "Current information (real-time search)",
+                'results': timebound_results
+            }]
+            
+            # Add results from regular keywords
+            for i, query in enumerate(keywords):
+                keyword_results.append({
+                    'keyword': query,
+                    'results': regular_results[i] if i < len(regular_results) else []
+                })
+        else:
+            # Standard approach for non-timebound claims
+            # First generate keywords
+            keywords = generate_keywords(claim, context, validation_info, video_title)
+            
+            # Then search for evidence in parallel
+            search_results = search_evidence_batch(keywords, claim)
+            
+            # Format results
+            keyword_results = []
+            for i, query in enumerate(keywords):
+                keyword_results.append({
+                    'keyword': query,
+                    'results': search_results[i] if i < len(search_results) else []
+                })
         
-        # Format results
-        keyword_results = []
-        for i, query in enumerate(keywords):
-            keyword_results.append({
-                'keyword': query,
-                'results': search_results[i] if i < len(search_results) else []
-            })
+        # Calculate some stats for the response
+        total_results = sum(len(kw['results']) for kw in keyword_results)
         
         return jsonify({
             'claim': claim,
-            'keywordResults': keyword_results
+            'keywordResults': keyword_results,
+            'stats': {
+                'totalResults': total_results,
+                'keywordsUsed': len(keyword_results),
+                'isTimebound': is_timebound
+            }
         })
     except Exception as e:
+        logger.error(f"Error searching for claim evidence: {str(e)}\n{traceback.format_exc()}")
         return jsonify({'error': str(e)}), 500
 
 @api.route('/search/evidence/for-claims', methods=['POST'])
@@ -178,36 +294,116 @@ def search_for_evidence_for_claims():
     try:
         all_results = []
         
-        for claim_data in claims:
-            if not isinstance(claim_data, dict):
-                continue
+        # Process claims in parallel with ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=min(4, len(claims))) as executor:
+            # Create a dictionary to map futures to claims
+            future_to_claim = {}
+            
+            # Submit tasks for all claims
+            for claim_data in claims:
+                if not isinstance(claim_data, dict):
+                    continue
+                    
+                claim = claim_data.get('claim')
+                context = claim_data.get('context', '')
+                validation_info = claim_data.get('validationPotential', '')
                 
-            claim = claim_data.get('claim')
-            context = claim_data.get('context', '')
-            validation_info = claim_data.get('validationPotential', '')
+                if not claim:
+                    continue
+                
+                # Check if this is a timebound claim
+                is_timebound = is_timebound_claim(claim)
+                
+                # Submit the task to the executor
+                future = executor.submit(
+                    process_single_claim_evidence,
+                    claim,
+                    context,
+                    validation_info,
+                    video_title,
+                    is_timebound
+                )
+                future_to_claim[future] = claim
             
-            if not claim:
-                continue
-            
-            # Generate keywords
-            keywords = generate_keywords(claim, context, validation_info, video_title)
-            
-            # Search for evidence in parallel
-            search_results = search_evidence_batch(keywords)
-            
-            # Format results
-            keyword_results = []
-            for i, query in enumerate(keywords):
-                keyword_results.append({
-                    'keyword': query,
-                    'results': search_results[i] if i < len(search_results) else []
-                })
-            
-            all_results.append({
-                'claim': claim,
-                'keywordResults': keyword_results
-            })
+            # Process results as they complete
+            for future in as_completed(future_to_claim):
+                claim = future_to_claim[future]
+                try:
+                    claim_results = future.result()
+                    all_results.append(claim_results)
+                except Exception as e:
+                    logger.error(f"Error processing claim evidence: {str(e)}")
+                    # Add a placeholder result for failed claims
+                    all_results.append({
+                        'claim': claim,
+                        'keywordResults': [],
+                        'error': f"Error searching for evidence: {str(e)}"
+                    })
         
         return jsonify({'results': all_results})
     except Exception as e:
+        logger.error(f"Error in multi-claim evidence search: {str(e)}\n{traceback.format_exc()}")
         return jsonify({'error': str(e)}), 500
+
+def process_single_claim_evidence(claim, context, validation_info, video_title, is_timebound=False):
+    """Helper function to process a single claim for evidence"""
+    # First generate keywords
+    keywords = generate_keywords(claim, context, validation_info, video_title)
+    
+    if is_timebound:
+        # Add timebound results
+        timebound_results = search_for_timebound_claim(claim, context)
+        all_results = search_evidence_batch(keywords, claim)
+        
+        # Format results
+        keyword_results = [{
+            'keyword': "Current information (real-time search)",
+            'results': timebound_results
+        }]
+        
+        # Add regular keyword results
+        for i, query in enumerate(keywords):
+            keyword_results.append({
+                'keyword': query,
+                'results': all_results[i] if i < len(all_results) else []
+            })
+    else:
+        # Standard search for all keywords
+        all_results = search_evidence_batch(keywords, claim)
+        
+        # Format results
+        keyword_results = []
+        for i, query in enumerate(keywords):
+            keyword_results.append({
+                'keyword': query,
+                'results': all_results[i] if i < len(all_results) else []
+            })
+    
+    return {
+        'claim': claim,
+        'keywordResults': keyword_results,
+        'isTimebound': is_timebound
+    }
+
+def is_timebound_claim(claim: str) -> bool:
+    """
+    Detect if a claim is about a recent or time-sensitive event
+    
+    Args:
+        claim: The claim text to analyze
+        
+    Returns:
+        True if claim appears to be about a recent event
+    """
+    if not claim:
+        return False
+        
+    # Search for temporal indicators in the claim
+    time_indicators = [
+        r'\b(today|yesterday|last\s+week|this\s+week|this\s+month|this\s+year)\b',
+        r'\b(recent(ly)?|latest|current|now|just|new)\b',
+        r'\b(202[3-5])\b',  # Recent years (2023-2025)
+        r'\b(January|February|March|April|May|June|July|August|September|October|November|December)\s+202[3-5]\b'  # Month + recent year
+    ]
+    
+    return any(re.search(pattern, claim, re.IGNORECASE) for pattern in time_indicators)

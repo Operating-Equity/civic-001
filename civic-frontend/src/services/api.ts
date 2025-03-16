@@ -1,4 +1,4 @@
-import axios, { AxiosError, AxiosRequestConfig } from 'axios';
+import axios, { AxiosError, AxiosRequestConfig, AxiosResponse } from 'axios';
 import {
   ClaimAnalysis,
   Claim,
@@ -251,7 +251,7 @@ export const evaluateClaim = async (
   }
 };
 
-// New method to evaluate multiple claims in parallel
+// Method to evaluate multiple claims in parallel
 export const evaluateMultipleClaims = async (
   claims: { id?: string; claim: string; context?: string }[],
   context: string = '',
@@ -309,12 +309,21 @@ export const processAndVerifyVideo = async (
   }
 };
 
+// ==== ENHANCED SEARCH FUNCTIONS ====
+
+// Type for request options with abort signal
+interface RequestOptions {
+  signal?: AbortSignal;
+  [key: string]: any;
+}
+
 // Generate search keywords for a claim
 export const generateKeywords = async (
   claim: string,
   context: string = '',
   validationPotential: string = '',
-  videoTitle: string = ''
+  videoTitle: string = '',
+  options?: RequestOptions
 ): Promise<string[]> => {
   try {
     const response = await api.post('/search/keywords', {
@@ -322,6 +331,8 @@ export const generateKeywords = async (
       context,
       validation_potential: validationPotential,
       video_title: videoTitle
+    }, {
+      signal: options?.signal
     });
     return response.data.keywords;
   } catch (error) {
@@ -333,12 +344,15 @@ export const generateKeywords = async (
 // Generate keywords for multiple claims in parallel
 export const generateKeywordsBatch = async (
   claims: ClaimAnalysis[],
-  videoTitle: string = ''
+  videoTitle: string = '',
+  options?: RequestOptions
 ): Promise<KeywordResult[]> => {
   try {
     const response = await api.post('/search/keywords/batch', {
       claims,
       video_title: videoTitle
+    }, {
+      signal: options?.signal
     });
     return response.data.results;
   } catch (error) {
@@ -347,10 +361,20 @@ export const generateKeywordsBatch = async (
   }
 };
 
-// Search for evidence
-export const searchEvidence = async (query: string): Promise<SearchResult[]> => {
+// Search for evidence with additional options
+export const searchEvidence = async (
+  query: string,
+  claim: string = '',
+  options?: RequestOptions
+): Promise<SearchResult[]> => {
   try {
-    const response = await api.post('/search/evidence', { query });
+    const response = await api.post('/search/evidence', { 
+      query,
+      claim,
+      detect_timebound: options?.detect_timebound
+    }, {
+      signal: options?.signal
+    });
     return response.data.results;
   } catch (error) {
     console.error('Error searching for evidence:', error);
@@ -359,9 +383,18 @@ export const searchEvidence = async (query: string): Promise<SearchResult[]> => 
 };
 
 // Search for evidence across multiple queries in parallel
-export const searchEvidenceBatch = async (queries: string[]): Promise<SearchResult[][]> => {
+export const searchEvidenceBatch = async (
+  queries: string[],
+  claim: string = '',
+  options?: RequestOptions
+): Promise<SearchResult[][]> => {
   try {
-    const response = await api.post('/search/evidence/batch', { queries });
+    const response = await api.post('/search/evidence/batch', { 
+      queries,
+      claim
+    }, {
+      signal: options?.signal
+    });
     return response.data.results;
   } catch (error) {
     console.error('Error in batch evidence search:', error);
@@ -369,17 +402,21 @@ export const searchEvidenceBatch = async (queries: string[]): Promise<SearchResu
   }
 };
 
-// Search for evidence for a specific claim
+// Search for evidence for a specific claim with timebound detection
 export const searchEvidenceForClaim = async (
   claim: ClaimAnalysis,
-  videoTitle: string = ''
+  videoTitle: string = '',
+  options?: RequestOptions & { detect_timebound?: boolean }
 ): Promise<ClaimSearchResults> => {
   try {
     const response = await api.post('/search/evidence/for-claim', {
       claim: claim.claim,
       context: claim.context,
       validation_potential: claim.validationPotential,
-      video_title: videoTitle
+      video_title: videoTitle,
+      detect_timebound: options?.detect_timebound
+    }, {
+      signal: options?.signal
     });
     return response.data;
   } catch (error) {
@@ -391,12 +428,16 @@ export const searchEvidenceForClaim = async (
 // Search for evidence for multiple claims in parallel
 export const searchEvidenceForClaims = async (
   claims: ClaimAnalysis[],
-  videoTitle: string = ''
+  videoTitle: string = '',
+  options?: RequestOptions & { detect_timebound?: boolean }
 ): Promise<ClaimSearchResults[]> => {
   try {
     const response = await api.post('/search/evidence/for-claims', {
       claims,
-      video_title: videoTitle
+      video_title: videoTitle,
+      detect_timebound: options?.detect_timebound
+    }, {
+      signal: options?.signal
     });
     return response.data.results;
   } catch (error) {
