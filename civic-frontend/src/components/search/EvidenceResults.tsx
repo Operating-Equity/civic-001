@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { FileSearch, ExternalLink, Calendar, User, ChevronsUpDown, Bookmark, Search } from 'lucide-react';
+import { FileSearch, ExternalLink, Calendar, User, ChevronsUpDown, Bookmark, Search, AlertCircle } from 'lucide-react';
 import { ClaimSearchResults } from '../../types';
 
 interface EvidenceResultsProps {
@@ -42,6 +42,16 @@ const EvidenceResults: React.FC<EvidenceResultsProps> = ({
     return null;
   }
 
+  // Count total results across all claims and keywords
+  const totalResults = searchResults.reduce((total, claim) => {
+    return total + claim.keywordResults.reduce((keywordTotal, keyword) => {
+      return keywordTotal + keyword.results.length;
+    }, 0);
+  }, 0);
+  
+  // Check if we have any results at all
+  const hasAnyResults = totalResults > 0;
+
   return (
     <div className="glass-panel p-6">
       <div className="flex items-center space-x-2 mb-6">
@@ -50,6 +60,29 @@ const EvidenceResults: React.FC<EvidenceResultsProps> = ({
         </div>
         <h2 className="text-xl font-semibold text-gray-900">Evidence Search Results</h2>
       </div>
+      
+      {!hasAnyResults && (
+        <div className="bg-amber-50 border border-amber-200 rounded-lg p-6 mb-6">
+          <div className="flex items-start">
+            <AlertCircle className="h-5 w-5 text-amber-500 mt-0.5 mr-3 flex-shrink-0" />
+            <div>
+              <h3 className="font-medium text-amber-800 mb-1">No evidence found</h3>
+              <p className="text-amber-700 text-sm">
+                Our search couldn't find supporting evidence for these claims. This could be because:
+              </p>
+              <ul className="mt-2 text-sm text-amber-700 list-disc pl-5 space-y-1">
+                <li>The search terms may need to be refined for better results</li>
+                <li>The claim may be about a very recent event not yet widely documented</li>
+                <li>The claim may be too specific or niche for general search engines</li>
+                <li>There may be a temporary issue with our search provider</li>
+              </ul>
+              <p className="mt-3 text-sm text-amber-700">
+                Try manually searching for this information or adjusting your search terms.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
       
       <div className="space-y-6">
         {searchResults.map((claimResults, claimIndex) => (
@@ -135,7 +168,9 @@ const EvidenceResults: React.FC<EvidenceResultsProps> = ({
                           ))
                         ) : (
                           <div className="text-center py-6 text-gray-500">
-                            No results found for this search query.
+                            <AlertCircle className="h-5 w-5 mx-auto mb-2 text-gray-400" />
+                            <p>No results found for this search query.</p>
+                            <p className="text-xs mt-1">Try adjusting the search terms for better results.</p>
                           </div>
                         )}
                       </div>

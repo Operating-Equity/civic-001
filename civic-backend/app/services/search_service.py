@@ -26,7 +26,7 @@ def generate_keywords(claim, context="", validation_potential="", video_title=""
     Generate search keywords for a claim using OpenAI
     Returns a list of search query strings
     """
-    system_message = "You are an expert in crafting search queries."
+    system_message = "You are an expert in crafting effective search queries."
     
     prompt = f"""Given the following:
 
@@ -35,14 +35,15 @@ def generate_keywords(claim, context="", validation_potential="", video_title=""
 - Context: {context}
 - Validation Potential: {validation_potential}
 
-Generate three well-structured Google search queries to verify or debunk the claim by:
+Generate three effective search queries to verify or debunk the claim by:
 
-1. Incorporating key terms from the claim and context while ensuring clarity and relevance.
-2. Following the validation potential instructions to focus on official reports, credible sources, timelines, and public records.
-3. Crafting search queries to prioritize government websites and official statements that are empirical statements of fact.
-4. Crafting one search term that explicitly looks for bias in reporting.
-5. All search terms are up to 15 words.
-Each search query should be optimized to return reliable and comprehensive information related to the empirical claim but should never specify a specific news source."""
+1. Using simple, direct language without quotation marks
+2. Including key terms but keeping queries under 8 words
+3. Focusing on facts and statistics rather than opinions
+4. Avoiding complex boolean operators or special syntax
+5. Making each query distinct to cover different aspects of the claim
+
+Each search query should be optimized to return reliable information related to the empirical claim."""
 
     try:
         response = call_openai_api("gpt-4o", [
@@ -54,11 +55,22 @@ Each search query should be optimized to return reliable and comprehensive infor
         
         # Extract queries as a list of strings
         keywords = [
-            line.strip() for line in content.split('\n')
+            line.strip().replace('"', '') for line in content.split('\n')
             if line.strip() and not line.strip().startswith('#')
+            and not line.strip().startswith('Search Query')
         ]
         
-        return keywords
+        # Clean up the queries to remove quotation marks and numbering
+        cleaned_keywords = []
+        for kw in keywords:
+            # Remove numbering at the beginning (like "1.", "2.", etc.)
+            kw = re.sub(r'^\d+\.\s*', '', kw)
+            # Remove quotes
+            kw = kw.replace('"', '').replace('"', '').replace('"', '')
+            if kw:
+                cleaned_keywords.append(kw)
+        
+        return cleaned_keywords
     except Exception as e:
         print(f"Error generating keywords: {str(e)}")
         return [f"fact check {claim}"]  # Fallback query
@@ -77,14 +89,16 @@ def search_evidence(query):
     
     for attempt in range(MAX_RETRIES):
         try:
-            # Use search_and_contents method to get both search results and their text content
+            # Simplify the query by removing excess quotes if present
+            query = query.replace('"', '').replace('"', '').replace('"', '')
+            
+            # Use broader search parameters
             response = exa.search_and_contents(
                 query=query,
-                text=True,               # Include full text
-                highlights=True,         # Include relevant highlights
+                text=True,
+                highlights=True,
                 num_results=25,
                 use_autoprompt=True,
-                # The SDK handles the recency and sorting automatically
             )
             
             results = response.results
@@ -137,7 +151,7 @@ def search_evidence(query):
                 time.sleep(RETRY_DELAY * (2 ** attempt))
             else:
                 raise Exception(f"Failed to search for evidence: {str(e)}")
-
+            
 def search_evidence_batch(queries):
     """
     Search for evidence across multiple queries in parallel
