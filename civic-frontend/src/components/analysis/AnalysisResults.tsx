@@ -138,7 +138,7 @@ const AnalysisResults: React.FC<AnalysisResultsProps> = ({
         </div>
         
         <div className="py-2 px-4 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-700">
-          <p>Analysis of {metrics.totalClaims} empirical claim{metrics.totalClaims !== 1 ? 's' : ''} verified across 3 AI models</p>
+          <p>Analysis of {metrics.totalClaims} empirical claim{metrics.totalClaims !== 1 ? 's' : ''} verified across 2 AI models</p>
         </div>
       </div>
       
@@ -451,7 +451,6 @@ const AnalysisResults: React.FC<AnalysisResultsProps> = ({
                 <ServiceLoadingStatus 
                   perplexityStatus={serviceStatus.perplexity}
                   openAIStatus="idle"
-                  anthropicStatus="idle"
                 />
               </div>
             ) : (
@@ -474,7 +473,6 @@ const AnalysisResults: React.FC<AnalysisResultsProps> = ({
                 <ServiceLoadingStatus 
                   perplexityStatus="idle"
                   openAIStatus={serviceStatus.openai}
-                  anthropicStatus="idle"
                 />
               </div>
             ) : (
