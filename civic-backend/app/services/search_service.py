@@ -290,38 +290,45 @@ def search_evidence(query: str, claim: str = "") -> List[SearchResult]:
         return []
     
     try:
-        # Get optimal search parameters with detailed logging
-        search_params = determine_search_parameters(query, claim)
-        logger.info(f"Using search parameters: {json.dumps(search_params)}")
-        
-        # Enhanced summary query for better context
-        summary_query = "Provide key facts relevant to fact-checking"
+        # Prepare search query with "Fact Verify this:" prefix if claim exists
+        search_query = query
         if claim:
-            summary_query = f"Provide key facts relevant to verifying: {claim}"
+            search_query = f"Fact Verify this: {claim}"
+        else:
+            search_query = f"Fact Verify this: {query}"
         
-        logger.info(f"Executing Exa search_and_contents with query: {query}")
+        logger.info(f"Executing Exa search_and_contents with query: {search_query}")
         start_time = time.time()
         
-        # Use search_and_contents method with parameters exactly as in examples
+        # Use search_and_contents method with parameters exactly as specified
         response = exa.search_and_contents(
-            query=query,
-            text=True,
-            highlights={
-                "numSentences": 3,
-                "highlightsPerUrl": 2,
-                "query": f"Evidence about {query}"
+            search_query,
+            type="auto",
+            livecrawl="always",
+            extras={
+                "links": 1
             },
             summary={
-                "query": summary_query
+                "query": "Provide key facts relevant to verifying the claim",
+                "schema": {
+                    "properties": {
+                        "title": {"type": "string"},
+                        "url": {"type": "string"},
+                        "published_date": {"type": "string"},
+                        "author": {"type": "string"},
+                        "score": {"type": "number"},
+                        "text": {"type": "string"},
+                        "summary": {"type": "string"},
+                        "credibility_score": {"type": "number"},
+                        "domain": {"type": "string"},
+                        "highlights": {
+                            "type": "array",
+                            "items": {"type": "string"}
+                        }
+                    }
+                }
             },
-            subpages=1,
-            subpage_target="sources",
-            extras={
-                "links": 3,
-                "image_links": 1
-            },
-            num_results=10,
-            **search_params
+            num_results=3
         )
         
         search_time = time.time() - start_time
