@@ -3,7 +3,6 @@ from app.api.api_routes import api
 from app import create_app
 from app.services.claim_analysis import identify_claims, generate_summary
 from app.services.openai_service import evaluate_with_openai
-from app.services.anthropic_service import evaluate_with_anthropic
 from app.services.perplexity_service import evaluate_with_perplexity
 from app.utils.cache import response_cache
 import concurrent.futures
@@ -86,7 +85,7 @@ def evaluate_single_claim():
         # Determine which models to evaluate
         models_to_evaluate = []
         if model == 'all':
-            models_to_evaluate = ['perplexity', 'openai', 'anthropic']
+            models_to_evaluate = ['perplexity', 'openai']
         else:
             models_to_evaluate = [model]
         
@@ -133,7 +132,7 @@ def evaluate_multiple_claims():
         models_to_evaluate = []
         if model == 'all':
             # For better performance, prioritize a single model unless specifically requested
-            default_model = 'openai'  # Could be 'perplexity' or 'anthropic' based on your preference
+            default_model = 'openai'  # Could be 'perplexity' based on your preference
             models_to_evaluate = [default_model]
         else:
             models_to_evaluate = [model]
@@ -244,10 +243,6 @@ def run_parallel_evaluation(app, claim, context, models_to_evaluate, claim_id=No
                     logger.info(f"[EVALUATE] Calling OpenAI API for claim: '{claim[:30]}...'")
                     result = evaluate_with_openai(claim, context)
                     logger.info("[EVALUATE] OpenAI evaluation successful")
-                elif model_name == 'anthropic':
-                    logger.info(f"[EVALUATE] Calling Anthropic API for claim: '{claim[:30]}...'")
-                    result = evaluate_with_anthropic(claim, context)
-                    logger.info("[EVALUATE] Anthropic evaluation successful")
                 else:
                     return None, f"Unknown model: {model_name}"
                 
@@ -345,10 +340,6 @@ def run_parallel_evaluation(app, claim, context, models_to_evaluate, claim_id=No
                     logger.info(f"[EVALUATE] Calling OpenAI API for claim: '{claim[:30]}...'")
                     result = evaluate_with_openai(claim, context)
                     logger.info("[EVALUATE] OpenAI evaluation successful")
-                elif model_name == 'anthropic':
-                    logger.info(f"[EVALUATE] Calling Anthropic API for claim: '{claim[:30]}...'")
-                    result = evaluate_with_anthropic(claim, context)
-                    logger.info("[EVALUATE] Anthropic evaluation successful")
                 else:
                     return None, f"Unknown model: {model_name}"
                 
