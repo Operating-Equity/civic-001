@@ -1,15 +1,79 @@
 import requests
 import json
 import re
+import time
+import threading
+import logging
 from flask import current_app
+
+# Set up logging
+logger = logging.getLogger(__name__)
+
+# Constants
+MAX_RETRIES = 3
+BASE_RETRY_DELAY = 1.0  # base delay in seconds
+OPENAI_RATE_LIMIT = 10  # maximum requests per minute (conservative)
+OPENAI_TIMEOUT = 28  # Just under Gunicorn's default 30-second timeout
+
+# Rate limiter for OpenAI API requests
+class OpenAIRateLimiter:
+    """
+    Rate limiter to ensure API requests don't exceed the specified rate limit.
+    Uses a token bucket algorithm to manage request rates.
+    """
+    def __init__(self, requests_per_minute=10):
+        """
+        Initialize the rate limiter.
+        
+        Args:
+            requests_per_minute: Maximum number of requests per minute
+        """
+        self.rate_limit = requests_per_minute / 60.0  # Convert to requests per second
+        self.tokens = 1.0  # Start with one token
+        self.last_refill = time.time()
+        self.lock = threading.Lock()
+        
+    def wait_for_token(self):
+        """
+        Wait until a token is available before proceeding.
+        Implements the token bucket algorithm with a minimum wait time.
+        """
+        with self.lock:
+            # Refill tokens based on elapsed time
+            now = time.time()
+            elapsed = now - self.last_refill
+            new_tokens = elapsed * self.rate_limit
+            
+            if new_tokens > 0:
+                self.tokens = min(1.0, self.tokens + new_tokens)
+                self.last_refill = now
+            
+            # If no tokens available, calculate wait time
+            if self.tokens < 1:
+                # Calculate how long until at least one token is available
+                wait_time = (1 - self.tokens) / self.rate_limit
+                logger.info(f"OpenAI rate limit reached, waiting {wait_time:.2f}s before next request")
+                time.sleep(wait_time)
+                # After waiting, we should have at least one token
+                self.tokens = 1.0
+                self.last_refill = time.time()
+            
+            # Consume a token
+            self.tokens -= 1.0
+            
+            # Always add a small delay between requests
+            time.sleep(0.1)
+
+# Global rate limiter instance
+openai_rate_limiter = OpenAIRateLimiter(OPENAI_RATE_LIMIT)
 
 def call_openai_api(model, messages, temperature=0.3, max_tokens=None):
     """
-    Generic function to call OpenAI API
+    Generic function to call OpenAI API with retries and rate limiting
     """
     api_key = current_app.config.get('OPENAI_API_KEY')
     if not api_key:
-        print("[OPENAI] Warning: OpenAI API key not configured in environment variables")
+        logger.error("[OPENAI] Warning: OpenAI API key not configured in environment variables")
         raise Exception("OpenAI API key not configured. Please add OPENAI_API_KEY to your environment variables.")
         
     headers = {
@@ -26,23 +90,69 @@ def call_openai_api(model, messages, temperature=0.3, max_tokens=None):
     if max_tokens:
         payload["max_tokens"] = max_tokens
     
-    # Set a reasonable timeout to prevent worker hanging indefinitely
-    timeout = 60  # 60 seconds timeout
+    # Use shorter timeout - just under Gunicorn's default 30 seconds
+    timeout = OPENAI_TIMEOUT
     
-    try:
-        response = requests.post(
-            "https://api.openai.com/v1/chat/completions",
-            headers=headers,
-            json=payload,
-            timeout=timeout
-        )
-    except requests.exceptions.Timeout:
-        raise Exception(f"OpenAI API request timed out after {timeout} seconds. Please try again later.")
+    # Implement retry logic with exponential backoff
+    for attempt in range(MAX_RETRIES):
+        try:
+            # Wait for rate limiter token
+            openai_rate_limiter.wait_for_token()
+            
+            # Make API request with timeout
+            logger.info(f"Calling OpenAI API (attempt {attempt+1}/{MAX_RETRIES})")
+            response = requests.post(
+                "https://api.openai.com/v1/chat/completions",
+                headers=headers,
+                json=payload,
+                timeout=timeout
+            )
+            
+            # Handle different status codes
+            if response.status_code == 200:
+                return response.json()
+            elif response.status_code == 429:
+                # Rate limit hit - wait longer before retry
+                retry_delay = BASE_RETRY_DELAY * (4 ** attempt)
+                logger.warning(f"OpenAI API rate limit exceeded. Waiting {retry_delay}s before retry.")
+                time.sleep(retry_delay)
+                continue
+            elif response.status_code >= 500:
+                # Server error - retry with backoff
+                retry_delay = BASE_RETRY_DELAY * (2 ** attempt)
+                logger.warning(f"OpenAI API server error ({response.status_code}). Waiting {retry_delay}s before retry.")
+                time.sleep(retry_delay)
+                continue
+            else:
+                # Other errors - raise exception
+                logger.error(f"OpenAI API error: {response.status_code} - {response.text}")
+                raise Exception(f"OpenAI API error: {response.status_code} - {response.text}")
+                
+        except requests.exceptions.Timeout:
+            # Handle timeout specially
+            logger.warning(f"OpenAI API request timed out after {timeout}s (attempt {attempt+1}/{MAX_RETRIES})")
+            if attempt < MAX_RETRIES - 1:
+                # Calculate retry delay with exponential backoff
+                retry_delay = BASE_RETRY_DELAY * (2 ** attempt)
+                logger.info(f"Retrying in {retry_delay}s...")
+                time.sleep(retry_delay)
+            else:
+                logger.error(f"OpenAI API request timed out after {MAX_RETRIES} attempts")
+                raise Exception(f"OpenAI API request timed out after {MAX_RETRIES} attempts of {timeout}s each. Please try again later.")
+                
+        except requests.exceptions.RequestException as e:
+            # Handle connection errors
+            logger.warning(f"OpenAI API request error: {str(e)} (attempt {attempt+1}/{MAX_RETRIES})")
+            if attempt < MAX_RETRIES - 1:
+                retry_delay = BASE_RETRY_DELAY * (2 ** attempt)
+                logger.info(f"Retrying in {retry_delay}s...")
+                time.sleep(retry_delay)
+            else:
+                logger.error(f"OpenAI API request failed after {MAX_RETRIES} attempts: {str(e)}")
+                raise Exception(f"Failed to connect to OpenAI API after {MAX_RETRIES} attempts: {str(e)}")
     
-    if response.status_code != 200:
-        raise Exception(f"OpenAI API error: {response.status_code} - {response.text}")
-        
-    return response.json()
+    # This should not be reached due to the exception in the last iteration, but just in case
+    raise Exception(f"OpenAI API request failed after {MAX_RETRIES} attempts")
 
 def evaluate_with_openai(statement, context=""):
     """
