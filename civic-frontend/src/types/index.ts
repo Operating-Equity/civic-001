@@ -108,13 +108,11 @@ export type ServiceStatus = 'idle' | 'loading' | 'success' | 'error';
 export interface ErrorMessages {
   perplexity?: string;
   openai?: string;
-  anthropic?: string;
 }
 
 export interface ServiceStatuses {
   perplexity: ServiceStatus;
   openai: ServiceStatus;
-  anthropic: ServiceStatus;
 }
 
 export interface VerificationCertificate {
