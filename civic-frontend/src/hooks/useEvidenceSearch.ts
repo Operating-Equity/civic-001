@@ -176,7 +176,7 @@ export const useEvidenceSearch = (
         await updateClaimClassification(claim);
       }
     }
-  }, [claims, perplexityResults, openAIResults, anthropicResults]);
+  }, [claims, perplexityResults, openAIResults]);
   
   // Automatically search for all claims on first load
   useEffect(() => {
