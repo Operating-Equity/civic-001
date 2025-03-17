@@ -26,11 +26,18 @@ def call_openai_api(model, messages, temperature=0.3, max_tokens=None):
     if max_tokens:
         payload["max_tokens"] = max_tokens
     
-    response = requests.post(
-        "https://api.openai.com/v1/chat/completions",
-        headers=headers,
-        json=payload
-    )
+    # Set a reasonable timeout to prevent worker hanging indefinitely
+    timeout = 60  # 60 seconds timeout
+    
+    try:
+        response = requests.post(
+            "https://api.openai.com/v1/chat/completions",
+            headers=headers,
+            json=payload,
+            timeout=timeout
+        )
+    except requests.exceptions.Timeout:
+        raise Exception(f"OpenAI API request timed out after {timeout} seconds. Please try again later.")
     
     if response.status_code != 200:
         raise Exception(f"OpenAI API error: {response.status_code} - {response.text}")
