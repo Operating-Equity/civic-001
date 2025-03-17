@@ -355,6 +355,9 @@ def search_evidence(query: str, claim: str = "") -> List[SearchResult]:
         logger.info(f"Executing Exa search_and_contents with query: {search_query}")
         start_time = time.time()
         
+        # Wait for a token from the rate limiter before making the API call
+        exa_rate_limiter.wait_for_token()
+        
         # Use search_and_contents method with parameters exactly as specified
         response = exa.search_and_contents(
             search_query,
