@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 MAX_RETRIES = 3
 RETRY_DELAY = 1.2  # 1 second
-MAX_CONCURRENT_SEARCHES = 2
+MAX_CONCURRENT_SEARCHES = 4
 
 # List of sources to exclude from search results
 # These sources may have strong political biases or reliability issues
