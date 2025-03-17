@@ -457,6 +457,9 @@ def _perform_single_search(exa_client, query, claim, signal=None):
             
             logger.info(f"Using formatted search query: {search_query}")
             
+            # Wait for a token from the rate limiter before making the API call
+            exa_rate_limiter.wait_for_token()
+            
             # Use search_and_contents method with parameters exactly as specified
             response = exa_client.search_and_contents(
                 search_query,
