@@ -5,6 +5,7 @@ import concurrent.futures
 import logging
 import traceback
 import requests
+import threading
 from typing import List, Dict, Any, Optional, Tuple
 from datetime import datetime, timedelta
 from flask import current_app, Flask
@@ -16,8 +17,62 @@ from app.models.schemas import SearchResult
 logger = logging.getLogger(__name__)
 
 MAX_RETRIES = 3
-RETRY_DELAY = 1.2  # 1 second
+RETRY_DELAY = 1.2  # 1.2 seconds
 MAX_CONCURRENT_SEARCHES = 4
+EXA_RATE_LIMIT = 5  # Maximum of 5 requests per second
+
+# Simple rate limiter to manage API requests
+class RateLimiter:
+    """
+    Rate limiter to ensure API requests don't exceed the specified rate limit.
+    Uses a token bucket algorithm to manage request rates.
+    """
+    def __init__(self, rate_limit=5):
+        """
+        Initialize the rate limiter.
+        
+        Args:
+            rate_limit: Maximum number of requests per second
+        """
+        self.rate_limit = rate_limit
+        self.tokens = rate_limit
+        self.last_refill = time.time()
+        self.lock = threading.Lock()
+        
+    def wait_for_token(self):
+        """
+        Wait until a token is available before proceeding.
+        Implements the token bucket algorithm with a minimum wait time.
+        """
+        with self.lock:
+            # Refill tokens based on elapsed time
+            now = time.time()
+            elapsed = now - self.last_refill
+            new_tokens = elapsed * self.rate_limit
+            
+            if new_tokens > 0:
+                self.tokens = min(self.rate_limit, self.tokens + new_tokens)
+                self.last_refill = now
+            
+            # If no tokens available, calculate wait time
+            if self.tokens < 1:
+                # Calculate how long until at least one token is available
+                wait_time = (1 - self.tokens) / self.rate_limit
+                logger.info(f"Rate limit reached, waiting {wait_time:.2f}s before next request")
+                time.sleep(wait_time)
+                # After waiting, we should have at least one token
+                self.tokens = 1
+                self.last_refill = time.time()
+            
+            # Consume a token
+            self.tokens -= 1
+            
+            # Always add a small delay between requests to smooth out the request pattern
+            # This helps prevent burst requests that might still trigger rate limiting
+            time.sleep(0.05)
+
+# Global rate limiter instance
+exa_rate_limiter = RateLimiter(EXA_RATE_LIMIT)
 
 # List of sources to exclude from search results
 # These sources may have strong political biases or reliability issues
