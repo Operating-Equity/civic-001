@@ -582,6 +582,9 @@ def fetch_specific_content(urls: List[str], query: str = "", claim: str = "") ->
         if claim:
             summary_query = f"Information relevant to verifying: {claim}"
         
+        # Wait for a token from the rate limiter before making the API call
+        exa_rate_limiter.wait_for_token()
+        
         # Get content with parameters exactly as in examples
         response = exa.get_contents(
             urls=urls,
