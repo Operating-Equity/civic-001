@@ -635,29 +635,40 @@ def search_for_timebound_claim(claim: str, context: str = "") -> List[Dict[str, 
         # Generate a focused query targeting the timebound aspect
         query = extract_timebound_query(claim)
         
-        # Custom summary query for timebound claims
-        summary_query = f"Most recent facts about: {query}"
+        # Format the query with "Fact Verify this:" prefix
+        search_query = f"Fact Verify this: {claim}"
         
-        # Search with parameters optimized for recent content
+        logger.info(f"Executing timebound Exa search with query: {search_query}")
+        
+        # Search with parameters exactly as specified
         response = exa.search_and_contents(
-            query=query,
-            text=True,
-            highlights={
-                "numSentences": 3,
-                "highlightsPerUrl": 2,
-                "query": f"Recent information about {query}"
+            search_query,
+            type="auto",
+            livecrawl="always",
+            extras={
+                "links": 1
             },
             summary={
-                "query": summary_query
+                "query": "Provide key facts relevant to verifying the claim",
+                "schema": {
+                    "properties": {
+                        "title": {"type": "string"},
+                        "url": {"type": "string"},
+                        "published_date": {"type": "string"},
+                        "author": {"type": "string"},
+                        "score": {"type": "number"},
+                        "text": {"type": "string"},
+                        "summary": {"type": "string"},
+                        "credibility_score": {"type": "number"},
+                        "domain": {"type": "string"},
+                        "highlights": {
+                            "type": "array",
+                            "items": {"type": "string"}
+                        }
+                    }
+                }
             },
-            type="auto",
-            num_results=10,
-            subpages=1,
-            subpage_target="sources",
-            extras={
-                "links": 3,
-                "image_links": 1
-            }
+            num_results=3
         )
         
         results = response.results
