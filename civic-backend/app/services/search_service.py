@@ -701,6 +701,9 @@ def search_for_timebound_claim(claim: str, context: str = "") -> List[Dict[str, 
         
         logger.info(f"Executing timebound Exa search with query: {search_query}")
         
+        # Wait for a token from the rate limiter before making the API call
+        exa_rate_limiter.wait_for_token()
+        
         # Search with parameters exactly as specified
         response = exa.search_and_contents(
             search_query,
