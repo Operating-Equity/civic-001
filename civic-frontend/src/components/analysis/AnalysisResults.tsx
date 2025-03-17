@@ -14,7 +14,6 @@ interface AnalysisResultsProps {
   empiricalClaims: ClaimAnalysis[];
   perplexityResults: Claim[];
   openAIResults: Claim[];
-  anthropicResults: Claim[];
   speakersData?: any;
   videoTitle?: string;
   thumbnailUrl?: string;
@@ -22,31 +21,27 @@ interface AnalysisResultsProps {
   serviceStatus?: {
     perplexity: ServiceStatus;
     openai: ServiceStatus;
-    anthropic: ServiceStatus;
   };
   errorMessages?: {
     perplexity?: string;
     openai?: string;
-    anthropic?: string;
   };
   processingClaimIndex?: number; // Add this prop
 }
 
-type TabType = 'dashboard' | 'claims' | 'perplexity' | 'openai' | 'anthropic' | 'comparison' | 'certificate';
+type TabType = 'dashboard' | 'claims' | 'perplexity' | 'openai' | 'comparison' | 'certificate';
 
 const AnalysisResults: React.FC<AnalysisResultsProps> = ({
   empiricalClaims,
   perplexityResults,
   openAIResults,
-  anthropicResults,
   speakersData,
   videoTitle,
   thumbnailUrl,
   isLoading = false,
   serviceStatus = {
     perplexity: 'idle',
-    openai: 'idle',
-    anthropic: 'idle'
+    openai: 'idle'
   },
   errorMessages = {},
   processingClaimIndex = -1 // Add default value
@@ -56,7 +51,7 @@ const AnalysisResults: React.FC<AnalysisResultsProps> = ({
   // Calculate aggregated metrics for dashboard
   const calculateAggregatedMetrics = () => {
     // Count claim classifications across all models
-    const allResults = [...perplexityResults, ...openAIResults, ...anthropicResults];
+    const allResults = [...perplexityResults, ...openAIResults];
     
     const counts = {
       TRUE: 0,
@@ -78,11 +73,10 @@ const AnalysisResults: React.FC<AnalysisResultsProps> = ({
     let agreementCount = 0;
     let totalComparisons = 0;
     
-    // For each claim, check if all models agree
-    if (perplexityResults.length === openAIResults.length && openAIResults.length === anthropicResults.length) {
+    // For each claim, check if the two models agree
+    if (perplexityResults.length === openAIResults.length) {
       for (let i = 0; i < perplexityResults.length; i++) {
-        if (perplexityResults[i].classification === openAIResults[i].classification &&
-            openAIResults[i].classification === anthropicResults[i].classification) {
+        if (perplexityResults[i].classification === openAIResults[i].classification) {
           agreementCount++;
         }
         totalComparisons++;
@@ -96,7 +90,7 @@ const AnalysisResults: React.FC<AnalysisResultsProps> = ({
       avgConfidence,
       agreementRate,
       totalClaims: empiricalClaims.length,
-      totalVerifications: allResults.length / 3 // Divide by 3 models
+      totalVerifications: allResults.length / 2 // Divide by 2 models
     };
   };
   
@@ -117,7 +111,6 @@ const AnalysisResults: React.FC<AnalysisResultsProps> = ({
         <ServiceLoadingStatus 
           perplexityStatus={serviceStatus.perplexity}
           openAIStatus={serviceStatus.openai}
-          anthropicStatus={serviceStatus.anthropic}
           errorMessages={errorMessages}
           currentClaimIndex={processingClaimIndex}
           totalClaims={empiricalClaims.length}
@@ -198,18 +191,6 @@ const AnalysisResults: React.FC<AnalysisResultsProps> = ({
           >
             <div className="h-3 w-3 bg-green-500 rounded-full"></div>
             <span>OpenAI</span>
-          </button>
-          
-          <button
-            onClick={() => setActiveTab('anthropic')}
-            className={`mr-4 py-3 px-3 border-b-2 font-medium text-sm flex items-center space-x-1.5
-              ${activeTab === 'anthropic' 
-                ? 'border-blue-600 text-blue-600' 
-                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}
-            `}
-          >
-            <div className="h-3 w-3 bg-purple-500 rounded-full"></div>
-            <span>Anthropic</span>
           </button>
           
           <button
@@ -339,14 +320,12 @@ const AnalysisResults: React.FC<AnalysisResultsProps> = ({
                   // Find matching results from each model
                   const perplexityResult = perplexityResults.find(r => r.claimId === claim.id);
                   const openAIResult = openAIResults.find(r => r.claimId === claim.id);
-                  const anthropicResult = anthropicResults.find(r => r.claimId === claim.id);
                   
                   // Calculate consensus classification
                   let consensusClassification = 'UNVERIFIED';
                   const classifications = [
                     perplexityResult?.classification,
-                    openAIResult?.classification,
-                    anthropicResult?.classification
+                    openAIResult?.classification
                   ].filter(Boolean);
                   
                   // Count occurrences of each classification
@@ -369,8 +348,7 @@ const AnalysisResults: React.FC<AnalysisResultsProps> = ({
                   // Calculate average confidence
                   const confidences = [
                     perplexityResult?.confidence,
-                    openAIResult?.confidence,
-                    anthropicResult?.confidence
+                    openAIResult?.confidence
                   ].filter(c => typeof c === 'number') as number[];
                   
                   const avgConfidence = confidences.length > 0
@@ -426,13 +404,9 @@ const AnalysisResults: React.FC<AnalysisResultsProps> = ({
                           <div className="h-2 w-2 bg-blue-500 rounded-full mr-1"></div>
                           <span>Perplexity: {perplexityResult?.classification || 'N/A'}</span>
                         </div>
-                        <div className="flex items-center mr-3">
+                        <div className="flex items-center">
                           <div className="h-2 w-2 bg-green-500 rounded-full mr-1"></div>
                           <span>OpenAI: {openAIResult?.classification || 'N/A'}</span>
-                        </div>
-                        <div className="flex items-center">
-                          <div className="h-2 w-2 bg-purple-500 rounded-full mr-1"></div>
-                          <span>Anthropic: {anthropicResult?.classification || 'N/A'}</span>
                         </div>
                       </div>
                     </div>
@@ -461,7 +435,6 @@ const AnalysisResults: React.FC<AnalysisResultsProps> = ({
                 index={index} 
                 perplexityResult={perplexityResults.find(r => r.claimId === claim.id)} 
                 openAIResult={openAIResults.find(r => r.claimId === claim.id)}
-                anthropicResult={anthropicResults.find(r => r.claimId === claim.id)}
               />
             ))}
           </div>
@@ -513,34 +486,10 @@ const AnalysisResults: React.FC<AnalysisResultsProps> = ({
           </div>
         )}
         
-        {activeTab === 'anthropic' && (
-          <div className="space-y-4">
-            {anthropicResults.length > 0 ? (
-              anthropicResults.map((claim, index) => (
-                <FactCheckCard key={index} claim={claim} />
-              ))
-            ) : serviceStatus.anthropic === 'loading' ? (
-              <div className="py-6">
-                <ServiceLoadingStatus 
-                  perplexityStatus="idle"
-                  openAIStatus="idle"
-                  anthropicStatus={serviceStatus.anthropic}
-                />
-              </div>
-            ) : (
-              <div className="text-center py-10 bg-white border border-gray-200 rounded-lg">
-                <AlertCircle className="h-10 w-10 text-gray-300 mx-auto mb-3" />
-                <p className="text-gray-700">No verification results available from Anthropic yet.</p>
-              </div>
-            )}
-          </div>
-        )}
-        
         {activeTab === 'comparison' && (
           <ModelComparison
             perplexityResults={perplexityResults}
             openAIResults={openAIResults}
-            anthropicResults={anthropicResults}
           />
         )}
         
@@ -551,7 +500,6 @@ const AnalysisResults: React.FC<AnalysisResultsProps> = ({
             claims={empiricalClaims}
             perplexityResults={perplexityResults}
             openAIResults={openAIResults}
-            anthropicResults={anthropicResults}
           />
         )}
       </div>
