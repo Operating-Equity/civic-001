@@ -19,7 +19,6 @@ export const useEvidenceSearch = (
   videoTitle?: string,
   perplexityResults?: Claim[],
   openAIResults?: Claim[],
-  anthropicResults?: Claim[],
   onClaimVerified?: (claimId: string, classification: 'TRUE' | 'FALSE' | 'UNVERIFIED', model: string) => void
 ) => {
   const [keywordResults, setKeywordResults] = useState<KeywordResult[]>([]);
@@ -144,7 +143,7 @@ export const useEvidenceSearch = (
 
   // Find unverified claims and search for evidence
   const searchForUnverifiedClaims = useCallback(async () => {
-    if (!claims.length || !perplexityResults || !openAIResults || !anthropicResults) return;
+    if (!claims.length || !perplexityResults || !openAIResults) return;
     
     // Find claims that are marked as UNVERIFIED across models
     const unverifiedClaims: ClaimAnalysis[] = [];
@@ -154,13 +153,11 @@ export const useEvidenceSearch = (
       
       const pResult = perplexityResults.find(r => r.claimId === claim.id);
       const oResult = openAIResults.find(r => r.claimId === claim.id);
-      const aResult = anthropicResults.find(r => r.claimId === claim.id);
       
       // If any model has this claim as UNVERIFIED, add it to the list
       if (
         (pResult && pResult.classification === 'UNVERIFIED') ||
-        (oResult && oResult.classification === 'UNVERIFIED') ||
-        (aResult && aResult.classification === 'UNVERIFIED')
+        (oResult && oResult.classification === 'UNVERIFIED')
       ) {
         unverifiedClaims.push(claim);
       }
@@ -194,10 +191,10 @@ export const useEvidenceSearch = (
   
   // Effect to automatically search for unverified claims when results change
   useEffect(() => {
-    if (perplexityResults?.length && openAIResults?.length && anthropicResults?.length) {
+    if (perplexityResults?.length && openAIResults?.length) {
       searchForUnverifiedClaims();
     }
-  }, [perplexityResults, openAIResults, anthropicResults, searchForUnverifiedClaims]);
+  }, [perplexityResults, openAIResults, searchForUnverifiedClaims]);
   
   /**
    * Enhanced search for evidence with timebound claim detection
@@ -392,13 +389,6 @@ export const useEvidenceSearch = (
         }
       }
       
-      if (result.anthropic && onClaimVerified && 
-          anthropicResults?.find(r => r.claimId === claim.id)?.classification === 'UNVERIFIED') {
-        // Avoid updating to UNVERIFIED if we already had that status
-        if (result.anthropic.classification !== 'UNVERIFIED') {
-          onClaimVerified(claim.id, result.anthropic.classification, 'Anthropic');  
-        }
-      }
       
       console.log(`Updated classification for claim ${claim.id} based on evidence:`, result);
     } catch (error) {
@@ -528,17 +518,15 @@ export const useEvidenceSearch = (
       delete activeRequestsRef.current[requestId];
       
       // After gathering evidence, update any unverified claims
-      if (perplexityResults && openAIResults && anthropicResults) {
+      if (perplexityResults && openAIResults) {
         for (const claim of claims) {
           if (!claim.id) continue;
           
           const pResult = perplexityResults.find(r => r.claimId === claim.id);
           const oResult = openAIResults.find(r => r.claimId === claim.id);
-          const aResult = anthropicResults.find(r => r.claimId === claim.id);
           
           if ((pResult && pResult.classification === 'UNVERIFIED') ||
-              (oResult && oResult.classification === 'UNVERIFIED') ||
-              (aResult && aResult.classification === 'UNVERIFIED')) {
+              (oResult && oResult.classification === 'UNVERIFIED')) {
             await updateClaimClassification(claim);
           }
         }
@@ -587,7 +575,7 @@ export const useEvidenceSearch = (
     } finally {
       setIsSearching(false);
     }
-  }, [claims, keywordResults, videoTitle, isTimeboundClaim, perplexityResults, openAIResults, anthropicResults]);
+  }, [claims, keywordResults, videoTitle, isTimeboundClaim, perplexityResults, openAIResults]);
   
   /**
    * Cancel all active search requests
