@@ -29,7 +29,6 @@ export const useVideoAnalysis = () => {
   const [empiricalClaims, setEmpiricalClaims] = useState<ClaimAnalysis[]>([]);
   const [perplexityResults, setPerplexityResults] = useState<Claim[]>([]);
   const [openAIResults, setOpenAIResults] = useState<Claim[]>([]);
-  const [anthropicResults, setAnthropicResults] = useState<Claim[]>([]);
   
   // Single loading state to prevent duplicate loading indicators
   const [isLoading, setIsLoading] = useState(false);
@@ -40,15 +39,13 @@ export const useVideoAnalysis = () => {
   // Track loading state for each service
   const [serviceStatus, setServiceStatus] = useState({
     perplexity: 'idle' as ServiceStatus,
-    openai: 'idle' as ServiceStatus,
-    anthropic: 'idle' as ServiceStatus
+    openai: 'idle' as ServiceStatus
   });
   
   // Track error messages for each service
   const [errorMessages, setErrorMessages] = useState({
     perplexity: '',
-    openai: '',
-    anthropic: ''
+    openai: ''
   });
   
   const [error, setError] = useState<string | null>(null);
@@ -82,14 +79,6 @@ export const useVideoAnalysis = () => {
             : result
         )
       );
-    } else if (model === 'Anthropic') {
-      setAnthropicResults(prev => 
-        prev.map(result => 
-          result.claimId === claimId 
-            ? { ...result, classification: newClassification } 
-            : result
-        )
-      );
     }
   }, []);
   
@@ -101,18 +90,15 @@ export const useVideoAnalysis = () => {
     setEmpiricalClaims([]);
     setPerplexityResults([]);
     setOpenAIResults([]);
-    setAnthropicResults([]);
     setSpeakersData(null);
     setError(null);
     setServiceStatus({
       perplexity: 'idle',
-      openai: 'idle',
-      anthropic: 'idle'
+      openai: 'idle'
     });
     setErrorMessages({
       perplexity: '',
-      openai: '',
-      anthropic: ''
+      openai: ''
     });
     setProcessingClaimIndex(-1);
     setProcessingStage('idle');
@@ -195,8 +181,7 @@ export const useVideoAnalysis = () => {
     // Set initial loading state for all services
     setServiceStatus({
       perplexity: 'loading',
-      openai: 'loading',
-      anthropic: 'loading'
+      openai: 'loading'
     });
     
     try {
@@ -238,13 +223,11 @@ export const useVideoAnalysis = () => {
       if (results && typeof results === 'object') {
         const perplexityResultsList: Claim[] = [];
         const openAIResultsList: Claim[] = [];
-        const anthropicResultsList: Claim[] = [];
         
         // Track which models succeeded
         const successfulModels = {
           perplexity: false,
-          openai: false,
-          anthropic: false
+          openai: false
         };
         
         // Process each claim's results
@@ -258,9 +241,6 @@ export const useVideoAnalysis = () => {
             if (claimResults.perplexity.classification === 'UNVERIFIED' && 
                (claimResults.openai?.classification === 'TRUE' || claimResults.openai?.classification === 'FALSE')) {
               claimResults.perplexity.classification = claimResults.openai.classification;
-            } else if (claimResults.perplexity.classification === 'UNVERIFIED' && 
-                      (claimResults.anthropic?.classification === 'TRUE' || claimResults.anthropic?.classification === 'FALSE')) {
-              claimResults.perplexity.classification = claimResults.anthropic.classification;
             }
             
             perplexityResultsList.push({
@@ -275,9 +255,6 @@ export const useVideoAnalysis = () => {
             if (claimResults.openai.classification === 'UNVERIFIED' && 
                (claimResults.perplexity?.classification === 'TRUE' || claimResults.perplexity?.classification === 'FALSE')) {
               claimResults.openai.classification = claimResults.perplexity.classification;
-            } else if (claimResults.openai.classification === 'UNVERIFIED' && 
-                      (claimResults.anthropic?.classification === 'TRUE' || claimResults.anthropic?.classification === 'FALSE')) {
-              claimResults.openai.classification = claimResults.anthropic.classification;
             }
             
             openAIResultsList.push({
@@ -286,35 +263,16 @@ export const useVideoAnalysis = () => {
             });
             successfulModels.openai = true;
           }
-          
-          if (claimResults.anthropic) {
-            // Don't show UNVERIFIED if possible
-            if (claimResults.anthropic.classification === 'UNVERIFIED' && 
-               (claimResults.perplexity?.classification === 'TRUE' || claimResults.perplexity?.classification === 'FALSE')) {
-              claimResults.anthropic.classification = claimResults.perplexity.classification;
-            } else if (claimResults.anthropic.classification === 'UNVERIFIED' && 
-                      (claimResults.openai?.classification === 'TRUE' || claimResults.openai?.classification === 'FALSE')) {
-              claimResults.anthropic.classification = claimResults.openai.classification;
-            }
-            
-            anthropicResultsList.push({
-              ...claimResults.anthropic,
-              claimId
-            });
-            successfulModels.anthropic = true;
-          }
         }
         
         // Update results for each model
         setPerplexityResults(perplexityResultsList);
         setOpenAIResults(openAIResultsList);
-        setAnthropicResults(anthropicResultsList);
         
         // Update service statuses
         setServiceStatus({
           perplexity: successfulModels.perplexity ? 'success' : 'error',
-          openai: successfulModels.openai ? 'success' : 'error',
-          anthropic: successfulModels.anthropic ? 'success' : 'error'
+          openai: successfulModels.openai ? 'success' : 'error'
         });
         
         // Save scroll position as state is updated
@@ -337,19 +295,16 @@ export const useVideoAnalysis = () => {
       // Update with fallback results
       setPerplexityResults(fallbackResults.map(result => ({ ...result, model: 'Perplexity' })));
       setOpenAIResults(fallbackResults.map(result => ({ ...result, model: 'OpenAI' })));
-      setAnthropicResults(fallbackResults.map(result => ({ ...result, model: 'Anthropic' })));
       
       // Update all services to error state
       setServiceStatus({
         perplexity: 'error',
-        openai: 'error',
-        anthropic: 'error'
+        openai: 'error'
       });
       
       setErrorMessages({
         perplexity: 'Failed to process claims',
-        openai: 'Failed to process claims',
-        anthropic: 'Failed to process claims'
+        openai: 'Failed to process claims'
       });
     } finally {
       // Set loading to false when all processing is complete
@@ -393,7 +348,6 @@ export const useVideoAnalysis = () => {
     empiricalClaims,
     perplexityResults,
     openAIResults,
-    anthropicResults,
     speakersData,
     isLoading,
     error,
