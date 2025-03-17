@@ -7,11 +7,9 @@ export type ServiceStatus = 'idle' | 'loading' | 'success' | 'error';
 interface ServiceLoadingStatusProps {
   perplexityStatus: ServiceStatus;
   openAIStatus: ServiceStatus;
-  anthropicStatus: ServiceStatus;
   errorMessages?: {
     perplexity?: string;
     openai?: string;
-    anthropic?: string;
   };
   currentClaimIndex?: number;
   totalClaims?: number;
@@ -21,7 +19,6 @@ interface ServiceLoadingStatusProps {
 const ServiceLoadingStatus: React.FC<ServiceLoadingStatusProps> = ({
   perplexityStatus,
   openAIStatus,
-  anthropicStatus,
   errorMessages = {},
   currentClaimIndex = -1,
   totalClaims = 0,
@@ -92,12 +89,12 @@ const ServiceLoadingStatus: React.FC<ServiceLoadingStatusProps> = ({
 
   // Calculate overall progress percentage
   const calculateOverallProgress = () => {
-    const statuses = [perplexityStatus, openAIStatus, anthropicStatus];
+    const statuses = [perplexityStatus, openAIStatus];
     const completedCount = statuses.filter(status => status === 'success' || status === 'error').length;
     const loadingCount = statuses.filter(status => status === 'loading').length;
     
     // Each completed service counts as 100%, each loading counts as 50%
-    let modelProgress = (completedCount * 100 + loadingCount * 50) / 3;
+    let modelProgress = (completedCount * 100 + loadingCount * 50) / 2;
     
     // If we have claim information, incorporate it into the progress calculation
     if (totalClaims > 0 && currentClaimIndex >= 0) {
@@ -223,30 +220,6 @@ const ServiceLoadingStatus: React.FC<ServiceLoadingStatusProps> = ({
           </div>
         </div>
 
-        {/* Anthropic */}
-        <div className="space-y-2">
-          <div className="flex justify-between items-center">
-            <div className="flex items-center space-x-2">
-              {getStatusIcon(anthropicStatus)}
-              <span className="text-gray-800 font-medium">Anthropic</span>
-            </div>
-            <div className="text-gray-600 text-sm">
-              {getProgressPercentage(anthropicStatus)}%
-            </div>
-          </div>
-          <div className="h-2 bg-gray-100 rounded-full overflow-hidden border border-gray-200">
-            <div 
-              className={`h-full rounded-full transition-all duration-500 ${getProgressBarColorClass(anthropicStatus)}`}
-              style={{ width: `${getProgressPercentage(anthropicStatus)}%` }}
-            ></div>
-          </div>
-          <div className="text-sm text-gray-600">
-            {getStatusText(anthropicStatus, 'Anthropic')}
-            {anthropicStatus === 'error' && errorMessages.anthropic && (
-              <div className="text-red-600 text-xs mt-1">{errorMessages.anthropic}</div>
-            )}
-          </div>
-        </div>
       </div>
     </div>
   );
