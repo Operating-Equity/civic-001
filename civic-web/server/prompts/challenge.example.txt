@@ -1,0 +1,7 @@
+(Template. Copy to challenge.txt when the challenge prompt is certified. Never commit challenge.txt.
+ Placeholders: {{CLAIM}} {{VERDICT}} {{ORIGINAL_ENTRY}} {{CHALLENGE}} )
+
+Prompt = {{CLAIM}}
+Prior determination = {{VERDICT}}
+Challenge submitted by the reader = {{CHALLENGE}}
+...

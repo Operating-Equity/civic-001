@@ -1,0 +1,5 @@
+(Template. Copy to extract.txt and paste the real claim-extraction prompt. Never commit extract.txt.)
+
+Extract every empirical claim from the source, in the order it appears.
+...
+Output only the numbered empirical claims.

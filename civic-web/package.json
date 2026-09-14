@@ -1,0 +1,23 @@
+{
+  "name": "civic-web",
+  "version": "0.1.0",
+  "private": true,
+  "description": "CIVIC — empirical claim testing. Main page prototype (server keeps the prompts; browser never sees them).",
+  "type": "module",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "node --watch server/index.js",
+    "mock-openai": "node scripts/mock-openai.js",
+    "check": "node --check server/index.js && node --check scripts/mock-openai.js"
+  },
+  "dependencies": {
+    "dompurify": "^3.4.15",
+    "express": "^5.2.1",
+    "mammoth": "^1.12.3",
+    "marked": "^18.0.13",
+    "multer": "^2.4.0",
+    "openai": "^7.15.0",
+    "pdf-parse": "^2.4.5"
+  }
+}

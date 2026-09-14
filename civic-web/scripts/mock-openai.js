@@ -1,0 +1,151 @@
+// Development-only stand-in for api.openai.com. Emulates just enough of the Responses API
+// (streaming) and the Images API for the CIVIC page to be exercised end to end without a key.
+//
+//   npm run mock-openai            # listens on :3999
+//   OPENAI_BASE_URL=http://localhost:3999/v1 npm start
+//
+// Keys starting with "sk-bad" are rejected with 401 so the invalid-key path can be tested.
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import express from 'express';
+
+const here = path.dirname(fileURLToPath(import.meta.url));
+const PORT = Number(process.env.MOCK_PORT || 3999);
+const SPEED = Number(process.env.MOCK_SPEED || 1); // >1 = slower, <1 = faster
+const app = express();
+app.use(express.json({ limit: '50mb' }));
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms * SPEED));
+
+app.use((req, res, next) => {
+  const auth = req.get('authorization') || '';
+  const key = auth.replace(/^Bearer\s+/i, '');
+  if (!key) return res.status(401).json({ error: { message: 'Missing API key', type: 'invalid_request_error', code: 'missing_key' } });
+  if (key.startsWith('sk-bad')) return res.status(401).json({ error: { message: 'Incorrect API key provided', type: 'invalid_request_error', code: 'invalid_api_key' } });
+  next();
+});
+
+const KNOWN_MODELS = new Set(['gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna', 'gpt-5.6', 'gpt-5.5', 'gpt-5.4-mini', 'gpt-image-2.5-flare', 'gpt-image-1-mini']);
+const modelError = (res, model) => res.status(404).json({ error: { message: `The model \`${model}\` does not exist or you do not have access to it.`, type: 'invalid_request_error', code: 'model_not_found' } });
+
+// ---- Responses API -----------------------------------------------------------------------
+
+function sse(res) {
+  res.status(200);
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.flushHeaders();
+  return (event) => res.write(`event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`);
+}
+
+function inputText(body) {
+  const input = body.input;
+  if (typeof input === 'string') return input;
+  return (input || []).flatMap((m) => (m.content || []).map((c) => c.text || '')).join('\n');
+}
+
+app.post('/v1/responses', async (req, res) => {
+  const body = req.body || {};
+  if (!KNOWN_MODELS.has(body.model)) return modelError(res, body.model);
+  const text = inputText(body);
+  const isEvaluation = /^\s*Prompt\s*=/.test(text);
+  const send = sse(res);
+  const id = 'resp_' + Math.random().toString(36).slice(2);
+  send({ type: 'response.created', response: { id, status: 'in_progress' } });
+
+  let output;
+  if (isEvaluation) {
+    const claim = text.split('\n')[0].replace(/^\s*Prompt\s*=\s*/, '').trim();
+    await sleep(800 + Math.random() * 3500); // "reasoning"
+    if (body.tools?.some((t) => t.type === 'web_search')) {
+      send({ type: 'response.web_search_call.in_progress', item_id: 'ws_1' });
+      await sleep(400 + Math.random() * 900);
+      send({ type: 'response.web_search_call.completed', item_id: 'ws_1' });
+    }
+    output = mockEntry(claim);
+  } else {
+    await sleep(500);
+    output = mockClaims(text);
+  }
+
+  const chunks = output.match(/[\s\S]{1,28}/g) || [];
+  for (const delta of chunks) {
+    if (res.writableEnded || res.destroyed) return;
+    send({ type: 'response.output_text.delta', delta });
+    await sleep(isEvaluation ? 18 : 25);
+  }
+  send({ type: 'response.output_text.done', text: output });
+  send({
+    type: 'response.completed',
+    response: {
+      id,
+      status: 'completed',
+      model: body.model,
+      output_text: output,
+      usage: {
+        input_tokens: Math.round(text.length / 4),
+        input_tokens_details: { cached_tokens: 0 },
+        output_tokens: Math.round(output.length / 4) + (isEvaluation ? 6000 : 0),
+        output_tokens_details: { reasoning_tokens: isEvaluation ? 6000 : 0 },
+        total_tokens: 0,
+      },
+    },
+  });
+  res.end();
+});
+
+// ---- Images API --------------------------------------------------------------------------
+
+const imageB64 = fs.existsSync(path.join(here, 'mock-image.b64')) ? fs.readFileSync(path.join(here, 'mock-image.b64'), 'utf8').trim() : null;
+
+app.post('/v1/images/generations', async (req, res) => {
+  const body = req.body || {};
+  if (!KNOWN_MODELS.has(body.model)) return modelError(res, body.model);
+  await sleep(2500 + Math.random() * 2500);
+  res.json({ created: Math.floor(Date.now() / 1000), model: body.model, output_format: 'jpeg', data: [{ b64_json: imageB64 }] });
+});
+
+app.use((req, res) => res.status(404).json({ error: { message: `mock: no route ${req.method} ${req.path}` } }));
+
+app.listen(PORT, () => console.log(`mock OpenAI on http://localhost:${PORT}/v1  (speed x${SPEED})`));
+
+// ---- Canned content ----------------------------------------------------------------------
+
+function mockClaims(source) {
+  const sentences = source
+    .replace(/\s+/g, ' ')
+    .split(/(?<=[.!?])\s+(?=[A-Z0-9"“])/)
+    .map((s) => s.trim())
+    .filter((s) => s.length > 25 && /\d|is|was|were|has|have|will|percent|%/.test(s));
+  const picked = sentences.slice(0, 26);
+  if (!picked.length) picked.push('The source contains no clearly empirical sentence.');
+  return picked.map((s, i) => `${i + 1}. ${s}`).join('\n');
+}
+
+const INSPECTORS = ['Karl Popper', 'Richard Feynman', 'Florence Nightingale', 'Ibn al-Haytham', 'Marie Curie', 'John Snow', 'Ronald Fisher', 'Galileo Galilei', 'Barbara McClintock', 'Charles Sanders Peirce'];
+
+function mockEntry(claim) {
+  const roll = Math.random();
+  const verdict = roll < 0.45 ? 'True' : roll < 0.75 ? 'False' : 'Uncertain';
+  const tag = verdict === 'Uncertain' ? 'Unverified' : verdict;
+  const who = INSPECTORS[Math.floor(Math.random() * INSPECTORS.length)];
+  const conf = verdict === 'Uncertain' ? 35 + Math.floor(Math.random() * 25) : 78 + Math.floor(Math.random() * 20);
+  return `0. **Name** : ${who}
+
+1. **Definitions**: The statement under inspection is: "${claim}" Key terms are taken in their ordinary, dictionary sense. Where a term names a quantity, the unit and the period it covers are taken exactly as stated.
+
+2. **Principles**: Non-contradiction; identity; the burden of proof rests on the proposition; proportional evidence; primary, traceable artifacts outrank repetition; a claim established by a dispositive record is not re-litigated by narrative.
+
+3. **Evidence**: (This is placeholder text from the development mock, not a real determination.) The evidence trail was traced to its primary artifact and scored for transparency (4), verifiability (4), independence (3), incentives (3), track record (4) and specificity (${verdict === 'Uncertain' ? 2 : 5}), average ${verdict === 'Uncertain' ? '3.3' : '3.8'}.
+
+4. **Analysis**: The proposition was broken into its measurable parts. Each part was checked against the record rather than against what is commonly said about the record. What is directly supported was separated from what is inferred, and what would change the conclusion was named explicitly.
+
+5. **Are You The Dog Who Cannot Stop Chasing The Cat**: No. The first dispositive artifact settled the proposition and the inspection stopped there.
+
+6. **Conclusion**: ${verdict}. ${verdict === 'True' ? 'The primary record states the proposition as claimed.' : verdict === 'False' ? 'The primary record contradicts the proposition as stated.' : 'No primary record was found that settles the proposition either way.'}
+
+7. **Confidence**: ${conf}%. ${verdict === 'Uncertain' ? 'Confidence is limited by the absence of a primary source.' : 'Residual uncertainty reflects the possibility of an unpublished correction.'}
+
+VERDICT: ${tag}`;
+}

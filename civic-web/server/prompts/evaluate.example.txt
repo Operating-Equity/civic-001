@@ -1,0 +1,10 @@
+(Template. Copy to evaluate.txt and paste the real evaluation prompt. Never commit evaluate.txt.
+ The literal token {{CLAIM}} is replaced with the claim being tested.)
+
+Prompt = {{CLAIM}}
+
+Read the exact statement, then ...
+### Output Format:
+...
+6. **Conclusion**: [True/False/Uncertain ...]
+7. **Confidence**: [0–100% ...]
