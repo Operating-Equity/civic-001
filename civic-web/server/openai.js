@@ -42,9 +42,16 @@ export function describeError(err) {
   return new ApiError(status >= 400 && status < 600 ? status : 502, code, message);
 }
 
+/**
+ * True only when the MODEL ITSELF is unavailable to this key. Deliberately narrow: an error about
+ * a parameter (an unsupported reasoning effort, say) must surface as an error, never as a silent
+ * switch to a different, weaker model.
+ */
 export function isModelNotFound(err) {
   const msg = String(err?.error?.message || err?.message || '');
-  return (err?.status === 404 || err?.status === 400) && /model|does not exist|not found|unsupported/i.test(msg);
+  if (err?.status !== 404 && err?.status !== 400) return false;
+  if (/parameter|effort|reasoning|summar|tool|temperature|max_output_tokens/i.test(msg)) return false;
+  return /does not exist|do(es)? not have access|not found|no access|unknown model|model_not_found|is not available/i.test(msg);
 }
 
 export function isRetryable(err) {
@@ -59,13 +66,16 @@ export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
  * for the life of the process so later calls skip straight to it.
  */
 const resolved = new Map();
-export async function withModelFallback(kind, models, run) {
+export async function withModelFallback(kind, models, run, onFallback) {
+  const first = models[0];
   const order = resolved.has(kind) ? [resolved.get(kind), ...models.filter((m) => m !== resolved.get(kind))] : models;
   let lastErr;
   for (const model of order) {
     try {
       const out = await run(model);
       resolved.set(kind, model);
+      // A downgrade is never silent: the caller reports it on the card and in the ledger.
+      if (model !== first && typeof onFallback === 'function') onFallback({ used: model, requested: first });
       return out;
     } catch (err) {
       lastErr = err;

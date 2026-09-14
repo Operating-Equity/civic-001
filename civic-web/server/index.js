@@ -36,7 +36,8 @@ app.use((req, res, next) => {
   next();
 });
 
-app.use(express.json({ limit: '2mb' }));
+// Big enough to carry a whole document; the real ceiling is config.maxSourceChars.
+app.use(express.json({ limit: '16mb' }));
 
 // Vendor scripts for the browser (served read-only from node_modules).
 const nodeModules = path.join(here, '..', 'node_modules');
@@ -60,6 +61,8 @@ app.post('/api/parse', upload.single('file'), wrap(async (req, res) => {
   if (!req.file) throw new ApiError(400, 'no_file', 'No file received.');
   const parsed = await fileToText(req.file);
   if (!parsed.text) throw new ApiError(422, 'empty_document', 'No readable text was found in that file.');
+  // The whole document is returned even when it is over the limit, so the reader can see all of
+  // it and decide how to split it. /api/extract is where the refusal happens.
   res.json({ name: req.file.originalname, ...parsed });
 }));
 
@@ -69,9 +72,21 @@ app.post('/api/extract', wrap(async (req, res) => {
   const source = normalise(req.body?.text);
   if (source.chars < 20) throw new ApiError(400, 'too_short', 'Paste or upload more text; there is nothing to test yet.');
 
+  // A document that does not fit is refused outright. Reading part of it and saying nothing would
+  // drop claims the reader believes were tested.
+  if (source.truncated && !config.allowSourceTruncation) {
+    throw new ApiError(413, 'source_too_long',
+      `This document is ${source.originalChars.toLocaleString()} characters; the limit for one run is ${config.maxSourceChars.toLocaleString()}. ` +
+      `${source.omitted.toLocaleString()} characters would go unread, and any claim in them would never be tested. ` +
+      'Split the document and run the parts, raise CIVIC_MAX_SOURCE_CHARS, or set CIVIC_ALLOW_SOURCE_TRUNCATION=true to accept the loss.');
+  }
+  const sourceWarning = source.truncated
+    ? { code: 'source_truncated', omitted: source.omitted, read: source.chars, original: source.originalChars }
+    : null;
+
   const stream = openStream(req, res);
   try {
-    await runExtraction({ apiKey, text: source.text, send: stream.send, signal: stream.signal });
+    await runExtraction({ apiKey, text: source.text, send: stream.send, signal: stream.signal, sourceWarning });
   } catch (err) {
     const safe = describeError(err);
     stream.send({ t: 'error', code: safe.code, message: safe.message, status: safe.status });

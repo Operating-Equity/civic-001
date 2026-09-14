@@ -84,6 +84,7 @@ export async function runEvaluation({ apiKey, claims, send, signal }) {
     let modelUsed = null;
     let incomplete = null;
     let wantSummary = Boolean(config.evalReasoningSummary);
+    let fellBack = null;
     const trail = [];   // every web action the model took
     const sources = []; // every URL it cited
     const seen = new Set();
@@ -109,7 +110,7 @@ export async function runEvaluation({ apiKey, claims, send, signal }) {
         await withModelFallback('evaluate', config.evalModels, async (model) => {
           const stream = await request(model);
           modelUsed = model;
-          send({ t: 'start', i, model, at: Date.now() });
+          send({ t: 'start', i, model, requested: config.evalModels[0], at: Date.now() });
           for await (const event of stream) {
             if (signal.aborted) return;
             switch (event.type) {
@@ -172,7 +173,7 @@ export async function runEvaluation({ apiKey, claims, send, signal }) {
                 break;
             }
           }
-        });
+        }, (f) => { fellBack = f; send({ t: 'warning', i, code: 'model_fallback', ...f }); });
         break;
       } catch (err) {
         if (signal.aborted) return;
@@ -202,7 +203,7 @@ export async function runEvaluation({ apiKey, claims, send, signal }) {
     const cost = estimateTextCost({ model: modelUsed, usage, searches: trail.length });
     record({
       kind: 'evaluate', ok: true, model: modelUsed, effort: config.evalEffort, webSearch: config.evalWebSearch,
-      claim: claimHash(claim), chars: claim.length, verdict: parsed.verdict, verdictSource: parsed.verdictSource,
+      claim: claimHash(claim), chars: claim.length, fellBack: fellBack?.used || null, verdict: parsed.verdict, verdictSource: parsed.verdictSource,
       confidence: parsed.confidence, usage, searches: trail.length, sources: sources.length, incomplete, ms,
       usd: cost.usd, priced: cost.priced,
     });
@@ -213,7 +214,8 @@ export async function runEvaluation({ apiKey, claims, send, signal }) {
       text: parsed.text,            // complete, unmodified
       reasoning: reasoning.trim() || null,
       trail, sources,
-      usage, model: modelUsed, searches: trail.length, ms, cost, incomplete,
+      usage, model: modelUsed, requested: config.evalModels[0], fellBack, effort: config.evalEffort,
+      searches: trail.length, ms, cost, incomplete,
     });
     send({ t: 'batch-progress', completed, total });
   };

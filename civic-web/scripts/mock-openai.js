@@ -52,6 +52,12 @@ app.post('/v1/responses', async (req, res) => {
   const isEvaluation = /^\s*Prompt\s*=/.test(text);
   const isArtDirection = /art director/i.test(String(body.instructions || ''));
 
+  // Exercise the case where a PARAMETER is unsupported: the server must surface this as an error,
+  // never silently swap in a different, weaker model.
+  if (process.env.MOCK_BAD_EFFORT && body.reasoning?.effort === process.env.MOCK_BAD_EFFORT) {
+    return res.status(400).json({ error: { message: `Unsupported value: 'reasoning.effort' does not support '${body.reasoning.effort}' with this model.`, type: 'invalid_request_error', param: 'reasoning.effort', code: 'unsupported_value' } });
+  }
+
   // Exercise the server's fallback when an account cannot get reasoning summaries.
   if (process.env.MOCK_NO_SUMMARY && body.reasoning?.summary) {
     return res.status(400).json({ error: { message: 'Your organization must be verified to generate reasoning summaries.', type: 'invalid_request_error', code: 'unsupported_parameter' } });

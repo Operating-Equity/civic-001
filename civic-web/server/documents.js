@@ -39,15 +39,20 @@ export async function fileToText(file) {
   return normalise(text, kind);
 }
 
+/**
+ * Line-ending and trailing-whitespace normalisation only; no words are changed.
+ * Over-length text is NOT quietly cut: `truncated` and `omitted` are always reported, and the
+ * caller decides whether to refuse. Losing the tail of a document loses claims invisibly.
+ */
 export function normalise(text, kind = 'text') {
   let clean = String(text || '')
     .replace(/\r\n?/g, '\n')
     .replace(/[ \t]+\n/g, '\n')
-    .replace(/\n{3,}/g, '\n\n')
     .trim();
-  const truncated = clean.length > config.maxSourceChars;
-  if (truncated) clean = clean.slice(0, config.maxSourceChars);
-  return { text: clean, chars: clean.length, truncated, kind };
+  const originalChars = clean.length;
+  const truncated = originalChars > config.maxSourceChars;
+  if (truncated && config.allowSourceTruncation) clean = clean.slice(0, config.maxSourceChars);
+  return { text: clean, chars: clean.length, originalChars, truncated, omitted: truncated ? originalChars - config.maxSourceChars : 0, kind };
 }
 
 function stripHtml(html) {

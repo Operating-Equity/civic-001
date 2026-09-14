@@ -97,6 +97,8 @@
   <!-- The run: appears once a test starts. -->
   <section class="run" id="run" hidden aria-live="polite">
 
+    <ul class="run-warnings" id="run-warnings" hidden></ul>
+
     <div class="rail">
       <div class="rail-steps">
         <div class="step" id="step-extract" data-state="idle">
@@ -219,6 +221,7 @@
     </div>
     <footer class="card-foot" hidden>
       <span class="card-inspector"></span>
+      <span class="card-model mono"></span>
       <span class="card-tokens mono"></span>
       <span class="card-cost mono" hidden></span>
       <button type="button" class="btn btn-small btn-text btn-copy"></button>

@@ -20,6 +20,7 @@ const state = {
   server: null,        // /api/health payload, or null when no server answers
   accounting: true,    // operator view: tokens and estimated cost per claim
   source: '',
+  warnings: [],   // anything that could have cost a claim, shown at the top of the run
   claims: [],
   claimsRaw: '',
   beyond: [],          // { n, text, selected, tested }
@@ -49,7 +50,7 @@ function cacheElements() {
     keyOpen: $('#btn-key-open'), keyChange: $('#btn-key-change'), keyRemove: $('#btn-key-remove'), keyCancel: $('#btn-key-cancel'), keyToggle: $('#btn-key-toggle'),
     source: $('#source-text'), sourceFile: $('#source-file'), sourceMeta: $('#source-meta'),
     optEcho: $('#opt-echo'), run: $('#btn-run'),
-    runSection: $('#run'),
+    runSection: $('#run'), runWarnings: $('#run-warnings'),
     step1: $('#step-extract'), step1Status: $('#step1-status'), bar1: $('#bar-extract'),
     step2: $('#step-eval'), step2Title: $('#step2-title'), step2Status: $('#step2-status'), bar2: $('#bar-eval'),
     echo: $('#echo'), echoImg: $('#echo-img'), echoShimmer: $('#echo-shimmer'), echoCap: $('#echo-cap'),
@@ -223,11 +224,13 @@ function resetRunState() {
   for (const id of state.timers) clearInterval(id);
   state.timers = [];
   Object.assign(state, {
-    phase: 'idle', claims: [], claimsRaw: '', beyond: [], cards: [], results: [], extraction: null, echo: null,
+    phase: 'idle', warnings: [], claims: [], claimsRaw: '', beyond: [], cards: [], results: [], extraction: null, echo: null,
     batch: { start: 0, size: 0, done: 0 }, counts: { true: 0, false: 0, unverified: 0 }, unread: 0,
     tokens: 0, cost: 0, unpriced: false,
     extractStartedAt: 0, extractChars: 0, found: 0, evalStartedAt: 0, status: { step1: null, step2: null },
   });
+  ui.runWarnings.replaceChildren();
+  ui.runWarnings.hidden = true;
   ui.claimsList.replaceChildren();
   ui.beyondList.replaceChildren();
   ui.results.replaceChildren();
@@ -267,6 +270,25 @@ function setStatus(which, key, params = {}) {
   node.textContent = key ? t(key, params) : '';
 }
 
+/** A downgrade or a dropped character is never silent: it goes at the top of the run, in red. */
+function addWarning(ev) {
+  const id = `${ev.code}:${ev.used || ''}:${ev.omitted || ''}`;
+  if (state.warnings.some((w) => w.id === id)) return;
+  state.warnings.push({ id, ...ev });
+  renderWarnings();
+}
+
+function renderWarnings() {
+  ui.runWarnings.hidden = state.warnings.length === 0;
+  ui.runWarnings.replaceChildren(...state.warnings.map((w) => {
+    let text;
+    if (w.code === 'source_truncated') text = t('warn.sourceTruncated', { n: fmtNumber(w.omitted), read: fmtNumber(w.read) });
+    else if (w.code === 'model_fallback') text = t('warn.modelFallback', { used: w.used, requested: w.requested });
+    else text = w.code;
+    return el('li', { text });
+  }));
+}
+
 function addCost(cost) {
   if (!cost) return;
   state.cost += cost.usd || 0;
@@ -289,6 +311,7 @@ async function runExtraction(text) {
       case 'claim': addClaim(ev.n, ev.text); break;
       case 'progress': state.extractChars = ev.chars; state.found = Math.max(state.found, ev.found || 0); setStatus('step1', 'step1.found', { n: state.found }); break;
       case 'retry': setStatus('step1', 'step1.retry'); break;
+      case 'warning': addWarning(ev); break;
       case 'phase': if (ev.phase === 'incomplete') toast(t('step1.incomplete'), { error: true, ms: 9000 }); break;
       case 'done': finished = true; finishExtraction(ev); break;
       case 'error': finished = true; failRun(ev); break;
@@ -470,6 +493,7 @@ async function runBatch(claims) {
 
 function handleEvalEvent(ev, mapIndex) {
   if (ev.t === 'error' && ev.i === undefined) { failRun(ev); return; }
+  if (ev.t === 'warning') { addWarning(ev); return; }
   if (ev.t === 'batch-start') return;
   if (ev.t === 'batch-progress') {
     state.batch.done = Math.max(state.batch.done, ev.completed);
@@ -523,7 +547,8 @@ function finishBatch(ev) {
 function failRun(err) {
   const code = err?.code || '';
   let message;
-  if (err?.status === 401 || code === 'invalid_key' || code === 'missing_key') { message = t('errors.key'); openKeyForm({ attention: true }); }
+  if (code === 'source_too_long') message = `${t('errors.sourceTooLong')} ${err?.message || ''}`;
+  else if (err?.status === 401 || code === 'invalid_key' || code === 'missing_key') { message = t('errors.key'); openKeyForm({ attention: true }); }
   else if (err?.status === 429) message = t('errors.rate');
   else if (code === 'prompt_missing') message = t('errors.prompt');
   else if (err instanceof TypeError) message = t('errors.server');
@@ -622,6 +647,7 @@ function finalizeCard(i, ev) {
     verdict: ev.verdict || null, verdictSource: ev.verdictSource || 'none',
     confidence: ev.confidence ?? null, inspector: ev.inspector || null,
     usage: ev.usage || null, cost: ev.cost || null, ms: ev.ms ?? null,
+    model: ev.model || null, requested: ev.requested || null, fellBack: ev.fellBack || null, effort: ev.effort || null,
     trail: ev.trail?.length ? ev.trail : r.trail, sources: ev.sources?.length ? ev.sources : r.sources,
     incomplete: ev.incomplete || r.incomplete || null,
   });
@@ -716,6 +742,13 @@ function renderCardFoot(i) {
   const insp = $('.card-inspector', card);
   insp.replaceChildren();
   if (r.inspector) insp.append(`${t('card.inspector')}: `, el('b', { text: r.inspector }));
+  // Which model actually answered, always: a downgrade must never pass unnoticed.
+  const modelNode = $('.card-model', card);
+  if (r.model) {
+    modelNode.textContent = t('card.modelLine', { model: r.model, effort: r.effort || '' });
+    modelNode.classList.toggle('is-fallback', Boolean(r.fellBack));
+    modelNode.title = r.fellBack ? t('warn.modelFallback', { used: r.fellBack.used, requested: r.fellBack.requested }) : '';
+  } else modelNode.textContent = '';
   const tokens = r.usage ? (r.usage.input || 0) + (r.usage.output || 0) : 0;
   $('.card-tokens', card).textContent = r.usage ? t('card.tokens', { n: fmtCompact(tokens) }) : '';
   const costNode = $('.card-cost', card);
@@ -798,6 +831,7 @@ function exportRun() {
   const lines = [
     `# CIVIC run — ${new Date().toLocaleString()}`,
     '',
+    ...(state.warnings.length ? ['> **Warnings:** ' + state.warnings.map((w) => w.code === 'source_truncated' ? `${w.omitted} characters of the source were not read` : `model fell back to ${w.used} from ${w.requested}`).join('; '), ''] : []),
     `Claims extracted: ${state.claims.length}. Tested: ${state.results.filter((r) => r.status === 'done').length}.`,
     `True ${state.counts.true} · False ${state.counts.false} · Unverified ${state.counts.unverified}` + (state.unread ? ` · verdict unread ${state.unread}` : ''),
     state.accounting ? `Tokens ${state.tokens}. Estimated cost ${fmtUsd(state.cost)}${state.unpriced ? '+' : ''}.` : '',
@@ -816,6 +850,7 @@ function exportRun() {
   state.results.forEach((r, i) => {
     lines.push(`### ${i + 1}. ${state.cards[i]}`, '');
     lines.push(`**Verdict:** ${r.verdict ? t(`score.${r.verdict}`) : t('card.verdictUnread')}` + (r.confidence != null ? ` · ${r.confidence}%` : '') + (r.inspector ? ` · ${r.inspector}` : ''), '');
+    if (r.model) lines.push(`_Model: ${r.model}${r.effort ? ` (effort ${r.effort})` : ''}${r.fellBack ? ` — FELL BACK from ${r.fellBack.requested}` : ''}_`, '');
     if (r.incomplete) lines.push(`> Output ended early: ${r.incomplete}`, '');
     lines.push(r.text || `(${r.error || 'no output'})`, '');
     if (r.reasoning) lines.push('#### Reasoning summary', '', r.reasoning, '');
@@ -938,6 +973,7 @@ function refreshDynamicText() {
   updateSourceMeta();
   for (const which of ['step1', 'step2']) { const s = state.status[which]; if (s) setStatus(which, s.key, s.params); }
   ui.step2Title.textContent = state.batch.start > 0 ? t('step2.more', { n: state.batch.size }) : t('step2.title', { n: state.batch.size || MAX_CLAIMS });
+  renderWarnings();
   renderClaimsHeadings();
   renderBeyond();
   renderClaimsRaw();

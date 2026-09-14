@@ -25,7 +25,7 @@ function cleanClaim(s) {
   return String(s).trim();
 }
 
-export async function runExtraction({ apiKey, text, send, signal }) {
+export async function runExtraction({ apiKey, text, send, signal, sourceWarning }) {
   const client = clientFor(apiKey);
   const instructions = extractionInstructions();
   let full = '';
@@ -48,6 +48,8 @@ export async function runExtraction({ apiKey, text, send, signal }) {
   let usage = null;
   let modelUsed = null;
   let incomplete = null;
+  let fellBack = null;
+  if (sourceWarning) send({ t: 'warning', ...sourceWarning });
   for (let tries = 0; ; tries++) {
     try {
       full = '';
@@ -55,7 +57,7 @@ export async function runExtraction({ apiKey, text, send, signal }) {
       await withModelFallback('extract', config.extractModels, async (model) => {
         const stream = await attempt(model);
         modelUsed = model;
-        send({ t: 'start', model, at: started });
+        send({ t: 'start', model, requested: config.extractModels[0], at: started });
         for await (const event of stream) {
           if (signal.aborted) return;
           if (event.type === 'response.output_text.delta') {
@@ -80,7 +82,7 @@ export async function runExtraction({ apiKey, text, send, signal }) {
             throw e;
           }
         }
-      });
+      }, (f) => { fellBack = f; send({ t: 'warning', code: 'model_fallback', ...f }); });
       break;
     } catch (err) {
       if (signal.aborted) return null;
@@ -104,7 +106,7 @@ export async function runExtraction({ apiKey, text, send, signal }) {
   const cost = estimateTextCost({ model: modelUsed, usage });
   record({ kind: 'extract', model: modelUsed, effort: config.extractEffort, chars: text.length, claims: claims.length, usage, ms, usd: cost.usd, priced: cost.priced });
   // `raw` is the model's complete extraction output, exactly as returned, so it can be inspected.
-  const result = { t: 'done', total: claims.length, limit: config.maxClaims, claims, raw: full, model: modelUsed, usage, ms, cost, incomplete };
+  const result = { t: 'done', total: claims.length, limit: config.maxClaims, claims, raw: full, model: modelUsed, requested: config.extractModels[0], fellBack, effort: config.extractEffort, usage, ms, cost, incomplete };
   send(result);
   return result;
 }

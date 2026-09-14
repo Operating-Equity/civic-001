@@ -84,6 +84,55 @@ all or some and runs them as an extra batch once the first batch has finished.
 **Download full run** on the scoreboard writes one Markdown file containing the source, the
 verbatim extraction output, and every entry with its reasoning, searches, sources and costs.
 
+## Every place money could be traded for truth
+
+This is the complete list. Anything in the code that limits, shortens, cheapens or substitutes is
+named here, with what it can cost and who chose it. If something is not on this list, it does not
+exist in the code.
+
+| Setting | What it can cost | Default | Chosen by |
+|---|---|---|---|
+| `CIVIC_EVAL_MODELS` first entry | The whole determination | `gpt-5.6-sol` | You |
+| `CIVIC_EVAL_EFFORT` | Depth of the inspection | `xhigh` (`max` exists above it) | You |
+| `CIVIC_EVAL_WEB_SEARCH` | Access to primary sources | `true` | Default |
+| `CIVIC_EVAL_MAX_OUTPUT_TOKENS` | A cut-off entry | `0`, no cap | Default |
+| `CIVIC_EXTRACT_MODELS` first entry | Claims missed at step 1 and never recoverable | `gpt-5.6-terra` | Proposed, you agreed |
+| `CIVIC_EXTRACT_EFFORT` | Same | `medium` | Proposed, you agreed |
+| `CIVIC_EXTRACT_MAX_OUTPUT_TOKENS` | A cut-off claim list | `0`, no cap | Default |
+| `CIVIC_MAX_SOURCE_CHARS` | Nothing: over-length documents are refused, not cut | `2,000,000` | Default |
+| `CIVIC_ALLOW_SOURCE_TRUNCATION` | Unread text, announced in red when on | `false` | Default |
+| `maxClaims` (hard-coded) | Claims 21+ wait for your selection | `20` | You |
+| `CIVIC_EVAL_RETRIES` | Nothing; retries only on rate limits and 5xx | `3` | Default |
+| `CIVIC_EVAL_CONCURRENCY` | Nothing; speed only | `20` | Default |
+| `CIVIC_EVAL_REASONING_SUMMARY` | Costs extra tokens, buys visibility | `auto` | Default |
+| Image model, quality, art direction | Picture only. Never touches a determination. | flare / high / on | Default |
+
+**Step 1 is the weakest link, by design and by my recommendation.** A claim the extractor misses is
+never tested, and no amount of `xhigh` at step 2 recovers it. Extraction currently runs on Terra at
+medium effort because it is reading, not judging, and because it costs about a tenth of Sol. If you
+want the whole pipeline at maximum:
+
+```bash
+CIVIC_EXTRACT_MODELS=gpt-5.6-sol CIVIC_EXTRACT_EFFORT=xhigh CIVIC_EVAL_EFFORT=max npm start
+```
+
+Compare the two extraction outputs on the same document. The verbatim extraction output is on the
+page under **Extraction output, verbatim**, so the comparison is exact rather than impressionistic.
+
+### What the code refuses to do quietly
+
+- **A document longer than the limit is refused**, with the exact overflow named. It is never
+  partly read with nothing said. Truncation is opt-in and, when on, is announced in red at the top
+  of the run with the exact number of characters that went unread.
+- **A model downgrade is announced.** If the key cannot use the first-choice model, the run shows a
+  red warning, every card names the model that actually answered, and the ledger records it. The
+  fallback trigger is narrow: only an error naming the model as unavailable. An unsupported
+  parameter, such as a reasoning effort the model does not accept, surfaces as an error instead of
+  silently switching to a weaker model.
+- **An unreadable Conclusion is not rounded to Unverified.** The card says the verdict could not be
+  read and the claim is counted in no column.
+- **An entry cut short by the API is flagged** on the card with the reason.
+
 ## Prompt protection
 
 The prompts are the product. The design keeps them out of every place a reader could look:

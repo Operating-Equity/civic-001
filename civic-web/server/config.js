@@ -51,7 +51,11 @@ export const config = {
 
   // Limits.
   maxClaims: 20, // hard ceiling: never more than 20 claims are ever evaluated
-  maxSourceChars: int('CIVIC_MAX_SOURCE_CHARS', 400000), // ≈100k tokens
+  // A document longer than this is REFUSED, not silently shortened: a claim that is never read
+  // is a claim that can never be tested, and the reader would have no way to know. Set
+  // CIVIC_ALLOW_SOURCE_TRUNCATION=true to cut instead, and the page will say so in red.
+  maxSourceChars: int('CIVIC_MAX_SOURCE_CHARS', 2000000), // ≈500k tokens, inside a 1.05M window
+  allowSourceTruncation: bool('CIVIC_ALLOW_SOURCE_TRUNCATION', false),
   maxUploadBytes: int('CIVIC_MAX_UPLOAD_BYTES', 25 * 1024 * 1024),
   heartbeatMs: 15000,
 
