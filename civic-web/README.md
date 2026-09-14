@@ -181,12 +181,30 @@ Set `CIVIC_IMAGE_ART_DIRECTION=false` to send raw text instead and see the diffe
 fidelity at the cost of time, put `gpt-image-2.5-sunburst` first in `CIVIC_IMAGE_MODELS` or raise
 `CIVIC_IMAGE_QUALITY` to `xhigh`.
 
-## Deploy
+## Deploy without a terminal
 
-Any Node host works (Render, Railway, Fly.io, a VPS). Set the env vars from `.env.example`, put the
-prompts in env vars or a mounted secrets file, and run `npm start`. Long reasoning runs stream for
-minutes; keep the host's idle timeout above 10 minutes for the API routes, or terminate TLS with a
-proxy that honours the server's heartbeat lines.
+The repository root carries `render.yaml`, which lets [Render](https://render.com) build and
+run the server straight from GitHub:
+
+1. Sign up at render.com with your GitHub account and allow it to see `Operating-Equity/civic-001`.
+2. New → Blueprint → choose the repository and the branch. Render reads `render.yaml` and creates
+   the `civic` service.
+3. Open the service → Environment → Secret Files. Add `extract.txt` (the extraction prompt) and
+   `evaluate.txt` (the evaluation prompt, first line `Prompt = {{CLAIM}}`). Save.
+4. Deploy. The service gets an address like `https://civic.onrender.com`. Open it, add your OpenAI
+   key in the strip at the top, paste a document, press Test the facts.
+
+The prompts live only in Render's secret store and the server's memory; they are never in the
+repository. The internal ledger on Render is written to a temporary disk and does not persist
+between deploys; set `CIVIC_LEDGER_FILE` to a persistent disk path if you attach one.
+
+Long determinations stream for many minutes. Verify the plan you choose does not cut idle HTTP
+connections; the server sends a heartbeat line every 15 seconds to keep them open.
+
+## Deploy anywhere else
+
+Any Node host works (Railway, Fly.io, a VPS). Set the env vars from `.env.example`, put the
+prompts in env vars or a mounted secrets file, and run `npm start`.
 
 ## Adding a language
 

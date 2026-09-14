@@ -1,0 +1,22 @@
+# One-click hosting on Render (render.com). Render reads this file from the repository and
+# creates the CIVIC web service with no terminal involved. After the service exists, add the two
+# prompts as Secret Files named extract.txt and evaluate.txt in the Render dashboard; they are
+# mounted at /etc/secrets/ and never enter the repository.
+services:
+  - type: web
+    name: civic
+    runtime: node
+    rootDir: civic-web
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: CIVIC_PROMPT_EXTRACT_FILE
+        value: /etc/secrets/extract.txt
+      - key: CIVIC_PROMPT_EVALUATE_FILE
+        value: /etc/secrets/evaluate.txt
+      - key: CIVIC_LEDGER_FILE
+        value: /tmp/civic-ledger.jsonl
