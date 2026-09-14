@@ -4,14 +4,24 @@ The functional main page: paste or upload text, CIVIC extracts every empirical c
 first 20 in parallel, and shows each determination (True / False / Unverified) with the full
 encyclopedia-style entry, a live scoreboard, a challenge panel per result, and a reset.
 
+Two rules the code exists to keep:
+
+1. **Nothing runs that was not submitted.** There is no sample, no seeded text, no demo mode and
+   no preloaded result anywhere in the product. The page is empty until a document is given to it.
+2. **Nothing the model returns is edited, trimmed or withheld.** The prompts are sent verbatim.
+   The entry is rendered whole. The reasoning summary, every web search performed and every source
+   cited are on the card, and the raw text is one click away. There is no output token cap by
+   default. The verdict is read out of the model's own Conclusion section — when it cannot be read,
+   the card says so and the claim is counted in no column rather than defaulting to Unverified.
+
 ```
 civic-web/
 ├── server/            Node + Express. Holds the prompts. Proxies the reader's key to OpenAI.
 │   ├── prompts/       The vault. Real prompts live here (gitignored) or in env vars. See its README.
 │   ├── config.js      Models, efforts, limits, feature flags (all overridable by env vars).
 │   ├── extract.js     Step 1: streaming claim extraction, claims parsed as they arrive.
-│   ├── evaluate.js    Step 2: 20 claims in parallel, verdict parsing, per-claim streaming.
-│   ├── illustrate.js  Visual echo (fast image model, reader's key).
+│   ├── evaluate.js    Step 2: 20 claims in parallel, verdict read from the Conclusion, streaming.
+│   ├── illustrate.js  Visual echo: art direction, then the fast image model, on the reader's key.
 │   ├── challenge.js   Challenge mechanics; the OpenAI call is withheld until certified.
 │   └── documents.js   .pdf / .docx / text parsing for uploads.
 ├── public/            The page. No build step. Plain ES modules.
@@ -44,8 +54,9 @@ OPENAI_BASE_URL=http://localhost:3999/v1 npm start    # terminal 2
 ```
 
 Any key starting with `sk-` works against the mock; keys starting with `sk-bad` are rejected, to
-exercise the error path. The page also has a **sample run** (button under the main action, or
-`/?demo=1`) that needs no server at all.
+exercise the error path. `MOCK_NO_SUMMARY=1` makes it reject reasoning summaries, to exercise that
+fallback. The mock is the only place in this repository that contains invented determinations, and
+it is never served to the page in production.
 
 ## First real run and internal accounting
 
@@ -55,9 +66,11 @@ OPENAI_API_KEY=sk-... node scripts/trial-run.mjs doc.txt --limit 3   # terminal 
 node scripts/ledger-summary.mjs                      # cost of goods sold so far
 ```
 
-`trial-run.mjs` streams a document through both steps exactly as the page does and prints, per
-claim, the verdict, tokens (input / output / reasoning), searches, duration and estimated cost,
-then the run totals. Start with `--limit 3` to see timing and cost before spending on 20.
+`trial-run.mjs` streams a document through both steps exactly as the page does and prints
+everything that comes back: the complete entry for every claim, the reasoning summary, every search
+performed, every source cited, plus tokens (input / output / reasoning), duration and estimated
+cost, then the run totals. It also writes the whole run to a `.md` and a `.json` file. Start with
+`--limit 3` to see timing and cost before spending on 20; add `--quiet` for the table only.
 
 Every call is also appended to `data/ledger.jsonl` (gitignored): kind, model, effort, token
 usage, searches, duration, verdict and a short hash of the claim — never the claim text or a key.
@@ -67,6 +80,9 @@ table in `server/pricing.js`; token counts come from the API and are exact.
 
 The first 20 claims always run. Claims beyond 20 are listed with checkboxes; the reader picks
 all or some and runs them as an extra batch once the first batch has finished.
+
+**Download full run** on the scoreboard writes one Markdown file containing the source, the
+verbatim extraction output, and every entry with its reasoning, searches, sources and costs.
 
 ## Prompt protection
 
@@ -78,9 +94,10 @@ The prompts are the product. The design keeps them out of every place a reader c
   dashboard logs and read the prompt back. This matters because the key belongs to the reader.
 - Prompt text is never logged. `server/prompts.js` also redacts it from `console.error` if a
   library ever tried to print it.
-- The only text added around the author's prompt is a one-line developer instruction asking for a
-  final `VERDICT: True | False | Unverified` line, which the server strips before display. The
-  author's prompt is sent verbatim, claim substituted for `{{CLAIM}}`.
+- Nothing is added to the author's prompt. No system instruction, no verdict tag, no formatting
+  note. The extraction prompt is sent as the instructions field verbatim; the evaluation prompt is
+  sent as the sole user message with the claim substituted for `{{CLAIM}}`, and nothing else.
+  The verdict is read afterwards from the model's own Conclusion section.
 
 When accounts arrive, the reader's key should move server-side (encrypted at rest), and the prompts
 should move to a secrets manager rather than files on disk.
@@ -90,11 +107,22 @@ should move to a secrets manager rather than files on disk.
 | Step | Default | Why |
 |---|---|---|
 | Extraction | `gpt-5.6-terra`, effort `medium` | Careful reading over long documents, streams quickly, about a tenth of Sol's price. `gpt-5.6-luna` is the budget alternative. |
-| Determination | `gpt-5.6-sol`, effort `xhigh`, web search on | As requested. Web search lets the inspector reach primary sources. |
-| Visual echo | `gpt-image-2.5-flare`, quality `low` | OpenAI's fastest image model (September 2026). Falls back to `gpt-image-1-mini`. |
+| Determination | `gpt-5.6-sol`, effort `xhigh`, web search on | As requested. Web search lets the inspector reach primary sources, and every query and citation is shown. |
+| Art direction | `gpt-5.6-luna`, effort `low` | Reads the document and writes a concrete photographic brief for the echo. About two seconds. |
+| Visual echo | `gpt-image-2.5-flare`, quality `high` | OpenAI's fastest image model. Quality is `high`, not `low`: the speed comes from the model, not from starving it. |
 
 Model ids fall back down the list automatically if the key does not have access to the first one.
 The scoreboard shows total tokens per run so cost can be estimated per document.
+
+### Why the echo looks the way it does
+
+An image model handed raw document text returns something generic. Stage one therefore reads the
+document and writes a specific brief — subject, setting, foreground, light, palette, lens — and
+stage two draws that brief in one fixed house style taken from the CIVIC photograph: a documentary
+frame in natural light, people at ordinary scale, and no text, charts or symbols anywhere in it.
+Set `CIVIC_IMAGE_ART_DIRECTION=false` to send raw text instead and see the difference. For more
+fidelity at the cost of time, put `gpt-image-2.5-sunburst` first in `CIVIC_IMAGE_MODELS` or raise
+`CIVIC_IMAGE_QUALITY` to `xhigh`.
 
 ## Deploy
 

@@ -50,6 +50,23 @@ app.post('/v1/responses', async (req, res) => {
   if (!KNOWN_MODELS.has(body.model)) return modelError(res, body.model);
   const text = inputText(body);
   const isEvaluation = /^\s*Prompt\s*=/.test(text);
+  const isArtDirection = /art director/i.test(String(body.instructions || ''));
+
+  // Exercise the server's fallback when an account cannot get reasoning summaries.
+  if (process.env.MOCK_NO_SUMMARY && body.reasoning?.summary) {
+    return res.status(400).json({ error: { message: 'Your organization must be verified to generate reasoning summaries.', type: 'invalid_request_error', code: 'unsupported_parameter' } });
+  }
+
+  // Non-streaming calls (the art-direction stage).
+  if (body.stream === false) {
+    await sleep(isArtDirection ? 900 : 400);
+    const out = isArtDirection ? MOCK_BRIEF : 'ok';
+    return res.json({
+      id: 'resp_' + Math.random().toString(36).slice(2), status: 'completed', model: body.model, output_text: out,
+      usage: { input_tokens: Math.round(text.length / 4), input_tokens_details: { cached_tokens: 0 }, output_tokens: Math.round(out.length / 4), output_tokens_details: { reasoning_tokens: 0 } },
+    });
+  }
+
   const send = sse(res);
   const id = 'resp_' + Math.random().toString(36).slice(2);
   send({ type: 'response.created', response: { id, status: 'in_progress' } });
@@ -57,11 +74,29 @@ app.post('/v1/responses', async (req, res) => {
   let output;
   if (isEvaluation) {
     const claim = text.split('\n')[0].replace(/^\s*Prompt\s*=\s*/, '').trim();
-    await sleep(800 + Math.random() * 3500); // "reasoning"
+
+    if (body.reasoning?.summary) {
+      for (const part of MOCK_REASONING) {
+        await sleep(300 + Math.random() * 700);
+        for (const chunk of part.match(/[\s\S]{1,30}/g) || []) {
+          send({ type: 'response.reasoning_summary_text.delta', delta: chunk, summary_index: 0 });
+          await sleep(12);
+        }
+        send({ type: 'response.reasoning_summary_part.done', summary_index: 0 });
+      }
+    } else {
+      await sleep(800 + Math.random() * 2500);
+    }
+
     if (body.tools?.some((t) => t.type === 'web_search')) {
-      send({ type: 'response.web_search_call.in_progress', item_id: 'ws_1' });
-      await sleep(400 + Math.random() * 900);
-      send({ type: 'response.web_search_call.completed', item_id: 'ws_1' });
+      const queries = pickQueries(claim);
+      for (let k = 0; k < queries.length; k++) {
+        send({ type: 'response.web_search_call.in_progress', item_id: `ws_${k}` });
+        send({ type: 'response.web_search_call.searching', item_id: `ws_${k}` });
+        await sleep(400 + Math.random() * 900);
+        send({ type: 'response.web_search_call.completed', item_id: `ws_${k}` });
+        send({ type: 'response.output_item.done', output_index: k, item: { id: `ws_${k}`, type: 'web_search_call', status: 'completed', action: { type: 'search', query: queries[k] } } });
+      }
     }
     output = mockEntry(claim);
   } else {
@@ -74,6 +109,11 @@ app.post('/v1/responses', async (req, res) => {
     if (res.writableEnded || res.destroyed) return;
     send({ type: 'response.output_text.delta', delta });
     await sleep(isEvaluation ? 18 : 25);
+  }
+  if (isEvaluation && body.tools?.some((t) => t.type === 'web_search')) {
+    for (const src of MOCK_SOURCES) {
+      send({ type: 'response.output_text.annotation.added', item_id: 'msg_1', output_index: 0, content_index: 0, annotation_index: 0, annotation: { type: 'url_citation', url: src.url, title: src.title, start_index: 0, end_index: 0 } });
+    }
   }
   send({ type: 'response.output_text.done', text: output });
   send({
@@ -112,12 +152,35 @@ app.listen(PORT, () => console.log(`mock OpenAI on http://localhost:${PORT}/v1  
 
 // ---- Canned content ----------------------------------------------------------------------
 
+const MOCK_BRIEF = `SUBJECT: a public reading-room table at the end of the day, a stack of bound newspaper volumes half open on it
+SETTING: a municipal library annexe in early autumn, late afternoon, tall windows facing a street of plane trees
+FOREGROUND: a brass reading lamp and a pencil lying across an index card, slightly out of focus
+LIGHT: low side light through the windows, warm, long shadows across the table grain
+PALETTE: oak brown, paper cream, brass, deep green, cool window blue
+LENS: 35mm, eye level, half a step back from the table edge`;
+
+const MOCK_REASONING = [
+  'Restating the proposition in measurable terms and identifying which part is the empirical load.',
+  'Looking for a primary artifact rather than repetition: an original record, a measurement, or a published table.',
+  'Checking whether the candidate source actually addresses the exact proposition, then stopping once it is settled.',
+];
+
+const MOCK_SOURCES = [
+  { url: 'https://example.gov/records/primary-source', title: 'Official record (mock source)' },
+  { url: 'https://example.org/dataset/table-3', title: 'Published data table 3 (mock source)' },
+];
+
+function pickQueries(claim) {
+  const words = claim.replace(/[^\w\s]/g, ' ').split(/\s+/).filter((w) => w.length > 4).slice(0, 4);
+  return [words.join(' ') || claim.slice(0, 40), `${words.slice(0, 2).join(' ')} primary source`];
+}
+
 function mockClaims(source) {
   const sentences = source
     .replace(/\s+/g, ' ')
     .split(/(?<=[.!?])\s+(?=[A-Z0-9"“])/)
     .map((s) => s.trim())
-    .filter((s) => s.length > 25 && /\d|is|was|were|has|have|will|percent|%/.test(s));
+    .filter((s) => s.length > 25);
   const picked = sentences.slice(0, 26);
   if (!picked.length) picked.push('The source contains no clearly empirical sentence.');
   return picked.map((s, i) => `${i + 1}. ${s}`).join('\n');
@@ -128,7 +191,6 @@ const INSPECTORS = ['Karl Popper', 'Richard Feynman', 'Florence Nightingale', 'I
 function mockEntry(claim) {
   const roll = Math.random();
   const verdict = roll < 0.45 ? 'True' : roll < 0.75 ? 'False' : 'Uncertain';
-  const tag = verdict === 'Uncertain' ? 'Unverified' : verdict;
   const who = INSPECTORS[Math.floor(Math.random() * INSPECTORS.length)];
   const conf = verdict === 'Uncertain' ? 35 + Math.floor(Math.random() * 25) : 78 + Math.floor(Math.random() * 20);
   return `0. **Name** : ${who}
@@ -145,7 +207,5 @@ function mockEntry(claim) {
 
 6. **Conclusion**: ${verdict}. ${verdict === 'True' ? 'The primary record states the proposition as claimed.' : verdict === 'False' ? 'The primary record contradicts the proposition as stated.' : 'No primary record was found that settles the proposition either way.'}
 
-7. **Confidence**: ${conf}%. ${verdict === 'Uncertain' ? 'Confidence is limited by the absence of a primary source.' : 'Residual uncertainty reflects the possibility of an unpublished correction.'}
-
-VERDICT: ${tag}`;
+7. **Confidence**: ${conf}%. ${verdict === 'Uncertain' ? 'Confidence is limited by the absence of a primary source.' : 'Residual uncertainty reflects the possibility of an unpublished correction.'}`;
 }

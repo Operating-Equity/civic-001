@@ -1,27 +1,35 @@
 // CIVIC main page. One state machine: idle → extracting → evaluating → done.
-// The first 20 claims always run. Claims beyond 20 run only when the reader selects them,
-// which re-enters "evaluating" for that batch.
+//
+// Two rules this file exists to keep:
+//   1. Nothing runs that the reader did not submit. There is no sample, no seeded text, no
+//      preloaded result. The page is empty until a document is given to it.
+//   2. Nothing the model returns is summarised, trimmed or hidden. The entry is rendered whole,
+//      and the reasoning summary, the search trail, the cited sources and the raw text are all
+//      on the card. When the verdict cannot be read from the model's own Conclusion, the card
+//      says so instead of guessing.
 import { t, setLocale, initLocale, LOCALES, currentLocale, fmtNumber, fmtCompact, fmtSeconds, fmtUsd } from './i18n.js';
 import * as api from './api.js';
-import * as demo from './demo.js';
-import { $, $$, el, renderMarkdown, setBar, toast, easeChars, easeTime, bump } from './render.js';
+import { $, $$, el, renderMarkdown, setBar, toast, easeChars, easeTime, bump, download, copyText } from './render.js';
 
 const MAX_CLAIMS = 20; // the automatic run; anything beyond is the reader's explicit choice
-const GLYPH = { true: '✓', false: '✕', unverified: '?' };
+const GLYPH = { true: '✓', false: '✕', unverified: '?', unread: '–' };
 
 const state = {
   phase: 'idle',
-  demo: false,
   key: '',
-  server: null,        // /api/health payload, or null when no server answers (static preview)
+  server: null,        // /api/health payload, or null when no server answers
   accounting: true,    // operator view: tokens and estimated cost per claim
   source: '',
   claims: [],
+  claimsRaw: '',
   beyond: [],          // { n, text, selected, tested }
   cards: [],           // claims that have cards, in card order: the first 20, then chosen extras
   results: [],
+  extraction: null,
+  echo: null,
   batch: { start: 0, size: 0, done: 0 },
   counts: { true: 0, false: 0, unverified: 0 },
+  unread: 0,
   tokens: 0,
   cost: 0,
   unpriced: false,
@@ -40,16 +48,18 @@ function cacheElements() {
     keystrip: $('#keystrip'), keyForm: $('#key-form'), keyInput: $('#key-input'), keyRemember: $('#key-remember'), keyHint: $('#key-hint'),
     keyOpen: $('#btn-key-open'), keyChange: $('#btn-key-change'), keyRemove: $('#btn-key-remove'), keyCancel: $('#btn-key-cancel'), keyToggle: $('#btn-key-toggle'),
     source: $('#source-text'), sourceFile: $('#source-file'), sourceMeta: $('#source-meta'),
-    optEcho: $('#opt-echo'), run: $('#btn-run'), sample: $('#btn-sample'),
-    runSection: $('#run'), demoNote: $('#demo-note'),
+    optEcho: $('#opt-echo'), run: $('#btn-run'),
+    runSection: $('#run'),
     step1: $('#step-extract'), step1Status: $('#step1-status'), bar1: $('#bar-extract'),
     step2: $('#step-eval'), step2Title: $('#step2-title'), step2Status: $('#step2-status'), bar2: $('#bar-eval'),
-    echo: $('#echo'), echoImg: $('#echo-img'), echoShimmer: $('#echo-shimmer'),
+    echo: $('#echo'), echoImg: $('#echo-img'), echoShimmer: $('#echo-shimmer'), echoCap: $('#echo-cap'),
     claims: $('#claims'), claimsSub: $('#claims-sub'), claimsList: $('#claims-list'),
     beyond: $('#claims-beyond'), beyondTitle: $('#claims-beyond-title'), beyondList: $('#claims-beyond-list'), beyondHint: $('#claims-beyond-hint'),
     selectAll: $('#btn-select-all'), testSelected: $('#btn-test-selected'),
-    scoreboard: $('#scoreboard'), scoreTrue: $('#score-true'), scoreFalse: $('#score-false'), scoreUnv: $('#score-unverified'), scoreTested: $('#score-tested'), scoreTokens: $('#score-tokens'),
-    scoreInternal: $('#score-internal'), scoreCost: $('#score-cost'),
+    claimsRaw: $('#claims-raw'), claimsRawSummary: $('#claims-raw-summary'), claimsRawBody: $('#claims-raw-body'),
+    scoreboard: $('#scoreboard'), scoreTrue: $('#score-true'), scoreFalse: $('#score-false'), scoreUnv: $('#score-unverified'),
+    scoreTested: $('#score-tested'), scoreTokens: $('#score-tokens'), scoreUnread: $('#score-unread'), scoreUnreadWrap: $('#score-unread-wrap'),
+    scoreInternal: $('#score-internal'), scoreCost: $('#score-cost'), export: $('#btn-export'),
     results: $('#results'), resetTop: $('#btn-reset-top'), reset: $('#btn-reset'),
     langSelect: $('#lang-select'), signin: $('#btn-signin'), signup: $('#btn-signup'),
     cardTpl: $('#tpl-card'),
@@ -57,9 +67,6 @@ function cacheElements() {
 }
 
 // ---------- boot ----------------------------------------------------------------------------
-
-const demoRequested = () =>
-  new URLSearchParams(location.search).get('demo') === '1' || location.hash === '#demo' || Boolean(document.querySelector('meta[name="civic-mode"][content="demo"]'));
 
 async function boot() {
   cacheElements();
@@ -77,20 +84,15 @@ async function boot() {
   ui.reset.addEventListener('click', resetAll);
   ui.selectAll.addEventListener('click', toggleSelectAll);
   ui.testSelected.addEventListener('click', testSelected);
+  ui.export.addEventListener('click', exportRun);
 
   try {
     state.server = await api.health();
     state.accounting = Boolean(state.server.accounting);
   } catch {
-    state.server = null; // static preview or server down; the sample run still works
+    state.server = null;
   }
   refreshKeyStrip();
-
-  if (demoRequested()) {
-    ui.source.value = demo.SAMPLE_TEXT;
-    updateSourceMeta();
-    setTimeout(() => startRun({ demoMode: true }), 500);
-  }
 }
 
 // ---------- key strip -----------------------------------------------------------------------
@@ -124,8 +126,7 @@ function wireKeyStrip() {
 
 function refreshKeyStrip() {
   if (state.server?.serverKey && !api.keyStore.get()) {
-    // The operator's key is configured on the server; readers need none.
-    ui.keystrip.hidden = true;
+    ui.keystrip.hidden = true; // the operator's key is configured on the server
     return;
   }
   ui.keystrip.hidden = false;
@@ -168,7 +169,7 @@ function wireIntake() {
       const parsed = await api.parseFile(file);
       ui.source.value = parsed.text;
       ui.sourceMeta.textContent = t('intake.loaded', { name: parsed.name, chars: parsed.chars });
-      if (parsed.truncated) toast(t('intake.truncated', { n: parsed.chars }));
+      if (parsed.truncated) toast(t('intake.truncated', { n: parsed.chars }), { ms: 7000 });
     } catch (err) {
       updateSourceMeta();
       toast(t('errors.file', { message: err.message }), { error: true });
@@ -176,8 +177,7 @@ function wireIntake() {
       ui.sourceFile.value = '';
     }
   });
-  ui.run.addEventListener('click', () => startRun({ demoMode: false }));
-  ui.sample.addEventListener('click', () => startRun({ demoMode: true }));
+  ui.run.addEventListener('click', startRun);
 }
 
 function updateSourceMeta() {
@@ -187,32 +187,23 @@ function updateSourceMeta() {
 
 // ---------- the run -------------------------------------------------------------------------
 
-async function startRun({ demoMode }) {
-  if (state.phase !== 'idle' && state.phase !== 'done') resetRunState();
-  const text = demoMode ? demo.SAMPLE_TEXT : ui.source.value.trim();
-  if (!demoMode) {
-    if (text.length < 20) { toast(t('intake.empty'), { error: true }); ui.source.focus(); return; }
-    if (!state.server) { toast(t('errors.server'), { error: true }); return; }
-    if (!state.server.prompts?.extract || !state.server.prompts?.evaluate) { toast(t('errors.prompt'), { error: true }); return; }
-    const key = requireKey();
-    if (key === null) return;
-    state.key = key;
-  } else {
-    ui.source.value = text;
-    updateSourceMeta();
-  }
+async function startRun() {
+  const text = ui.source.value.trim();
+  if (text.length < 20) { toast(t('intake.empty'), { error: true }); ui.source.focus(); return; }
+  if (!state.server) { toast(t('errors.server'), { error: true }); return; }
+  if (!state.server.prompts?.extract || !state.server.prompts?.evaluate) { toast(t('errors.prompt'), { error: true }); return; }
+  const key = requireKey();
+  if (key === null) return;
 
   resetRunState();
-  state.demo = demoMode;
-  state.accounting = demoMode ? true : Boolean(state.server?.accounting);
+  state.key = key;
+  state.accounting = Boolean(state.server?.accounting);
   state.source = text;
   state.phase = 'extracting';
   state.abort = new AbortController();
 
   ui.runSection.hidden = false;
-  ui.demoNote.hidden = !demoMode;
   ui.run.disabled = true;
-  ui.sample.disabled = true;
   ui.runSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
   if (ui.optEcho.checked) startEcho(text);
@@ -220,7 +211,11 @@ async function startRun({ demoMode }) {
 }
 
 function newResult() {
-  return { status: 'pending', phase: 'pending', text: '', chars: 0, startedAt: 0, verdict: null, confidence: null, inspector: null, usage: null, cost: null, ms: null, searches: 0, renderAt: 0 };
+  return {
+    status: 'pending', phase: 'pending', text: '', reasoning: '', chars: 0, startedAt: 0,
+    verdict: null, verdictSource: 'none', confidence: null, inspector: null,
+    usage: null, cost: null, ms: null, trail: [], sources: [], incomplete: null, renderAt: 0,
+  };
 }
 
 function resetRunState() {
@@ -228,8 +223,9 @@ function resetRunState() {
   for (const id of state.timers) clearInterval(id);
   state.timers = [];
   Object.assign(state, {
-    phase: 'idle', claims: [], beyond: [], cards: [], results: [], batch: { start: 0, size: 0, done: 0 },
-    counts: { true: 0, false: 0, unverified: 0 }, tokens: 0, cost: 0, unpriced: false,
+    phase: 'idle', claims: [], claimsRaw: '', beyond: [], cards: [], results: [], extraction: null, echo: null,
+    batch: { start: 0, size: 0, done: 0 }, counts: { true: 0, false: 0, unverified: 0 }, unread: 0,
+    tokens: 0, cost: 0, unpriced: false,
     extractStartedAt: 0, extractChars: 0, found: 0, evalStartedAt: 0, status: { step1: null, step2: null },
   });
   ui.claimsList.replaceChildren();
@@ -237,11 +233,15 @@ function resetRunState() {
   ui.results.replaceChildren();
   ui.claims.hidden = true;
   ui.beyond.hidden = true;
+  ui.claimsRaw.hidden = true;
+  ui.claimsRaw.open = false;
   ui.scoreboard.hidden = true;
+  ui.export.hidden = true;
   ui.echo.hidden = true;
   ui.echoImg.hidden = true;
   ui.echoImg.removeAttribute('src');
   ui.echoShimmer.hidden = false;
+  ui.echoCap.hidden = true;
   setStep(ui.step1, 'idle'); setBar(ui.bar1, 0);
   setStep(ui.step2, 'idle'); setBar(ui.bar2, 0);
   setStatus('step1', null); setStatus('step2', null);
@@ -253,7 +253,6 @@ function resetAll() {
   resetRunState();
   ui.runSection.hidden = true;
   ui.run.disabled = false;
-  ui.sample.disabled = false;
   ui.source.value = '';
   updateSourceMeta();
   window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -290,14 +289,14 @@ async function runExtraction(text) {
       case 'claim': addClaim(ev.n, ev.text); break;
       case 'progress': state.extractChars = ev.chars; state.found = Math.max(state.found, ev.found || 0); setStatus('step1', 'step1.found', { n: state.found }); break;
       case 'retry': setStatus('step1', 'step1.retry'); break;
+      case 'phase': if (ev.phase === 'incomplete') toast(t('step1.incomplete'), { error: true, ms: 9000 }); break;
       case 'done': finished = true; finishExtraction(ev); break;
       case 'error': finished = true; failRun(ev); break;
       default: break;
     }
   };
   try {
-    if (state.demo) await demo.demoExtract({ text, onEvent, signal: state.abort.signal });
-    else await api.extract({ text, key: state.key, signal: state.abort.signal, onEvent });
+    await api.extract({ text, key: state.key, signal: state.abort.signal, onEvent });
     if (!finished && state.phase === 'extracting') failRun({ code: 'stream_ended', message: 'The connection closed before extraction finished.' });
   } catch (err) {
     if (err?.name !== 'AbortError') failRun(err);
@@ -329,14 +328,17 @@ function addClaim(n, text) {
 }
 
 function finishExtraction(ev) {
+  state.extraction = ev;
+  state.claimsRaw = ev.raw || '';
   const all = (ev.claims || []).map((c) => c.text).filter(Boolean);
   state.claims = all;
   const first = all.slice(0, MAX_CLAIMS);
   state.beyond = all.slice(MAX_CLAIMS).map((text, k) => ({ n: MAX_CLAIMS + k + 1, text, selected: false, tested: false }));
   ui.claimsList.replaceChildren(...first.map((text) => el('li', { text })));
-  ui.claims.hidden = all.length === 0;
+  ui.claims.hidden = all.length === 0 && !state.claimsRaw;
   renderClaimsHeadings();
   renderBeyond();
+  renderClaimsRaw();
   addCost(ev.cost);
 
   setStep(ui.step1, 'done');
@@ -346,7 +348,7 @@ function finishExtraction(ev) {
   if (!all.length) {
     state.phase = 'done';
     setStatus('step2', null);
-    ui.run.disabled = false; ui.sample.disabled = false;
+    ui.run.disabled = false;
     return;
   }
   runBatch(first); // the first 20 (or fewer) always run
@@ -356,6 +358,13 @@ function renderClaimsHeadings() {
   if (!state.claims.length) return;
   const first = Math.min(state.claims.length, MAX_CLAIMS);
   ui.claimsSub.textContent = state.beyond.length ? t('claims.testing', { n: first }) : t('claims.all', { n: first });
+}
+
+function renderClaimsRaw() {
+  if (!state.claimsRaw) { ui.claimsRaw.hidden = true; return; }
+  ui.claimsRaw.hidden = false;
+  ui.claimsRawSummary.textContent = t('claims.raw');
+  ui.claimsRawBody.textContent = state.claimsRaw;
 }
 
 // ---------- claims beyond the first 20: the reader chooses -------------------------------------
@@ -371,7 +380,11 @@ function renderBeyond() {
     box.checked = item.selected;
     box.disabled = item.tested || busy;
     box.addEventListener('change', () => { item.selected = box.checked; renderBeyondTools(); });
-    return el('li', { class: `selectable${item.tested ? ' is-tested' : ''}` }, [box, el('span', { class: 'claim-text', text: item.text }), item.tested ? el('span', { class: 'tag', text: t('claims.tested') }) : null]);
+    return el('li', { class: `selectable${item.tested ? ' is-tested' : ''}` }, [
+      box,
+      el('span', { class: 'claim-text', text: item.text }),
+      item.tested ? el('span', { class: 'tag', text: t('claims.tested') }) : null,
+    ]);
   }));
   renderBeyondTools();
 }
@@ -435,7 +448,7 @@ async function runBatch(claims) {
   setBar(ui.bar2, 0);
   setStatus('step2', 'step2.progress', { done: 0, total: claims.length });
   ui.scoreboard.hidden = false;
-  ui.run.disabled = true; ui.sample.disabled = true;
+  ui.run.disabled = true;
   renderScoreboard();
   renderBeyondTools();
   const newCards = claims.map((claim, k) => buildCard(claim, start + k));
@@ -446,8 +459,7 @@ async function runBatch(claims) {
   state.timers.push(tick);
   const onEvent = (ev) => handleEvalEvent(ev, (i) => start + i);
   try {
-    if (state.demo) await demo.demoEvaluate({ claims, onEvent, signal: state.abort.signal });
-    else await api.evaluate({ claims, key: state.key, signal: state.abort.signal, onEvent });
+    await api.evaluate({ claims, key: state.key, signal: state.abort.signal, onEvent });
     if (state.phase === 'evaluating') finishBatch({ ms: Date.now() - state.evalStartedAt });
   } catch (err) {
     if (err?.name !== 'AbortError') failRun(err);
@@ -470,9 +482,27 @@ function handleEvalEvent(ev, mapIndex) {
   const r = state.results[i];
   if (!r) return;
   switch (ev.t) {
-    case 'start': r.status = 'running'; r.phase = 'starting'; r.startedAt = Date.now(); r.text = ''; r.chars = 0; setCardState(i, 'running'); renderCardStatus(i); break;
-    case 'phase': if (ev.phase === 'incomplete') { r.incomplete = true; } else if (r.phase !== 'writing') { r.phase = ev.phase; renderCardStatus(i); } break;
-    case 'delta': r.text += ev.text; r.chars = r.text.length; if (r.phase !== 'writing') { r.phase = 'writing'; renderCardStatus(i); } scheduleEntryRender(i); break;
+    case 'start':
+      r.status = 'running'; r.phase = 'starting'; r.startedAt = Date.now(); r.text = ''; r.reasoning = ''; r.chars = 0;
+      r.trail = []; r.sources = [];
+      setCardState(i, 'running'); renderCardStatus(i);
+      break;
+    case 'phase':
+      if (ev.phase === 'incomplete') { r.incomplete = ev.reason || 'incomplete'; }
+      else if (r.phase !== 'writing') { r.phase = ev.phase; renderCardStatus(i); }
+      break;
+    case 'reasoning':
+      r.reasoning += ev.text;
+      if (r.phase !== 'writing') { r.phase = 'reasoning'; renderCardStatus(i); }
+      break;
+    case 'delta':
+      r.text += ev.text; r.chars = r.text.length;
+      if (r.phase !== 'writing') { r.phase = 'writing'; renderCardStatus(i); }
+      scheduleEntryRender(i);
+      break;
+    case 'trail': r.trail.push(ev.step); renderCardStatus(i); break;
+    case 'source': r.sources.push(ev.source); break;
+    case 'note': if (ev.code === 'no_reasoning_summary') r.noSummary = true; break;
     case 'retry': r.phase = 'retry'; r.retryAttempt = ev.attempt; renderCardStatus(i); break;
     case 'done': finalizeCard(i, ev); break;
     case 'error': r.status = 'error'; r.phase = 'error'; r.error = ev.message; setCardState(i, 'error'); renderCardStatus(i); renderCardError(i); break;
@@ -485,7 +515,7 @@ function finishBatch(ev) {
   setStep(ui.step2, 'done');
   setBar(ui.bar2, 1, { done: true });
   setStatus('step2', 'step2.done', { total: state.batch.size, time: fmtSeconds(ev.ms || Date.now() - state.evalStartedAt) });
-  ui.run.disabled = false; ui.sample.disabled = false;
+  ui.run.disabled = false;
   renderScoreboard();
   renderBeyondTools();
 }
@@ -498,11 +528,11 @@ function failRun(err) {
   else if (code === 'prompt_missing') message = t('errors.prompt');
   else if (err instanceof TypeError) message = t('errors.server');
   else message = t('errors.generic', { message: err?.message || code || '' });
-  toast(message, { error: true, ms: 7000 });
+  toast(message, { error: true, ms: 9000 });
   if (state.phase === 'extracting') { setStep(ui.step1, 'idle'); setStatus('step1', null); setBar(ui.bar1, 0); }
   if (state.phase === 'evaluating') { setStatus('step2', 'step2.stopped'); }
   state.phase = 'done';
-  ui.run.disabled = false; ui.sample.disabled = false;
+  ui.run.disabled = false;
   renderBeyondTools();
 }
 
@@ -540,6 +570,12 @@ function buildCard(claim, i) {
   $('.btn-challenge', node).addEventListener('click', () => toggleChallenge(i));
   $('.btn-retry', node).textContent = t('card.retryBtn');
   $('.btn-retry', node).addEventListener('click', () => retryClaim(i));
+  const copy = $('.btn-copy', node);
+  copy.textContent = t('card.copy');
+  copy.addEventListener('click', async () => {
+    const ok = await copyText(state.results[i]?.text || '');
+    toast(t(ok ? 'card.copied' : 'card.copyFailed'), { error: !ok });
+  });
   wireChallengeForm(node, i);
   return node;
 }
@@ -554,8 +590,11 @@ function renderCardStatus(i) {
   const r = state.results[i];
   const card = cardOf(i);
   const map = { pending: 'card.pending', starting: 'card.starting', reasoning: 'card.reasoning', searching: 'card.searching', writing: 'card.writing', error: 'card.error' };
-  const key = r.phase === 'retry' ? 'card.retry' : map[r.phase] || 'card.pending';
-  $('.card-status', card).textContent = t(key, { n: r.retryAttempt || 1 });
+  let text;
+  if (r.phase === 'retry') text = t('card.retry', { n: r.retryAttempt || 1 });
+  else if (r.phase === 'searching' && r.trail.length) text = t('card.searchingN', { n: r.trail.length });
+  else text = t(map[r.phase] || 'card.pending');
+  $('.card-status', card).textContent = text;
 }
 
 function scheduleEntryRender(i) {
@@ -569,7 +608,7 @@ function renderEntry(i) {
   const r = state.results[i];
   r.renderAt = Date.now();
   const entry = $('.entry', cardOf(i));
-  entry.innerHTML = renderMarkdown(r.text);
+  entry.innerHTML = renderMarkdown(r.text); // the complete text, never a slice of it
   entry.hidden = false;
 }
 
@@ -577,37 +616,96 @@ function finalizeCard(i, ev) {
   const r = state.results[i];
   if (r.renderTimer) { clearTimeout(r.renderTimer); r.renderTimer = null; }
   Object.assign(r, {
-    status: 'done', phase: 'done', text: ev.text || r.text, verdict: ev.verdict || 'unverified', confidence: ev.confidence ?? null,
-    inspector: ev.inspector || null, usage: ev.usage || null, cost: ev.cost || null, ms: ev.ms ?? null, searches: ev.searches || 0,
+    status: 'done', phase: 'done',
+    text: ev.text || r.text,
+    reasoning: ev.reasoning || r.reasoning || '',
+    verdict: ev.verdict || null, verdictSource: ev.verdictSource || 'none',
+    confidence: ev.confidence ?? null, inspector: ev.inspector || null,
+    usage: ev.usage || null, cost: ev.cost || null, ms: ev.ms ?? null,
+    trail: ev.trail?.length ? ev.trail : r.trail, sources: ev.sources?.length ? ev.sources : r.sources,
+    incomplete: ev.incomplete || r.incomplete || null,
   });
   const card = cardOf(i);
-  card.classList.remove('verdict-true', 'verdict-false', 'verdict-unverified');
-  card.classList.add(`verdict-${r.verdict}`);
+  card.classList.remove('verdict-true', 'verdict-false', 'verdict-unverified', 'verdict-unread');
+  card.classList.add(`verdict-${r.verdict || 'unread'}`);
   card.dataset.state = 'done';
   renderEntry(i);
   renderBadge(i);
+  renderCardDetail(i);
+  renderCardNote(i);
   renderCardFoot(i);
-  if (r.incomplete) toast(t('card.incomplete'));
 
-  state.counts[r.verdict] = (state.counts[r.verdict] || 0) + 1;
+  if (r.verdict) state.counts[r.verdict] = (state.counts[r.verdict] || 0) + 1;
+  else state.unread++;
   if (r.usage) state.tokens += (r.usage.input || 0) + (r.usage.output || 0);
   addCost(r.cost);
   renderScoreboard(r.verdict);
+  ui.export.hidden = false;
+  ui.export.textContent = t('run.export');
 }
 
 function renderBadge(i) {
   const r = state.results[i];
   const card = cardOf(i);
   const badge = $('.badge', card);
-  if (!r.verdict) { badge.hidden = true; return; }
-  $('.badge-glyph', badge).textContent = GLYPH[r.verdict] || '';
-  $('.badge-text', badge).textContent = t(`score.${r.verdict}`);
+  const kind = r.verdict || 'unread';
+  $('.badge-glyph', badge).textContent = GLYPH[kind] || '';
+  $('.badge-text', badge).textContent = r.verdict ? t(`score.${r.verdict}`) : t('card.verdictUnread');
   badge.hidden = false;
   let conf = $('.conf', card);
   if (r.confidence !== null && r.confidence !== undefined) {
     if (!conf) { conf = el('span', { class: 'hint conf' }); $('.card-verdict', card).prepend(conf); }
     conf.textContent = t('card.confidence', { n: r.confidence });
   } else if (conf) conf.remove();
+}
+
+/** Anything the run produced that is not the entry itself: reasoning, searches, sources, raw text. */
+function renderCardDetail(i) {
+  const r = state.results[i];
+  const card = cardOf(i);
+  const detail = $('.card-detail', card);
+  detail.hidden = false;
+
+  const reasoning = $('.card-reasoning', card);
+  if (r.reasoning) {
+    reasoning.hidden = false;
+    $('.raw-summary', reasoning).textContent = t('card.details.reasoning');
+    $('.reasoning-body', reasoning).textContent = r.reasoning;
+  } else reasoning.hidden = true;
+
+  const trail = $('.card-trail', card);
+  if (r.trail?.length) {
+    trail.hidden = false;
+    $('.raw-summary', trail).textContent = t('card.details.trail', { n: r.trail.length });
+    $('.trail-list', trail).replaceChildren(...r.trail.map((s) => {
+      const what = s.query ? `“${s.query}”` : s.url || s.pattern || s.kind;
+      return el('li', {}, [el('span', { class: 'trail-kind mono', text: s.kind || 'search' }), el('span', { text: what })]);
+    }));
+  } else trail.hidden = true;
+
+  const sources = $('.card-sources', card);
+  if (r.sources?.length) {
+    sources.hidden = false;
+    $('.raw-summary', sources).textContent = t('card.details.sources', { n: r.sources.length });
+    $('.sources-list', sources).replaceChildren(...r.sources.map((s) =>
+      el('li', {}, [el('a', { href: s.url, target: '_blank', rel: 'noopener', text: s.title || s.url })])));
+  } else sources.hidden = true;
+
+  const raw = $('.card-raw', card);
+  $('.raw-summary', raw).textContent = t('card.details.raw', { n: fmtNumber(r.text.length) });
+  $('.raw-entry', raw).textContent = r.text;
+}
+
+function renderCardNote(i) {
+  const r = state.results[i];
+  const card = cardOf(i);
+  const note = $('.card-note', card);
+  const parts = [];
+  if (!r.verdict) parts.push(t('card.noteUnread'));
+  if (r.incomplete) parts.push(t('card.noteIncomplete', { reason: r.incomplete }));
+  if (r.noSummary) parts.push(t('card.noteNoSummary'));
+  note.textContent = parts.join(' ');
+  note.hidden = parts.length === 0;
 }
 
 function renderCardFoot(i) {
@@ -624,13 +722,13 @@ function renderCardFoot(i) {
   if (state.accounting && r.status === 'done') {
     const parts = [];
     if (r.cost) parts.push(r.cost.priced ? t('card.cost', { usd: fmtUsd(r.cost.usd) }) : t('card.costUnknown'));
-    if (r.searches) parts.push(t('card.searches', { n: r.searches }));
+    if (r.trail?.length) parts.push(t('card.searches', { n: r.trail.length }));
     if (r.ms) parts.push(fmtSeconds(r.ms));
     costNode.textContent = parts.join(' · ');
     costNode.hidden = false;
-  } else {
-    costNode.hidden = true;
-  }
+  } else costNode.hidden = true;
+  $('.btn-copy', card).textContent = t('card.copy');
+  $('.btn-copy', card).hidden = r.status !== 'done';
   $('.btn-challenge', card).textContent = t('card.challenge');
   $('.btn-retry', card).hidden = r.status !== 'error';
 }
@@ -644,6 +742,7 @@ function renderCardError(i) {
   const foot = $('.card-foot', card);
   foot.hidden = false;
   $('.btn-challenge', card).hidden = true;
+  $('.btn-copy', card).hidden = true;
   $('.btn-retry', card).hidden = false;
   $('.btn-retry', card).textContent = t('card.retryBtn');
 }
@@ -656,7 +755,7 @@ async function retryClaim(i) {
   $('.btn-retry', card).hidden = true;
   $('.btn-challenge', card).hidden = false;
   $('.card-foot', card).hidden = true;
-  Object.assign(r, { status: 'running', phase: 'starting', startedAt: Date.now(), text: '', chars: 0, error: null });
+  Object.assign(r, { status: 'running', phase: 'starting', startedAt: Date.now(), text: '', reasoning: '', chars: 0, error: null, trail: [], sources: [] });
   setCardState(i, 'running');
   renderCardStatus(i);
   const tick = setInterval(() => {
@@ -668,8 +767,7 @@ async function retryClaim(i) {
   const controller = state.abort || new AbortController();
   const onEvent = (ev) => { if (ev.t === 'batch-progress' || ev.t === 'complete' || ev.t === 'batch-start') return; handleEvalEvent(ev, () => i); };
   try {
-    if (state.demo) await demo.demoEvaluate({ claims: [state.cards[i]], onEvent, signal: controller.signal });
-    else await api.evaluate({ claims: [state.cards[i]], key: state.key, signal: controller.signal, onEvent });
+    await api.evaluate({ claims: [state.cards[i]], key: state.key, signal: controller.signal, onEvent });
   } catch (err) {
     if (err?.name !== 'AbortError') { r.status = 'error'; r.phase = 'error'; r.error = err.message; setCardState(i, 'error'); renderCardStatus(i); renderCardError(i); }
   } finally {
@@ -678,7 +776,7 @@ async function retryClaim(i) {
   }
 }
 
-// ---------- scoreboard ------------------------------------------------------------------------
+// ---------- scoreboard and export ---------------------------------------------------------------
 
 function renderScoreboard(bumped) {
   ui.scoreTrue.textContent = fmtNumber(state.counts.true);
@@ -686,10 +784,48 @@ function renderScoreboard(bumped) {
   ui.scoreUnv.textContent = fmtNumber(state.counts.unverified);
   const done = state.results.filter((r) => r.status === 'done').length;
   ui.scoreTested.textContent = `${done}/${state.cards.length || Math.min(MAX_CLAIMS, state.claims.length || MAX_CLAIMS)}`;
+  ui.scoreUnreadWrap.hidden = state.unread === 0;
+  ui.scoreUnread.textContent = fmtNumber(state.unread);
   ui.scoreTokens.textContent = fmtCompact(state.tokens);
   ui.scoreInternal.hidden = !state.accounting;
   ui.scoreCost.textContent = fmtUsd(state.cost) + (state.unpriced ? '+' : '');
   if (bumped) bump({ true: ui.scoreTrue, false: ui.scoreFalse, unverified: ui.scoreUnv }[bumped]);
+}
+
+/** The whole run, in full, as one Markdown file: every entry, every source, every number. */
+function exportRun() {
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+  const lines = [
+    `# CIVIC run — ${new Date().toLocaleString()}`,
+    '',
+    `Claims extracted: ${state.claims.length}. Tested: ${state.results.filter((r) => r.status === 'done').length}.`,
+    `True ${state.counts.true} · False ${state.counts.false} · Unverified ${state.counts.unverified}` + (state.unread ? ` · verdict unread ${state.unread}` : ''),
+    state.accounting ? `Tokens ${state.tokens}. Estimated cost ${fmtUsd(state.cost)}${state.unpriced ? '+' : ''}.` : '',
+    '',
+    '## Source',
+    '',
+    '```', state.source, '```',
+    '',
+    '## Extraction output (verbatim)',
+    '',
+    '```', state.claimsRaw || '(not captured)', '```',
+    '',
+    '## Determinations',
+    '',
+  ];
+  state.results.forEach((r, i) => {
+    lines.push(`### ${i + 1}. ${state.cards[i]}`, '');
+    lines.push(`**Verdict:** ${r.verdict ? t(`score.${r.verdict}`) : t('card.verdictUnread')}` + (r.confidence != null ? ` · ${r.confidence}%` : '') + (r.inspector ? ` · ${r.inspector}` : ''), '');
+    if (r.incomplete) lines.push(`> Output ended early: ${r.incomplete}`, '');
+    lines.push(r.text || `(${r.error || 'no output'})`, '');
+    if (r.reasoning) lines.push('#### Reasoning summary', '', r.reasoning, '');
+    if (r.trail?.length) lines.push('#### Search trail', '', ...r.trail.map((s) => `- ${s.kind}: ${s.query || s.url || s.pattern || ''}`), '');
+    if (r.sources?.length) lines.push('#### Sources cited', '', ...r.sources.map((s) => `- [${s.title}](${s.url})`), '');
+    if (state.accounting && r.usage) lines.push(`_tokens in ${r.usage.input} / out ${r.usage.output} (reasoning ${r.usage.reasoning}) · ${r.cost?.priced ? fmtUsd(r.cost.usd) : 'price unknown'} · ${fmtSeconds(r.ms || 0)}_`, '');
+    lines.push('---', '');
+  });
+  download(`civic-run-${stamp}.md`, lines.join('\n'), 'text/markdown');
+  toast(t('run.exported'));
 }
 
 // ---------- challenge -------------------------------------------------------------------------
@@ -739,8 +875,7 @@ function wireChallengeForm(card, i) {
     submit.disabled = true;
     try {
       // Every step runs for real; the server withholds only the final call to OpenAI.
-      if (state.demo) await demo.demoChallenge({ signal: state.abort?.signal });
-      else await api.challenge({ key: state.key, claim: state.cards[i], verdict: r?.verdict, originalEntry: r?.text, message, files });
+      await api.challenge({ key: state.key, claim: state.cards[i], verdict: r?.verdict, originalEntry: r?.text, message, files });
       files.length = 0;
       $('.challenge-text', form).value = '';
       closeChallenge(i, { clear: true });
@@ -770,15 +905,24 @@ async function startEcho(text) {
   ui.echo.hidden = false;
   ui.echoShimmer.hidden = false;
   ui.echoImg.hidden = true;
+  ui.echoCap.hidden = true;
   const signal = state.abort.signal;
   try {
-    const r = state.demo ? await demo.demoIllustrate({ signal }) : await api.illustrate({ text, key: state.key, signal });
+    const r = await api.illustrate({ text, key: state.key, signal });
     if (signal.aborted) return;
     const src = r?.dataUrl || r?.url;
     if (!src) { ui.echo.hidden = true; return; }
+    state.echo = r;
     addCost(r.cost);
     renderScoreboard();
-    ui.echoImg.onload = () => { ui.echoShimmer.hidden = true; ui.echoImg.hidden = false; };
+    ui.echoImg.onload = () => {
+      ui.echoShimmer.hidden = true;
+      ui.echoImg.hidden = false;
+      if (state.accounting) {
+        ui.echoCap.textContent = `${r.model || ''} · ${fmtSeconds(r.ms || 0)}`;
+        ui.echoCap.hidden = false;
+      }
+    };
     ui.echoImg.src = src;
   } catch {
     if (!signal.aborted) ui.echo.hidden = true;
@@ -796,13 +940,14 @@ function refreshDynamicText() {
   ui.step2Title.textContent = state.batch.start > 0 ? t('step2.more', { n: state.batch.size }) : t('step2.title', { n: state.batch.size || MAX_CLAIMS });
   renderClaimsHeadings();
   renderBeyond();
+  renderClaimsRaw();
   renderScoreboard();
+  if (!ui.export.hidden) ui.export.textContent = t('run.export');
   state.results.forEach((r, i) => {
-    if (r.status === 'done') { renderBadge(i); renderCardFoot(i); } else { renderCardStatus(i); }
-    if (r.status === 'error') { renderCardError(i); }
-    const form = $('.challenge', cardOf(i));
-    form?.relabel?.();
-    $('.btn-challenge', cardOf(i)).textContent = t('card.challenge');
+    if (r.status === 'done') { renderBadge(i); renderCardDetail(i); renderCardNote(i); renderCardFoot(i); }
+    else renderCardStatus(i);
+    if (r.status === 'error') renderCardError(i);
+    $('.challenge', cardOf(i))?.relabel?.();
   });
 }
 

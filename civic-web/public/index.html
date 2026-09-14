@@ -17,7 +17,7 @@
 
 <header class="masthead">
   <a class="brand" href="./" aria-label="CIVIC">
-    <img class="brand-mark" src="assets/civic-logo.png" alt="CIVIC" width="56" height="56">
+    <img class="brand-mark" src="assets/civic-logo.png" alt="CIVIC" width="62" height="62">
     <span class="brand-tag" data-i18n="app.tagline">Truth, verified.</span>
   </a>
   <nav class="masthead-nav" aria-label="Account">
@@ -86,12 +86,11 @@
         <span class="hint mono" id="source-meta"></span>
       </div>
       <div class="intake-right">
-        <label class="check" title="A quick symbolic image of the document, made on your key while it runs." data-i18n-title="intake.echoHint"><input type="checkbox" id="opt-echo" checked><span data-i18n="intake.echo">Visual echo</span></label>
+        <label class="check" title="A symbolic photograph of the document, art-directed and drawn on your key while it runs." data-i18n-title="intake.echoHint"><input type="checkbox" id="opt-echo" checked><span data-i18n="intake.echo">Visual echo</span></label>
       </div>
     </div>
     <div class="intake-go">
       <button type="button" class="btn btn-primary btn-large" id="btn-run" data-i18n="intake.run">Test the facts</button>
-      <button type="button" class="btn btn-text" id="btn-sample" data-i18n="intake.sample">Watch a sample run</button>
     </div>
   </section>
 
@@ -117,14 +116,14 @@
           </div>
           <div class="bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="bar-eval"><i></i></div>
         </div>
-        <p class="demo-note" id="demo-note" hidden><span class="chip chip-demo" data-i18n="demo.badge">Sample data</span> <span data-i18n="demo.note">This is a sample run with placeholder results. Add a key to test real text.</span></p>
       </div>
 
       <figure class="echo" id="echo" hidden>
         <div class="echo-frame">
-          <img id="echo-img" alt="Symbolic illustration of the document" data-i18n-alt="echo.alt" hidden>
-          <div class="echo-shimmer" id="echo-shimmer"><span data-i18n="echo.making">Sketching what this is about…</span></div>
+          <img id="echo-img" alt="Symbolic photograph of the document" data-i18n-alt="echo.alt" hidden>
+          <div class="echo-shimmer" id="echo-shimmer"><span data-i18n="echo.making">Composing the frame…</span></div>
         </div>
+        <figcaption class="echo-cap mono" id="echo-cap" hidden></figcaption>
       </figure>
     </div>
 
@@ -145,6 +144,10 @@
         <p class="hint claims-beyond-hint" id="claims-beyond-hint"></p>
         <ol class="claims-list is-beyond" id="claims-beyond-list" start="21"></ol>
       </div>
+      <details class="raw" id="claims-raw" hidden>
+        <summary class="raw-summary" id="claims-raw-summary"></summary>
+        <pre class="raw-body" id="claims-raw-body"></pre>
+      </details>
     </section>
 
     <div class="scoreboard glass" id="scoreboard" hidden>
@@ -153,10 +156,14 @@
       <div class="score score-unverified"><span class="score-n" id="score-unverified">0</span><span class="score-l"><svg class="icon" viewBox="0 0 20 20" aria-hidden="true"><path d="M7.5 7.5a2.5 2.5 0 1 1 3.6 2.2c-.7.4-1.1.9-1.1 1.8M10 15h.01" stroke="currentColor" stroke-width="2.2" fill="none" stroke-linecap="round"/></svg><span data-i18n="score.unverified">Unverified</span></span></div>
       <div class="score-meta">
         <span><span data-i18n="score.tested">Tested</span> <b class="mono" id="score-tested">0/20</b></span>
+        <span id="score-unread-wrap" hidden><span data-i18n="score.unread">Verdict unread</span> <b class="mono" id="score-unread">0</b></span>
         <span><span data-i18n="score.tokens">Tokens</span> <b class="mono" id="score-tokens">0</b></span>
         <span class="score-internal" id="score-internal" hidden><span class="chip chip-internal" data-i18n="score.internal">Internal</span> <span data-i18n="score.cost">Est. cost</span> <b class="mono" id="score-cost">$0.00</b></span>
       </div>
-      <button type="button" class="btn btn-outline btn-small" id="btn-reset-top" data-i18n="reset">Start a new test</button>
+      <div class="scoreboard-actions">
+        <button type="button" class="btn btn-text btn-small" id="btn-export" hidden></button>
+        <button type="button" class="btn btn-outline btn-small" id="btn-reset-top" data-i18n="reset">Start a new test</button>
+      </div>
     </div>
 
     <div class="results" id="results"></div>
@@ -190,11 +197,31 @@
       <div class="bar bar-thin" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i></i></div>
       <span class="card-status"></span>
     </div>
+    <p class="card-note" hidden></p>
     <div class="entry prose" hidden></div>
+    <div class="card-detail" hidden>
+      <details class="raw card-reasoning" hidden>
+        <summary class="raw-summary"></summary>
+        <pre class="raw-body reasoning-body"></pre>
+      </details>
+      <details class="raw card-trail" hidden>
+        <summary class="raw-summary"></summary>
+        <ol class="trail-list"></ol>
+      </details>
+      <details class="raw card-sources" hidden>
+        <summary class="raw-summary"></summary>
+        <ol class="sources-list"></ol>
+      </details>
+      <details class="raw card-raw">
+        <summary class="raw-summary"></summary>
+        <pre class="raw-body raw-entry"></pre>
+      </details>
+    </div>
     <footer class="card-foot" hidden>
       <span class="card-inspector"></span>
       <span class="card-tokens mono"></span>
       <span class="card-cost mono" hidden></span>
+      <button type="button" class="btn btn-small btn-text btn-copy"></button>
       <button type="button" class="btn btn-small btn-outline btn-challenge"></button>
       <button type="button" class="btn btn-small btn-text btn-retry" hidden></button>
     </footer>

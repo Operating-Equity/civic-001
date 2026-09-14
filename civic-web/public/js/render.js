@@ -70,6 +70,37 @@ export function easeTime(elapsedMs, scaleMs, cap) {
   return cap * (1 - Math.exp(-elapsedMs / scaleMs));
 }
 
+/** Hands the reader a file. Served from your own origin, so a normal download link works. */
+export function download(filename, text, type = 'text/plain') {
+  const blob = new Blob([text], { type: `${type};charset=utf-8` });
+  const url = URL.createObjectURL(blob);
+  const a = el('a', { href: url, download: filename });
+  document.body.append(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+}
+
+export async function copyText(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    // Clipboard API needs a secure context; fall back to a hidden textarea.
+    try {
+      const ta = el('textarea', { class: 'visually-hidden' });
+      ta.value = text;
+      document.body.append(ta);
+      ta.select();
+      const ok = document.execCommand('copy');
+      ta.remove();
+      return ok;
+    } catch {
+      return false;
+    }
+  }
+}
+
 export function bump(node) {
   node.classList.remove('is-bump');
   void node.offsetWidth;

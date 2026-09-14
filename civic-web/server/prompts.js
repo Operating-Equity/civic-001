@@ -1,6 +1,10 @@
 // The prompt vault. This is the only module that touches prompt text.
 // Rules: prompts are read once at startup, kept in module scope, never logged,
 // never serialised into any response, and never handed to the static file server.
+//
+// The prompts are sent to OpenAI VERBATIM. Nothing is prepended, appended, or injected.
+// The claim is substituted for {{CLAIM}} exactly as extracted. The verdict is read out of
+// the model's own Conclusion section afterwards, not requested by an added instruction.
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -44,38 +48,24 @@ export function hasPrompt(name) {
   return vault.has(name);
 }
 
-/** Extraction instructions (no placeholders). */
+/** Extraction instructions (no placeholders), verbatim. */
 export function extractionInstructions() {
   return vault.get('extract');
 }
 
-/** Evaluation prompt with the claim substituted. */
+/** Evaluation prompt with the claim substituted. Nothing else is changed. */
 export function evaluationPrompt(claim) {
-  const template = vault.get('evaluate');
-  return template.split('{{CLAIM}}').join(sanitizeClaim(claim));
+  return vault.get('evaluate').split('{{CLAIM}}').join(String(claim).trim());
 }
 
 /** Challenge prompt with all placeholders substituted. Only used once certified. */
 export function challengePrompt({ claim, verdict, originalEntry, challenge }) {
-  const template = vault.get('challenge');
-  return template
-    .split('{{CLAIM}}').join(sanitizeClaim(claim))
+  return vault.get('challenge')
+    .split('{{CLAIM}}').join(String(claim).trim())
     .split('{{VERDICT}}').join(String(verdict || ''))
     .split('{{ORIGINAL_ENTRY}}').join(String(originalEntry || ''))
     .split('{{CHALLENGE}}').join(String(challenge || ''));
 }
-
-function sanitizeClaim(claim) {
-  return String(claim).replace(/\s+/g, ' ').trim();
-}
-
-// Small developer-side addition so the verdict is machine-readable without altering the
-// author's prompt. The tag line is stripped before the entry is shown to the reader.
-export const VERDICT_TAG_INSTRUCTION =
-  'Follow the user\'s instructions exactly and in full. After the final numbered section, ' +
-  'add one last line on its own, exactly in this form and in English regardless of the language ' +
-  'of the rest of your answer: "VERDICT: True" or "VERDICT: False" or "VERDICT: Unverified". ' +
-  'Use "Unverified" whenever your conclusion is Uncertain, unknown, or cannot be established.';
 
 // Guard: make absolutely sure the process never prints prompt text by accident.
 for (const name of NAMES) {

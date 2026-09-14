@@ -35,7 +35,7 @@ export function describeError(err) {
   const status = err?.status ?? err?.statusCode ?? 500;
   const code = err?.code || err?.error?.code || err?.error?.type || 'openai_error';
   let message = err?.error?.message || err?.message || 'The request to OpenAI failed.';
-  message = String(message).slice(0, 400);
+  message = String(message).slice(0, 2000);
   if (status === 401) return new ApiError(401, 'invalid_key', 'OpenAI rejected the API key.');
   if (status === 429) return new ApiError(429, code, 'OpenAI rate limit or quota reached. ' + message);
   if (status === 404 && /model/i.test(message)) return new ApiError(404, 'model_not_found', message);

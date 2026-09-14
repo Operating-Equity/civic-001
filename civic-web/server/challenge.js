@@ -3,7 +3,7 @@
 // challenge prompt is certified (config.challengeEnabled).
 import path from 'node:path';
 import { config } from './config.js';
-import { hasPrompt, challengePrompt, VERDICT_TAG_INSTRUCTION } from './prompts.js';
+import { hasPrompt, challengePrompt } from './prompts.js';
 import { fileToText } from './documents.js';
 import { ApiError, clientFor, usageOf } from './openai.js';
 import { parseEntry } from './evaluate.js';
@@ -50,11 +50,10 @@ export async function buildChallengeInput({ claim, verdict, originalEntry, messa
     request: promptText
       ? {
           model: config.evalModels[0],
-          instructions: VERDICT_TAG_INSTRUCTION,
           input: [{ role: 'user', content: [{ type: 'input_text', text: promptText }, ...content] }],
           reasoning: { effort: config.evalEffort },
           tools: config.evalWebSearch ? [{ type: 'web_search' }] : undefined,
-          max_output_tokens: config.evalMaxOutputTokens,
+          ...(config.evalMaxOutputTokens > 0 ? { max_output_tokens: config.evalMaxOutputTokens } : {}),
           store: false,
         }
       : null,

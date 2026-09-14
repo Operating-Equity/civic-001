@@ -20,12 +20,9 @@ export function parseNumberedList(text) {
   return items.map((it) => ({ n: it.n, text: cleanClaim(it.text), open: !!it.open }));
 }
 
+// The claim is the model's wording. Only the surrounding whitespace is removed.
 function cleanClaim(s) {
-  return String(s)
-    .replace(/\s+/g, ' ')
-    .replace(/^\*\*|\*\*$/g, '')
-    .replace(/^["“]\s*|\s*["”]$/g, '')
-    .trim();
+  return String(s).trim();
 }
 
 export async function runExtraction({ apiKey, text, send, signal }) {
@@ -35,21 +32,22 @@ export async function runExtraction({ apiKey, text, send, signal }) {
   let emitted = 0;
   const started = Date.now();
 
-  const attempt = (model) => client.responses.create(
-    {
+  const attempt = (model) => {
+    const body = {
       model,
-      instructions,
+      instructions, // the extraction prompt, verbatim
       input: [{ role: 'user', content: [{ type: 'input_text', text }] }],
       reasoning: { effort: config.extractEffort },
-      max_output_tokens: config.extractMaxOutputTokens,
       stream: true,
       store: false,
-    },
-    { signal },
-  );
+    };
+    if (config.extractMaxOutputTokens > 0) body.max_output_tokens = config.extractMaxOutputTokens;
+    return client.responses.create(body, { signal });
+  };
 
   let usage = null;
   let modelUsed = null;
+  let incomplete = null;
   for (let tries = 0; ; tries++) {
     try {
       full = '';
@@ -72,6 +70,10 @@ export async function runExtraction({ apiKey, text, send, signal }) {
             send({ t: 'progress', chars: full.length, found: Math.max(emitted, items.length) });
           } else if (event.type === 'response.completed') {
             usage = usageOf(event.response);
+          } else if (event.type === 'response.incomplete') {
+            usage = usageOf(event.response);
+            incomplete = event.response?.incomplete_details?.reason || 'incomplete';
+            send({ t: 'phase', phase: 'incomplete', reason: incomplete });
           } else if (event.type === 'response.failed' || event.type === 'error') {
             const e = new Error(event.response?.error?.message || event.message || 'extraction failed');
             e.status = 502;
@@ -101,7 +103,8 @@ export async function runExtraction({ apiKey, text, send, signal }) {
   const ms = Date.now() - started;
   const cost = estimateTextCost({ model: modelUsed, usage });
   record({ kind: 'extract', model: modelUsed, effort: config.extractEffort, chars: text.length, claims: claims.length, usage, ms, usd: cost.usd, priced: cost.priced });
-  const result = { t: 'done', total: claims.length, limit: config.maxClaims, claims, model: modelUsed, usage, ms, cost };
+  // `raw` is the model's complete extraction output, exactly as returned, so it can be inspected.
+  const result = { t: 'done', total: claims.length, limit: config.maxClaims, claims, raw: full, model: modelUsed, usage, ms, cost, incomplete };
   send(result);
   return result;
 }
