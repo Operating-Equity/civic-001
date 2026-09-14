@@ -15,6 +15,7 @@ const KEY_HEADER = 'x-openai-key';
 /** Reads and loosely validates the reader's key. Never logged. */
 export function keyFromRequest(req) {
   const key = String(req.get(KEY_HEADER) || '').trim();
+  if (!key && config.serverKey) return config.serverKey;
   if (!key) throw new ApiError(401, 'missing_key', 'An OpenAI API key is required.');
   if (!/^sk-[A-Za-z0-9_\-]{20,}$/.test(key)) throw new ApiError(401, 'malformed_key', 'That does not look like an OpenAI API key.');
   return key;

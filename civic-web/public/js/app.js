@@ -1,25 +1,30 @@
-// CIVIC main page. One state machine: idle → extracting → (review) → evaluating → done.
-import { t, setLocale, initLocale, LOCALES, currentLocale, fmtNumber, fmtCompact, fmtSeconds } from './i18n.js';
+// CIVIC main page. One state machine: idle → extracting → evaluating → done.
+// The first 20 claims always run. Claims beyond 20 run only when the reader selects them,
+// which re-enters "evaluating" for that batch.
+import { t, setLocale, initLocale, LOCALES, currentLocale, fmtNumber, fmtCompact, fmtSeconds, fmtUsd } from './i18n.js';
 import * as api from './api.js';
 import * as demo from './demo.js';
 import { $, $$, el, renderMarkdown, setBar, toast, easeChars, easeTime, bump } from './render.js';
 
-const MAX_CLAIMS = 20;
+const MAX_CLAIMS = 20; // the automatic run; anything beyond is the reader's explicit choice
 const GLYPH = { true: '✓', false: '✕', unverified: '?' };
 
 const state = {
   phase: 'idle',
   demo: false,
   key: '',
-  server: null,       // /api/health payload, or null when no server answers (static preview)
+  server: null,        // /api/health payload, or null when no server answers (static preview)
+  accounting: true,    // operator view: tokens and estimated cost per claim
   source: '',
   claims: [],
-  tested: [],
-  beyond: [],
+  beyond: [],          // { n, text, selected, tested }
+  cards: [],           // claims that have cards, in card order: the first 20, then chosen extras
   results: [],
+  batch: { start: 0, size: 0, done: 0 },
   counts: { true: 0, false: 0, unverified: 0 },
   tokens: 0,
-  completed: 0,
+  cost: 0,
+  unpriced: false,
   abort: null,
   timers: [],
   extractStartedAt: 0,
@@ -35,14 +40,16 @@ function cacheElements() {
     keystrip: $('#keystrip'), keyForm: $('#key-form'), keyInput: $('#key-input'), keyRemember: $('#key-remember'), keyHint: $('#key-hint'),
     keyOpen: $('#btn-key-open'), keyChange: $('#btn-key-change'), keyRemove: $('#btn-key-remove'), keyCancel: $('#btn-key-cancel'), keyToggle: $('#btn-key-toggle'),
     source: $('#source-text'), sourceFile: $('#source-file'), sourceMeta: $('#source-meta'),
-    optReview: $('#opt-review'), optEcho: $('#opt-echo'), run: $('#btn-run'), sample: $('#btn-sample'),
+    optEcho: $('#opt-echo'), run: $('#btn-run'), sample: $('#btn-sample'),
     runSection: $('#run'), demoNote: $('#demo-note'),
     step1: $('#step-extract'), step1Status: $('#step1-status'), bar1: $('#bar-extract'),
     step2: $('#step-eval'), step2Title: $('#step2-title'), step2Status: $('#step2-status'), bar2: $('#bar-eval'),
     echo: $('#echo'), echoImg: $('#echo-img'), echoShimmer: $('#echo-shimmer'),
-    claims: $('#claims'), claimsSub: $('#claims-sub'), claimsList: $('#claims-list'), beyond: $('#claims-beyond'), beyondTitle: $('#claims-beyond-title'), beyondList: $('#claims-beyond-list'),
-    confirmWrap: $('#claims-confirm'), confirm: $('#btn-confirm'),
+    claims: $('#claims'), claimsSub: $('#claims-sub'), claimsList: $('#claims-list'),
+    beyond: $('#claims-beyond'), beyondTitle: $('#claims-beyond-title'), beyondList: $('#claims-beyond-list'), beyondHint: $('#claims-beyond-hint'),
+    selectAll: $('#btn-select-all'), testSelected: $('#btn-test-selected'),
     scoreboard: $('#scoreboard'), scoreTrue: $('#score-true'), scoreFalse: $('#score-false'), scoreUnv: $('#score-unverified'), scoreTested: $('#score-tested'), scoreTokens: $('#score-tokens'),
+    scoreInternal: $('#score-internal'), scoreCost: $('#score-cost'),
     results: $('#results'), resetTop: $('#btn-reset-top'), reset: $('#btn-reset'),
     langSelect: $('#lang-select'), signin: $('#btn-signin'), signup: $('#btn-signup'),
     cardTpl: $('#tpl-card'),
@@ -68,13 +75,16 @@ async function boot() {
   ui.signup.addEventListener('click', () => toast(t('nav.soon')));
   ui.resetTop.addEventListener('click', resetAll);
   ui.reset.addEventListener('click', resetAll);
-  ui.confirm.addEventListener('click', () => { if (state.phase === 'review') startEvaluation(); });
+  ui.selectAll.addEventListener('click', toggleSelectAll);
+  ui.testSelected.addEventListener('click', testSelected);
 
   try {
     state.server = await api.health();
+    state.accounting = Boolean(state.server.accounting);
   } catch {
     state.server = null; // static preview or server down; the sample run still works
   }
+  refreshKeyStrip();
 
   if (demoRequested()) {
     ui.source.value = demo.SAMPLE_TEXT;
@@ -113,6 +123,12 @@ function wireKeyStrip() {
 }
 
 function refreshKeyStrip() {
+  if (state.server?.serverKey && !api.keyStore.get()) {
+    // The operator's key is configured on the server; readers need none.
+    ui.keystrip.hidden = true;
+    return;
+  }
+  ui.keystrip.hidden = false;
   const key = api.keyStore.get();
   const active = Boolean(key);
   for (const n of $$('.key-state-missing', ui.keystrip)) n.hidden = active;
@@ -121,6 +137,7 @@ function refreshKeyStrip() {
 }
 
 function openKeyForm({ attention = false } = {}) {
+  ui.keystrip.hidden = false;
   ui.keyForm.hidden = false;
   ui.keystrip.classList.toggle('is-attention', attention);
   if (attention) setTimeout(() => ui.keystrip.classList.remove('is-attention'), 1200);
@@ -132,6 +149,7 @@ function closeKeyForm() { ui.keyForm.hidden = true; ui.keystrip.classList.remove
 function requireKey() {
   const key = api.keyStore.get();
   if (key) return key;
+  if (state.server?.serverKey) return '';
   toast(t('key.needed'));
   openKeyForm({ attention: true });
   return null;
@@ -177,7 +195,7 @@ async function startRun({ demoMode }) {
     if (!state.server) { toast(t('errors.server'), { error: true }); return; }
     if (!state.server.prompts?.extract || !state.server.prompts?.evaluate) { toast(t('errors.prompt'), { error: true }); return; }
     const key = requireKey();
-    if (!key) return;
+    if (key === null) return;
     state.key = key;
   } else {
     ui.source.value = text;
@@ -186,6 +204,7 @@ async function startRun({ demoMode }) {
 
   resetRunState();
   state.demo = demoMode;
+  state.accounting = demoMode ? true : Boolean(state.server?.accounting);
   state.source = text;
   state.phase = 'extracting';
   state.abort = new AbortController();
@@ -200,12 +219,17 @@ async function startRun({ demoMode }) {
   await runExtraction(text);
 }
 
+function newResult() {
+  return { status: 'pending', phase: 'pending', text: '', chars: 0, startedAt: 0, verdict: null, confidence: null, inspector: null, usage: null, cost: null, ms: null, searches: 0, renderAt: 0 };
+}
+
 function resetRunState() {
   state.abort?.abort();
   for (const id of state.timers) clearInterval(id);
   state.timers = [];
   Object.assign(state, {
-    phase: 'idle', claims: [], tested: [], beyond: [], results: [], counts: { true: 0, false: 0, unverified: 0 }, tokens: 0, completed: 0,
+    phase: 'idle', claims: [], beyond: [], cards: [], results: [], batch: { start: 0, size: 0, done: 0 },
+    counts: { true: 0, false: 0, unverified: 0 }, tokens: 0, cost: 0, unpriced: false,
     extractStartedAt: 0, extractChars: 0, found: 0, evalStartedAt: 0, status: { step1: null, step2: null },
   });
   ui.claimsList.replaceChildren();
@@ -213,7 +237,6 @@ function resetRunState() {
   ui.results.replaceChildren();
   ui.claims.hidden = true;
   ui.beyond.hidden = true;
-  ui.confirmWrap.hidden = true;
   ui.scoreboard.hidden = true;
   ui.echo.hidden = true;
   ui.echoImg.hidden = true;
@@ -243,6 +266,12 @@ function setStatus(which, key, params = {}) {
   state.status[which] = key ? { key, params } : null;
   const node = which === 'step1' ? ui.step1Status : ui.step2Status;
   node.textContent = key ? t(key, params) : '';
+}
+
+function addCost(cost) {
+  if (!cost) return;
+  state.cost += cost.usd || 0;
+  if (cost.priced === false) state.unpriced = true;
 }
 
 // ---------- step 1: extraction ----------------------------------------------------------------
@@ -288,14 +317,13 @@ function updateExtractBar() {
 function addClaim(n, text) {
   ui.claims.hidden = false;
   state.claims[n - 1] = text;
-  const li = el('li', { text });
   if (n <= MAX_CLAIMS) {
-    ui.claimsList.append(li);
+    ui.claimsList.append(el('li', { text }));
     ui.claimsSub.textContent = t('claims.all', { n });
   } else {
     ui.beyond.hidden = false;
-    ui.beyondList.append(li);
-    ui.beyondTitle.textContent = t('claims.beyond', { limit: MAX_CLAIMS, n: n - MAX_CLAIMS });
+    ui.beyondList.append(el('li', {}, [el('span', { text })]));
+    ui.beyondTitle.textContent = t('claims.more', { n: n - MAX_CLAIMS });
     ui.claimsSub.textContent = t('claims.testing', { n: MAX_CLAIMS });
   }
 }
@@ -303,14 +331,13 @@ function addClaim(n, text) {
 function finishExtraction(ev) {
   const all = (ev.claims || []).map((c) => c.text).filter(Boolean);
   state.claims = all;
-  state.tested = all.slice(0, MAX_CLAIMS);
-  state.beyond = all.slice(MAX_CLAIMS);
-  // Re-render from the authoritative list so the DOM matches exactly.
-  ui.claimsList.replaceChildren(...state.tested.map((text) => el('li', { text })));
-  ui.beyondList.replaceChildren(...state.beyond.map((text) => el('li', { text })));
+  const first = all.slice(0, MAX_CLAIMS);
+  state.beyond = all.slice(MAX_CLAIMS).map((text, k) => ({ n: MAX_CLAIMS + k + 1, text, selected: false, tested: false }));
+  ui.claimsList.replaceChildren(...first.map((text) => el('li', { text })));
   ui.claims.hidden = all.length === 0;
-  ui.beyond.hidden = state.beyond.length === 0;
   renderClaimsHeadings();
+  renderBeyond();
+  addCost(ev.cost);
 
   setStep(ui.step1, 'done');
   setBar(ui.bar1, 1, { done: true });
@@ -322,50 +349,106 @@ function finishExtraction(ev) {
     ui.run.disabled = false; ui.sample.disabled = false;
     return;
   }
-  ui.step2Title.textContent = t('step2.title', { n: state.tested.length });
-  if (ui.optReview.checked) {
-    state.phase = 'review';
-    ui.confirmWrap.hidden = false;
-    ui.confirm.textContent = t('claims.confirm', { n: state.tested.length });
-    ui.confirm.focus();
-  } else {
-    startEvaluation();
-  }
+  runBatch(first); // the first 20 (or fewer) always run
 }
 
 function renderClaimsHeadings() {
   if (!state.claims.length) return;
-  ui.claimsSub.textContent = state.beyond.length ? t('claims.testing', { n: state.tested.length }) : t('claims.all', { n: state.tested.length });
-  ui.beyondTitle.textContent = t('claims.beyond', { limit: MAX_CLAIMS, n: state.beyond.length });
-  if (state.phase === 'review') ui.confirm.textContent = t('claims.confirm', { n: state.tested.length });
+  const first = Math.min(state.claims.length, MAX_CLAIMS);
+  ui.claimsSub.textContent = state.beyond.length ? t('claims.testing', { n: first }) : t('claims.all', { n: first });
 }
 
-// ---------- step 2: evaluation ----------------------------------------------------------------
+// ---------- claims beyond the first 20: the reader chooses -------------------------------------
 
-async function startEvaluation() {
+function renderBeyond() {
+  const items = state.beyond;
+  ui.beyond.hidden = items.length === 0;
+  if (!items.length) return;
+  ui.beyondTitle.textContent = t('claims.more', { n: items.length });
+  const busy = state.phase === 'evaluating' || state.phase === 'extracting';
+  ui.beyondList.replaceChildren(...items.map((item) => {
+    const box = el('input', { type: 'checkbox', 'aria-label': item.text });
+    box.checked = item.selected;
+    box.disabled = item.tested || busy;
+    box.addEventListener('change', () => { item.selected = box.checked; renderBeyondTools(); });
+    return el('li', { class: `selectable${item.tested ? ' is-tested' : ''}` }, [box, el('span', { class: 'claim-text', text: item.text }), item.tested ? el('span', { class: 'tag', text: t('claims.tested') }) : null]);
+  }));
+  renderBeyondTools();
+}
+
+function renderBeyondTools() {
+  const open = state.beyond.filter((b) => !b.tested);
+  const selected = open.filter((b) => b.selected).length;
+  const allSelected = open.length > 0 && selected === open.length;
+  const busy = state.phase === 'evaluating' || state.phase === 'extracting';
+  ui.selectAll.hidden = open.length === 0;
+  ui.selectAll.disabled = busy;
+  ui.selectAll.textContent = t(allSelected ? 'claims.clearAll' : 'claims.selectAll');
+  ui.testSelected.hidden = open.length === 0;
+  ui.testSelected.disabled = selected === 0 || busy;
+  ui.testSelected.textContent = t('claims.testSelected', { n: selected });
+  let hint = '';
+  if (busy) hint = t('claims.afterFirst');
+  else if (state.accounting && averageCost() !== null) hint = t('claims.avgCost', { usd: fmtUsd(averageCost()) });
+  ui.beyondHint.textContent = hint;
+}
+
+function toggleSelectAll() {
+  const open = state.beyond.filter((b) => !b.tested);
+  const allSelected = open.length > 0 && open.every((b) => b.selected);
+  for (const b of open) b.selected = !allSelected;
+  renderBeyond();
+}
+
+async function testSelected() {
+  if (state.phase === 'evaluating' || state.phase === 'extracting') return;
+  const chosen = state.beyond.filter((b) => !b.tested && b.selected);
+  if (!chosen.length) return;
+  for (const b of chosen) { b.tested = true; b.selected = false; }
+  renderBeyond();
+  // The server tests at most 20 per request; larger selections run in consecutive batches.
+  for (let i = 0; i < chosen.length; i += MAX_CLAIMS) {
+    const chunk = chosen.slice(i, i + MAX_CLAIMS).map((b) => b.text);
+    await runBatch(chunk);
+    if (state.phase !== 'done') break; // a failure or reset stops the queue
+  }
+}
+
+function averageCost() {
+  const done = state.results.filter((r) => r.status === 'done' && r.cost?.priced);
+  if (!done.length) return null;
+  return done.reduce((s, r) => s + (r.cost.usd || 0), 0) / done.length;
+}
+
+// ---------- step 2: one batch of determinations ---------------------------------------------------
+
+async function runBatch(claims) {
+  const start = state.cards.length;
+  state.cards.push(...claims);
+  for (const _ of claims) state.results.push(newResult());
+  state.batch = { start, size: claims.length, done: 0 };
   state.phase = 'evaluating';
   state.evalStartedAt = Date.now();
-  ui.confirmWrap.hidden = true;
-  state.results = state.tested.map(() => ({ status: 'pending', phase: 'pending', text: '', chars: 0, startedAt: 0, verdict: null, confidence: null, inspector: null, usage: null, renderAt: 0 }));
-  state.counts = { true: 0, false: 0, unverified: 0 };
-  state.tokens = 0;
-  state.completed = 0;
 
+  ui.step2Title.textContent = start === 0 ? t('step2.title', { n: claims.length }) : t('step2.more', { n: claims.length });
   setStep(ui.step2, 'running');
-  setStatus('step2', 'step2.progress', { done: 0, total: state.tested.length });
+  setBar(ui.bar2, 0);
+  setStatus('step2', 'step2.progress', { done: 0, total: claims.length });
   ui.scoreboard.hidden = false;
+  ui.run.disabled = true; ui.sample.disabled = true;
   renderScoreboard();
-  ui.results.replaceChildren(...state.tested.map((claim, i) => buildCard(claim, i)));
-  ui.results.firstElementChild?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  renderBeyondTools();
+  const newCards = claims.map((claim, k) => buildCard(claim, start + k));
+  ui.results.append(...newCards);
+  newCards[0]?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
   const tick = setInterval(updateEvalBars, 250);
   state.timers.push(tick);
-
-  const onEvent = (ev) => handleEvalEvent(ev, (i) => i);
+  const onEvent = (ev) => handleEvalEvent(ev, (i) => start + i);
   try {
-    if (state.demo) await demo.demoEvaluate({ claims: state.tested, onEvent, signal: state.abort.signal });
-    else await api.evaluate({ claims: state.tested, key: state.key, signal: state.abort.signal, onEvent });
-    if (state.phase === 'evaluating') finishEvaluation({ ms: Date.now() - state.evalStartedAt });
+    if (state.demo) await demo.demoEvaluate({ claims, onEvent, signal: state.abort.signal });
+    else await api.evaluate({ claims, key: state.key, signal: state.abort.signal, onEvent });
+    if (state.phase === 'evaluating') finishBatch({ ms: Date.now() - state.evalStartedAt });
   } catch (err) {
     if (err?.name !== 'AbortError') failRun(err);
   } finally {
@@ -375,11 +458,14 @@ async function startEvaluation() {
 
 function handleEvalEvent(ev, mapIndex) {
   if (ev.t === 'error' && ev.i === undefined) { failRun(ev); return; }
-  if (ev.t === 'batch-start' || ev.t === 'batch-progress') {
-    if (ev.t === 'batch-progress') { state.completed = Math.max(state.completed, ev.completed); setStatus('step2', 'step2.progress', { done: state.completed, total: state.tested.length }); renderScoreboard(); }
+  if (ev.t === 'batch-start') return;
+  if (ev.t === 'batch-progress') {
+    state.batch.done = Math.max(state.batch.done, ev.completed);
+    setStatus('step2', 'step2.progress', { done: state.batch.done, total: state.batch.size });
+    renderScoreboard();
     return;
   }
-  if (ev.t === 'complete') { finishEvaluation(ev); return; }
+  if (ev.t === 'complete') { finishBatch(ev); return; }
   const i = mapIndex(ev.i);
   const r = state.results[i];
   if (!r) return;
@@ -394,13 +480,14 @@ function handleEvalEvent(ev, mapIndex) {
   }
 }
 
-function finishEvaluation(ev) {
+function finishBatch(ev) {
   state.phase = 'done';
   setStep(ui.step2, 'done');
   setBar(ui.bar2, 1, { done: true });
-  setStatus('step2', 'step2.done', { total: state.tested.length, time: fmtSeconds(ev.ms || Date.now() - state.evalStartedAt) });
+  setStatus('step2', 'step2.done', { total: state.batch.size, time: fmtSeconds(ev.ms || Date.now() - state.evalStartedAt) });
   ui.run.disabled = false; ui.sample.disabled = false;
   renderScoreboard();
+  renderBeyondTools();
 }
 
 function failRun(err) {
@@ -416,14 +503,17 @@ function failRun(err) {
   if (state.phase === 'evaluating') { setStatus('step2', 'step2.stopped'); }
   state.phase = 'done';
   ui.run.disabled = false; ui.sample.disabled = false;
+  renderBeyondTools();
 }
 
 function updateEvalBars() {
   if (state.phase !== 'evaluating') return;
   let running = 0;
   const now = Date.now();
-  state.results.forEach((r, i) => {
-    if (r.status !== 'running') return;
+  const { start, size } = state.batch;
+  for (let i = start; i < start + size; i++) {
+    const r = state.results[i];
+    if (!r || r.status !== 'running') continue;
     const elapsed = now - r.startedAt;
     let f;
     if (r.phase === 'starting') f = easeTime(elapsed, 4000, 0.08);
@@ -432,9 +522,8 @@ function updateEvalBars() {
     f = Math.min(0.96, f);
     running += f;
     setBar(cardOf(i).querySelector('.bar'), f);
-  });
-  const total = state.tested.length || 1;
-  setBar(ui.bar2, Math.min(0.99, (state.completed + running) / total));
+  }
+  setBar(ui.bar2, Math.min(0.99, (state.batch.done + running) / (size || 1)));
 }
 
 // ---------- cards ---------------------------------------------------------------------------
@@ -487,7 +576,10 @@ function renderEntry(i) {
 function finalizeCard(i, ev) {
   const r = state.results[i];
   if (r.renderTimer) { clearTimeout(r.renderTimer); r.renderTimer = null; }
-  Object.assign(r, { status: 'done', phase: 'done', text: ev.text || r.text, verdict: ev.verdict || 'unverified', confidence: ev.confidence ?? null, inspector: ev.inspector || null, usage: ev.usage || null });
+  Object.assign(r, {
+    status: 'done', phase: 'done', text: ev.text || r.text, verdict: ev.verdict || 'unverified', confidence: ev.confidence ?? null,
+    inspector: ev.inspector || null, usage: ev.usage || null, cost: ev.cost || null, ms: ev.ms ?? null, searches: ev.searches || 0,
+  });
   const card = cardOf(i);
   card.classList.remove('verdict-true', 'verdict-false', 'verdict-unverified');
   card.classList.add(`verdict-${r.verdict}`);
@@ -499,6 +591,7 @@ function finalizeCard(i, ev) {
 
   state.counts[r.verdict] = (state.counts[r.verdict] || 0) + 1;
   if (r.usage) state.tokens += (r.usage.input || 0) + (r.usage.output || 0);
+  addCost(r.cost);
   renderScoreboard(r.verdict);
 }
 
@@ -525,7 +618,19 @@ function renderCardFoot(i) {
   const insp = $('.card-inspector', card);
   insp.replaceChildren();
   if (r.inspector) insp.append(`${t('card.inspector')}: `, el('b', { text: r.inspector }));
-  $('.card-tokens', card).textContent = r.usage ? t('card.tokens', { n: fmtCompact((r.usage.input || 0) + (r.usage.output || 0)) }) : '';
+  const tokens = r.usage ? (r.usage.input || 0) + (r.usage.output || 0) : 0;
+  $('.card-tokens', card).textContent = r.usage ? t('card.tokens', { n: fmtCompact(tokens) }) : '';
+  const costNode = $('.card-cost', card);
+  if (state.accounting && r.status === 'done') {
+    const parts = [];
+    if (r.cost) parts.push(r.cost.priced ? t('card.cost', { usd: fmtUsd(r.cost.usd) }) : t('card.costUnknown'));
+    if (r.searches) parts.push(t('card.searches', { n: r.searches }));
+    if (r.ms) parts.push(fmtSeconds(r.ms));
+    costNode.textContent = parts.join(' · ');
+    costNode.hidden = false;
+  } else {
+    costNode.hidden = true;
+  }
   $('.btn-challenge', card).textContent = t('card.challenge');
   $('.btn-retry', card).hidden = r.status !== 'error';
 }
@@ -541,12 +646,11 @@ function renderCardError(i) {
   $('.btn-challenge', card).hidden = true;
   $('.btn-retry', card).hidden = false;
   $('.btn-retry', card).textContent = t('card.retryBtn');
-  state.completed = Math.min(state.tested.length, state.completed);
 }
 
 async function retryClaim(i) {
   const r = state.results[i];
-  if (!r || r.status === 'running') return;
+  if (!r || r.status === 'running' || state.phase === 'evaluating') return;
   const card = cardOf(i);
   $('.card-error', card)?.remove();
   $('.btn-retry', card).hidden = true;
@@ -555,18 +659,22 @@ async function retryClaim(i) {
   Object.assign(r, { status: 'running', phase: 'starting', startedAt: Date.now(), text: '', chars: 0, error: null });
   setCardState(i, 'running');
   renderCardStatus(i);
-  if (state.phase === 'done') { state.phase = 'evaluating'; setStep(ui.step2, 'running'); state.completed = Math.max(0, state.completed - 1); const tick = setInterval(updateEvalBars, 250); state.timers.push(tick); }
+  const tick = setInterval(() => {
+    if (r.status !== 'running') return;
+    const elapsed = Date.now() - r.startedAt;
+    const f = r.phase === 'writing' ? 0.48 + easeChars(r.chars, 4500, 0.47) : 0.08 + easeTime(elapsed, 90000, 0.4);
+    setBar(card.querySelector('.bar'), Math.min(0.96, f));
+  }, 250);
   const controller = state.abort || new AbortController();
   const onEvent = (ev) => { if (ev.t === 'batch-progress' || ev.t === 'complete' || ev.t === 'batch-start') return; handleEvalEvent(ev, () => i); };
   try {
-    if (state.demo) await demo.demoEvaluate({ claims: [state.tested[i]], onEvent, signal: controller.signal });
-    else await api.evaluate({ claims: [state.tested[i]], key: state.key, signal: controller.signal, onEvent });
+    if (state.demo) await demo.demoEvaluate({ claims: [state.cards[i]], onEvent, signal: controller.signal });
+    else await api.evaluate({ claims: [state.cards[i]], key: state.key, signal: controller.signal, onEvent });
   } catch (err) {
     if (err?.name !== 'AbortError') { r.status = 'error'; r.phase = 'error'; r.error = err.message; setCardState(i, 'error'); renderCardStatus(i); renderCardError(i); }
   } finally {
-    if (r.status === 'done') state.completed = Math.min(state.tested.length, state.completed + 1);
-    setStatus('step2', 'step2.progress', { done: state.completed, total: state.tested.length });
-    if (state.results.every((x) => x.status === 'done' || x.status === 'error')) finishEvaluation({ ms: Date.now() - state.evalStartedAt });
+    clearInterval(tick);
+    renderScoreboard();
   }
 }
 
@@ -577,8 +685,10 @@ function renderScoreboard(bumped) {
   ui.scoreFalse.textContent = fmtNumber(state.counts.false);
   ui.scoreUnv.textContent = fmtNumber(state.counts.unverified);
   const done = state.results.filter((r) => r.status === 'done').length;
-  ui.scoreTested.textContent = `${done}/${state.tested.length || MAX_CLAIMS}`;
+  ui.scoreTested.textContent = `${done}/${state.cards.length || Math.min(MAX_CLAIMS, state.claims.length || MAX_CLAIMS)}`;
   ui.scoreTokens.textContent = fmtCompact(state.tokens);
+  ui.scoreInternal.hidden = !state.accounting;
+  ui.scoreCost.textContent = fmtUsd(state.cost) + (state.unpriced ? '+' : '');
   if (bumped) bump({ true: ui.scoreTrue, false: ui.scoreFalse, unverified: ui.scoreUnv }[bumped]);
 }
 
@@ -630,7 +740,7 @@ function wireChallengeForm(card, i) {
     try {
       // Every step runs for real; the server withholds only the final call to OpenAI.
       if (state.demo) await demo.demoChallenge({ signal: state.abort?.signal });
-      else await api.challenge({ key: state.key, claim: state.tested[i], verdict: r?.verdict, originalEntry: r?.text, message, files });
+      else await api.challenge({ key: state.key, claim: state.cards[i], verdict: r?.verdict, originalEntry: r?.text, message, files });
       files.length = 0;
       $('.challenge-text', form).value = '';
       closeChallenge(i, { clear: true });
@@ -666,6 +776,8 @@ async function startEcho(text) {
     if (signal.aborted) return;
     const src = r?.dataUrl || r?.url;
     if (!src) { ui.echo.hidden = true; return; }
+    addCost(r.cost);
+    renderScoreboard();
     ui.echoImg.onload = () => { ui.echoShimmer.hidden = true; ui.echoImg.hidden = false; };
     ui.echoImg.src = src;
   } catch {
@@ -681,8 +793,9 @@ function refreshDynamicText() {
   ui.keyToggle.textContent = t(ui.keyInput.type === 'password' ? 'key.show' : 'key.hide');
   updateSourceMeta();
   for (const which of ['step1', 'step2']) { const s = state.status[which]; if (s) setStatus(which, s.key, s.params); }
-  ui.step2Title.textContent = t('step2.title', { n: state.tested.length || MAX_CLAIMS });
+  ui.step2Title.textContent = state.batch.start > 0 ? t('step2.more', { n: state.batch.size }) : t('step2.title', { n: state.batch.size || MAX_CLAIMS });
   renderClaimsHeadings();
+  renderBeyond();
   renderScoreboard();
   state.results.forEach((r, i) => {
     if (r.status === 'done') { renderBadge(i); renderCardFoot(i); } else { renderCardStatus(i); }

@@ -65,6 +65,15 @@ export function fmtCompact(n) {
   }
 }
 
+export function fmtUsd(usd) {
+  const n = Number(usd) || 0;
+  try {
+    return new Intl.NumberFormat(current.code, { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: n > 0 && n < 1 ? 3 : 2 }).format(n);
+  } catch {
+    return `$${n.toFixed(2)}`;
+  }
+}
+
 export function fmtSeconds(ms) {
   const s = Math.round(ms / 1000);
   if (s < 90) return t('time.seconds', { n: s });

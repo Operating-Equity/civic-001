@@ -3,6 +3,8 @@
 import { config } from './config.js';
 import { evaluationPrompt, VERDICT_TAG_INSTRUCTION } from './prompts.js';
 import { clientFor, withModelFallback, usageOf, isRetryable, sleep, describeError } from './openai.js';
+import { estimateTextCost } from './pricing.js';
+import { record, claimHash } from './ledger.js';
 
 export const VERDICTS = ['true', 'false', 'unverified'];
 
@@ -55,10 +57,12 @@ export async function runEvaluation({ apiKey, claims, send, signal }) {
 
   const evaluateOne = async (claim, i) => {
     const prompt = evaluationPrompt(claim);
+    const startedAt = Date.now();
     let text = '';
     let usage = null;
     let modelUsed = null;
     let searches = 0;
+    let incomplete = null;
 
     const attempt = (model) => client.responses.create(
       {
@@ -102,7 +106,8 @@ export async function runEvaluation({ apiKey, claims, send, signal }) {
                 break;
               case 'response.incomplete':
                 usage = usageOf(event.response);
-                send({ t: 'phase', i, phase: 'incomplete', reason: event.response?.incomplete_details?.reason });
+                incomplete = event.response?.incomplete_details?.reason || 'incomplete';
+                send({ t: 'phase', i, phase: 'incomplete', reason: incomplete });
                 break;
               case 'response.failed':
               case 'error': {
@@ -124,6 +129,7 @@ export async function runEvaluation({ apiKey, claims, send, signal }) {
           continue;
         }
         const safe = describeError(err);
+        record({ kind: 'evaluate', ok: false, code: safe.code, model: modelUsed, effort: config.evalEffort, claim: claimHash(claim), ms: Date.now() - startedAt });
         send({ t: 'error', i, code: safe.code, message: safe.message });
         completed++;
         send({ t: 'batch-progress', completed, total });
@@ -133,8 +139,11 @@ export async function runEvaluation({ apiKey, claims, send, signal }) {
 
     if (signal.aborted) return;
     const parsed = parseEntry(text);
+    const ms = Date.now() - startedAt;
+    const cost = estimateTextCost({ model: modelUsed, usage, searches });
+    record({ kind: 'evaluate', ok: true, model: modelUsed, effort: config.evalEffort, webSearch: config.evalWebSearch, claim: claimHash(claim), chars: claim.length, verdict: parsed.verdict, confidence: parsed.confidence, usage, searches, incomplete, ms, usd: cost.usd, priced: cost.priced });
     completed++;
-    send({ t: 'done', i, verdict: parsed.verdict, confidence: parsed.confidence, inspector: parsed.inspector, text: parsed.text, usage, model: modelUsed, searches });
+    send({ t: 'done', i, verdict: parsed.verdict, confidence: parsed.confidence, inspector: parsed.inspector, text: parsed.text, usage, model: modelUsed, searches, ms, cost, incomplete });
     send({ t: 'batch-progress', completed, total });
   };
 

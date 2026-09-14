@@ -47,6 +47,27 @@ Any key starting with `sk-` works against the mock; keys starting with `sk-bad` 
 exercise the error path. The page also has a **sample run** (button under the main action, or
 `/?demo=1`) that needs no server at all.
 
+## First real run and internal accounting
+
+```bash
+npm start                                            # terminal 1 (prompts installed as above)
+OPENAI_API_KEY=sk-... node scripts/trial-run.mjs doc.txt --limit 3   # terminal 2
+node scripts/ledger-summary.mjs                      # cost of goods sold so far
+```
+
+`trial-run.mjs` streams a document through both steps exactly as the page does and prints, per
+claim, the verdict, tokens (input / output / reasoning), searches, duration and estimated cost,
+then the run totals. Start with `--limit 3` to see timing and cost before spending on 20.
+
+Every call is also appended to `data/ledger.jsonl` (gitignored): kind, model, effort, token
+usage, searches, duration, verdict and a short hash of the claim — never the claim text or a key.
+The page shows the same figures per card and a run total behind an **Internal** chip while
+`CIVIC_INTERNAL_ACCOUNTING=true`; set it to `false` for customers. Dollar figures come from the
+table in `server/pricing.js`; token counts come from the API and are exact.
+
+The first 20 claims always run. Claims beyond 20 are listed with checkboxes; the reader picks
+all or some and runs them as an extra batch once the first batch has finished.
+
 ## Prompt protection
 
 The prompts are the product. The design keeps them out of every place a reader could look:

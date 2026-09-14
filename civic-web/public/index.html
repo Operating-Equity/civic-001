@@ -86,7 +86,6 @@
         <span class="hint mono" id="source-meta"></span>
       </div>
       <div class="intake-right">
-        <label class="check"><input type="checkbox" id="opt-review"><span data-i18n="intake.review">Review the claims before testing</span></label>
         <label class="check" title="A quick symbolic image of the document, made on your key while it runs." data-i18n-title="intake.echoHint"><input type="checkbox" id="opt-echo" checked><span data-i18n="intake.echo">Visual echo</span></label>
       </div>
     </div>
@@ -136,11 +135,15 @@
       </div>
       <ol class="claims-list" id="claims-list"></ol>
       <div class="claims-beyond" id="claims-beyond" hidden>
-        <h3 class="claims-beyond-title" id="claims-beyond-title"></h3>
+        <div class="claims-beyond-head">
+          <h3 class="claims-beyond-title" id="claims-beyond-title"></h3>
+          <div class="claims-beyond-tools">
+            <button type="button" class="btn btn-text btn-small" id="btn-select-all"></button>
+            <button type="button" class="btn btn-primary btn-small" id="btn-test-selected" disabled></button>
+          </div>
+        </div>
+        <p class="hint claims-beyond-hint" id="claims-beyond-hint"></p>
         <ol class="claims-list is-beyond" id="claims-beyond-list" start="21"></ol>
-      </div>
-      <div class="claims-confirm" id="claims-confirm" hidden>
-        <button type="button" class="btn btn-primary" id="btn-confirm"></button>
       </div>
     </section>
 
@@ -151,6 +154,7 @@
       <div class="score-meta">
         <span><span data-i18n="score.tested">Tested</span> <b class="mono" id="score-tested">0/20</b></span>
         <span><span data-i18n="score.tokens">Tokens</span> <b class="mono" id="score-tokens">0</b></span>
+        <span class="score-internal" id="score-internal" hidden><span class="chip chip-internal" data-i18n="score.internal">Internal</span> <span data-i18n="score.cost">Est. cost</span> <b class="mono" id="score-cost">$0.00</b></span>
       </div>
       <button type="button" class="btn btn-outline btn-small" id="btn-reset-top" data-i18n="reset">Start a new test</button>
     </div>
@@ -190,6 +194,7 @@
     <footer class="card-foot" hidden>
       <span class="card-inspector"></span>
       <span class="card-tokens mono"></span>
+      <span class="card-cost mono" hidden></span>
       <button type="button" class="btn btn-small btn-outline btn-challenge"></button>
       <button type="button" class="btn btn-small btn-text btn-retry" hidden></button>
     </footer>

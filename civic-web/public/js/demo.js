@@ -188,6 +188,7 @@ export async function demoExtract({ onEvent, signal }) {
     model: 'sample',
     usage: { input: 760, output: 540, reasoning: 0, cached: 0 },
     ms: Date.now() - started,
+    cost: { usd: 0.0081, priced: true },
   });
 }
 
@@ -214,12 +215,13 @@ export async function demoEvaluate({ claims, onEvent, signal }) {
     }
     const [verdict, inspector, confidence] = entry;
     completed++;
+    const usage = { input: 4200, output: Math.round(rand(6000, 12000)), reasoning: Math.round(rand(5000, 10000)), cached: 0 };
+    const usd = Math.round((usage.input * 5 + usage.output * 30) / 1e6 * 10000) / 10000 + 0.01;
     onEvent({
       t: 'done', i,
       verdict: verdict === 'Uncertain' ? 'unverified' : verdict.toLowerCase(),
-      confidence, inspector, text,
-      usage: { input: 4200, output: Math.round(rand(6000, 12000)), reasoning: Math.round(rand(5000, 10000)), cached: 0 },
-      model: 'sample', searches: 1,
+      confidence, inspector, text, usage,
+      model: 'sample', searches: 1, ms: Math.round(rand(48000, 190000)), cost: { usd, priced: true },
     });
     onEvent({ t: 'batch-progress', completed, total });
   };
@@ -244,7 +246,7 @@ export async function demoIllustrate({ signal }) {
   <circle cx="170" cy="294" r="7" fill="#2b2f36"/><rect x="166" y="301" width="8" height="18" rx="3" fill="#6b4a3a"/>
   <g fill="none" stroke="#4874e4" stroke-width="6"><path d="M28 60 v-32 h32"/><path d="M372 60 v-32 h-32"/><path d="M28 340 v32 h32"/><path d="M372 340 v32 h-32"/></g>
 </svg>`;
-  return { dataUrl: `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`, model: 'sample' };
+  return { dataUrl: `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`, model: 'sample', ms: 3100, cost: { usd: 0.02, priced: true } };
 }
 
 export async function demoChallenge({ signal }) {

@@ -143,6 +143,9 @@ body {
 .visually-hidden { position: absolute !important; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 .chip { display: inline-block; font-size: 12px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; padding: 3px 9px; border-radius: 999px; }
 .chip-demo { background: var(--sun); color: #3a2a00; }
+.chip-internal { background: var(--ink); color: #fff; }
+.score-internal { display: inline-flex; align-items: center; gap: 6px; }
+.card-cost { color: var(--ink-2); }
 
 /* ---------- page ---------- */
 .page { max-width: var(--page); margin: 0 auto; padding: 10px var(--gutter) 40px; display: grid; gap: 18px; }
@@ -233,9 +236,17 @@ body {
 .claims-list.is-beyond { counter-reset: claim 20; }
 .claims-list.is-beyond li { color: var(--ink-3); }
 .claims-list.is-beyond li::before { color: var(--ink-3); }
-.claims-beyond { margin-block-start: 16px; padding-block-start: 10px; border-block-start: 1px dashed var(--line); }
-.claims-beyond-title { margin: 0 0 4px; font-size: 13px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--ink-3); }
-.claims-confirm { margin-block-start: 16px; }
+.claims-beyond { margin-block-start: 16px; padding-block-start: 12px; border-block-start: 1px dashed var(--line); }
+.claims-beyond-head { display: flex; justify-content: space-between; align-items: center; gap: 10px 16px; flex-wrap: wrap; }
+.claims-beyond-title { margin: 0; font-size: 13px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--ink-2); }
+.claims-beyond-tools { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.claims-beyond-hint { margin: 4px 0 6px; }
+.claims-list.is-beyond li.selectable { grid-template-columns: 34px 22px 1fr auto; color: var(--ink); }
+.claims-list.is-beyond li.selectable::before { color: var(--ink-3); }
+.claims-list.is-beyond li.selectable input { width: 16px; height: 16px; margin: 3px 0 0; accent-color: var(--blue); }
+.claims-list.is-beyond li.is-tested { color: var(--ink-3); }
+.claims-list.is-beyond li.is-tested .claim-text { text-decoration: line-through; text-decoration-color: var(--line); }
+.tag { align-self: start; font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--true); background: var(--true-bg); padding: 2px 7px; border-radius: 999px; }
 
 /* scoreboard: the live count */
 .scoreboard {

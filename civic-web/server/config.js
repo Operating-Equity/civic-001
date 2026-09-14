@@ -23,7 +23,8 @@ export const config = {
   // Step 2 — determination. Requested: GPT-5.6 at extra-high reasoning effort.
   evalModels: list('CIVIC_EVAL_MODELS', 'gpt-5.6-sol,gpt-5.6,gpt-5.5'),
   evalEffort: env('CIVIC_EVAL_EFFORT', 'xhigh'),
-  evalMaxOutputTokens: int('CIVIC_EVAL_MAX_OUTPUT_TOKENS', 24000),
+  // Reasoning tokens count toward this limit; xhigh can think at length, so leave headroom.
+  evalMaxOutputTokens: int('CIVIC_EVAL_MAX_OUTPUT_TOKENS', 60000),
   evalWebSearch: bool('CIVIC_EVAL_WEB_SEARCH', true), // lets the inspector fetch primary sources
   evalConcurrency: int('CIVIC_EVAL_CONCURRENCY', 20), // all 20 claims in parallel
   evalRetries: int('CIVIC_EVAL_RETRIES', 3),
@@ -45,6 +46,18 @@ export const config = {
   maxUploadBytes: int('CIVIC_MAX_UPLOAD_BYTES', 25 * 1024 * 1024),
   heartbeatMs: 15000,
 
+  // Internal accounting (operator view, not a customer feature): per-claim tokens, estimated cost,
+  // and an append-only ledger file. Turn the page display off with CIVIC_INTERNAL_ACCOUNTING=false.
+  accounting: bool('CIVIC_INTERNAL_ACCOUNTING', true),
+  ledgerFile: env('CIVIC_LEDGER_FILE', new URL('../data/ledger.jsonl', import.meta.url).pathname),
+  webSearchUsdPerCall: Number(env('CIVIC_WEB_SEARCH_USD_PER_CALL', '0.01')),
+  imageUsdPerImage: Number(env('CIVIC_IMAGE_USD_PER_IMAGE', '0.02')),
+
+  // Optional server-side key. Off by default: readers bring their own key. When
+  // CIVIC_ALLOW_SERVER_KEY=true and OPENAI_API_KEY is set, requests without a reader key use it
+  // (the operator pays). Keep this off on any public deployment without accounts.
+  serverKey: bool('CIVIC_ALLOW_SERVER_KEY', false) ? env('OPENAI_API_KEY', '') : '',
+
   // Optional: point the OpenAI client somewhere else (used by scripts/mock-openai.js in dev).
   openaiBaseUrl: env('OPENAI_BASE_URL', ''),
 };
@@ -58,6 +71,8 @@ export function publicConfig(promptStatus) {
     challengeEnabled: config.challengeEnabled,
     challengeMaxFiles: config.challengeMaxFiles,
     illustrateEnabled: config.illustrateEnabled,
+    accounting: config.accounting,
+    serverKey: Boolean(config.serverKey),
     models: {
       extract: config.extractModels[0],
       extractEffort: config.extractEffort,

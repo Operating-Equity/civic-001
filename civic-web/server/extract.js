@@ -3,6 +3,8 @@
 import { config } from './config.js';
 import { extractionInstructions } from './prompts.js';
 import { clientFor, withModelFallback, usageOf, isRetryable, sleep } from './openai.js';
+import { estimateTextCost } from './pricing.js';
+import { record } from './ledger.js';
 
 /** Parses "1. claim\n2. claim" incrementally. Returns the claims completed so far. */
 export function parseNumberedList(text) {
@@ -96,15 +98,10 @@ export async function runExtraction({ apiKey, text, send, signal }) {
     emitted++;
   }
   const claims = items.map((c, i) => ({ n: i + 1, text: c.text }));
-  const result = {
-    t: 'done',
-    total: claims.length,
-    limit: config.maxClaims,
-    claims,
-    model: modelUsed,
-    usage,
-    ms: Date.now() - started,
-  };
+  const ms = Date.now() - started;
+  const cost = estimateTextCost({ model: modelUsed, usage });
+  record({ kind: 'extract', model: modelUsed, effort: config.extractEffort, chars: text.length, claims: claims.length, usage, ms, usd: cost.usd, priced: cost.priced });
+  const result = { t: 'done', total: claims.length, limit: config.maxClaims, claims, model: modelUsed, usage, ms, cost };
   send(result);
   return result;
 }
