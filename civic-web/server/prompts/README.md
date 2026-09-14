@@ -10,5 +10,5 @@ Nothing in this directory except the `.example.txt` templates and this README is
 The prompts are never written to logs, never included in any API response, and every OpenAI
 request is sent with `store: false` so the key owner cannot read them back from the OpenAI dashboard.
 
-`evaluate.txt` must contain the placeholder `{{CLAIM}}` where the claim is inserted
-(the template's first line is `Prompt = {{CLAIM}}`).
+`evaluate.txt` must contain the token `{{CLAIM}}` where the claim is inserted. Nothing else about
+the prompt's content is assumed, recorded or described anywhere in this repository.

@@ -208,19 +208,25 @@ function mockEntry(claim) {
   const verdict = roll < 0.45 ? 'True' : roll < 0.75 ? 'False' : 'Uncertain';
   const who = INSPECTORS[Math.floor(Math.random() * INSPECTORS.length)];
   const conf = verdict === 'Uncertain' ? 35 + Math.floor(Math.random() * 25) : 78 + Math.floor(Math.random() * 20);
-  return `0. **Name** : ${who}
+  // Invented filler for development only. It deliberately does NOT follow the operator's output
+  // format: no part of the real prompt, including its section names, exists in this repository.
+  // Only the three labels the reader below keys on are present: Name, Conclusion, Confidence.
+  return `**Name**: ${who}
 
-1. **Definitions**: The statement under inspection is: "${claim}" Key terms are taken in their ordinary, dictionary sense. Where a term names a quantity, the unit and the period it covers are taken exactly as stated.
+(Development mock. Invented placeholder text, never a determination. The real entry follows the
+operator's own output format, which is not reproduced anywhere in this repository.)
 
-2. **Principles**: Non-contradiction; identity; the burden of proof rests on the proposition; proportional evidence; primary, traceable artifacts outrank repetition; a claim established by a dispositive record is not re-litigated by narrative.
+**Statement under inspection**: "${claim}"
 
-3. **Evidence**: (This is placeholder text from the development mock, not a real determination.) The evidence trail was traced to its primary artifact and scored for transparency (4), verifiability (4), independence (3), incentives (3), track record (4) and specificity (${verdict === 'Uncertain' ? 2 : 5}), average ${verdict === 'Uncertain' ? '3.3' : '3.8'}.
+**Method**: The proposition was reduced to its measurable parts, and each part was checked against a
+primary artifact rather than against repetition of that artifact. Candidate sources were scored for
+transparency (4), verifiability (4), independence (3), incentives (3), track record (4) and
+specificity (${verdict === 'Uncertain' ? 2 : 5}), average ${verdict === 'Uncertain' ? '3.3' : '3.8'}.
 
-4. **Analysis**: The proposition was broken into its measurable parts. Each part was checked against the record rather than against what is commonly said about the record. What is directly supported was separated from what is inferred, and what would change the conclusion was named explicitly.
+**Findings**: What is directly supported was separated from what is inferred, and the evidence that
+would change the answer was named rather than left implicit.
 
-5. **Are You The Dog Who Cannot Stop Chasing The Cat**: No. The first dispositive artifact settled the proposition and the inspection stopped there.
+**Conclusion**: ${verdict}. ${verdict === 'True' ? 'The primary record states the proposition as claimed.' : verdict === 'False' ? 'The primary record contradicts the proposition as stated.' : 'No primary record was found that settles the proposition either way.'}
 
-6. **Conclusion**: ${verdict}. ${verdict === 'True' ? 'The primary record states the proposition as claimed.' : verdict === 'False' ? 'The primary record contradicts the proposition as stated.' : 'No primary record was found that settles the proposition either way.'}
-
-7. **Confidence**: ${conf}%. ${verdict === 'Uncertain' ? 'Confidence is limited by the absence of a primary source.' : 'Residual uncertainty reflects the possibility of an unpublished correction.'}`;
+**Confidence**: ${conf}%. ${verdict === 'Uncertain' ? 'Confidence is limited by the absence of a primary source.' : 'Residual uncertainty reflects the possibility of an unpublished correction.'}`;
 }

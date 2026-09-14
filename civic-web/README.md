@@ -130,7 +130,9 @@ npm run verify
 ```
 
 Starts the mock and the server, runs both steps, and reads the request bodies the server
-**actually sent**. It fails if a request carries any key beyond the list above, if the model or
+**actually sent**. It also scans every file git tracks for any five-word run of the installed
+prompts and fails if one is found, so no template, comment or test fixture can carry prompt text
+into the repository (`npm run leak-check` runs that scan on its own). It fails if a request carries any key beyond the list above, if the model or
 effort differ from the configuration, if either prompt is not byte-for-byte verbatim, if a
 fallback or truncation occurred, if any streamed character is missing from the delivered text, or
 if a verdict was read from anywhere but the model's own Conclusion. Run it before every deploy.
@@ -197,7 +199,7 @@ run the server straight from GitHub:
 2. New → Blueprint → choose the repository and the branch. Render reads `render.yaml` and creates
    the `civic` service.
 3. Open the service → Environment. Under Secret Files add `extract.txt` (the extraction prompt)
-   and `evaluate.txt` (the evaluation prompt, first line `Prompt = {{CLAIM}}`). Under Environment
+   and `evaluate.txt` (the evaluation prompt, which must contain the token `{{CLAIM}}`). Under Environment
    Variables paste your OpenAI key as the value of `OPENAI_API_KEY`. Save.
 4. Deploy. The service gets an address like `https://civic.onrender.com`. Open it, paste a
    document, press Test the facts. The page asks no one for a key; the server uses yours.

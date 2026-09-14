@@ -2,12 +2,14 @@
 // the request bodies the server ACTUALLY SENT to the API and fails if they carry anything but the
 // operator's configuration: the configured model, the configured reasoning effort, the prompts
 // verbatim, web search. Any other key in a request body is a failure, whoever added it.
+// It also runs the prompt leak guard: no committed file may contain a fragment of the prompts.
 // Run before every deploy: `npm run verify`. A non-zero exit is a defect.
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { leakChecks } from './leak-check.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.join(here, '..');
@@ -133,6 +135,8 @@ try {
   stop();
   try { fs.unlinkSync(record); } catch {}
 }
+
+for (const r of leakChecks()) results.push(r); // no line of the prompts may sit in a committed file
 
 const failed = results.filter((r) => !r.ok);
 for (const r of results) console.log(`${r.ok ? 'PASS' : 'FAIL'}  ${r.name}${r.ok ? '' : `   ← ${r.detail}`}`);

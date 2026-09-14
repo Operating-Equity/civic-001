@@ -1,10 +1,13 @@
-(Template. Copy to evaluate.txt and paste the real evaluation prompt. Never commit evaluate.txt.
- The literal token {{CLAIM}} is replaced with the claim being tested.)
+Template only. This file contains no part of the real prompt.
 
-Prompt = {{CLAIM}}
+Copy it to evaluate.txt and paste the operator's evaluation prompt in place of this text, or point
+CIVIC_PROMPT_EVALUATE_FILE at a file outside this repository, or set CIVIC_PROMPT_EVALUATE.
+evaluate.txt is gitignored and must never be committed.
 
-Read the exact statement, then ...
-### Output Format:
-...
-6. **Conclusion**: [True/False/Uncertain ...]
-7. **Confidence**: [0–100% ...]
+Contract: the file must contain the token {{CLAIM}} somewhere. For each claim the server replaces
+that token with the claim text and sends the result as the sole user message, byte for byte, one
+request per claim, all claims in a batch at once. No system instruction is added.
+
+Reading the result: the verdict is taken from the reply's own concluding section, and the
+confidence percentage and the named inspector from the reply's own lines. When the reply states no
+conclusion, the card says the verdict could not be read and the claim is counted in no column.

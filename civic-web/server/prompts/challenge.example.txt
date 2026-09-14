@@ -1,7 +1,8 @@
-(Template. Copy to challenge.txt when the challenge prompt is certified. Never commit challenge.txt.
- Placeholders: {{CLAIM}} {{VERDICT}} {{ORIGINAL_ENTRY}} {{CHALLENGE}} )
+Template only. This file contains no part of any real prompt.
 
-Prompt = {{CLAIM}}
-Prior determination = {{VERDICT}}
-Challenge submitted by the reader = {{CHALLENGE}}
-...
+Copy it to challenge.txt when the operator certifies a challenge prompt. Until then the challenge
+mechanics run but the API call is withheld. challenge.txt is gitignored.
+
+Contract: whichever of these tokens appear are replaced before sending, and nothing else is
+changed: {{CLAIM}} {{VERDICT}} {{ORIGINAL_ENTRY}} {{CHALLENGE}}
+The reader's uploaded files are attached to the same request as additional content.

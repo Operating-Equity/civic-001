@@ -1,5 +1,9 @@
-(Template. Copy to extract.txt and paste the real claim-extraction prompt. Never commit extract.txt.)
+Template only. This file contains no part of the real prompt.
 
-Extract every empirical claim from the source, in the order it appears.
-...
-Output only the numbered empirical claims.
+Copy it to extract.txt and paste the operator's claim-extraction prompt in place of this text, or
+point CIVIC_PROMPT_EXTRACT_FILE at a file outside this repository, or set CIVIC_PROMPT_EXTRACT.
+extract.txt is gitignored and must never be committed.
+
+Contract: the whole file is sent to the API as the `instructions` field, byte for byte, with the
+submitted document as the only message. Nothing is added to it and nothing is removed from it.
+The reply is expected to be a numbered list; each numbered item becomes one claim.

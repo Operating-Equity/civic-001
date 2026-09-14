@@ -10,6 +10,7 @@
     "dev": "node --env-file-if-exists=.env --watch server/index.js",
     "mock-openai": "node scripts/mock-openai.js",
     "verify": "node scripts/verify.mjs",
+    "leak-check": "node scripts/leak-check.mjs",
     "check": "node --check server/index.js && node --check scripts/mock-openai.js"
   },
   "dependencies": {
