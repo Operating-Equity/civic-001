@@ -18,7 +18,7 @@ const KEY = 'sk-verify00000000000000000000';
 
 // The only keys a request may carry. Nothing else, ever.
 const ALLOWED = {
-  extract: ['model', 'instructions', 'input', 'reasoning', 'stream', 'store'],
+  extract: ['model', 'instructions', 'input', 'reasoning', 'tools', 'stream', 'store'],
   evaluate: ['model', 'input', 'reasoning', 'tools', 'stream', 'store'],
   reasoning: ['effort', 'summary'],
   webSearchTool: ['type'],
@@ -101,7 +101,9 @@ try {
   if (exBody) {
     check('extraction: model is the configured model', exBody.model === shape.extract.model, exBody.model);
     check('extraction: reasoning.effort is the configured effort', exBody.reasoning?.effort === shape.extract.effort, JSON.stringify(exBody.reasoning));
-    check('extraction: no keys beyond model, instructions, input, reasoning, stream, store', extraKeys(exBody, ALLOWED.extract).length === 0, extraKeys(exBody, ALLOWED.extract).join(', '));
+    check('extraction: no keys beyond model, instructions, input, reasoning, tools, stream, store', extraKeys(exBody, ALLOWED.extract).length === 0, extraKeys(exBody, ALLOWED.extract).join(', '));
+    const exTools = exBody.tools || [];
+    check('extraction: web search available (exactly one web_search, no options)', exTools.length === 1 && exTools[0].type === 'web_search' && extraKeys(exTools[0], ALLOWED.webSearchTool).length === 0, JSON.stringify(exTools));
     check('extraction: no reasoning keys beyond effort, summary', extraKeys(exBody.reasoning, ALLOWED.reasoning).length === 0, extraKeys(exBody.reasoning, ALLOWED.reasoning).join(', '));
     check('extraction: prompt sent verbatim as instructions', exBody.instructions === extractPrompt, `${exBody.instructions?.length} vs ${extractPrompt.length} chars`);
     check('extraction: the document sent whole, as the only message', exBody.input?.length === 1 && exBody.input[0]?.content?.[0]?.text === source);
@@ -117,7 +119,7 @@ try {
     check('determination: the prompt sent verbatim with the claim substituted', userText === evaluatePrompt.split('{{CLAIM}}').join(claim), `${userText?.length} chars`);
     check('determination: exactly one message, the prompt', Array.isArray(evBody.input) && evBody.input.length === 1);
     const tools = evBody.tools || [];
-    check('determination: tools is exactly one web_search with no options', tools.length === 1 && tools[0].type === 'web_search' && extraKeys(tools[0], ALLOWED.webSearchTool).length === 0, JSON.stringify(tools));
+    check('determination: web search available (exactly one web_search, no options)', tools.length === 1 && tools[0].type === 'web_search' && extraKeys(tools[0], ALLOWED.webSearchTool).length === 0, JSON.stringify(tools));
     check('determination: store = false', evBody.store === false);
   }
   check('no fallback or truncation warnings in either stream', ![...ex, ...ev].some((e) => e.t === 'warning'), JSON.stringify([...ex, ...ev].filter((e) => e.t === 'warning')));
@@ -136,5 +138,5 @@ const failed = results.filter((r) => !r.ok);
 for (const r of results) console.log(`${r.ok ? 'PASS' : 'FAIL'}  ${r.name}${r.ok ? '' : `   ← ${r.detail}`}`);
 console.log(failed.length
   ? `\n${failed.length} FAILED. A request carries something the operator did not configure.`
-  : `\nAll ${results.length} checks passed. Requests carry the configured model and effort, the prompts verbatim, web search, and nothing else.`);
+  : `\nAll ${results.length} checks passed. Requests carry the configured model and effort, the prompts verbatim, web search on both steps, and nothing else.`);
 process.exit(failed.length ? 1 : 0);

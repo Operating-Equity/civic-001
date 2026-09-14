@@ -388,7 +388,12 @@ function renderClaimsRaw() {
   ui.claimsRaw.hidden = false;
   ui.claimsRawSummary.textContent = t('claims.raw');
   const reasoning = state.extraction?.reasoning;
-  ui.claimsRawBody.textContent = reasoning ? `${t('card.details.reasoning')}\n\n${reasoning}\n\n${'─'.repeat(40)}\n\n${state.claimsRaw}` : state.claimsRaw;
+  const trail = state.extraction?.trail || [];
+  const parts = [];
+  if (reasoning) parts.push(`${t('card.details.reasoning')}\n\n${reasoning}`);
+  if (trail.length) parts.push(`${t('card.details.trail', { n: trail.length })}\n\n${trail.map((s) => `  ${s.kind}: ${s.query || s.url || s.pattern || ''}`).join('\n')}`);
+  parts.push(state.claimsRaw);
+  ui.claimsRawBody.textContent = parts.join(`\n\n${'─'.repeat(40)}\n\n`);
 }
 
 // ---------- claims beyond the first 20: the reader chooses -------------------------------------

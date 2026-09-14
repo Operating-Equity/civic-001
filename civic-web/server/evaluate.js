@@ -71,7 +71,7 @@ export async function runEvaluation({ apiKey, claims, send, signal }) {
   const started = Date.now();
   send({ t: 'batch-start', total, at: started, model: config.evalModels[0], effort: config.evalEffort });
 
-  const tools = config.evalWebSearch ? [{ type: 'web_search' }] : undefined;
+  const tools = [{ type: 'web_search' }]; // always; the prompts were tested with search available
 
   const evaluateOne = async (claim, i) => {
     const prompt = evaluationPrompt(claim);
@@ -202,7 +202,7 @@ export async function runEvaluation({ apiKey, claims, send, signal }) {
     const ms = Date.now() - startedAt;
     const cost = estimateTextCost({ model: modelUsed, usage, searches: trail.length });
     record({
-      kind: 'evaluate', ok: true, model: modelUsed, effort: config.evalEffort, webSearch: config.evalWebSearch,
+      kind: 'evaluate', ok: true, model: modelUsed, effort: config.evalEffort, webSearch: true,
       claim: claimHash(claim), chars: claim.length, fellBack: fellBack?.used || null, verdict: parsed.verdict, verdictSource: parsed.verdictSource,
       confidence: parsed.confidence, usage, searches: trail.length, sources: sources.length, incomplete, ms,
       usd: cost.usd, priced: cost.priced,

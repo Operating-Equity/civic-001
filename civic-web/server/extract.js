@@ -34,6 +34,7 @@ export async function runExtraction({ apiKey, text, send, signal, sourceWarning 
 
   let wantSummary = Boolean(config.extractSummary);
   let reasoning = '';
+  const trail = []; // every web action the model took during extraction, if any
   const attempt = (model) => {
     // The operator's configuration and nothing else. `npm run verify` fails if any other key appears.
     const r = { effort: config.extractEffort };
@@ -43,6 +44,7 @@ export async function runExtraction({ apiKey, text, send, signal, sourceWarning 
       instructions, // the extraction prompt, verbatim
       input: [{ role: 'user', content: [{ type: 'input_text', text }] }], // the document, whole
       reasoning: r,
+      tools: [{ type: 'web_search' }], // available, as in the UI the prompt was tested in
       stream: true,
       store: false,
     };
@@ -79,6 +81,11 @@ export async function runExtraction({ apiKey, text, send, signal, sourceWarning 
             send({ t: 'reasoning', text: event.delta || '' });
           } else if (event.type === 'response.reasoning_summary_part.done') {
             reasoning += '\n\n';
+          } else if (event.type === 'response.output_item.done' && event.item?.type === 'web_search_call') {
+            const a = event.item.action || {};
+            const step = { kind: a.type || 'search', query: a.query || null, url: a.url || null, pattern: a.pattern || null, status: event.item.status };
+            trail.push(step);
+            send({ t: 'trail', step, searches: trail.length });
           } else if (event.type === 'response.completed') {
             usage = usageOf(event.response);
           } else if (event.type === 'response.incomplete') {
@@ -120,7 +127,7 @@ export async function runExtraction({ apiKey, text, send, signal, sourceWarning 
   const cost = estimateTextCost({ model: modelUsed, usage });
   record({ kind: 'extract', model: modelUsed, effort: config.extractEffort, chars: text.length, claims: claims.length, usage, ms, usd: cost.usd, priced: cost.priced });
   // `raw` is the model's complete extraction output, exactly as returned, so it can be inspected.
-  const result = { t: 'done', total: claims.length, limit: config.maxClaims, claims, raw: full, reasoning: reasoning.trim() || null, model: modelUsed, requested: config.extractModels[0], fellBack, effort: config.extractEffort, usage, ms, cost, incomplete };
+  const result = { t: 'done', total: claims.length, limit: config.maxClaims, claims, raw: full, reasoning: reasoning.trim() || null, trail, model: modelUsed, requested: config.extractModels[0], fellBack, effort: config.extractEffort, usage, ms, cost, incomplete };
   send(result);
   return result;
 }

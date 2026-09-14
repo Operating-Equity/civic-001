@@ -90,7 +90,8 @@ Every request to OpenAI carries the operator's tested configuration and nothing 
 number in this program in the path of a determination that the operator did not set.
 
 **Extraction request:** `model`, `instructions` (the extraction prompt, verbatim), `input` (the
-document, whole, as the only message), `reasoning.effort`, `reasoning.summary`, `stream`, `store`.
+document, whole, as the only message), `reasoning.effort`, `reasoning.summary`, `tools` (one
+`web_search`, no options), `stream`, `store`.
 
 **Determination request:** `model`, `input` (the evaluation prompt, verbatim, with the claim in
 place of `{{CLAIM}}`, as the only message), `reasoning.effort`, `reasoning.summary`, `tools`
@@ -103,14 +104,15 @@ truncation setting. No fallback model. No size limit of ours on the document.
 |---|---|---|
 | Model, both steps | `gpt-5.6-sol` | Operator, tested |
 | Reasoning effort, both steps | `xhigh` | Operator, tested |
-| Web search | on | Required by the prompt's evidence steps; this is how the API model reaches sources |
+| Web search | on, both steps, not configurable | The prompts were tested in a UI where search is available to every prompt. A request without it is not what was tested. |
 | Reasoning summary | `auto` | Display only: the model's own account of its reasoning, shown on the card. Does not change the answer. Blank to turn off. |
 | Claims run automatically | 20; the rest wait for the reader's selection | Operator's rule |
 | Retries | 8, on rate limits and 5xx only | Never on a model or parameter error |
 
 Environment variables: `CIVIC_MODEL`, `CIVIC_EFFORT` (both steps), or per step
 `CIVIC_EXTRACT_MODELS`, `CIVIC_EXTRACT_EFFORT`, `CIVIC_EVAL_MODELS`, `CIVIC_EVAL_EFFORT`,
-`CIVIC_EXTRACT_REASONING_SUMMARY`, `CIVIC_EVAL_REASONING_SUMMARY`, `CIVIC_EVAL_WEB_SEARCH`.
+`CIVIC_EXTRACT_REASONING_SUMMARY`, `CIVIC_EVAL_REASONING_SUMMARY`. There is no setting that
+removes web search.
 The server prints the exact shape of both requests at startup.
 
 The image is a picture, not a determination, and the operator asked for the fast model there

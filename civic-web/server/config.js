@@ -6,6 +6,9 @@
 // no context-size, no fallback, no limit. `npm run verify` inspects the request bodies the
 // server actually sends and fails if any key beyond that set appears.
 //
+// Web search is available to BOTH prompts and is not configurable. The prompts were tested in a
+// UI where search is available to every prompt; a request without it is not what was tested.
+//
 // Model ids were read from the OpenAI SDK type definitions (openai@7.15, Sept 2026).
 
 const env = (name, fallback) => {
@@ -35,7 +38,7 @@ export const config = {
   evalModels: list('CIVIC_EVAL_MODELS', MODEL), // one id = no fallback
   evalEffort: env('CIVIC_EVAL_EFFORT', EFFORT),
   evalReasoningSummary: env('CIVIC_EVAL_REASONING_SUMMARY', 'auto'),
-  evalWebSearch: bool('CIVIC_EVAL_WEB_SEARCH', true), // the prompt requires evidence; this is how the API model reaches it
+  webSearch: true, // both steps, always; not an environment setting
   evalConcurrency: int('CIVIC_EVAL_CONCURRENCY', 20), // the operator asked for the 20 to run in parallel
   evalRetries: int('CIVIC_EVAL_RETRIES', 8),           // rate limits and 5xx only; never on a model or parameter error
 
@@ -77,10 +80,10 @@ export const config = {
 /** Exactly what each request will carry. Printed at startup and reported by /api/health. */
 export function requestShape() {
   return {
-    extract: { model: config.extractModels[0], effort: config.extractEffort, summary: config.extractSummary || null, fallback: config.extractModels.length > 1 },
-    evaluate: { model: config.evalModels[0], effort: config.evalEffort, summary: config.evalReasoningSummary || null, webSearch: config.evalWebSearch, fallback: config.evalModels.length > 1 },
+    extract: { model: config.extractModels[0], effort: config.extractEffort, summary: config.extractSummary || null, webSearch: true, fallback: config.extractModels.length > 1 },
+    evaluate: { model: config.evalModels[0], effort: config.evalEffort, summary: config.evalReasoningSummary || null, webSearch: true, fallback: config.evalModels.length > 1 },
     // Present in every request; never anything else.
-    keys: { extract: ['model', 'instructions', 'input', 'reasoning', 'stream', 'store'], evaluate: ['model', 'input', 'reasoning', 'tools', 'stream', 'store'] },
+    keys: { extract: ['model', 'instructions', 'input', 'reasoning', 'tools', 'stream', 'store'], evaluate: ['model', 'input', 'reasoning', 'tools', 'stream', 'store'] },
   };
 }
 
@@ -105,7 +108,7 @@ export function publicConfig(promptStatus) {
       evaluateEffort: shape.evaluate.effort,
       illustrate: config.illustrateModels[0],
       illustrateQuality: config.illustrateQuality,
-      webSearch: config.evalWebSearch,
+      webSearch: true,
     },
     prompts: promptStatus,
   };

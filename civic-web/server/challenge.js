@@ -52,7 +52,7 @@ export async function buildChallengeInput({ claim, verdict, originalEntry, messa
           model: config.evalModels[0],
           input: [{ role: 'user', content: [{ type: 'input_text', text: promptText }, ...content] }],
           reasoning: { effort: config.evalEffort },
-          tools: config.evalWebSearch ? [{ type: 'web_search' }] : undefined,
+          tools: [{ type: 'web_search' }],
           store: false,
         }
       : null,

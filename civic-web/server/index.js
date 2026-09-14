@@ -165,8 +165,8 @@ const server = app.listen(config.port, () => {
   console.log(`CIVIC main page on http://localhost:${config.port}`);
   console.log(`prompts installed: extract=${status.extract} evaluate=${status.evaluate} challenge=${status.challenge}` + (config.challengeEnabled ? '' : ' (challenge API step withheld)'));
   const shape = requestShape();
-  console.log(`extraction requests carry: model ${shape.extract.model} · reasoning.effort ${shape.extract.effort}${shape.extract.summary ? ` · reasoning.summary ${shape.extract.summary}` : ''} · the prompt verbatim · the document whole · nothing else${shape.extract.fallback ? '  (FALLBACK LIST SET)' : ''}`);
-  console.log(`determination requests carry: model ${shape.evaluate.model} · reasoning.effort ${shape.evaluate.effort}${shape.evaluate.summary ? ` · reasoning.summary ${shape.evaluate.summary}` : ''} · web_search ${shape.evaluate.webSearch ? 'on' : 'OFF'} · the prompt verbatim · nothing else${shape.evaluate.fallback ? '  (FALLBACK LIST SET)' : ''}`);
+  console.log(`extraction requests carry: model ${shape.extract.model} · reasoning.effort ${shape.extract.effort}${shape.extract.summary ? ` · reasoning.summary ${shape.extract.summary}` : ''} · web_search · the prompt verbatim · the document whole · nothing else${shape.extract.fallback ? '  (FALLBACK LIST SET)' : ''}`);
+  console.log(`determination requests carry: model ${shape.evaluate.model} · reasoning.effort ${shape.evaluate.effort}${shape.evaluate.summary ? ` · reasoning.summary ${shape.evaluate.summary}` : ''} · web_search · the prompt verbatim · nothing else${shape.evaluate.fallback ? '  (FALLBACK LIST SET)' : ''}`);
   if (config.openaiBaseUrl) console.log(`OpenAI base URL override: ${config.openaiBaseUrl}`);
 });
 // Long reasoning runs can take many minutes; do not let Node cut the stream.
