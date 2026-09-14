@@ -50,9 +50,10 @@ export function normalise(text, kind = 'text') {
     .replace(/[ \t]+\n/g, '\n')
     .trim();
   const originalChars = clean.length;
-  const truncated = originalChars > config.maxSourceChars;
-  if (truncated && config.allowSourceTruncation) clean = clean.slice(0, config.maxSourceChars);
-  return { text: clean, chars: clean.length, originalChars, truncated, omitted: truncated ? originalChars - config.maxSourceChars : 0, kind };
+  const limit = config.maxSourceChars > 0 ? config.maxSourceChars : Infinity; // 0 = no limit of ours
+  const truncated = originalChars > limit;
+  if (truncated && config.allowSourceTruncation) clean = clean.slice(0, limit);
+  return { text: clean, chars: clean.length, originalChars, truncated, omitted: truncated ? originalChars - limit : 0, kind };
 }
 
 function stripHtml(html) {

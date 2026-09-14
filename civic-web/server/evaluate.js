@@ -50,11 +50,9 @@ export function parseEntry(raw) {
     if (tag) { verdict = VERDICT_WORDS[tag[1].toLowerCase()]; source = 'tag'; }
   }
 
-  // 3. Last resort: a verdict word in the closing lines.
-  if (!verdict) {
-    const m = text.slice(-1500).match(WORD_RE);
-    if (m) { verdict = VERDICT_WORDS[m[1].toLowerCase()]; source = 'tail'; }
-  }
+  // There is no third step. Scanning the closing lines for any verdict word would be a guess,
+  // and a guess is exactly what this file must never make. No Conclusion, no verdict: the card
+  // says so and the claim is counted in no column.
 
   const conf = text.match(/Confidence\**\s*[:\-–]?\s*\**\s*(\d{1,3})\s*%/i);
   const confidence = conf ? Math.min(100, Number(conf[1])) : null;
@@ -71,9 +69,9 @@ export async function runEvaluation({ apiKey, claims, send, signal }) {
   const total = claims.length;
   let completed = 0;
   const started = Date.now();
-  send({ t: 'batch-start', total, at: started, model: config.evalModels[0], effort: config.evalEffort });
+  send({ t: 'batch-start', total, at: started, model: config.evalModels[0], effort: config.evalEffort, mode: config.evalMode });
 
-  const tools = config.evalWebSearch ? [{ type: 'web_search' }] : undefined;
+  const tools = config.evalWebSearch ? [{ type: 'web_search', search_context_size: config.evalSearchContext }] : undefined;
 
   const evaluateOne = async (claim, i) => {
     const prompt = evaluationPrompt(claim);
@@ -90,15 +88,20 @@ export async function runEvaluation({ apiKey, claims, send, signal }) {
     const seen = new Set();
 
     const request = (model) => {
+      // Every value here is the API ceiling unless the operator lowered it in the environment.
+      const reasoning = { effort: config.evalEffort };
+      if (config.evalMode) reasoning.mode = config.evalMode;
+      if (wantSummary) reasoning.summary = config.evalReasoningSummary;
       const body = {
         model,
-        input: [{ role: 'user', content: [{ type: 'input_text', text: prompt }] }],
-        reasoning: wantSummary ? { effort: config.evalEffort, summary: config.evalReasoningSummary } : { effort: config.evalEffort },
+        input: [{ role: 'user', content: [{ type: 'input_text', text: prompt }] }], // the prompt, verbatim, alone
+        reasoning,
+        text: { verbosity: config.evalVerbosity },
         tools,
+        truncation: config.truncation, // 'disabled': the API must refuse, never drop input
         stream: true,
         store: false, // the key belongs to the reader; the prompt must not appear in their dashboard
       };
-      // No output cap by default: the entry is shown in full, so it must be allowed to finish.
       if (config.evalMaxOutputTokens > 0) body.max_output_tokens = config.evalMaxOutputTokens;
       return client.responses.create(body, { signal });
     };
@@ -214,7 +217,7 @@ export async function runEvaluation({ apiKey, claims, send, signal }) {
       text: parsed.text,            // complete, unmodified
       reasoning: reasoning.trim() || null,
       trail, sources,
-      usage, model: modelUsed, requested: config.evalModels[0], fellBack, effort: config.evalEffort,
+      usage, model: modelUsed, requested: config.evalModels[0], fellBack, effort: config.evalEffort, mode: config.evalMode,
       searches: trail.length, ms, cost, incomplete,
     });
     send({ t: 'batch-progress', completed, total });

@@ -387,7 +387,8 @@ function renderClaimsRaw() {
   if (!state.claimsRaw) { ui.claimsRaw.hidden = true; return; }
   ui.claimsRaw.hidden = false;
   ui.claimsRawSummary.textContent = t('claims.raw');
-  ui.claimsRawBody.textContent = state.claimsRaw;
+  const reasoning = state.extraction?.reasoning;
+  ui.claimsRawBody.textContent = reasoning ? `${t('card.details.reasoning')}\n\n${reasoning}\n\n${'─'.repeat(40)}\n\n${state.claimsRaw}` : state.claimsRaw;
 }
 
 // ---------- claims beyond the first 20: the reader chooses -------------------------------------
@@ -647,7 +648,7 @@ function finalizeCard(i, ev) {
     verdict: ev.verdict || null, verdictSource: ev.verdictSource || 'none',
     confidence: ev.confidence ?? null, inspector: ev.inspector || null,
     usage: ev.usage || null, cost: ev.cost || null, ms: ev.ms ?? null,
-    model: ev.model || null, requested: ev.requested || null, fellBack: ev.fellBack || null, effort: ev.effort || null,
+    model: ev.model || null, requested: ev.requested || null, fellBack: ev.fellBack || null, effort: ev.effort || null, mode: ev.mode || null,
     trail: ev.trail?.length ? ev.trail : r.trail, sources: ev.sources?.length ? ev.sources : r.sources,
     incomplete: ev.incomplete || r.incomplete || null,
   });
@@ -745,7 +746,7 @@ function renderCardFoot(i) {
   // Which model actually answered, always: a downgrade must never pass unnoticed.
   const modelNode = $('.card-model', card);
   if (r.model) {
-    modelNode.textContent = t('card.modelLine', { model: r.model, effort: r.effort || '' });
+    modelNode.textContent = t('card.modelLine', { model: r.model, effort: [r.effort, r.mode].filter(Boolean).join(' / ') });
     modelNode.classList.toggle('is-fallback', Boolean(r.fellBack));
     modelNode.title = r.fellBack ? t('warn.modelFallback', { used: r.fellBack.used, requested: r.fellBack.requested }) : '';
   } else modelNode.textContent = '';

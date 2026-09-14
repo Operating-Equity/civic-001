@@ -84,54 +84,55 @@ all or some and runs them as an extra batch once the first batch has finished.
 **Download full run** on the scoreboard writes one Markdown file containing the source, the
 verbatim extraction output, and every entry with its reasoning, searches, sources and costs.
 
-## Every place money could be traded for truth
+## Every determination setting is the API ceiling
 
-This is the complete list. Anything in the code that limits, shortens, cheapens or substitutes is
-named here, with what it can cost and who chose it. If something is not on this list, it does not
-exist in the code.
+The program contains no number of ours in the path of a determination. Each setting below
+defaults to the maximum the OpenAI API accepts, read from the SDK's type definitions. Nothing is
+capped, nothing is shortened, nothing is substituted, nothing is guessed. Lowering any setting is
+the operator's decision, made in the environment, and the server prints `BELOW CEILING` at startup
+when one is.
 
-| Setting | What it can cost | Default | Chosen by |
-|---|---|---|---|
-| `CIVIC_EVAL_MODELS` first entry | The whole determination | `gpt-5.6-sol` | You |
-| `CIVIC_EVAL_EFFORT` | Depth of the inspection | `xhigh` (`max` exists above it) | You |
-| `CIVIC_EVAL_WEB_SEARCH` | Access to primary sources | `true` | Default |
-| `CIVIC_EVAL_MAX_OUTPUT_TOKENS` | A cut-off entry | `0`, no cap | Default |
-| `CIVIC_EXTRACT_MODELS` first entry | Claims missed at step 1 and never recoverable | `gpt-5.6-terra` | Proposed, you agreed |
-| `CIVIC_EXTRACT_EFFORT` | Same | `medium` | Proposed, you agreed |
-| `CIVIC_EXTRACT_MAX_OUTPUT_TOKENS` | A cut-off claim list | `0`, no cap | Default |
-| `CIVIC_MAX_SOURCE_CHARS` | Nothing: over-length documents are refused, not cut | `2,000,000` | Default |
-| `CIVIC_ALLOW_SOURCE_TRUNCATION` | Unread text, announced in red when on | `false` | Default |
-| `maxClaims` (hard-coded) | Claims 21+ wait for your selection | `20` | You |
-| `CIVIC_EVAL_RETRIES` | Nothing; retries only on rate limits and 5xx | `3` | Default |
-| `CIVIC_EVAL_CONCURRENCY` | Nothing; speed only | `20` | Default |
-| `CIVIC_EVAL_REASONING_SUMMARY` | Costs extra tokens, buys visibility | `auto` | Default |
-| Image model, quality, art direction | Picture only. Never touches a determination. | flare / high / on | Default |
+| Setting | Ceiling (default) | Environment variable to lower it |
+|---|---|---|
+| Model, both steps | `gpt-5.6-sol` (operator's choice) | `CIVIC_MODEL`, or per step `CIVIC_EXTRACT_MODELS` / `CIVIC_EVAL_MODELS` |
+| Reasoning effort, both steps | `max` | `CIVIC_EXTRACT_EFFORT`, `CIVIC_EVAL_EFFORT` (e.g. `xhigh`) |
+| Reasoning mode, both steps | `pro` | `CIVIC_EXTRACT_REASONING_MODE`, `CIVIC_EVAL_REASONING_MODE` (`standard`) |
+| Reasoning summary shown | `detailed` | `CIVIC_EXTRACT_REASONING_SUMMARY`, `CIVIC_EVAL_REASONING_SUMMARY` |
+| Output verbosity | `high` | `CIVIC_EXTRACT_VERBOSITY`, `CIVIC_EVAL_VERBOSITY` |
+| Web search | on, context size `high` | `CIVIC_EVAL_WEB_SEARCH`, `CIVIC_EVAL_SEARCH_CONTEXT` |
+| Output token cap | none | `CIVIC_EXTRACT_MAX_OUTPUT_TOKENS`, `CIVIC_EVAL_MAX_OUTPUT_TOKENS` |
+| Input truncation by the API | `disabled` (the API refuses instead) | not configurable |
+| Source size limit of ours | none (the model's context window is the only limit) | `CIVIC_MAX_SOURCE_CHARS` |
+| Fallback to another model | none; a single model id | list more than one id in `CIVIC_*_MODELS` |
+| Retries | 8, on rate limits and 5xx only, never on a model error | `CIVIC_EVAL_RETRIES` |
+| Claims run automatically | 20 (operator's rule); the rest wait for the reader's selection | hard-coded |
 
-**Step 1 is the weakest link, by design and by my recommendation.** A claim the extractor misses is
-never tested, and no amount of `xhigh` at step 2 recovers it. Extraction currently runs on Terra at
-medium effort because it is reading, not judging, and because it costs about a tenth of Sol. If you
-want the whole pipeline at maximum:
+The image is the one exception: it is a picture, not a determination, and the operator asked for
+the fast model there (`CIVIC_IMAGE_*`).
+
+### The verifier
 
 ```bash
-CIVIC_EXTRACT_MODELS=gpt-5.6-sol CIVIC_EXTRACT_EFFORT=xhigh CIVIC_EVAL_EFFORT=max npm start
+npm run verify-ceiling
 ```
 
-Compare the two extraction outputs on the same document. The verbatim extraction output is on the
-page under **Extraction output, verbatim**, so the comparison is exact rather than impressionistic.
+This starts the mock and the server, runs an extraction and a determination, then reads the
+request bodies the server **actually sent** and fails if any is below ceiling, carries a cap,
+allows truncation, falls back to another model, adds anything around either prompt, or reads a
+verdict from anywhere but the model's own Conclusion. Run it before every deploy. A non-zero exit
+is a defect, whoever introduced it.
 
-### What the code refuses to do quietly
+### What surfaces instead of being absorbed
 
-- **A document longer than the limit is refused**, with the exact overflow named. It is never
-  partly read with nothing said. Truncation is opt-in and, when on, is announced in red at the top
-  of the run with the exact number of characters that went unread.
-- **A model downgrade is announced.** If the key cannot use the first-choice model, the run shows a
-  red warning, every card names the model that actually answered, and the ledger records it. The
-  fallback trigger is narrow: only an error naming the model as unavailable. An unsupported
-  parameter, such as a reasoning effort the model does not accept, surfaces as an error instead of
-  silently switching to a weaker model.
-- **An unreadable Conclusion is not rounded to Unverified.** The card says the verdict could not be
-  read and the claim is counted in no column.
-- **An entry cut short by the API is flagged** on the card with the reason.
+- A document the model cannot hold is refused by the API and that error is shown verbatim.
+  Nothing is ever read in part.
+- A key that cannot use the configured model gets an error, not a quieter model. If the operator
+  lists more than one model id, any switch is announced in red and named on every card.
+- A parameter the model rejects (an effort, a mode) is an error with the API's own message, not a
+  silent change to something the model accepts.
+- An entry the API ends early is flagged on the card with the API's reason.
+- A Conclusion that cannot be read leaves the claim counted in no column, with the entry shown
+  in full.
 
 ## Prompt protection
 

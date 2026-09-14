@@ -9,6 +9,7 @@
     "start": "node server/index.js",
     "dev": "node --watch server/index.js",
     "mock-openai": "node scripts/mock-openai.js",
+    "verify-ceiling": "node scripts/verify-ceiling.mjs",
     "check": "node --check server/index.js && node --check scripts/mock-openai.js"
   },
   "dependencies": {

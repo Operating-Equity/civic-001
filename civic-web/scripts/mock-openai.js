@@ -14,7 +14,16 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.MOCK_PORT || 3999);
 const SPEED = Number(process.env.MOCK_SPEED || 1); // >1 = slower, <1 = faster
 const app = express();
-app.use(express.json({ limit: '50mb' }));
+app.use(express.json({ limit: '256mb' }));
+
+// When MOCK_RECORD is set, every request body is appended there so a verifier can inspect what
+// the server actually sent (scripts/verify-ceiling.mjs).
+app.use((req, res, next) => {
+  if (process.env.MOCK_RECORD && req.method === 'POST') {
+    fs.appendFileSync(process.env.MOCK_RECORD, JSON.stringify({ ts: Date.now(), path: req.path, body: req.body }) + '\n');
+  }
+  next();
+});
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms * SPEED));
 

@@ -32,12 +32,20 @@ export async function runExtraction({ apiKey, text, send, signal, sourceWarning 
   let emitted = 0;
   const started = Date.now();
 
+  let wantSummary = Boolean(config.extractSummary);
+  let reasoning = '';
   const attempt = (model) => {
+    // Every value here is the API ceiling unless the operator lowered it in the environment.
+    const r = { effort: config.extractEffort };
+    if (config.extractMode) r.mode = config.extractMode;
+    if (wantSummary) r.summary = config.extractSummary;
     const body = {
       model,
       instructions, // the extraction prompt, verbatim
-      input: [{ role: 'user', content: [{ type: 'input_text', text }] }],
-      reasoning: { effort: config.extractEffort },
+      input: [{ role: 'user', content: [{ type: 'input_text', text }] }], // the document, whole
+      reasoning: r,
+      text: { verbosity: config.extractVerbosity },
+      truncation: config.truncation,
       stream: true,
       store: false,
     };
@@ -70,6 +78,11 @@ export async function runExtraction({ apiKey, text, send, signal, sourceWarning 
               emitted++;
             }
             send({ t: 'progress', chars: full.length, found: Math.max(emitted, items.length) });
+          } else if (event.type === 'response.reasoning_summary_text.delta' || event.type === 'response.reasoning_text.delta') {
+            reasoning += event.delta || '';
+            send({ t: 'reasoning', text: event.delta || '' });
+          } else if (event.type === 'response.reasoning_summary_part.done') {
+            reasoning += '\n\n';
           } else if (event.type === 'response.completed') {
             usage = usageOf(event.response);
           } else if (event.type === 'response.incomplete') {
@@ -86,7 +99,12 @@ export async function runExtraction({ apiKey, text, send, signal, sourceWarning 
       break;
     } catch (err) {
       if (signal.aborted) return null;
-      if (tries < 2 && isRetryable(err)) {
+      if (wantSummary && err?.status === 400 && /summar/i.test(String(err?.error?.message || err?.message || ''))) {
+        wantSummary = false;
+        send({ t: 'note', code: 'no_reasoning_summary' });
+        continue;
+      }
+      if (tries < config.evalRetries && isRetryable(err)) {
         send({ t: 'retry', attempt: tries + 1 });
         await sleep(1500 * 2 ** tries);
         continue;
@@ -106,7 +124,7 @@ export async function runExtraction({ apiKey, text, send, signal, sourceWarning 
   const cost = estimateTextCost({ model: modelUsed, usage });
   record({ kind: 'extract', model: modelUsed, effort: config.extractEffort, chars: text.length, claims: claims.length, usage, ms, usd: cost.usd, priced: cost.priced });
   // `raw` is the model's complete extraction output, exactly as returned, so it can be inspected.
-  const result = { t: 'done', total: claims.length, limit: config.maxClaims, claims, raw: full, model: modelUsed, requested: config.extractModels[0], fellBack, effort: config.extractEffort, usage, ms, cost, incomplete };
+  const result = { t: 'done', total: claims.length, limit: config.maxClaims, claims, raw: full, reasoning: reasoning.trim() || null, model: modelUsed, requested: config.extractModels[0], fellBack, effort: config.extractEffort, mode: config.extractMode, usage, ms, cost, incomplete };
   send(result);
   return result;
 }

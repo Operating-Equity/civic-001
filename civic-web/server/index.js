@@ -4,7 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import express from 'express';
 import multer from 'multer';
-import { config, publicConfig } from './config.js';
+import { config, publicConfig, atCeiling } from './config.js';
 import { promptStatus, hasPrompt } from './prompts.js';
 import { ApiError, keyFromRequest, describeError } from './openai.js';
 import { openStream } from './stream.js';
@@ -37,7 +37,7 @@ app.use((req, res, next) => {
 });
 
 // Big enough to carry a whole document; the real ceiling is config.maxSourceChars.
-app.use(express.json({ limit: '16mb' }));
+app.use(express.json({ limit: '64mb' }));
 
 // Vendor scripts for the browser (served read-only from node_modules).
 const nodeModules = path.join(here, '..', 'node_modules');
@@ -164,6 +164,10 @@ const server = app.listen(config.port, () => {
   const status = promptStatus();
   console.log(`CIVIC main page on http://localhost:${config.port}`);
   console.log(`prompts installed: extract=${status.extract} evaluate=${status.evaluate} challenge=${status.challenge}` + (config.challengeEnabled ? '' : ' (challenge API step withheld)'));
+  const ceiling = atCeiling();
+  console.log(ceiling.all
+    ? `every determination setting is at the API ceiling: ${config.evalModels[0]} · effort ${config.evalEffort} · mode ${config.evalMode} · verbosity ${config.evalVerbosity} · search context ${config.evalSearchContext} · no caps · no fallback`
+    : `BELOW CEILING: ${Object.entries(ceiling.checks).filter(([, ok]) => !ok).map(([k]) => k).join(', ')}  (set by the environment)`);
   if (config.openaiBaseUrl) console.log(`OpenAI base URL override: ${config.openaiBaseUrl}`);
 });
 // Long reasoning runs can take many minutes; do not let Node cut the stream.
