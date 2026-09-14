@@ -189,10 +189,11 @@ run the server straight from GitHub:
 1. Sign up at render.com with your GitHub account and allow it to see `Operating-Equity/civic-001`.
 2. New → Blueprint → choose the repository and the branch. Render reads `render.yaml` and creates
    the `civic` service.
-3. Open the service → Environment → Secret Files. Add `extract.txt` (the extraction prompt) and
-   `evaluate.txt` (the evaluation prompt, first line `Prompt = {{CLAIM}}`). Save.
-4. Deploy. The service gets an address like `https://civic.onrender.com`. Open it, add your OpenAI
-   key in the strip at the top, paste a document, press Test the facts.
+3. Open the service → Environment. Under Secret Files add `extract.txt` (the extraction prompt)
+   and `evaluate.txt` (the evaluation prompt, first line `Prompt = {{CLAIM}}`). Under Environment
+   Variables paste your OpenAI key as the value of `OPENAI_API_KEY`. Save.
+4. Deploy. The service gets an address like `https://civic.onrender.com`. Open it, paste a
+   document, press Test the facts. The page asks no one for a key; the server uses yours.
 
 The prompts live only in Render's secret store and the server's memory; they are never in the
 repository. The internal ledger on Render is written to a temporary disk and does not persist
