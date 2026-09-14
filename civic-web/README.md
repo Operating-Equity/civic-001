@@ -26,10 +26,10 @@ civic-web/
 │   └── documents.js   .pdf / .docx / text parsing for uploads.
 ├── public/            The page. No build step. Plain ES modules.
 │   ├── index.html · css/civic.css
-│   ├── js/app.js      State machine and UI. js/api.js streaming client. js/demo.js sample run.
+│   ├── js/app.js      State machine and UI. js/api.js streaming client. js/render.js markdown, toasts.
 │   ├── js/i18n.js     Translation layer. locales/en.js es.js fr.js de.js (add more here).
 │   └── assets/        Logos (background knocked out) and the scene.
-└── scripts/           mock-openai.js (dev stand-in for OpenAI), build-artifact.mjs (static preview).
+└── scripts/           verify.mjs (the guard), mock-openai.js (dev stand-in), trial-run.mjs, ledger-summary.mjs.
 ```
 
 ## Run it
@@ -43,8 +43,13 @@ cp server/prompts/evaluate.example.txt server/prompts/evaluate.txt   # must cont
 npm start            # http://localhost:3000
 ```
 
-Readers add their own OpenAI key on the page (stored in their browser only). Every request sends
-it in a header; the server never stores it.
+`npm start` also reads a `.env` file in this folder if one exists (gitignored; see `.env.example`).
+Settings already present in the environment win over the file. Two ways to supply the key:
+
+- **Operator's key.** Put `CIVIC_ALLOW_SERVER_KEY=true` and `OPENAI_API_KEY=sk-...` in `.env` or the
+  environment. The page then asks no one for a key.
+- **Reader's key.** Leave those unset. Readers add their own OpenAI key on the page (stored in
+  their browser only). Every request sends it in a header; the server never stores it.
 
 ### Without a key (development)
 
@@ -163,12 +168,14 @@ should move to a secrets manager rather than files on disk.
 
 | Step | Default | Why |
 |---|---|---|
-| Extraction | `gpt-5.6-terra`, effort `medium` | Careful reading over long documents, streams quickly, about a tenth of Sol's price. `gpt-5.6-luna` is the budget alternative. |
+| Extraction | `gpt-5.6-sol`, effort `xhigh`, web search on | The operator's tested configuration, the same as for determination. |
 | Determination | `gpt-5.6-sol`, effort `xhigh`, web search on | As requested. Web search lets the inspector reach primary sources, and every query and citation is shown. |
 | Art direction | `gpt-5.6-luna`, effort `low` | Reads the document and writes a concrete photographic brief for the echo. About two seconds. |
 | Visual echo | `gpt-image-2.5-flare`, quality `high` | OpenAI's fastest image model. Quality is `high`, not `low`: the speed comes from the model, not from starving it. |
 
-Model ids fall back down the list automatically if the key does not have access to the first one.
+One model id per step means no fallback. Only if the operator lists several ids in
+`CIVIC_EXTRACT_MODELS` or `CIVIC_EVAL_MODELS` does the server move down the list, and only when the
+key cannot use the earlier id; when that happens the page shows a warning naming both models.
 The scoreboard shows total tokens per run so cost can be estimated per document.
 
 ### Why the echo looks the way it does
