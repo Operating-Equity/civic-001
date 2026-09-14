@@ -1,7 +1,8 @@
-// The dam. This script starts the mock and the server, runs an extraction and a determination,
-// then reads the request bodies the server ACTUALLY SENT and fails if any of them is below the
-// API ceiling, carries a cap, allows truncation, falls back to another model, or alters the
-// prompts. Run it before every deploy: `npm run verify-ceiling`. A non-zero exit is a defect.
+// The guard. Starts the mock and the server, runs an extraction and a determination, then reads
+// the request bodies the server ACTUALLY SENT to the API and fails if they carry anything but the
+// operator's configuration: the configured model, the configured reasoning effort, the prompts
+// verbatim, web search. Any other key in a request body is a failure, whoever added it.
+// Run before every deploy: `npm run verify`. A non-zero exit is a defect.
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -15,19 +16,24 @@ const PORT = 3007;
 const record = path.join(os.tmpdir(), `civic-verify-${Date.now()}.jsonl`);
 const KEY = 'sk-verify00000000000000000000';
 
-const CEILING = { effort: 'max', mode: 'pro', summary: 'detailed', verbosity: 'high', searchContext: 'high', truncation: 'disabled' };
+// The only keys a request may carry. Nothing else, ever.
+const ALLOWED = {
+  extract: ['model', 'instructions', 'input', 'reasoning', 'stream', 'store'],
+  evaluate: ['model', 'input', 'reasoning', 'tools', 'stream', 'store'],
+  reasoning: ['effort', 'summary'],
+  webSearchTool: ['type'],
+};
 
-// The prompts must be installed for the verifier to run; it checks they were sent verbatim.
 const promptDir = path.join(root, 'server', 'prompts');
-const extractPrompt = readPrompt('extract');
-const evaluatePrompt = readPrompt('evaluate');
 function readPrompt(name) {
   const inline = process.env[`CIVIC_PROMPT_${name.toUpperCase()}`];
   if (inline) return inline.replace(/\r\n/g, '\n');
   const file = process.env[`CIVIC_PROMPT_${name.toUpperCase()}_FILE`] || path.join(promptDir, `${name}.txt`);
-  if (!fs.existsSync(file)) { console.error(`verify-ceiling: ${name} prompt not installed (${file})`); process.exit(2); }
+  if (!fs.existsSync(file)) { console.error(`verify: ${name} prompt not installed (${file})`); process.exit(2); }
   return fs.readFileSync(file, 'utf8').replace(/\r\n/g, '\n');
 }
+const extractPrompt = readPrompt('extract');
+const evaluatePrompt = readPrompt('evaluate');
 
 const children = [];
 const start = (args, extraEnv) => {
@@ -68,16 +74,18 @@ async function stream(url, body) {
 
 const results = [];
 const check = (name, ok, detail = '') => { results.push({ name, ok, detail }); };
+const extraKeys = (obj, allowed) => Object.keys(obj || {}).filter((k) => !allowed.includes(k));
 
 try {
   fs.writeFileSync(record, '');
   start([path.join(root, 'scripts', 'mock-openai.js')], { MOCK_PORT: String(MOCK_PORT), MOCK_RECORD: record, MOCK_SPEED: '0.2' });
-  await wait(`http://localhost:${MOCK_PORT}/v1/responses`, 15000, { anyResponse: true }); // any answer means the mock is up
+  await wait(`http://localhost:${MOCK_PORT}/v1/responses`, 15000, { anyResponse: true });
   start([path.join(root, 'server', 'index.js')], { PORT: String(PORT), OPENAI_BASE_URL: `http://localhost:${MOCK_PORT}/v1`, CIVIC_IMAGE_ENABLED: 'false', CIVIC_LEDGER_FILE: path.join(os.tmpdir(), 'civic-verify-ledger.jsonl') });
   await wait(`http://localhost:${PORT}/api/health`);
 
   const health = await (await fetch(`http://localhost:${PORT}/api/health`)).json();
-  check('server reports every setting at ceiling', health.ceiling?.all === true, JSON.stringify(health.ceiling?.checks));
+  const shape = health.request;
+  check('no fallback list on either step', shape.extract.fallback === false && shape.evaluate.fallback === false);
 
   const source = 'The Eiffel Tower stands about 330 metres tall. Water boils at 100 degrees Celsius at sea level. Mount Everest is 8,849 metres above sea level.';
   const claim = 'The Eiffel Tower stands about 330 metres tall.';
@@ -90,36 +98,33 @@ try {
   check('extraction request captured', Boolean(exBody));
   check('determination request captured', Boolean(evBody));
 
-  for (const [label, body] of [['extraction', exBody], ['determination', evBody]]) {
-    if (!body) continue;
-    check(`${label}: model is the configured model`, body.model === health.models.evaluate, body.model);
-    check(`${label}: reasoning.effort = ${CEILING.effort}`, body.reasoning?.effort === CEILING.effort, JSON.stringify(body.reasoning));
-    check(`${label}: reasoning.mode = ${CEILING.mode}`, body.reasoning?.mode === CEILING.mode, JSON.stringify(body.reasoning));
-    check(`${label}: reasoning.summary = ${CEILING.summary}`, body.reasoning?.summary === CEILING.summary, JSON.stringify(body.reasoning));
-    check(`${label}: text.verbosity = ${CEILING.verbosity}`, body.text?.verbosity === CEILING.verbosity, JSON.stringify(body.text));
-    check(`${label}: truncation = ${CEILING.truncation}`, body.truncation === CEILING.truncation, String(body.truncation));
-    check(`${label}: no max_output_tokens`, body.max_output_tokens === undefined, String(body.max_output_tokens));
-    check(`${label}: no max_tool_calls`, body.max_tool_calls === undefined, String(body.max_tool_calls));
-    check(`${label}: store = false (prompt never in the key owner's dashboard)`, body.store === false, String(body.store));
-  }
   if (exBody) {
+    check('extraction: model is the configured model', exBody.model === shape.extract.model, exBody.model);
+    check('extraction: reasoning.effort is the configured effort', exBody.reasoning?.effort === shape.extract.effort, JSON.stringify(exBody.reasoning));
+    check('extraction: no keys beyond model, instructions, input, reasoning, stream, store', extraKeys(exBody, ALLOWED.extract).length === 0, extraKeys(exBody, ALLOWED.extract).join(', '));
+    check('extraction: no reasoning keys beyond effort, summary', extraKeys(exBody.reasoning, ALLOWED.reasoning).length === 0, extraKeys(exBody.reasoning, ALLOWED.reasoning).join(', '));
     check('extraction: prompt sent verbatim as instructions', exBody.instructions === extractPrompt, `${exBody.instructions?.length} vs ${extractPrompt.length} chars`);
-    check('extraction: the document sent whole', exBody.input?.[0]?.content?.[0]?.text === source);
+    check('extraction: the document sent whole, as the only message', exBody.input?.length === 1 && exBody.input[0]?.content?.[0]?.text === source);
+    check('extraction: store = false', exBody.store === false);
   }
   if (evBody) {
     const userText = evBody.input?.[0]?.content?.[0]?.text;
-    check('determination: no instructions field (nothing added around the prompt)', evBody.instructions === undefined, String(evBody.instructions)?.slice(0, 60));
+    check('determination: model is the configured model', evBody.model === shape.evaluate.model, evBody.model);
+    check('determination: reasoning.effort is the configured effort', evBody.reasoning?.effort === shape.evaluate.effort, JSON.stringify(evBody.reasoning));
+    check('determination: no keys beyond model, input, reasoning, tools, stream, store', extraKeys(evBody, ALLOWED.evaluate).length === 0, extraKeys(evBody, ALLOWED.evaluate).join(', '));
+    check('determination: no reasoning keys beyond effort, summary', extraKeys(evBody.reasoning, ALLOWED.reasoning).length === 0, extraKeys(evBody.reasoning, ALLOWED.reasoning).join(', '));
+    check('determination: no instructions field (nothing added around the prompt)', evBody.instructions === undefined);
     check('determination: the prompt sent verbatim with the claim substituted', userText === evaluatePrompt.split('{{CLAIM}}').join(claim), `${userText?.length} chars`);
     check('determination: exactly one message, the prompt', Array.isArray(evBody.input) && evBody.input.length === 1);
-    const ws = (evBody.tools || []).find((t) => t.type === 'web_search');
-    check('determination: web_search tool present', Boolean(ws));
-    check(`determination: search_context_size = ${CEILING.searchContext}`, ws?.search_context_size === CEILING.searchContext, JSON.stringify(ws));
+    const tools = evBody.tools || [];
+    check('determination: tools is exactly one web_search with no options', tools.length === 1 && tools[0].type === 'web_search' && extraKeys(tools[0], ALLOWED.webSearchTool).length === 0, JSON.stringify(tools));
+    check('determination: store = false', evBody.store === false);
   }
   check('no fallback or truncation warnings in either stream', ![...ex, ...ev].some((e) => e.t === 'warning'), JSON.stringify([...ex, ...ev].filter((e) => e.t === 'warning')));
   const done = ev.find((e) => e.t === 'done');
   const streamed = ev.filter((e) => e.t === 'delta' && e.i === 0).map((e) => e.text).join('');
   check('determination: final text equals every streamed character (nothing stripped)', Boolean(done?.text) && done.text === streamed, `${done?.text?.length} vs ${streamed.length} chars`);
-  check('determination: verdict read from Conclusion (not guessed)', done?.verdictSource === 'conclusion' || done?.verdict === null, `source=${done?.verdictSource}`);
+  check('determination: verdict read from the Conclusion or left unread (never guessed)', done?.verdictSource === 'conclusion' || done?.verdict === null, `source=${done?.verdictSource}`);
 } catch (err) {
   check('run completed', false, err.message);
 } finally {
@@ -129,5 +134,7 @@ try {
 
 const failed = results.filter((r) => !r.ok);
 for (const r of results) console.log(`${r.ok ? 'PASS' : 'FAIL'}  ${r.name}${r.ok ? '' : `   ← ${r.detail}`}`);
-console.log(failed.length ? `\n${failed.length} FAILED. A determination setting is below ceiling, capped, or altered.` : `\nAll ${results.length} checks passed. Nothing is capped, lowered, substituted, or altered.`);
+console.log(failed.length
+  ? `\n${failed.length} FAILED. A request carries something the operator did not configure.`
+  : `\nAll ${results.length} checks passed. Requests carry the configured model and effort, the prompts verbatim, web search, and nothing else.`);
 process.exit(failed.length ? 1 : 0);

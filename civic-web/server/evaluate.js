@@ -69,9 +69,9 @@ export async function runEvaluation({ apiKey, claims, send, signal }) {
   const total = claims.length;
   let completed = 0;
   const started = Date.now();
-  send({ t: 'batch-start', total, at: started, model: config.evalModels[0], effort: config.evalEffort, mode: config.evalMode });
+  send({ t: 'batch-start', total, at: started, model: config.evalModels[0], effort: config.evalEffort });
 
-  const tools = config.evalWebSearch ? [{ type: 'web_search', search_context_size: config.evalSearchContext }] : undefined;
+  const tools = config.evalWebSearch ? [{ type: 'web_search' }] : undefined;
 
   const evaluateOne = async (claim, i) => {
     const prompt = evaluationPrompt(claim);
@@ -88,21 +88,18 @@ export async function runEvaluation({ apiKey, claims, send, signal }) {
     const seen = new Set();
 
     const request = (model) => {
-      // Every value here is the API ceiling unless the operator lowered it in the environment.
+      // The operator's tested configuration and nothing else. No cap, no mode, no verbosity,
+      // no context size. `npm run verify` fails if any other key ever appears here.
       const reasoning = { effort: config.evalEffort };
-      if (config.evalMode) reasoning.mode = config.evalMode;
       if (wantSummary) reasoning.summary = config.evalReasoningSummary;
       const body = {
         model,
         input: [{ role: 'user', content: [{ type: 'input_text', text: prompt }] }], // the prompt, verbatim, alone
         reasoning,
-        text: { verbosity: config.evalVerbosity },
         tools,
-        truncation: config.truncation, // 'disabled': the API must refuse, never drop input
         stream: true,
         store: false, // the key belongs to the reader; the prompt must not appear in their dashboard
       };
-      if (config.evalMaxOutputTokens > 0) body.max_output_tokens = config.evalMaxOutputTokens;
       return client.responses.create(body, { signal });
     };
 
@@ -217,7 +214,7 @@ export async function runEvaluation({ apiKey, claims, send, signal }) {
       text: parsed.text,            // complete, unmodified
       reasoning: reasoning.trim() || null,
       trail, sources,
-      usage, model: modelUsed, requested: config.evalModels[0], fellBack, effort: config.evalEffort, mode: config.evalMode,
+      usage, model: modelUsed, requested: config.evalModels[0], fellBack, effort: config.evalEffort,
       searches: trail.length, ms, cost, incomplete,
     });
     send({ t: 'batch-progress', completed, total });

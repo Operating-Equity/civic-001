@@ -84,52 +84,57 @@ all or some and runs them as an extra batch once the first batch has finished.
 **Download full run** on the scoreboard writes one Markdown file containing the source, the
 verbatim extraction output, and every entry with its reasoning, searches, sources and costs.
 
-## Every determination setting is the API ceiling
+## What is sent, exactly
 
-The program contains no number of ours in the path of a determination. Each setting below
-defaults to the maximum the OpenAI API accepts, read from the SDK's type definitions. Nothing is
-capped, nothing is shortened, nothing is substituted, nothing is guessed. Lowering any setting is
-the operator's decision, made in the environment, and the server prints `BELOW CEILING` at startup
-when one is.
+Every request to OpenAI carries the operator's tested configuration and nothing else. There is no
+number in this program in the path of a determination that the operator did not set.
 
-| Setting | Ceiling (default) | Environment variable to lower it |
+**Extraction request:** `model`, `instructions` (the extraction prompt, verbatim), `input` (the
+document, whole, as the only message), `reasoning.effort`, `reasoning.summary`, `stream`, `store`.
+
+**Determination request:** `model`, `input` (the evaluation prompt, verbatim, with the claim in
+place of `{{CLAIM}}`, as the only message), `reasoning.effort`, `reasoning.summary`, `tools`
+(one `web_search`, no options), `stream`, `store`.
+
+Nothing else. No output token cap. No reasoning mode. No verbosity. No search context size. No
+truncation setting. No fallback model. No size limit of ours on the document.
+
+| Setting | Value | Set by |
 |---|---|---|
-| Model, both steps | `gpt-5.6-sol` (operator's choice) | `CIVIC_MODEL`, or per step `CIVIC_EXTRACT_MODELS` / `CIVIC_EVAL_MODELS` |
-| Reasoning effort, both steps | `max` | `CIVIC_EXTRACT_EFFORT`, `CIVIC_EVAL_EFFORT` (e.g. `xhigh`) |
-| Reasoning mode, both steps | `pro` | `CIVIC_EXTRACT_REASONING_MODE`, `CIVIC_EVAL_REASONING_MODE` (`standard`) |
-| Reasoning summary shown | `detailed` | `CIVIC_EXTRACT_REASONING_SUMMARY`, `CIVIC_EVAL_REASONING_SUMMARY` |
-| Output verbosity | `high` | `CIVIC_EXTRACT_VERBOSITY`, `CIVIC_EVAL_VERBOSITY` |
-| Web search | on, context size `high` | `CIVIC_EVAL_WEB_SEARCH`, `CIVIC_EVAL_SEARCH_CONTEXT` |
-| Output token cap | none | `CIVIC_EXTRACT_MAX_OUTPUT_TOKENS`, `CIVIC_EVAL_MAX_OUTPUT_TOKENS` |
-| Input truncation by the API | `disabled` (the API refuses instead) | not configurable |
-| Source size limit of ours | none (the model's context window is the only limit) | `CIVIC_MAX_SOURCE_CHARS` |
-| Fallback to another model | none; a single model id | list more than one id in `CIVIC_*_MODELS` |
-| Retries | 8, on rate limits and 5xx only, never on a model error | `CIVIC_EVAL_RETRIES` |
-| Claims run automatically | 20 (operator's rule); the rest wait for the reader's selection | hard-coded |
+| Model, both steps | `gpt-5.6-sol` | Operator, tested |
+| Reasoning effort, both steps | `xhigh` | Operator, tested |
+| Web search | on | Required by the prompt's evidence steps; this is how the API model reaches sources |
+| Reasoning summary | `auto` | Display only: the model's own account of its reasoning, shown on the card. Does not change the answer. Blank to turn off. |
+| Claims run automatically | 20; the rest wait for the reader's selection | Operator's rule |
+| Retries | 8, on rate limits and 5xx only | Never on a model or parameter error |
 
-The image is the one exception: it is a picture, not a determination, and the operator asked for
-the fast model there (`CIVIC_IMAGE_*`).
+Environment variables: `CIVIC_MODEL`, `CIVIC_EFFORT` (both steps), or per step
+`CIVIC_EXTRACT_MODELS`, `CIVIC_EXTRACT_EFFORT`, `CIVIC_EVAL_MODELS`, `CIVIC_EVAL_EFFORT`,
+`CIVIC_EXTRACT_REASONING_SUMMARY`, `CIVIC_EVAL_REASONING_SUMMARY`, `CIVIC_EVAL_WEB_SEARCH`.
+The server prints the exact shape of both requests at startup.
 
-### The verifier
+The image is a picture, not a determination, and the operator asked for the fast model there
+(`CIVIC_IMAGE_*`).
+
+### The guard
 
 ```bash
-npm run verify-ceiling
+npm run verify
 ```
 
-This starts the mock and the server, runs an extraction and a determination, then reads the
-request bodies the server **actually sent** and fails if any is below ceiling, carries a cap,
-allows truncation, falls back to another model, adds anything around either prompt, or reads a
-verdict from anywhere but the model's own Conclusion. Run it before every deploy. A non-zero exit
-is a defect, whoever introduced it.
+Starts the mock and the server, runs both steps, and reads the request bodies the server
+**actually sent**. It fails if a request carries any key beyond the list above, if the model or
+effort differ from the configuration, if either prompt is not byte-for-byte verbatim, if a
+fallback or truncation occurred, if any streamed character is missing from the delivered text, or
+if a verdict was read from anywhere but the model's own Conclusion. Run it before every deploy.
+A non-zero exit is a defect, whoever introduced it.
 
 ### What surfaces instead of being absorbed
 
 - A document the model cannot hold is refused by the API and that error is shown verbatim.
   Nothing is ever read in part.
-- A key that cannot use the configured model gets an error, not a quieter model. If the operator
-  lists more than one model id, any switch is announced in red and named on every card.
-- A parameter the model rejects (an effort, a mode) is an error with the API's own message, not a
-  silent change to something the model accepts.
+- A key that cannot use the configured model gets an error, not a quieter model.
+- A parameter the model rejects is an error with the API's own message, not a silent change.
 - An entry the API ends early is flagged on the card with the API's reason.
 - A Conclusion that cannot be read leaves the claim counted in no column, with the entry shown
   in full.

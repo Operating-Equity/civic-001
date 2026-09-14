@@ -48,8 +48,8 @@ async function stream(url, body, onEvent) {
 }
 
 const health = await (await fetch(`${server}/api/health`)).json();
-console.log(`server ok · extract ${health.models.extract} ${health.models.extractEffort}/${health.models.extractMode} · evaluate ${health.models.evaluate} ${health.models.evaluateEffort}/${health.models.evaluateMode} · verbosity ${health.models.evaluateVerbosity} · web search ${health.models.webSearch} (${health.models.searchContext}) · image ${health.models.illustrate}/${health.models.illustrateQuality}`);
-console.log(health.ceiling?.all ? 'every determination setting is at the API ceiling' : `BELOW CEILING: ${Object.entries(health.ceiling?.checks || {}).filter(([, ok]) => !ok).map(([k]) => k).join(', ')}`);
+console.log(`server ok · extract ${health.models.extract} @ ${health.models.extractEffort} · evaluate ${health.models.evaluate} @ ${health.models.evaluateEffort} · web search ${health.models.webSearch} · image ${health.models.illustrate}/${health.models.illustrateQuality}`);
+console.log(`each request carries: ${health.request?.keys?.evaluate?.join(', ')} — nothing else`);
 console.log(`document: ${file} (${text.length} chars)\n`);
 
 // The visual echo runs in parallel with extraction, as it does on the page.

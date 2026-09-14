@@ -1,13 +1,12 @@
 // Runtime configuration.
 //
-// ONE RULE GOVERNS THIS FILE. Every setting that touches a determination defaults to the API's
-// own ceiling: the maximum value the OpenAI API accepts, read from the SDK's type definitions.
-// Not a value anyone here judged reasonable. Lowering any of them is the operator's decision,
-// made in the environment; the README lists every one. `npm run verify-ceiling` inspects the
-// request bodies the server actually sends and fails if any of them is below ceiling.
+// ONE RULE GOVERNS THIS FILE. The requests sent to OpenAI carry the operator's tested
+// configuration and nothing else: the model, the reasoning effort, the prompt, web search.
+// No parameter is added that the operator did not test with. No cap, no mode, no verbosity,
+// no context-size, no fallback, no limit. `npm run verify` inspects the request bodies the
+// server actually sends and fails if any key beyond that set appears.
 //
-// The image pipeline is the only exception: it draws a picture, not a determination, and the
-// operator asked for speed there.
+// Model ids were read from the OpenAI SDK type definitions (openai@7.15, Sept 2026).
 
 const env = (name, fallback) => {
   const v = process.env[name];
@@ -17,48 +16,32 @@ const list = (name, fallback) => env(name, fallback).split(',').map((s) => s.tri
 const int = (name, fallback) => Number.parseInt(env(name, String(fallback)), 10);
 const bool = (name, fallback) => /^(1|true|yes|on)$/i.test(env(name, fallback ? 'true' : 'false'));
 
-// The model the operator chose. Used for both steps unless overridden per step.
-// A single id means there is no fallback: if the key cannot use it, the run fails and says why.
+// The one configuration the operator reported testing: gpt-5.6-sol at reasoning effort xhigh.
+// It is used for both steps unless the operator sets a step separately.
 const MODEL = env('CIVIC_MODEL', 'gpt-5.6-sol');
-
-export const CEILING = Object.freeze({
-  effort: 'max',          // reasoning.effort:  none | minimal | low | medium | high | xhigh | max
-  mode: 'pro',            // reasoning.mode:    standard | pro
-  summary: 'detailed',    // reasoning.summary: auto | concise | detailed
-  verbosity: 'high',      // text.verbosity:    low | medium | high
-  searchContext: 'high',  // web_search.search_context_size: low | medium | high
-  truncation: 'disabled', // never let the API drop input silently
-  maxOutputTokens: 0,     // 0 = no cap
-  maxSourceChars: 0,      // 0 = no limit of ours; the model's context window is the only limit
-});
+const EFFORT = env('CIVIC_EFFORT', 'xhigh');
 
 export const config = {
   port: int('PORT', 3000),
 
-  // Step 1 — empirical claim extraction. Same model, same ceiling as step 2.
-  extractModels: list('CIVIC_EXTRACT_MODELS', MODEL),
-  extractEffort: env('CIVIC_EXTRACT_EFFORT', CEILING.effort),
-  extractMode: env('CIVIC_EXTRACT_REASONING_MODE', CEILING.mode),
-  extractSummary: env('CIVIC_EXTRACT_REASONING_SUMMARY', CEILING.summary),
-  extractVerbosity: env('CIVIC_EXTRACT_VERBOSITY', CEILING.verbosity),
-  extractMaxOutputTokens: int('CIVIC_EXTRACT_MAX_OUTPUT_TOKENS', CEILING.maxOutputTokens),
+  // Step 1 — empirical claim extraction.
+  extractModels: list('CIVIC_EXTRACT_MODELS', MODEL), // one id = no fallback
+  extractEffort: env('CIVIC_EXTRACT_EFFORT', EFFORT),
+  // Reasoning summaries are the model's own account of its reasoning, shown on the page. They do
+  // not change the answer. 'auto' lets the API decide the form. Blank turns them off.
+  extractSummary: env('CIVIC_EXTRACT_REASONING_SUMMARY', 'auto'),
 
   // Step 2 — determination.
-  evalModels: list('CIVIC_EVAL_MODELS', MODEL),
-  evalEffort: env('CIVIC_EVAL_EFFORT', CEILING.effort),
-  evalMode: env('CIVIC_EVAL_REASONING_MODE', CEILING.mode),
-  evalReasoningSummary: env('CIVIC_EVAL_REASONING_SUMMARY', CEILING.summary),
-  evalVerbosity: env('CIVIC_EVAL_VERBOSITY', CEILING.verbosity),
-  evalMaxOutputTokens: int('CIVIC_EVAL_MAX_OUTPUT_TOKENS', CEILING.maxOutputTokens),
-  evalWebSearch: bool('CIVIC_EVAL_WEB_SEARCH', true),
-  evalSearchContext: env('CIVIC_EVAL_SEARCH_CONTEXT', CEILING.searchContext),
-  evalConcurrency: int('CIVIC_EVAL_CONCURRENCY', 20), // speed only; the operator asked for parallel
-  evalRetries: int('CIVIC_EVAL_RETRIES', 8),           // rate limits and 5xx only; never on a model error
-  truncation: CEILING.truncation,
+  evalModels: list('CIVIC_EVAL_MODELS', MODEL), // one id = no fallback
+  evalEffort: env('CIVIC_EVAL_EFFORT', EFFORT),
+  evalReasoningSummary: env('CIVIC_EVAL_REASONING_SUMMARY', 'auto'),
+  evalWebSearch: bool('CIVIC_EVAL_WEB_SEARCH', true), // the prompt requires evidence; this is how the API model reaches it
+  evalConcurrency: int('CIVIC_EVAL_CONCURRENCY', 20), // the operator asked for the 20 to run in parallel
+  evalRetries: int('CIVIC_EVAL_RETRIES', 8),           // rate limits and 5xx only; never on a model or parameter error
 
-  // Source documents. 0 = no limit of ours. If a document exceeds the model's context window the
-  // API refuses it and that error is shown verbatim; nothing is ever read in part.
-  maxSourceChars: int('CIVIC_MAX_SOURCE_CHARS', CEILING.maxSourceChars),
+  // Source documents. No limit of ours. If a document exceeds the model's context window the API
+  // refuses it and that error is shown verbatim; nothing is ever read in part.
+  maxSourceChars: int('CIVIC_MAX_SOURCE_CHARS', 0),
   allowSourceTruncation: bool('CIVIC_ALLOW_SOURCE_TRUNCATION', false),
   maxClaims: 20, // the automatic run; claims beyond wait for the reader's selection (operator's rule)
   maxUploadBytes: int('CIVIC_MAX_UPLOAD_BYTES', 200 * 1024 * 1024),
@@ -91,31 +74,19 @@ export const config = {
   openaiBaseUrl: env('OPENAI_BASE_URL', ''),
 };
 
-/** True when every determination setting is at the API ceiling. Reported by /api/health. */
-export function atCeiling() {
-  const c = config;
-  const checks = {
-    extractEffort: c.extractEffort === CEILING.effort,
-    extractMode: c.extractMode === CEILING.mode,
-    extractSummary: c.extractSummary === CEILING.summary,
-    extractVerbosity: c.extractVerbosity === CEILING.verbosity,
-    extractNoCap: c.extractMaxOutputTokens === 0,
-    evalEffort: c.evalEffort === CEILING.effort,
-    evalMode: c.evalMode === CEILING.mode,
-    evalSummary: c.evalReasoningSummary === CEILING.summary,
-    evalVerbosity: c.evalVerbosity === CEILING.verbosity,
-    evalNoCap: c.evalMaxOutputTokens === 0,
-    webSearch: c.evalWebSearch === true,
-    searchContext: c.evalSearchContext === CEILING.searchContext,
-    noFallback: c.extractModels.length === 1 && c.evalModels.length === 1,
-    noSourceLimit: c.maxSourceChars === 0,
-    noSourceTruncation: c.allowSourceTruncation === false,
+/** Exactly what each request will carry. Printed at startup and reported by /api/health. */
+export function requestShape() {
+  return {
+    extract: { model: config.extractModels[0], effort: config.extractEffort, summary: config.extractSummary || null, fallback: config.extractModels.length > 1 },
+    evaluate: { model: config.evalModels[0], effort: config.evalEffort, summary: config.evalReasoningSummary || null, webSearch: config.evalWebSearch, fallback: config.evalModels.length > 1 },
+    // Present in every request; never anything else.
+    keys: { extract: ['model', 'instructions', 'input', 'reasoning', 'stream', 'store'], evaluate: ['model', 'input', 'reasoning', 'tools', 'stream', 'store'] },
   };
-  return { all: Object.values(checks).every(Boolean), checks };
 }
 
 // What the browser is allowed to know. Never anything about prompt contents.
 export function publicConfig(promptStatus) {
+  const shape = requestShape();
   return {
     maxClaims: config.maxClaims,
     maxSourceChars: config.maxSourceChars,
@@ -126,16 +97,12 @@ export function publicConfig(promptStatus) {
     accounting: config.accounting,
     reasoningSummary: Boolean(config.evalReasoningSummary),
     serverKey: Boolean(config.serverKey),
-    ceiling: atCeiling(),
+    request: shape,
     models: {
-      extract: config.extractModels[0],
-      extractEffort: config.extractEffort,
-      extractMode: config.extractMode,
-      evaluate: config.evalModels[0],
-      evaluateEffort: config.evalEffort,
-      evaluateMode: config.evalMode,
-      evaluateVerbosity: config.evalVerbosity,
-      searchContext: config.evalSearchContext,
+      extract: shape.extract.model,
+      extractEffort: shape.extract.effort,
+      evaluate: shape.evaluate.model,
+      evaluateEffort: shape.evaluate.effort,
       illustrate: config.illustrateModels[0],
       illustrateQuality: config.illustrateQuality,
       webSearch: config.evalWebSearch,

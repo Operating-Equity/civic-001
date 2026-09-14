@@ -35,21 +35,17 @@ export async function runExtraction({ apiKey, text, send, signal, sourceWarning 
   let wantSummary = Boolean(config.extractSummary);
   let reasoning = '';
   const attempt = (model) => {
-    // Every value here is the API ceiling unless the operator lowered it in the environment.
+    // The operator's configuration and nothing else. `npm run verify` fails if any other key appears.
     const r = { effort: config.extractEffort };
-    if (config.extractMode) r.mode = config.extractMode;
     if (wantSummary) r.summary = config.extractSummary;
     const body = {
       model,
       instructions, // the extraction prompt, verbatim
       input: [{ role: 'user', content: [{ type: 'input_text', text }] }], // the document, whole
       reasoning: r,
-      text: { verbosity: config.extractVerbosity },
-      truncation: config.truncation,
       stream: true,
       store: false,
     };
-    if (config.extractMaxOutputTokens > 0) body.max_output_tokens = config.extractMaxOutputTokens;
     return client.responses.create(body, { signal });
   };
 
@@ -124,7 +120,7 @@ export async function runExtraction({ apiKey, text, send, signal, sourceWarning 
   const cost = estimateTextCost({ model: modelUsed, usage });
   record({ kind: 'extract', model: modelUsed, effort: config.extractEffort, chars: text.length, claims: claims.length, usage, ms, usd: cost.usd, priced: cost.priced });
   // `raw` is the model's complete extraction output, exactly as returned, so it can be inspected.
-  const result = { t: 'done', total: claims.length, limit: config.maxClaims, claims, raw: full, reasoning: reasoning.trim() || null, model: modelUsed, requested: config.extractModels[0], fellBack, effort: config.extractEffort, mode: config.extractMode, usage, ms, cost, incomplete };
+  const result = { t: 'done', total: claims.length, limit: config.maxClaims, claims, raw: full, reasoning: reasoning.trim() || null, model: modelUsed, requested: config.extractModels[0], fellBack, effort: config.extractEffort, usage, ms, cost, incomplete };
   send(result);
   return result;
 }

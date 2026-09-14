@@ -53,7 +53,6 @@ export async function buildChallengeInput({ claim, verdict, originalEntry, messa
           input: [{ role: 'user', content: [{ type: 'input_text', text: promptText }, ...content] }],
           reasoning: { effort: config.evalEffort },
           tools: config.evalWebSearch ? [{ type: 'web_search' }] : undefined,
-          ...(config.evalMaxOutputTokens > 0 ? { max_output_tokens: config.evalMaxOutputTokens } : {}),
           store: false,
         }
       : null,
