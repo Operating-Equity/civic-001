@@ -3,7 +3,7 @@ import OpenAI from 'openai';
 import { config } from './config.js';
 import { redactPrompts } from './prompts.js';
 import { HEADER_SAFE } from './key.js';
-import { openaiFetch } from './http.js';
+import { openaiFetch, NO_LIMIT_MS } from './http.js';
 
 export class ApiError extends Error {
   constructor(status, code, message) {
@@ -53,8 +53,8 @@ export function clientFor(apiKey) {
     apiKey,
     baseURL: config.openaiBaseUrl || undefined,
     maxRetries: 0, // we do our own retries so streaming stays predictable
-    timeout: 30 * 60 * 1000,
-    fetch: openaiFetch, // a connection that tolerates long silences (see http.js)
+    timeout: NO_LIMIT_MS, // the SDK insists on a number; this one never arrives (see http.js)
+    fetch: openaiFetch,   // the connection with no time limit of its own
   });
 }
 
