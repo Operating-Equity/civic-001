@@ -334,7 +334,7 @@ async function runExtraction(text) {
   let finished = false;
   const onEvent = (ev) => {
     switch (ev.t) {
-      case 'claim': addClaim(ev.n, ev.text); break;
+      case 'claim': addClaim(ev.n, ev); break;
       case 'progress': state.extractChars = ev.chars; state.found = Math.max(state.found, ev.found || 0); break;
       case 'reasoning':
         state.extractReasoning += ev.text || '';
@@ -393,15 +393,23 @@ function renderExtractThinking() {
   ui.step1ThinkingBody.scrollTop = ui.step1ThinkingBody.scrollHeight;
 }
 
-function addClaim(n, text) {
+// A claim is the text that is tested and, when the model wrote further labelled lines beside it
+// (who said it and when, what the source does not say), those lines, verbatim.
+function claimOf(c) { return { text: c.text, more: c.more || '' }; }
+function claimNode(c) {
+  return el('div', {}, [el('span', { class: 'claim-text', text: c.text }), c.more ? el('div', { class: 'claim-more', text: c.more }) : null]);
+}
+
+function addClaim(n, c) {
+  const claim = claimOf(c);
   ui.claims.hidden = false;
-  state.claims[n - 1] = text;
+  state.claims[n - 1] = claim;
   if (n <= MAX_CLAIMS) {
-    ui.claimsList.append(el('li', { text }));
+    ui.claimsList.append(el('li', {}, [claimNode(claim)]));
     ui.claimsSub.textContent = t('claims.all', { n });
   } else {
     ui.beyond.hidden = false;
-    ui.beyondList.append(el('li', {}, [el('span', { text })]));
+    ui.beyondList.append(el('li', {}, [claimNode(claim)]));
     ui.beyondTitle.textContent = t('claims.more', { n: n - MAX_CLAIMS });
     ui.claimsSub.textContent = t('claims.testing', { n: MAX_CLAIMS });
   }
@@ -410,11 +418,11 @@ function addClaim(n, text) {
 function finishExtraction(ev) {
   state.extraction = ev;
   state.claimsRaw = ev.raw || '';
-  const all = (ev.claims || []).map((c) => c.text).filter(Boolean);
+  const all = (ev.claims || []).filter((c) => c.text).map(claimOf);
   state.claims = all;
   const first = all.slice(0, MAX_CLAIMS);
-  state.beyond = all.slice(MAX_CLAIMS).map((text, k) => ({ n: MAX_CLAIMS + k + 1, text, selected: false, tested: false }));
-  ui.claimsList.replaceChildren(...first.map((text) => el('li', { text })));
+  state.beyond = all.slice(MAX_CLAIMS).map((c, k) => ({ n: MAX_CLAIMS + k + 1, ...c, selected: false, tested: false }));
+  ui.claimsList.replaceChildren(...first.map((c) => el('li', {}, [claimNode(c)])));
   ui.claims.hidden = all.length === 0 && !state.claimsRaw;
   renderClaimsHeadings();
   renderBeyond();
@@ -468,7 +476,7 @@ function renderBeyond() {
     box.addEventListener('change', () => { item.selected = box.checked; renderBeyondTools(); });
     return el('li', { class: `selectable${item.tested ? ' is-tested' : ''}` }, [
       box,
-      el('span', { class: 'claim-text', text: item.text }),
+      claimNode(item),
       item.tested ? el('span', { class: 'tag', text: t('claims.tested') }) : null,
     ]);
   }));
@@ -507,7 +515,7 @@ async function testSelected() {
   renderBeyond();
   // The server tests at most 20 per request; larger selections run in consecutive batches.
   for (let i = 0; i < chosen.length; i += MAX_CLAIMS) {
-    const chunk = chosen.slice(i, i + MAX_CLAIMS).map((b) => b.text);
+    const chunk = chosen.slice(i, i + MAX_CLAIMS).map(claimOf);
     await runBatch(chunk);
     if (state.phase !== 'done') break; // a failure or reset stops the queue
   }
@@ -547,7 +555,7 @@ async function runBatch(claims) {
   state.timers.push(tick);
   const onEvent = (ev) => handleEvalEvent(ev, (i) => start + i);
   try {
-    await api.evaluate({ claims, signal: state.abort.signal, onEvent });
+    await api.evaluate({ claims: claims.map((c) => c.text), signal: state.abort.signal, onEvent });
     if (state.phase === 'evaluating') finishBatch({ ms: Date.now() - state.evalStartedAt });
   } catch (err) {
     if (err?.name !== 'AbortError') failRun(err);
@@ -664,7 +672,8 @@ function buildCard(claim, i) {
   const node = ui.cardTpl.content.firstElementChild.cloneNode(true);
   node.dataset.index = String(i);
   $('.card-n', node).textContent = String(i + 1).padStart(2, '0');
-  $('.card-claim', node).textContent = claim;
+  $('.card-claim', node).textContent = claim.text;
+  if (claim.more) $('.card-claim', node).append(el('span', { class: 'card-more', text: claim.more }));
   $('.card-status', node).textContent = t('card.pending');
   $('.btn-challenge', node).textContent = t('card.challenge');
   $('.btn-challenge', node).addEventListener('click', () => toggleChallenge(i));
@@ -875,7 +884,7 @@ async function retryClaim(i) {
   const controller = state.abort || new AbortController();
   const onEvent = (ev) => { if (ev.t === 'batch-progress' || ev.t === 'complete' || ev.t === 'batch-start') return; handleEvalEvent(ev, () => i); };
   try {
-    await api.evaluate({ claims: [state.cards[i]], signal: controller.signal, onEvent });
+    await api.evaluate({ claims: [state.cards[i].text], signal: controller.signal, onEvent });
   } catch (err) {
     if (err?.name !== 'AbortError') { r.status = 'error'; r.phase = 'error'; r.error = err.message; setCardState(i, 'error'); renderCardStatus(i); renderCardError(i); }
   } finally {
@@ -923,7 +932,8 @@ function exportRun() {
     '',
   ];
   state.results.forEach((r, i) => {
-    lines.push(`### ${i + 1}. ${state.cards[i]}`, '');
+    lines.push(`### ${i + 1}. ${state.cards[i].text}`, '');
+    if (state.cards[i].more) lines.push(state.cards[i].more, '');
     lines.push(`**Verdict:** ${r.verdict ? t(`score.${r.verdict}`) : t('card.verdictUnread')}` + (r.confidence != null ? ` · ${r.confidence}%` : '') + (r.inspector ? ` · ${r.inspector}` : ''), '');
     if (r.model) lines.push(`_Model: ${r.model}${r.effort ? ` (effort ${r.effort})` : ''}${r.fellBack ? ` — FELL BACK from ${r.fellBack.requested}` : ''}_`, '');
     if (r.incomplete) lines.push(`> Output ended early: ${r.incomplete}`, '');
@@ -985,7 +995,7 @@ function wireChallengeForm(card, i) {
     submit.disabled = true;
     try {
       // Every step runs for real; the server withholds only the final call to OpenAI.
-      await api.challenge({ claim: state.cards[i], verdict: r?.verdict, originalEntry: r?.text, message, files });
+      await api.challenge({ claim: state.cards[i].text, verdict: r?.verdict, originalEntry: r?.text, message, files });
       files.length = 0;
       $('.challenge-text', form).value = '';
       closeChallenge(i, { clear: true });

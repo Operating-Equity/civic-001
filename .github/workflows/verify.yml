@@ -43,12 +43,21 @@ jobs:
           fi
           echo "Guard failed on planted text, as it must."
 
-      - name: Requests carry the configuration and nothing else
+      - name: Requests carry the configuration and nothing else (source inside the prompt)
         run: |
-          # Stand-in prompts. The real ones are the operator's and are never in CI.
+          # Stand-in prompts. The real ones are the operator's and are never in CI. This one ends
+          # with a bracketed line, so the source is put in its place and the whole is the message.
           mkdir -p /tmp/prompts
-          printf 'Stand-in extraction prompt used only by continuous integration.\nReturn a numbered list of the empirical propositions in the text below.\n' > /tmp/prompts/extract.txt
+          printf 'Stand-in extraction prompt used only by continuous integration.\nReturn a numbered list of the empirical propositions in the text below.\n[The text goes here.]\n' > /tmp/prompts/extract.txt
           printf 'Stand-in evaluation prompt used only by continuous integration.\nThe statement under inspection is {{CLAIM}} and the reply must end with a conclusion and a confidence percentage.\n' > /tmp/prompts/evaluate.txt
           CIVIC_PROMPT_EXTRACT_FILE=/tmp/prompts/extract.txt \
+          CIVIC_PROMPT_EVALUATE_FILE=/tmp/prompts/evaluate.txt \
+          npm run verify
+
+      - name: Requests carry the configuration and nothing else (source as a separate message)
+        run: |
+          # The same, with a prompt that has no bracketed line: it travels as the instructions.
+          printf 'Stand-in extraction prompt used only by continuous integration.\nReturn a numbered list of the empirical propositions in the text below.\n' > /tmp/prompts/extract-plain.txt
+          CIVIC_PROMPT_EXTRACT_FILE=/tmp/prompts/extract-plain.txt \
           CIVIC_PROMPT_EVALUATE_FILE=/tmp/prompts/evaluate.txt \
           npm run verify

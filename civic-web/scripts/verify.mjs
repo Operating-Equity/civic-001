@@ -19,13 +19,6 @@ const record = path.join(os.tmpdir(), `civic-verify-${Date.now()}.jsonl`);
 const KEY = 'sk-verify00000000000000000000';          // the operator's, set on the server below
 const READER_KEY = 'sk-reader11111111111111111111';   // a stranger's, offered in a header and ignored
 
-// The only keys a request may carry. Nothing else, ever.
-const ALLOWED = {
-  extract: ['model', 'instructions', 'input', 'reasoning', 'tools', 'stream', 'store'],
-  evaluate: ['model', 'input', 'reasoning', 'tools', 'stream', 'store'],
-  reasoning: ['effort', 'summary'],
-  webSearchTool: ['type'],
-};
 
 const promptDir = path.join(root, 'server', 'prompts');
 function readPrompt(name) {
@@ -37,6 +30,23 @@ function readPrompt(name) {
 }
 const extractPrompt = readPrompt('extract');
 const evaluatePrompt = readPrompt('evaluate');
+
+// A prompt whose last line is entirely in square brackets takes the source in that line's place
+// and travels as the only message; any other prompt is the instructions, with the source as the
+// only message. The guard expects whichever the installed prompt asks for.
+const slot = (() => {
+  const end = extractPrompt.replace(/\s+$/, '').length;
+  const start = extractPrompt.lastIndexOf('\n', end - 1) + 1;
+  return /^\[[^\[\]]+\]$/.test(extractPrompt.slice(start, end)) ? { start, end } : null;
+})();
+
+// The only keys a request may carry. Nothing else, ever.
+const ALLOWED = {
+  extract: slot ? ['model', 'input', 'reasoning', 'tools', 'stream', 'store'] : ['model', 'instructions', 'input', 'reasoning', 'tools', 'stream', 'store'],
+  evaluate: ['model', 'input', 'reasoning', 'tools', 'stream', 'store'],
+  reasoning: ['effort', 'summary'],
+  webSearchTool: ['type'],
+};
 
 const children = [];
 const start = (args, extraEnv) => {
@@ -97,20 +107,35 @@ try {
   const ev = await stream(`http://localhost:${PORT}/api/evaluate`, { claims: [claim] });
 
   const sent = fs.readFileSync(record, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)).filter((r) => r.path === '/v1/responses');
-  const exBody = sent.find((r) => r.body.instructions)?.body;
-  const evBody = sent.find((r) => !r.body.instructions)?.body;
+  // The extraction is sent and completed before the determination is sent, so arrival order is
+  // identity. (Telling them apart by an instructions field stopped working once a prompt could
+  // travel as the message itself.)
+  check('exactly two requests were sent: one extraction, one determination', sent.length === 2, `${sent.length} requests`);
+  const exBody = sent[0]?.body;
+  const evBody = sent[1]?.body;
   check('extraction request captured', Boolean(exBody));
   check('determination request captured', Boolean(evBody));
 
   if (exBody) {
     check('extraction: model is the configured model', exBody.model === shape.extract.model, exBody.model);
     check('extraction: reasoning.effort is the configured effort', exBody.reasoning?.effort === shape.extract.effort, JSON.stringify(exBody.reasoning));
-    check('extraction: no keys beyond model, instructions, input, reasoning, tools, stream, store', extraKeys(exBody, ALLOWED.extract).length === 0, extraKeys(exBody, ALLOWED.extract).join(', '));
+    check(`extraction: no keys beyond ${ALLOWED.extract.join(', ')}`, extraKeys(exBody, ALLOWED.extract).length === 0, extraKeys(exBody, ALLOWED.extract).join(', '));
     const exTools = exBody.tools || [];
     check('extraction: web search available (exactly one web_search, no options)', exTools.length === 1 && exTools[0].type === 'web_search' && extraKeys(exTools[0], ALLOWED.webSearchTool).length === 0, JSON.stringify(exTools));
     check('extraction: no reasoning keys beyond effort, summary', extraKeys(exBody.reasoning, ALLOWED.reasoning).length === 0, extraKeys(exBody.reasoning, ALLOWED.reasoning).join(', '));
-    check('extraction: prompt sent verbatim as instructions', exBody.instructions === extractPrompt, `${exBody.instructions?.length} vs ${extractPrompt.length} chars`);
-    check('extraction: the document sent whole, as the only message', exBody.input?.length === 1 && exBody.input[0]?.content?.[0]?.text === source);
+    const exText = exBody.input?.[0]?.content?.[0]?.text;
+    if (slot) {
+      check('extraction: no instructions field (the prompt is the message)', exBody.instructions === undefined);
+      check('extraction: the prompt sent verbatim with the source in place of its final bracketed line, as the only message',
+        exBody.input?.length === 1 && exText === extractPrompt.slice(0, slot.start) + source + extractPrompt.slice(slot.end), `${exText?.length} chars`);
+    } else {
+      check('extraction: prompt sent verbatim as instructions', exBody.instructions === extractPrompt, `${exBody.instructions?.length} vs ${extractPrompt.length} chars`);
+      check('extraction: the document sent whole, as the only message', exBody.input?.length === 1 && exText === source);
+    }
+    const first = ex.find((e) => e.t === 'done')?.claims?.[0];
+    check('extraction: each entry\'s claim is its Claim line, the further lines kept beside it verbatim',
+      Boolean(first) && !/^claim:/i.test(first.text) && first.text.length > 0 && /^Attribution:/.test(first.more) && first.entry.startsWith(`Claim: ${first.text}`),
+      JSON.stringify(first));
     check('extraction: store = false', exBody.store === false);
   }
   if (evBody) {

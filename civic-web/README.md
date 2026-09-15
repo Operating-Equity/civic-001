@@ -129,9 +129,12 @@ development only.
 Every request to OpenAI carries the operator's tested configuration and nothing else. There is no
 number in this program in the path of a determination that the operator did not set.
 
-**Extraction request:** `model`, `instructions` (the extraction prompt, verbatim), `input` (the
-document, whole, as the only message), `reasoning.effort`, `reasoning.summary`, `tools` (one
-`web_search`, no options), `stream`, `store`.
+**Extraction request:** `model`, `input` (the extraction prompt, verbatim, with the document in
+place of its final bracketed line, as the only message), `reasoning.effort`, `reasoning.summary`,
+`tools` (one `web_search`, no options), `stream`, `store`. A prompt without a final bracketed
+line is sent as `instructions` instead, with the document as the only message. The reply is read
+as a numbered list; in each entry the text under a `Claim:` label is what is tested, and any
+further labelled lines are shown beside it, verbatim.
 
 **Determination request:** `model`, `input` (the evaluation prompt, verbatim, with the claim in
 place of `{{CLAIM}}`, as the only message), `reasoning.effort`, `reasoning.summary`, `tools`

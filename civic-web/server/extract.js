@@ -1,7 +1,7 @@
 // Step 1 — empirical claim extraction, streamed. Claims are parsed out of the numbered
 // list as it arrives so the browser can show them one by one.
 import { config } from './config.js';
-import { extractionInstructions } from './prompts.js';
+import { extractionRequest } from './prompts.js';
 import { clientFor, withModelFallback, usageOf, isRetryable, sleep } from './openai.js';
 import { estimateTextCost } from './pricing.js';
 import { record } from './ledger.js';
@@ -25,9 +25,24 @@ function cleanClaim(s) {
   return String(s).trim();
 }
 
+/**
+ * An entry may be written as labelled lines: the claim under a "Claim:" label, then further
+ * labelled lines, such as who said it and when, or what the source does not say. The claim is
+ * what is tested; the further lines are kept beside it, verbatim, and shown with it. An entry
+ * without the label is the claim, whole.
+ */
+export function splitEntry(entry) {
+  const head = entry.match(/^[*_]*Claim[*_]*:[*_]*[ \t]*/i);
+  if (!head) return { text: entry, more: '' };
+  const rest = entry.slice(head[0].length);
+  const next = rest.search(/\n[ \t]*[*_]*[A-Z][A-Za-z]*(?: [A-Za-z]+){0,3}[*_]*:[*_]*[ \t]/);
+  if (next < 0) return { text: rest.trim(), more: '' };
+  return { text: rest.slice(0, next).trim(), more: rest.slice(next).trim() };
+}
+
 export async function runExtraction({ apiKey, text, send, signal, sourceWarning }) {
   const client = clientFor(apiKey);
-  const instructions = extractionInstructions();
+  const request = extractionRequest(text);
   let full = '';
   let emitted = 0;
   const started = Date.now();
@@ -41,8 +56,10 @@ export async function runExtraction({ apiKey, text, send, signal, sourceWarning 
     if (wantSummary) r.summary = config.extractSummary;
     const body = {
       model,
-      instructions, // the extraction prompt, verbatim
-      input: [{ role: 'user', content: [{ type: 'input_text', text }] }], // the document, whole
+      // The prompt verbatim: as the only message with the source in its place, or as the
+      // instructions with the source as the only message. The prompt's own shape decides.
+      ...(request.instructions ? { instructions: request.instructions } : {}),
+      input: [{ role: 'user', content: [{ type: 'input_text', text: request.message }] }],
       reasoning: r,
       tools: [{ type: 'web_search' }], // available, as in the UI the prompt was tested in
       stream: true,
@@ -72,7 +89,7 @@ export async function runExtraction({ apiKey, text, send, signal, sourceWarning 
             // Emit each claim once it is closed by the next number.
             while (emitted < items.length - 1) {
               const c = items[emitted];
-              send({ t: 'claim', n: emitted + 1, text: c.text });
+              send({ t: 'claim', n: emitted + 1, ...splitEntry(c.text), entry: c.text });
               emitted++;
             }
             send({ t: 'progress', chars: full.length, found: Math.max(emitted, items.length) });
@@ -119,10 +136,10 @@ export async function runExtraction({ apiKey, text, send, signal, sourceWarning 
   if (signal.aborted) return null;
   const items = parseNumberedList(full).filter((c) => c.text.length > 0);
   while (emitted < items.length) {
-    send({ t: 'claim', n: emitted + 1, text: items[emitted].text });
+    send({ t: 'claim', n: emitted + 1, ...splitEntry(items[emitted].text), entry: items[emitted].text });
     emitted++;
   }
-  const claims = items.map((c, i) => ({ n: i + 1, text: c.text }));
+  const claims = items.map((c, i) => ({ n: i + 1, ...splitEntry(c.text), entry: c.text }));
   const ms = Date.now() - started;
   const cost = estimateTextCost({ model: modelUsed, usage });
   record({ kind: 'extract', model: modelUsed, effort: config.extractEffort, chars: text.length, claims: claims.length, usage, ms, usd: cost.usd, priced: cost.priced });

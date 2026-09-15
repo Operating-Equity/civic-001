@@ -64,9 +64,30 @@ export function promptVersions() {
   return out;
 }
 
-/** Extraction instructions (no placeholders), verbatim. */
-export function extractionInstructions() {
-  return vault.get('extract');
+/**
+ * Where the extraction prompt takes the source. A prompt whose last line is written entirely in
+ * square brackets marks that line as the place for the source: the prompt, with the source in
+ * that place and nothing else changed, is sent as the only message. A prompt without such a line
+ * is sent as the instructions, with the source as the only message.
+ */
+function sourceSlot(text) {
+  const end = text.replace(/\s+$/, '').length;
+  const start = text.lastIndexOf('\n', end - 1) + 1;
+  return /^\[[^\[\]]+\]$/.test(text.slice(start, end)) ? { start, end } : null;
+}
+
+/** 'inserted' when the source goes inside the prompt; 'message' when it is sent beside it. */
+export function extractionShape() {
+  const prompt = vault.get('extract');
+  return prompt && sourceSlot(prompt) ? 'inserted' : 'message';
+}
+
+/** The extraction request's prompt and source, arranged as the prompt itself asks. Verbatim either way. */
+export function extractionRequest(source) {
+  const prompt = vault.get('extract');
+  const slot = sourceSlot(prompt);
+  if (!slot) return { shape: 'message', instructions: prompt, message: source };
+  return { shape: 'inserted', instructions: null, message: prompt.slice(0, slot.start) + source + prompt.slice(slot.end) };
 }
 
 /** Evaluation prompt with the claim substituted. Nothing else is changed. */
