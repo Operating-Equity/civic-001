@@ -1,3 +1,16 @@
+# CIVIC
+
+> **Current work: the main page prototype lives in [`civic-web/`](civic-web/README.md).**
+> Paste or upload text, CIVIC extracts every empirical claim, tests the first 20 in parallel, and
+> shows each determination with its full entry, a live True / False / Unverified count, a challenge
+> panel per result, and a reset. The prompts are held server-side and never reach the browser.
+> Run it with `cd civic-web && npm install && npm start` (see its README for the prompt vault).
+>
+> Everything below describes the earlier video-analysis prototype (`civic-backend/`, `civic-frontend/`),
+> kept in place for reference.
+
+---
+
 # Civic - Advanced Video Fact Checking Platform
 
 ![Civic Logo](civic-frontend/public/assets/images/logo.svg)

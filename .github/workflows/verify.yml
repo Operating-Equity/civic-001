@@ -1,0 +1,54 @@
+# Runs on every push and every pull request, so the Checks line on a pull request means something.
+# Nothing here ever sees the real prompts. It proves three things instead:
+#   1. No real prompt file is committed, and the vault still ignores them.
+#   2. The leak guard actually detects prompt text in a committed file (it is fed planted text).
+#   3. Requests carry the configured model, the configured effort, the prompt verbatim and web
+#      search, and nothing else, using stand-in prompts against the mock API.
+name: verify
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: civic-web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install
+        run: npm install --no-fund --no-audit
+
+      - name: No real prompt file is committed
+        run: |
+          tracked=$(git ls-files server/prompts | sort | tr '\n' ' ')
+          expected="server/prompts/.gitignore server/prompts/README.md server/prompts/challenge.example.txt server/prompts/evaluate.example.txt server/prompts/extract.example.txt "
+          if [ "$tracked" != "$expected" ]; then
+            echo "The prompt vault contains a file it must not: $tracked"; exit 1
+          fi
+          echo "Vault holds only its .gitignore, its README and the three templates."
+
+      - name: The leak guard detects prompt text (planted on purpose)
+        run: |
+          # Feed the guard a "prompt" made of lines that really are in a committed file. It must fail.
+          head -40 README.md > /tmp/planted.txt
+          if CIVIC_PROMPT_EXTRACT_FILE=/tmp/planted.txt node scripts/leak-check.mjs; then
+            echo "The leak guard did not notice planted prompt text. It is not protecting anything."; exit 1
+          fi
+          echo "Guard failed on planted text, as it must."
+
+      - name: Requests carry the configuration and nothing else
+        run: |
+          # Stand-in prompts. The real ones are the operator's and are never in CI.
+          mkdir -p /tmp/prompts
+          printf 'Stand-in extraction prompt used only by continuous integration.\nReturn a numbered list of the empirical propositions in the text below.\n' > /tmp/prompts/extract.txt
+          printf 'Stand-in evaluation prompt used only by continuous integration.\nThe statement under inspection is {{CLAIM}} and the reply must end with a conclusion and a confidence percentage.\n' > /tmp/prompts/evaluate.txt
+          CIVIC_PROMPT_EXTRACT_FILE=/tmp/prompts/extract.txt \
+          CIVIC_PROMPT_EVALUATE_FILE=/tmp/prompts/evaluate.txt \
+          npm run verify

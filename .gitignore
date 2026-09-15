@@ -58,3 +58,7 @@ uploads/
 
 # Docker
 .docker/
+
+# civic-web
+civic-web/dist-preview/
+civic-web/data/

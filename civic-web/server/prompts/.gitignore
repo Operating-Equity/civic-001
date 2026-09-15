@@ -1,0 +1,6 @@
+# The real prompts are intellectual property. They live here ONLY on the machine
+# that runs the server and are never committed. Templates (*.example.txt) are kept.
+*
+!.gitignore
+!*.example.txt
+!README.md
