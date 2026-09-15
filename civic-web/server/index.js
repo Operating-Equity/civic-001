@@ -1,8 +1,9 @@
 // CIVIC main-page server. Serves the page, keeps the prompts, and proxies the reader's own
 // OpenAI key to OpenAI. Nothing under server/ is ever served as a static file.
-import crypto from 'node:crypto';
 import fs from 'node:fs';
+import http from 'node:http';
 import path from 'node:path';
+import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import express from 'express';
 import multer from 'multer';
@@ -19,30 +20,17 @@ import { runChallenge, ACCEPTED_CHALLENGE_EXT } from './challenge.js';
 import { selftest } from './selftest.js';
 import { whereTheShellSetsIt } from './key.js';
 import { record as recordFailure } from './diagnostics.js';
+import { buildStamp } from './build.js';
+import { takeOverPort } from './port.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const publicDir = path.join(here, '..', 'public');
 
-// A stamp over every file that makes up the page. It changes whenever the front end changes, so an
-// updated CIVIC cannot be hidden behind a browser's copy of yesterday's JavaScript. This mattered:
-// the page and its code were once served with an hour of caching and no version in their addresses,
-// so a reader who had visited before kept running the old code after an update and saw a fixed
-// fault again. The stamp is shown on the page and in /api/health, so it is always clear which
-// version is actually loaded.
-function buildStamp() {
-  const files = [];
-  (function walk(dir) {
-    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-      const full = path.join(dir, entry.name);
-      if (entry.isDirectory()) { if (entry.name !== 'assets') walk(full); }
-      else if (/\.(js|css|html)$/.test(entry.name)) files.push(full);
-    }
-  })(publicDir);
-  files.sort();
-  const hash = crypto.createHash('sha256');
-  for (const f of files) hash.update(path.relative(publicDir, f)).update(fs.readFileSync(f));
-  return hash.digest('hex').slice(0, 12);
-}
+// The version stamp covers the page and the server alike (see build.js). The page is served with
+// no caching and its assets under /b/<stamp>/, so an updated CIVIC cannot be hidden behind a
+// browser's copy of yesterday's JavaScript. This mattered: the page and its code were once served
+// with an hour of caching and no version in their addresses, so a reader who had visited before
+// kept running the old code after an update and saw a fixed fault again.
 const BUILD = buildStamp();
 
 // The page itself is never cached, and the addresses of its stylesheet and its entry script carry
@@ -259,13 +247,11 @@ app.use((err, req, res, next) => {
   res.status(safe.status || 500).json({ error: { code: safe.code, message: safe.message } });
 });
 
-// The banner waits a tick. Binding can report success and then fail, and a window that says CIVIC
-// is running above a line saying it did not start is worse than saying nothing at all.
-let startFailed = false;
-const server = app.listen(config.port, () => setImmediate(() => {
-  if (startFailed || !server.listening) return;
+const server = http.createServer(app);
+
+function banner() {
   const status = promptStatus();
-  console.log(`CIVIC main page on http://localhost:${config.port}`);
+  console.log(`CIVIC build ${BUILD} is running on http://localhost:${config.port}`);
   if (config.key?.conflict) {
     console.log('');
     console.log('NOTE: two different OpenAI keys were found, and CIVIC used the one in its own');
@@ -289,25 +275,61 @@ const server = app.listen(config.port, () => setImmediate(() => {
   console.log(`extraction requests carry: model ${shape.extract.model} · reasoning.effort ${shape.extract.effort}${shape.extract.summary ? ` · reasoning.summary ${shape.extract.summary}` : ''} · web_search · the prompt verbatim · the document whole · nothing else${shape.extract.fallback ? '  (FALLBACK LIST SET)' : ''}`);
   console.log(`determination requests carry: model ${shape.evaluate.model} · reasoning.effort ${shape.evaluate.effort}${shape.evaluate.summary ? ` · reasoning.summary ${shape.evaluate.summary}` : ''} · web_search · the prompt verbatim · nothing else${shape.evaluate.fallback ? '  (FALLBACK LIST SET)' : ''}`);
   if (config.openaiBaseUrl) console.log(`OpenAI base URL override: ${config.openaiBaseUrl}`);
-}));
-// Long reasoning runs can take many minutes; do not let Node cut the stream.
-server.on('error', (err) => {
-  startFailed = true;
-  if (err?.code === 'EADDRINUSE') {
-    console.error([
-      '',
-      `STOPPED: something is already using port ${config.port}, so this CIVIC did not start.`,
-      'That is almost always an older CIVIC window still open. Close every CIVIC window,',
-      'then start it again. Until you do, the page in your browser is served by the older one,',
-      'which is why an update can look as though it did not take effect.',
-      '',
-    ].join('\n'));
+}
+
+// The launcher asks for the browser, and it is opened from here, once this CIVIC is actually
+// answering. It used to be opened by the launcher on a timer, so when this CIVIC failed to start
+// the browser opened on whatever was already on the port: the older CIVIC, with the older fault,
+// which looked exactly like an update that had not taken.
+function openBrowser() {
+  if (process.env.CIVIC_OPEN_BROWSER !== '1') return;
+  const url = `http://localhost:${config.port}/?fresh=${Date.now()}`;
+  const opener = process.platform === 'darwin' ? 'open' : 'xdg-open';
+  try {
+    const child = spawn(opener, [url], { detached: true, stdio: 'ignore' });
+    child.on('error', () => {});
+    child.unref();
+  } catch { /* no way to open a browser here; the address is printed above */ }
+}
+
+server.on('listening', () => { banner(); openBrowser(); });
+
+// The port is CIVIC's. If an older CIVIC still holds it, it is closed and the port taken over,
+// so an update can never leave yesterday's process answering with today's files underneath it.
+// Anything that is not a CIVIC is left alone and named, so the person can close it themselves.
+let attempts = 0;
+server.on('error', async (err) => {
+  try {
+    if (err?.code === 'EADDRINUSE' && attempts++ === 0) {
+      const found = await takeOverPort(config.port, { appDir: path.join(here, '..') });
+      if (found.closed.length) {
+        console.log(`Closed an older CIVIC${found.build ? ` (build ${found.build})` : ''} that was still holding port ${config.port}.`);
+        server.listen(config.port);
+        return;
+      }
+      const lines = ['', `STOPPED: port ${config.port} is already in use, so this CIVIC did not start.`];
+      if (found.unknown) lines.push('CIVIC could not find out by what. Close other programs, then start CIVIC again.');
+      for (const f of found.foreign) lines.push(`It is in use by something that is not CIVIC: ${f.command || `process ${f.pid}`}${f.error ? ` (could not be closed: ${f.error})` : ''}.`);
+      if (found.foreign.length) lines.push('Close that program, then start CIVIC again.');
+      lines.push('');
+      console.error(lines.join('\n'));
+      process.exit(1);
+    }
+    if (err?.code === 'EADDRINUSE') {
+      console.error(`\nSTOPPED: an older CIVIC holding port ${config.port} would not close. Close every CIVIC window, then start it again.\n`);
+      process.exit(1);
+    }
+    console.error('[civic] server error', err?.code || err?.message || err);
+    process.exit(1);
+  } catch (inner) {
+    console.error('[civic] could not start:', inner?.message || inner);
     process.exit(1);
   }
-  console.error('[civic] server error', err?.code || err?.message || err);
-  process.exit(1);
 });
 
+// Long reasoning runs can take many minutes; do not let Node cut the stream.
 server.requestTimeout = 0;
 server.headersTimeout = 60 * 1000;
 server.keepAliveTimeout = 75 * 1000;
+
+server.listen(config.port);
