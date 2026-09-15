@@ -36,6 +36,7 @@ export default {
     echo: 'Écho visuel',
     echoHint: 'Une photographie du sujet du document, dirigée artistiquement et générée avec votre clé pendant le traitement.',
     run: 'Testez les faits',
+    slow: 'Au raisonnement très élevé, cette étape prend des minutes sur un long document, et chacune des 20 déterminations en prend davantage. Elles s\'exécutent en parallèle.',
     empty: 'Collez ou téléversez quelque chose à tester.',
     truncated: 'Le document a été tronqué à {n} caractères, le maximum par test.',
   },
@@ -49,6 +50,10 @@ export default {
     none: 'Aucune affirmation empirique n\'a été trouvée dans ce texte.',
     incomplete: 'L\'extraction s\'est arrêtée à la limite de sortie du modèle. Des affirmations peuvent manquer.',
     retry: 'Nouvelle tentative…',
+    thinking: 'Le modèle lit. Il n\'écrit rien avant d\'avoir fini de raisonner · {time}',
+    thinkingSearched: 'Le modèle lit et a lancé {n} recherches · {time}',
+    foundTimed: '{n} affirmations trouvées · {time}',
+    thinkingTitle: 'Ce que le modèle dit être en train de faire',
   },
   claims: {
     title: 'Affirmations',

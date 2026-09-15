@@ -52,6 +52,7 @@ function cacheElements() {
     optEcho: $('#opt-echo'), run: $('#btn-run'),
     runSection: $('#run'), runWarnings: $('#run-warnings'),
     step1: $('#step-extract'), step1Status: $('#step1-status'), bar1: $('#bar-extract'),
+    step1Thinking: $('#step1-thinking'), step1ThinkingSummary: $('#step1-thinking-summary'), step1ThinkingBody: $('#step1-thinking-body'),
     step2: $('#step-eval'), step2Title: $('#step2-title'), step2Status: $('#step2-status'), bar2: $('#bar-eval'),
     echo: $('#echo'), echoImg: $('#echo-img'), echoShimmer: $('#echo-shimmer'), echoCap: $('#echo-cap'),
     claims: $('#claims'), claimsSub: $('#claims-sub'), claimsList: $('#claims-list'),
@@ -269,6 +270,10 @@ function newResult() {
 
 function resetRunState() {
   state.failure = null;
+  state.extractReasoning = '';
+  state.extractSearches = 0;
+  if (ui.step1Thinking) { ui.step1Thinking.hidden = true; ui.step1ThinkingBody.textContent = ''; ui.step1Thinking.open = false; }
+  ui.bar1.classList.remove('is-waiting');
   state.abort?.abort();
   for (const id of state.timers) clearInterval(id);
   state.timers = [];
@@ -379,7 +384,14 @@ async function runExtraction(text) {
   const onEvent = (ev) => {
     switch (ev.t) {
       case 'claim': addClaim(ev.n, ev.text); break;
-      case 'progress': state.extractChars = ev.chars; state.found = Math.max(state.found, ev.found || 0); setStatus('step1', 'step1.found', { n: state.found }); break;
+      case 'progress': state.extractChars = ev.chars; state.found = Math.max(state.found, ev.found || 0); break;
+      case 'reasoning':
+        state.extractReasoning += ev.text || '';
+        renderExtractThinking();
+        break;
+      case 'trail':
+        state.extractSearches = ev.searches || (state.extractSearches + 1);
+        break;
       case 'retry': setStatus('step1', 'step1.retry'); break;
       case 'warning': addWarning(ev); break;
       case 'phase': if (ev.phase === 'incomplete') toast(t('step1.incomplete'), { error: true, ms: 9000 }); break;
@@ -401,9 +413,33 @@ async function runExtraction(text) {
 function updateExtractBar() {
   if (state.phase !== 'extracting') return;
   const elapsed = Date.now() - state.extractStartedAt;
-  const byTime = easeTime(elapsed, 14000, 0.45);
+
+  // At high reasoning effort the model thinks for minutes before it writes anything. A bar tuned to
+  // seconds reaches its ceiling and sits there, which reads as a dead page. So until the first claim
+  // arrives the bar is openly a waiting bar, and the status line counts the time and the searches,
+  // which is the truth: the model is working and has not produced a claim yet.
+  if (!state.found) {
+    ui.bar1.classList.add('is-waiting');
+    setBar(ui.bar1, 0.06 + easeTime(elapsed, 90000, 0.2));
+    setStatus('step1', state.extractSearches ? 'step1.thinkingSearched' : 'step1.thinking',
+      { time: fmtSeconds(elapsed), n: state.extractSearches });
+    return;
+  }
+  ui.bar1.classList.remove('is-waiting');
+  const byTime = easeTime(elapsed, 45000, 0.45);
   const byClaims = easeChars(state.found, 10, 0.5);
   setBar(ui.bar1, Math.min(0.94, Math.max(byTime, 0.08 + byClaims + byTime * 0.5)));
+  setStatus('step1', 'step1.foundTimed', { n: state.found, time: fmtSeconds(elapsed) });
+}
+
+/** The model's own account of its reading, shown as it arrives. Nothing is summarised by us. */
+function renderExtractThinking() {
+  const text = state.extractReasoning.trim();
+  ui.step1Thinking.hidden = !text;
+  if (!text) return;
+  ui.step1ThinkingSummary.textContent = t('step1.thinkingTitle');
+  ui.step1ThinkingBody.textContent = text;
+  ui.step1ThinkingBody.scrollTop = ui.step1ThinkingBody.scrollHeight;
 }
 
 function addClaim(n, text) {

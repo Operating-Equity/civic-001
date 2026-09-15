@@ -36,6 +36,7 @@ export default {
     echo: 'Visuelles Echo',
     echoHint: 'Eine Fotografie des Themas, mit Bildregie erstellt und mit Ihrem Schlüssel erzeugt, während der Lauf läuft.',
     run: 'Fakten prüfen',
+    slow: 'Bei sehr hohem Reasoning dauert dieser Schritt bei einem langen Dokument Minuten, und jede der 20 Bestimmungen dauert weitere Minuten. Sie laufen gleichzeitig.',
     empty: 'Fügen Sie etwas ein oder laden Sie etwas hoch.',
     truncated: 'Das Dokument wurde auf {n} Zeichen gekürzt, das Maximum pro Lauf.',
   },
@@ -49,6 +50,10 @@ export default {
     none: 'In diesem Text wurden keine empirischen Behauptungen gefunden.',
     incomplete: 'Die Extraktion endete früh am Ausgabelimit des Modells. Es können Behauptungen fehlen.',
     retry: 'Erneuter Versuch…',
+    thinking: 'Das Modell liest. Es schreibt nichts, bevor es zu Ende gedacht hat · {time}',
+    thinkingSearched: 'Das Modell liest und hat {n} Suchen ausgeführt · {time}',
+    foundTimed: '{n} Aussagen gefunden · {time}',
+    thinkingTitle: 'Was das Modell nach eigener Angabe tut',
   },
   claims: {
     title: 'Behauptungen',

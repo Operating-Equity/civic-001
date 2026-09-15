@@ -123,7 +123,26 @@ app.post('/v1/responses', async (req, res) => {
     }
     output = mockEntry(claim);
   } else {
-    await sleep(500);
+    // Extraction at a high reasoning effort is a long silence followed by a burst of text. The real
+    // API behaves that way and the page has to stay alive through it, so the stand-in can too:
+    // MOCK_EXTRACT_THINK_MS sets how long the model thinks before writing its first claim.
+    const think = Number(process.env.MOCK_EXTRACT_THINK_MS || 500);
+    if (body.reasoning?.summary && think > 1500) {
+      const parts = ['Reading the document through once to see what kind of claims it carries.',
+        'Separating the empirical propositions from the rhetoric around them.',
+        'Carrying forward the speaker, the date and the units so each claim stands on its own.'];
+      const per = Math.floor(think / parts.length);
+      for (const part of parts) {
+        for (const chunk of part.match(/[\s\S]{1,30}/g) || []) {
+          send({ type: 'response.reasoning_summary_text.delta', delta: chunk, summary_index: 0 });
+          await sleep(12);
+        }
+        send({ type: 'response.reasoning_summary_part.done', summary_index: 0 });
+        await sleep(Math.max(0, per - part.length * 12));
+      }
+    } else {
+      await sleep(think);
+    }
     output = mockClaims(text);
   }
 

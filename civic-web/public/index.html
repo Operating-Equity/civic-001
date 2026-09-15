@@ -91,6 +91,7 @@
     </div>
     <div class="intake-go">
       <button type="button" class="btn btn-primary btn-large" id="btn-run" data-i18n="intake.run">Test the facts</button>
+      <p class="intake-slow hint" data-i18n="intake.slow"></p>
     </div>
   </section>
 
@@ -108,6 +109,10 @@
             <span class="step-status" id="step1-status"></span>
           </div>
           <div class="bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="bar-extract"><i></i></div>
+          <details class="raw step-thinking" id="step1-thinking" hidden>
+            <summary class="raw-summary" id="step1-thinking-summary"></summary>
+            <div class="raw-body" id="step1-thinking-body"></div>
+          </details>
         </div>
 
         <div class="step" id="step-eval" data-state="idle">
