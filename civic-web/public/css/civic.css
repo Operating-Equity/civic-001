@@ -406,3 +406,13 @@ body {
   .btn-large { width: 100%; justify-content: center; }
   .intake-go .btn-text { width: 100%; justify-content: center; }
 }
+
+/* Which version of the page this browser actually loaded. Small, grey, and only there so a fault
+   can be told apart from a browser showing yesterday's code. */
+.footer-build {
+  margin: .35rem 0 0;
+  font-size: .68rem;
+  letter-spacing: .04em;
+  color: var(--ink-faint, #8a8f98);
+  opacity: .75;
+}

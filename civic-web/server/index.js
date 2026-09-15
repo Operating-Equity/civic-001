@@ -1,5 +1,7 @@
 // CIVIC main-page server. Serves the page, keeps the prompts, and proxies the reader's own
 // OpenAI key to OpenAI. Nothing under server/ is ever served as a static file.
+import crypto from 'node:crypto';
+import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import express from 'express';
@@ -17,6 +19,43 @@ import { runChallenge, ACCEPTED_CHALLENGE_EXT } from './challenge.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const publicDir = path.join(here, '..', 'public');
+
+// A stamp over every file that makes up the page. It changes whenever the front end changes, so an
+// updated CIVIC cannot be hidden behind a browser's copy of yesterday's JavaScript. This mattered:
+// the page and its code were once served with an hour of caching and no version in their addresses,
+// so a reader who had visited before kept running the old code after an update and saw a fixed
+// fault again. The stamp is shown on the page and in /api/health, so it is always clear which
+// version is actually loaded.
+function buildStamp() {
+  const files = [];
+  (function walk(dir) {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) { if (entry.name !== 'assets') walk(full); }
+      else if (/\.(js|css|html)$/.test(entry.name)) files.push(full);
+    }
+  })(publicDir);
+  files.sort();
+  const hash = crypto.createHash('sha256');
+  for (const f of files) hash.update(path.relative(publicDir, f)).update(fs.readFileSync(f));
+  return hash.digest('hex').slice(0, 12);
+}
+const BUILD = buildStamp();
+
+// The page itself is never cached, and the addresses of its stylesheet and its entry script carry
+// the stamp, so a new version is fetched the moment it exists.
+// Every front-end file is served under /b/<stamp>/. Because a module's own imports resolve against
+// its address, one versioned entry point carries the whole graph: js/api.js, js/render.js, the
+// locales and the stylesheet all arrive at new addresses the moment anything changes. A version in
+// a query string would not have done this — the inner imports would have kept their old addresses,
+// and a browser holding yesterday's copy of one of them would go on running it.
+const INDEX_HTML = fs.readFileSync(path.join(publicDir, 'index.html'), 'utf8')
+  .replace(/(href=")(css\/[^"]+\.css")/g, `$1/b/${BUILD}/$2`)
+  .replace(/(src=")(js\/app\.js")/g, `$1/b/${BUILD}/$2`);
+function sendIndex(req, res) {
+  res.setHeader('Cache-Control', 'no-store');
+  res.type('html').send(INDEX_HTML);
+}
 
 const app = express();
 app.disable('x-powered-by');
@@ -55,7 +94,7 @@ const wrap = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).cat
 // ---- API ---------------------------------------------------------------------------------
 
 app.get('/api/health', (req, res) => {
-  res.json({ ok: true, ...publicConfig(promptStatus()), readUrl: true, acceptedSourceExt: ACCEPTED_SOURCE_EXT, acceptedChallengeExt: ACCEPTED_CHALLENGE_EXT });
+  res.json({ ok: true, build: BUILD, ...publicConfig(promptStatus()), readUrl: true, acceptedSourceExt: ACCEPTED_SOURCE_EXT, acceptedChallengeExt: ACCEPTED_CHALLENGE_EXT });
 });
 
 app.post('/api/parse', upload.single('file'), wrap(async (req, res) => {
@@ -164,8 +203,25 @@ app.post('/api/challenge', upload.array('files', config.challengeMaxFiles), wrap
 
 // ---- Static site ---------------------------------------------------------------------------
 
-app.use(express.static(publicDir, { extensions: ['html'], maxAge: '1h' }));
-app.get(/^\/(?!api\/).*/, (req, res) => res.sendFile(path.join(publicDir, 'index.html')));
+app.get('/', sendIndex);
+app.get('/index.html', sendIndex);
+
+// The stamped copy. These addresses change whenever the files do, so they are safe to keep forever.
+app.use(`/b/${BUILD}`, express.static(publicDir, { index: false, immutable: true, maxAge: '365d' }));
+// An address from an older stamp is not this build's; send the reader to the current page.
+app.get(/^\/b\/[0-9a-f]{6,}\//, (req, res) => { res.setHeader('Cache-Control', 'no-store'); res.redirect(302, '/'); });
+app.use(express.static(publicDir, {
+  index: false,
+  extensions: ['html'],
+  etag: true,
+  lastModified: true,
+  setHeaders(res, filePath) {
+    // Code is revalidated on every load; fonts and pictures never change, so they are kept.
+    if (/\.(js|css|html)$/.test(filePath)) res.setHeader('Cache-Control', 'no-cache');
+    else res.setHeader('Cache-Control', 'public, max-age=604800, immutable');
+  },
+}));
+app.get(/^\/(?!api\/).*/, sendIndex);
 
 // ---- Errors --------------------------------------------------------------------------------
 

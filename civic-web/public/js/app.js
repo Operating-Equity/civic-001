@@ -61,6 +61,7 @@ function cacheElements() {
     scoreboard: $('#scoreboard'), scoreTrue: $('#score-true'), scoreFalse: $('#score-false'), scoreUnv: $('#score-unverified'),
     scoreTested: $('#score-tested'), scoreTokens: $('#score-tokens'), scoreUnread: $('#score-unread'), scoreUnreadWrap: $('#score-unread-wrap'),
     scoreInternal: $('#score-internal'), scoreCost: $('#score-cost'), export: $('#btn-export'),
+    buildStamp: $('#build-stamp'),
     results: $('#results'), resetTop: $('#btn-reset-top'), reset: $('#btn-reset'),
     langSelect: $('#lang-select'), signin: $('#btn-signin'), signup: $('#btn-signup'),
     cardTpl: $('#tpl-card'),
@@ -87,8 +88,15 @@ async function boot() {
   ui.testSelected.addEventListener('click', testSelected);
   ui.export.addEventListener('click', exportRun);
 
+  // The launcher opens the page at a one-off address so a browser holding an older copy of the page
+  // cannot serve it back instead of asking the server. Tidy that marker out of the address bar.
+  if (new URLSearchParams(location.search).has('fresh')) {
+    try { history.replaceState(null, '', location.pathname); } catch { /* not important */ }
+  }
+
   try {
     state.server = await api.health();
+    if (ui.buildStamp && state.server?.build) ui.buildStamp.textContent = `build ${state.server.build}`;
     state.accounting = Boolean(state.server.accounting);
   } catch {
     state.server = null;
