@@ -54,6 +54,14 @@ function inputText(body) {
   return (input || []).flatMap((m) => (m.content || []).map((c) => c.text || '')).join('\n');
 }
 
+// Reading a model's description, which is what the self-check uses to prove a key may use a model.
+// It costs no tokens, so the mock answers it the same way the real API does.
+app.get('/v1/models/:id', (req, res) => {
+  const id = req.params.id;
+  if (!KNOWN_MODELS.has(id)) return modelError(res, id);
+  res.json({ id, object: 'model', created: 1700000000, owned_by: 'mock' });
+});
+
 app.post('/v1/responses', async (req, res) => {
   const body = req.body || {};
   if (!KNOWN_MODELS.has(body.model)) return modelError(res, body.model);

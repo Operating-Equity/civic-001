@@ -141,6 +141,7 @@ export default {
     prompt: 'This server is not fully configured yet.',
     key: 'OpenAI rejected the key. Check it and try again.',
     rate: 'OpenAI is rate-limiting this key. Try again in a moment.',
+    checkLink: 'Why did this happen?',
     url: 'That link could not be read: {message}',
     keyUnusable: 'The key saved in this browser was not usable and has been removed. Add it again, or use the key on this server.',
     sourceTooLong: 'This document is too long to test in one run.',

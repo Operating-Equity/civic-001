@@ -140,6 +140,7 @@ export default {
     prompt: 'Este servidor aún no está completamente configurado.',
     key: 'OpenAI rechazó la clave. Compruébala e inténtalo de nuevo.',
     rate: 'OpenAI está limitando esta clave. Inténtalo de nuevo en un momento.',
+    checkLink: '¿Por qué ha ocurrido?',
     url: 'No se pudo leer ese enlace: {message}',
     keyUnusable: 'La clave guardada en este navegador no era utilizable y se ha eliminado. Vuelve a añadirla o usa la clave de este servidor.',
     sourceTooLong: 'Este documento es demasiado largo para probarlo en una sola ejecución.',

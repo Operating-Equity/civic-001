@@ -140,6 +140,7 @@ export default {
     prompt: 'Ce serveur n\'est pas encore entièrement configuré.',
     key: 'OpenAI a refusé la clé. Vérifiez-la et réessayez.',
     rate: 'OpenAI limite cette clé. Réessayez dans un instant.',
+    checkLink: 'Pourquoi ?',
     url: 'Ce lien n\'a pas pu être lu : {message}',
     keyUnusable: 'La clé enregistrée dans ce navigateur était inutilisable et a été supprimée. Ajoutez-la de nouveau ou utilisez la clé de ce serveur.',
     sourceTooLong: 'Ce document est trop long pour être testé en une seule fois.',
