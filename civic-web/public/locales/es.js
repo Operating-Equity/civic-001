@@ -76,6 +76,7 @@ export default {
     retry: 'Reintentando (intento {n})…',
     incomplete: 'La entrada se cortó por el límite de salida.',
     error: 'Esta afirmación no pudo probarse.',
+    dropped: 'La conexión con OpenAI se cortó antes de que terminara la entrada, y todos los reintentos se cortaron también.',
     retryBtn: 'Intentar de nuevo',
     confidence: '{n}% de confianza',
     inspector: 'Inspector',

@@ -77,6 +77,7 @@ export default {
     retry: 'Retrying (attempt {n})…',
     incomplete: 'The entry was cut short by the output limit.',
     error: 'This claim could not be tested.',
+    dropped: 'The connection to OpenAI was cut before the entry finished, and every retry was cut too.',
     retryBtn: 'Try again',
     confidence: '{n}% confidence',
     inspector: 'Inspector',

@@ -3,6 +3,7 @@ import OpenAI from 'openai';
 import { config } from './config.js';
 import { redactPrompts } from './prompts.js';
 import { HEADER_SAFE } from './key.js';
+import { openaiFetch } from './http.js';
 
 export class ApiError extends Error {
   constructor(status, code, message) {
@@ -53,6 +54,7 @@ export function clientFor(apiKey) {
     baseURL: config.openaiBaseUrl || undefined,
     maxRetries: 0, // we do our own retries so streaming stays predictable
     timeout: 30 * 60 * 1000,
+    fetch: openaiFetch, // a connection that tolerates long silences (see http.js)
   });
 }
 
@@ -61,12 +63,36 @@ export function describeError(err) {
   const status = err?.status ?? err?.statusCode ?? 500;
   const code = err?.code || err?.error?.code || err?.error?.type || 'openai_error';
   let message = err?.error?.message || err?.message || 'The request to OpenAI failed.';
+  // A connection failure arrives as one word ("terminated") with the reason underneath it, in a
+  // chain of causes. The whole chain is the message, so the reason is never lost.
+  for (let c = err?.cause, depth = 0; c && depth < 3; c = c.cause, depth++) {
+    const part = c.message || c.code;
+    if (part && !String(message).includes(part)) message += `: ${part}`;
+  }
   // An API can quote part of a request back in an error. Nothing of the prompt leaves this way.
   message = redactPrompts(String(message)).slice(0, 2000);
   if (status === 401) return new ApiError(401, 'invalid_key', 'OpenAI rejected the API key.');
   if (status === 429) return new ApiError(429, code, 'OpenAI rate limit or quota reached. ' + message);
   if (status === 404 && /model/i.test(message)) return new ApiError(404, 'model_not_found', message);
+  if (isConnectionDrop(err)) return new ApiError(502, 'connection_dropped', message);
   return new ApiError(status >= 400 && status < 600 ? status : 502, code, message);
+}
+
+/**
+ * The connection failed or was cut, before or during the reply. Nothing OpenAI decided: no status,
+ * no verdict on the request. Such a failure is retried like a rate limit; a model or parameter
+ * error never is.
+ */
+export function isConnectionDrop(err) {
+  const codes = new Set(['ECONNRESET', 'ECONNREFUSED', 'ETIMEDOUT', 'EPIPE', 'EAI_AGAIN', 'ENOTFOUND',
+    'UND_ERR_SOCKET', 'UND_ERR_BODY_TIMEOUT', 'UND_ERR_HEADERS_TIMEOUT', 'UND_ERR_CONNECT_TIMEOUT']);
+  for (let e = err, depth = 0; e && depth < 5; e = e.cause, depth++) {
+    if (e.status) return false;
+    if (codes.has(e.code)) return true;
+    if (e.name === 'APIConnectionError' || e.name === 'APIConnectionTimeoutError') return true;
+    if (/terminated|fetch failed|other side closed|socket hang up|network error/i.test(String(e.message))) return true;
+  }
+  return false;
 }
 
 /**
@@ -83,7 +109,7 @@ export function isModelNotFound(err) {
 
 export function isRetryable(err) {
   const s = err?.status;
-  return s === 429 || s === 500 || s === 502 || s === 503 || s === 504 || err?.code === 'ECONNRESET' || err?.name === 'APIConnectionError';
+  return s === 429 || s === 500 || s === 502 || s === 503 || s === 504 || isConnectionDrop(err);
 }
 
 export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
