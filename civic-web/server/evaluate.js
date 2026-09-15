@@ -7,7 +7,7 @@
 // read, the verdict is null and the card says so rather than guessing.
 import { config } from './config.js';
 import { evaluationPrompt } from './prompts.js';
-import { clientFor, withModelFallback, usageOf, isRetryable, sleep, describeError } from './openai.js';
+import { clientFor, withModelFallback, usageOf, isRetryable, retryBudget, sleep, describeError } from './openai.js';
 import { estimateTextCost } from './pricing.js';
 import { record, claimHash } from './ledger.js';
 
@@ -183,7 +183,7 @@ export async function runEvaluation({ apiKey, claims, send, signal }) {
           send({ t: 'note', i, code: 'no_reasoning_summary' });
           continue;
         }
-        if (tries < config.evalRetries && isRetryable(err)) {
+        if (tries < retryBudget(err) && isRetryable(err)) {
           const waitMs = 2000 * 2 ** tries + Math.random() * 500;
           // The status is passed on: a 429 means this key's rate limit is throttling the run, which
           // is the difference between twenty claims running at once and twenty claims queueing.

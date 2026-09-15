@@ -112,6 +112,16 @@ export function isRetryable(err) {
   return s === 429 || s === 500 || s === 502 || s === 503 || s === 504 || isConnectionDrop(err);
 }
 
+/**
+ * How many times a failed attempt may be repeated. A rate limit or a 5xx costs nothing, so the
+ * operator's full budget applies. A connection cut during the reply has already spent the tokens
+ * of that attempt, so it is repeated at most twice: a bad network must not spend nine
+ * determinations' worth of tokens on one claim.
+ */
+export function retryBudget(err) {
+  return isConnectionDrop(err) ? Math.min(config.evalRetries, 2) : config.evalRetries;
+}
+
 export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /**
