@@ -1,174 +1,58 @@
 # CIVIC
 
-> **Current work: the main page prototype lives in [`civic-web/`](civic-web/README.md).**
-> Paste or upload text, CIVIC extracts every empirical claim, tests the first 20 in parallel, and
-> shows each determination with its full entry, a live True / False / Unverified count, a challenge
-> panel per result, and a reset. The prompts are held server-side and never reach the browser.
-> Run it with `cd civic-web && npm install && npm start` (see its README for the prompt vault).
->
-> Everything below describes the earlier video-analysis prototype (`civic-backend/`, `civic-frontend/`),
-> kept in place for reference.
+Paste a document, a transcript, a speech, a study or a link. CIVIC extracts every empirical claim it
+contains, tests the first twenty at the same time, and shows each determination as True, False or
+Unverified with the full entry behind it.
 
----
+The working application is in **[`civic-web/`](civic-web/README.md)**, which has the instructions for
+running it, the settings, and how the prompts are kept.
 
-# Civic - Advanced Video Fact Checking Platform
+## What it does
 
-![Civic Logo](civic-frontend/public/assets/images/logo.svg)
+1. **Extraction.** The whole document goes to the model with the operator's extraction prompt. Every
+   empirical claim comes back as a numbered list, shown verbatim.
+2. **Determination.** The first twenty claims each go out as their own request, all at the same time,
+   carrying the operator's evaluation prompt with that one claim in it. Claims beyond twenty wait for
+   the reader to choose them.
+3. **The entry.** Each card shows the verdict in its own colour, the complete entry, the model's
+   reasoning summary, every web search it ran, every source it cited, and the raw text.
 
-Civic is an advanced video fact-checking platform that uses AI to analyze videos, extract empirical claims, and verify facts using multiple AI models and evidence search.
+A live count of True, False and Unverified updates as each claim finishes. **Download full run**
+writes the source, the verbatim extraction output and every entry to one Markdown file.
 
-## Features
+## Two rules the code exists to keep
 
-- **Video Analysis**: Extract and analyze transcripts from YouTube videos or uploaded files
-- **Multi-Model Fact-Checking**: Cross-reference claims across multiple AI models (OpenAI, Anthropic, Perplexity)
-- **Evidence Search**: Automatically search for supporting evidence from reputable sources
-- **Claim Verification**: Evaluate empirical claims for accuracy, context, and supporting evidence
+1. **Nothing runs that was not submitted.** No sample, no seeded text, no demo mode, no preloaded
+   result anywhere in the product. The page is empty until a document is given to it.
+2. **Nothing the model returns is edited, trimmed or withheld.** The prompts are sent verbatim and the
+   entry is rendered whole. There is no output cap. The verdict is read from the model's own
+   conclusion, and when it cannot be read the card says so and the claim is counted in no column.
 
-## Architecture
+## The prompts
 
-Civic consists of two main components:
+The prompts are the product and are never in this repository. They are loaded at startup from
+environment variables or from gitignored files, kept in server memory, never logged, never returned by
+any endpoint, and every request is sent with `store: false` so they cannot be read back from an OpenAI
+dashboard. `npm run leak-check` searches every tracked file for any five-word run of the installed
+prompts and fails if one is found; it runs on every push.
 
-1. **Backend API (Flask)**: Handles video processing, transcript extraction, AI-powered analysis, and evidence search
-2. **Frontend UI (React)**: Provides a modern, intuitive interface for uploading videos and reviewing analysis results
-
-## Prerequisites
-
-- [Docker](https://www.docker.com/get-started)
-- [Docker Compose](https://docs.docker.com/compose/install/)
-- API keys for:
-  - OpenAI
-  - Anthropic
-  - Perplexity
-  - AssemblyAI (for video transcription)
-  - Exa.ai (for evidence search)
-
-## Setup Instructions
-
-### 1. Clone the repository
+## Checking it
 
 ```bash
-git clone https://github.com/your-username/civic.git
-cd civic
+cd civic-web
+npm run verify        # reads the request bodies actually sent, and the leak guard
+npm start             # http://localhost:3000
 ```
 
-### 2. Configure environment variables
+`http://localhost:3000/check` asks the server whether CIVIC can work at all and answers in sentences:
+prompts installed, key configured, OpenAI accepting the key, the key allowed to use the model.
 
-Create a `.env` file in the `civic-backend` directory:
+## Layout
 
-```bash
-# Base configuration
-FLASK_APP=run.py
-FLASK_DEBUG=0
-SECRET_KEY=your-secure-secret-key
-
-# API Keys
-OPENAI_API_KEY=your-openai-key
-ANTHROPIC_API_KEY=your-anthropic-key
-PERPLEXITY_API_KEY=your-perplexity-key
-EXA_API_KEY=your-exa-api-key
-ASSEMBLY_AI_KEY=your-assemblyai-key
-RAPIDAPI_KEY=your-rapidapi-key
+```
+civic-web/      The application. See its README.
+render.yaml     Blueprint for running the server on Render without a terminal.
 ```
 
-### 3. Start the application with Docker Compose
-
-```bash
-docker-compose up -d
-```
-
-This will:
-- Build and start the backend API service
-- Build and start the frontend web service
-- Configure networking between the services
-- Expose the application on port 80
-
-### 4. Access the application
-
-Open your browser and navigate to `http://localhost`
-
-## Development Setup
-
-If you want to develop Civic locally without Docker:
-
-### Backend
-
-```bash
-cd civic-backend
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-pip install -r requirements.txt
-flask run
-```
-
-### Frontend
-
-```bash
-cd civic-frontend
-npm install
-npm start
-```
-
-The frontend will be available at `http://localhost:3000` and will proxy API requests to the backend at `http://localhost:5000`.
-
-## API Documentation
-
-### Video Processing
-
-- `POST /api/video/process`
-  - Process a video from YouTube URL or file upload
-  - Returns transcript, claims, and summary
-
-### Analysis
-
-- `POST /api/analysis/claims`
-  - Extract empirical claims from transcript
-- `POST /api/analysis/summary`
-  - Generate a summary from transcript
-- `POST /api/analysis/evaluate`
-  - Evaluate a claim across multiple AI models
-
-### Search
-
-- `POST /api/search/keywords`
-  - Generate search keywords for a claim
-- `POST /api/search/evidence`
-  - Search for evidence related to keywords
-
-## Technologies Used
-
-### Backend
-- Flask (Python web framework)
-- AssemblyAI (video transcription)
-- OpenAI GPT-4 (claim extraction and evaluation)
-- Anthropic Claude (claim evaluation)
-- Perplexity API (claim evaluation with web search)
-- Exa.ai (evidence search)
-
-### Frontend
-- React (UI library)
-- TypeScript (type safety)
-- Tailwind CSS (styling)
-- Lucide React (icons)
-- Axios (API communication)
-
-## Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
-
-1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add some amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
-
-## License
-
-This project is licensed under the MIT License - see the LICENSE file for details.
-
-## Acknowledgements
-
-- [OpenAI](https://openai.com) for GPT models
-- [Anthropic](https://anthropic.com) for Claude models
-- [Perplexity](https://perplexity.ai) for search-powered responses
-- [AssemblyAI](https://assemblyai.com) for audio transcription
-- [Exa.ai](https://exa.ai) for evidence search capabilities
+A video fact-checking prototype lived here until September 2026, in `civic-backend/` and
+`civic-frontend/`. It was removed once CIVIC replaced it and remains in the history.
