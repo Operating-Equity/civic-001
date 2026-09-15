@@ -70,6 +70,15 @@ export async function health() {
   return res.json();
 }
 
+/** Tells the server what failed, so /check can show it after the message on screen has gone. */
+export async function reportFailure(entry) {
+  await fetch('api/report', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(entry),
+  });
+}
+
 /** Hands a web address to the server, which returns the source's own text. */
 export async function readUrl(url, { signal } = {}) {
   const res = await fetch('api/read-url', {

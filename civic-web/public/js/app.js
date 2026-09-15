@@ -268,6 +268,7 @@ function newResult() {
 }
 
 function resetRunState() {
+  state.failure = null;
   state.abort?.abort();
   for (const id of state.timers) clearInterval(id);
   state.timers = [];
@@ -326,15 +327,36 @@ function addWarning(ev) {
   renderWarnings();
 }
 
+/** Puts a failure where it can be read for as long as it is wanted, with a way to see more. */
+function showFailure(message, err) {
+  state.failure = { message, code: err?.code || '', detail: err?.message || '' };
+  renderWarnings();
+  ui.runSection.hidden = false;
+  ui.runWarnings.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
 function renderWarnings() {
-  ui.runWarnings.hidden = state.warnings.length === 0;
-  ui.runWarnings.replaceChildren(...state.warnings.map((w) => {
+  ui.runWarnings.hidden = state.warnings.length === 0 && !state.failure;
+  const rows = [];
+  if (state.failure) {
+    const li = el('li', { className: 'run-failure' });
+    li.append(el('strong', { text: state.failure.message }));
+    if (state.failure.detail && state.failure.detail !== state.failure.message) {
+      li.append(el('span', { className: 'run-failure-detail', text: ` ${state.failure.detail}` }));
+    }
+    const link = el('a', { text: t('errors.checkLink'), className: 'run-failure-link' });
+    link.href = 'check';
+    li.append(document.createTextNode(' '), link);
+    rows.push(li);
+  }
+  rows.push(...state.warnings.map((w) => {
     let text;
     if (w.code === 'source_truncated') text = t('warn.sourceTruncated', { n: fmtNumber(w.omitted), read: fmtNumber(w.read) });
     else if (w.code === 'model_fallback') text = t('warn.modelFallback', { used: w.used, requested: w.requested });
     else text = w.code;
     return el('li', { text });
   }));
+  ui.runWarnings.replaceChildren(...rows);
 }
 
 function addCost(cost) {
@@ -609,6 +631,11 @@ function failRun(err) {
   else if (err instanceof TypeError) message = t('errors.server');
   else message = t('errors.generic', { message: err?.message || code || '' });
   toast(message, { error: true, ms: 9000 });
+  // A message that disappears is no use. The failure also stays on the page until the next run,
+  // and is reported to the server so /check can show it afterwards.
+  showFailure(message, err);
+  api.reportFailure({ where: state.phase || 'run', code, status: err?.status, message: err?.message || message, detail: err?.detail })
+    .catch(() => { /* reporting a failure must never cause one */ });
   if (state.phase === 'extracting') { setStep(ui.step1, 'idle'); setStatus('step1', null); setBar(ui.bar1, 0); }
   if (state.phase === 'evaluating') { setStatus('step2', 'step2.stopped'); }
   state.phase = 'done';

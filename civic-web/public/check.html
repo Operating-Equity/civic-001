@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>CIVIC · Is it working?</title>
+<link rel="stylesheet" href="css/fonts.css">
+<link rel="stylesheet" href="css/civic.css">
+<style>
+  .check-page { max-width: 46rem; margin: 0 auto; padding: 2rem 1rem 4rem; }
+  .check-head { margin: 0 0 .25rem; font-family: var(--font-display, inherit); font-size: 2rem; }
+  .check-lede { margin: 0 0 1.5rem; color: var(--ink-soft, #55606e); }
+  .check-verdict { padding: 1rem 1.25rem; border-radius: .75rem; font-size: 1.05rem; font-weight: 600; margin-bottom: 1.5rem; }
+  .check-verdict.is-ready { background: #e6f4ec; color: #145c39; border: 1px solid #a9d9c0; }
+  .check-verdict.is-blocked { background: #fdeceb; color: #8c1d18; border: 1px solid #f0b4b0; }
+  .check-verdict.is-waiting { background: #eef1f6; color: #414a57; border: 1px solid #ccd4e0; }
+  .check-item { display: flex; gap: .75rem; padding: .85rem 0; border-top: 1px solid var(--rule, #e3e7ee); }
+  .check-mark { flex: 0 0 1.5rem; font-weight: 700; line-height: 1.5; }
+  .check-item.ok   .check-mark { color: #1e7a4c; }
+  .check-item.bad  .check-mark { color: #b3261e; }
+  .check-item.warn .check-mark { color: #8a5a00; }
+  .check-title { font-weight: 600; }
+  .check-detail, .check-fix { color: var(--ink-soft, #55606e); font-size: .92rem; margin-top: .2rem; }
+  .check-fix { color: #8c1d18; }
+  .check-fix b { font-weight: 600; }
+  .check-settings { margin: 1.75rem 0 0; font-size: .92rem; }
+  .check-settings td { padding: .3rem .9rem .3rem 0; vertical-align: top; }
+  .check-settings td:first-child { color: var(--ink-soft, #55606e); white-space: nowrap; }
+  .check-failures { margin-top: 2rem; }
+  .check-failures li { margin-bottom: .6rem; font-size: .88rem; }
+  .check-failures time { color: var(--ink-soft, #55606e); }
+  .check-actions { display: flex; flex-wrap: wrap; gap: .6rem; margin-top: 1.75rem; }
+  .check-report { width: 100%; min-height: 12rem; margin-top: 1rem; font-family: var(--font-mono, monospace); font-size: .8rem; }
+</style>
+</head>
+<body>
+<main class="check-page">
+  <h1 class="check-head">Is CIVIC working?</h1>
+  <p class="check-lede">This page asks the server directly. It costs nothing and runs no tests.</p>
+
+  <div class="check-verdict is-waiting" id="verdict">Checking…</div>
+  <div id="items"></div>
+
+  <table class="check-settings" id="settings"></table>
+
+  <div class="check-actions">
+    <button type="button" class="btn btn-primary" id="again">Check again</button>
+    <a class="btn btn-outline" href="/">Back to CIVIC</a>
+    <button type="button" class="btn btn-outline" id="copy">Copy this report</button>
+  </div>
+
+  <div class="check-failures" id="failures"></div>
+  <textarea class="check-report input" id="report" hidden readonly></textarea>
+</main>
+<script type="module" src="js/check.js"></script>
+</body>
+</html>

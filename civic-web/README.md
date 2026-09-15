@@ -144,6 +144,22 @@ The server prints the exact shape of both requests at startup.
 The image is a picture, not a determination, and the operator asked for the fast model there
 (`CIVIC_IMAGE_*`).
 
+### When something goes wrong
+
+```
+http://localhost:3000/check
+```
+
+Asks the server what is wrong and answers in sentences: whether both prompts are installed, whether
+a key is configured, whether OpenAI accepts that key, and whether the key may use the configured
+model. The model check reads the model's description rather than running it, so it spends nothing.
+Each failure carries the step that fixes it, and the page lists recent failures from both the server
+and the browser, so a message that has already disappeared can still be read. Nothing secret is
+recorded: keys are redacted and no prompt or document text is kept.
+
+A failure during a run also stays on the page until the next run, rather than appearing briefly in
+a message that vanishes.
+
 ### The guard
 
 ```bash

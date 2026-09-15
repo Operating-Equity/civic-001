@@ -70,6 +70,9 @@ export const config = {
   // Internal accounting (operator view, not a customer feature).
   accounting: bool('CIVIC_INTERNAL_ACCOUNTING', true),
   ledgerFile: env('CIVIC_LEDGER_FILE', new URL('../data/ledger.jsonl', import.meta.url).pathname),
+  // Every failure, from the server or the page, appended here so /check can show it afterwards.
+  // No key, no prompt text, no document: only what failed.
+  errorLogFile: env('CIVIC_ERROR_LOG', new URL('../data/errors.log', import.meta.url).pathname),
   webSearchUsdPerCall: Number(env('CIVIC_WEB_SEARCH_USD_PER_CALL', '0.01')),
   imageUsdPerImage: Number(env('CIVIC_IMAGE_USD_PER_IMAGE', '0.02')),
 

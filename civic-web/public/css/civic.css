@@ -416,3 +416,8 @@ body {
   color: var(--ink-faint, #8a8f98);
   opacity: .75;
 }
+
+/* A failure stays on the page until the next run. It is the one thing a reader must not miss. */
+.run-failure strong { display: block; }
+.run-failure-detail { color: inherit; opacity: .8; }
+.run-failure-link { color: inherit; text-decoration: underline; font-weight: 600; }

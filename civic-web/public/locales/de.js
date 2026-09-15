@@ -140,6 +140,7 @@ export default {
     prompt: 'Dieser Server ist noch nicht vollständig konfiguriert.',
     key: 'OpenAI hat den Schlüssel abgelehnt. Prüfen Sie ihn und versuchen Sie es erneut.',
     rate: 'OpenAI drosselt diesen Schlüssel. Versuchen Sie es gleich noch einmal.',
+    checkLink: 'Warum ist das passiert?',
     url: 'Dieser Link konnte nicht gelesen werden: {message}',
     keyUnusable: 'Der in diesem Browser gespeicherte Schlüssel war unbrauchbar und wurde entfernt. Füge ihn erneut hinzu oder nutze den Schlüssel dieses Servers.',
     sourceTooLong: 'Dieses Dokument ist zu lang für einen einzelnen Lauf.',

@@ -16,6 +16,8 @@ import { runExtraction } from './extract.js';
 import { runEvaluation } from './evaluate.js';
 import { runIllustration } from './illustrate.js';
 import { runChallenge, ACCEPTED_CHALLENGE_EXT } from './challenge.js';
+import { selftest } from './selftest.js';
+import { record as recordFailure } from './diagnostics.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const publicDir = path.join(here, '..', 'public');
@@ -95,6 +97,25 @@ const wrap = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).cat
 
 app.get('/api/health', (req, res) => {
   res.json({ ok: true, build: BUILD, ...publicConfig(promptStatus()), readUrl: true, acceptedSourceExt: ACCEPTED_SOURCE_EXT, acceptedChallengeExt: ACCEPTED_CHALLENGE_EXT });
+});
+
+// Is CIVIC able to work right now? Answered in plain language at /check, so a fault is never
+// something a reader has to catch as a message disappears.
+app.get('/api/selftest', wrap(async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  res.json(await selftest({ apiKey: keyFromRequest(req, { optional: true }), build: BUILD }));
+}));
+
+// The page reports its own failures here, so /check can show them afterwards.
+app.post('/api/report', (req, res) => {
+  const entry = recordFailure({
+    where: `page:${req.body?.where || 'unknown'}`,
+    code: req.body?.code,
+    message: req.body?.message,
+    detail: req.body?.detail,
+    status: req.body?.status,
+  });
+  res.json({ recorded: entry.at });
 });
 
 app.post('/api/parse', upload.single('file'), wrap(async (req, res) => {
@@ -205,6 +226,7 @@ app.post('/api/challenge', upload.array('files', config.challengeMaxFiles), wrap
 
 app.get('/', sendIndex);
 app.get('/index.html', sendIndex);
+app.get('/check', (req, res) => { res.setHeader('Cache-Control', 'no-store'); res.sendFile(path.join(publicDir, 'check.html')); });
 
 // The stamped copy. These addresses change whenever the files do, so they are safe to keep forever.
 app.use(`/b/${BUILD}`, express.static(publicDir, { index: false, immutable: true, maxAge: '365d' }));
@@ -231,6 +253,7 @@ app.use((err, req, res, next) => {
     return res.status(413).json({ error: { code: err.code, message: err.code === 'LIMIT_FILE_SIZE' ? 'That file is too large.' : err.message } });
   }
   const safe = err instanceof ApiError ? err : describeError(err);
+  recordFailure({ where: `server:${req.method} ${req.path}`, code: safe.code, message: safe.message, status: safe.status });
   if (!(err instanceof ApiError)) console.error('[civic]', safe.status, safe.code);
   res.status(safe.status || 500).json({ error: { code: safe.code, message: safe.message } });
 });
@@ -238,6 +261,7 @@ app.use((err, req, res, next) => {
 const server = app.listen(config.port, () => {
   const status = promptStatus();
   console.log(`CIVIC main page on http://localhost:${config.port}`);
+  console.log(`if anything goes wrong, open http://localhost:${config.port}/check — it says what is wrong in plain words`);
   console.log(`prompts installed: extract=${status.extract} evaluate=${status.evaluate} challenge=${status.challenge}` + (config.challengeEnabled ? '' : ' (challenge API step withheld)'));
   const shape = requestShape();
   console.log(`extraction requests carry: model ${shape.extract.model} · reasoning.effort ${shape.extract.effort}${shape.extract.summary ? ` · reasoning.summary ${shape.extract.summary}` : ''} · web_search · the prompt verbatim · the document whole · nothing else${shape.extract.fallback ? '  (FALLBACK LIST SET)' : ''}`);
