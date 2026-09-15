@@ -34,39 +34,8 @@
 <main class="page">
 
   <!-- Key strip: the page opens to take the key; nothing navigates away. -->
-  <section class="keystrip glass" id="keystrip" aria-labelledby="keystrip-title">
-    <div class="keystrip-row">
-      <svg class="icon key-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M14.5 3a6.5 6.5 0 0 0-6.2 8.4L3 16.7V21h4.3l1-1v-2h2l1-1v-2h2l1.2-1.2A6.5 6.5 0 1 0 14.5 3Zm2 5.5a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3Z" fill="currentColor"/></svg>
-      <p class="keystrip-title" id="keystrip-title">
-        <span class="key-state-missing" data-i18n="key.title">CIVIC runs on your own OpenAI key.</span>
-        <span class="key-state-active" hidden><span data-i18n="key.active">Key active</span> · <code class="key-hint" id="key-hint"></code></span>
-      </p>
-      <div class="keystrip-actions">
-        <button type="button" class="btn btn-small btn-primary key-state-missing" id="btn-key-open" data-i18n="key.add">Add key</button>
-        <button type="button" class="btn btn-small btn-text key-state-active" id="btn-key-change" data-i18n="key.change" hidden>Change</button>
-        <button type="button" class="btn btn-small btn-text key-state-active" id="btn-key-remove" data-i18n="key.remove" hidden>Remove</button>
-      </div>
-    </div>
-    <form class="keystrip-body" id="key-form" hidden>
-      <label class="field">
-        <span class="field-label" data-i18n="key.label">OpenAI API key</span>
-        <span class="field-row">
-          <input id="key-input" class="input mono" type="password" autocomplete="off" spellcheck="false" placeholder="sk-…" data-i18n-placeholder="key.placeholder">
-          <button type="button" class="btn btn-small btn-text" id="btn-key-toggle" data-i18n="key.show">Show</button>
-        </span>
-      </label>
-      <label class="check">
-        <input type="checkbox" id="key-remember">
-        <span data-i18n="key.remember">Remember on this device</span>
-      </label>
-      <p class="help" data-i18n="key.help">Stored only in this browser. Each test is sent to OpenAI through CIVIC's server and billed to your key. Nothing is logged.</p>
-      <div class="actions">
-        <button type="submit" class="btn btn-primary" data-i18n="key.save">Save key</button>
-        <button type="button" class="btn btn-text" id="btn-key-cancel" data-i18n="key.cancel">Cancel</button>
-        <a class="link" href="https://platform.openai.com/api-keys" target="_blank" rel="noopener" data-i18n="key.get">Get a key at platform.openai.com</a>
-      </div>
-    </form>
-  </section>
+  <!-- There is no key box. CIVIC runs on the operator's key and never on a reader's, because a
+       prompt run on someone else's key is a prompt handed to them. -->
 
   <!-- Intake: the functional heart of the page, framed by the brackets from the mark. -->
   <section class="intake glass frame" id="intake" aria-labelledby="intake-title">

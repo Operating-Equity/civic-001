@@ -21,7 +21,5 @@ services:
       - key: CIVIC_LEDGER_FILE
         value: /tmp/civic-ledger.jsonl
       # The operator's key, pasted once in the Render dashboard. The page then never asks for one.
-      - key: CIVIC_ALLOW_SERVER_KEY
-        value: "true"
       - key: OPENAI_API_KEY
         sync: false

@@ -27,9 +27,9 @@ const MODEL = env('CIVIC_MODEL', 'gpt-5.6-sol');
 const EFFORT = env('CIVIC_EFFORT', 'xhigh');
 
 // CIVIC's own key. The rule lives in server/key.js and is the same whatever shape either key is in.
-const chosenKey = bool('CIVIC_ALLOW_SERVER_KEY', false)
-  ? resolveKey({ settingsFile: new URL('../.env', import.meta.url).pathname })
-  : { value: '', source: 'nowhere', fromFile: false, conflict: false, ignoredEnvKey: '', usable: false, offending: null };
+// CIVIC runs on the operator's key and no other. There is no switch here, because there is no
+// alternative to switch to: a reader's key is never accepted (see operatorKey in server/openai.js).
+const chosenKey = resolveKey({ settingsFile: new URL('../.env', import.meta.url).pathname });
 
 
 export const config = {

@@ -1,4 +1,4 @@
-// Visual echo — a symbolic image of what the document is about, generated on the reader's key
+// Visual echo — a symbolic image of what the document is about, generated on the operator's key
 // while the claims are being extracted and tested.
 //
 // Two stages, both fast:

@@ -16,13 +16,13 @@ Two rules the code exists to keep:
 
 ```
 civic-web/
-├── server/            Node + Express. Holds the prompts. Proxies the reader's key to OpenAI.
+├── server/            Node + Express. Holds the prompts and the operator's key. Nothing else has either.
 │   ├── fetchurl.js    Reading a link: article, PDF or YouTube caption track, into the source's own words.
 │   ├── prompts/       The vault. Real prompts live here (gitignored) or in env vars. See its README.
 │   ├── config.js      Models, efforts, limits, feature flags (all overridable by env vars).
 │   ├── extract.js     Step 1: streaming claim extraction, claims parsed as they arrive.
 │   ├── evaluate.js    Step 2: 20 claims in parallel, verdict read from the Conclusion, streaming.
-│   ├── illustrate.js  Visual echo: art direction, then the fast image model, on the reader's key.
+│   ├── illustrate.js  Visual echo: art direction, then the fast image model.
 │   ├── challenge.js   Challenge mechanics; the OpenAI call is withheld until certified.
 │   └── documents.js   .pdf / .docx / text parsing for uploads.
 ├── public/            The page. No build step. Plain ES modules.
@@ -44,13 +44,18 @@ cp server/prompts/evaluate.example.txt server/prompts/evaluate.txt   # must cont
 npm start            # http://localhost:3000
 ```
 
-`npm start` also reads a `.env` file in this folder if one exists (gitignored; see `.env.example`).
-Settings already present in the environment win over the file. Two ways to supply the key:
+`npm start` reads the `.env` file in this folder (gitignored; see `.env.example`). Put the
+operator's key there as `OPENAI_API_KEY`. That file is CIVIC's configuration and wins over a
+variable of the same name in the environment, so a stale shell variable cannot quietly take over.
 
-- **Operator's key.** Put `CIVIC_ALLOW_SERVER_KEY=true` and `OPENAI_API_KEY=sk-...` in `.env` or the
-  environment. The page then asks no one for a key.
-- **Reader's key.** Leave those unset. Readers add their own OpenAI key on the page (stored in
-  their browser only). Every request sends it in a header; the server never stores it.
+**CIVIC runs on the operator's key and on no other.** A key offered by a browser is ignored
+outright: there is no key box on the page, no key is stored there, and nothing a reader sends can
+choose the key. This is the first requirement of the product, not a convenience. A prompt run on
+someone else's key is a prompt handed to them: it travels to OpenAI under their account, appears in
+whatever that account retains, and any error it raises can quote the prompt back. `store: false`
+narrows that exposure but does not remove it, and it was never the operator's to accept on a
+stranger's account. `npm run verify` reads the Authorization header of every request the server
+actually sent and fails if any of them carried a key offered by a browser.
 
 ### Without a key (development)
 
@@ -191,8 +196,12 @@ The prompts are the product. The design keeps them out of every place a reader c
 
 - They are loaded once at startup from env vars or gitignored files and kept in server memory.
   Nothing under `server/` is served as a file. No API response contains prompt text.
-- Every OpenAI request is sent with `store: false`, so the key owner cannot open their OpenAI
-  dashboard logs and read the prompt back. This matters because the key belongs to the reader.
+- Every OpenAI request is sent with `store: false`, so the prompt is not retained for the account
+  that pays for it.
+- Requests run only on the operator's key. A reader's key is never accepted, so a prompt is never
+  carried into an account the operator does not control.
+- Error text on its way back to a browser is scanned for prompt text and redacted, because an API
+  can quote part of a request inside an error message.
 - Prompt text is never logged. `server/prompts.js` also redacts it from `console.error` if a
   library ever tried to print it.
 - Nothing is added to the author's prompt. No system instruction, no verdict tag, no formatting
@@ -200,8 +209,7 @@ The prompts are the product. The design keeps them out of every place a reader c
   sent as the sole user message with the claim substituted for `{{CLAIM}}`, and nothing else.
   The verdict is read afterwards from the model's own Conclusion section.
 
-When accounts arrive, the reader's key should move server-side (encrypted at rest), and the prompts
-should move to a secrets manager rather than files on disk.
+When accounts arrive, the prompts should move to a secrets manager rather than files on disk.
 
 ## Models
 
@@ -236,8 +244,9 @@ run the server straight from GitHub:
 2. New → Blueprint → choose the repository and the branch. Render reads `render.yaml` and creates
    the `civic` service.
 3. Open the service → Environment. Under Secret Files add `extract.txt` (the extraction prompt)
-   and `evaluate.txt` (the evaluation prompt, which must contain the token `{{CLAIM}}`). Under Environment
-   Variables paste your OpenAI key as the value of `OPENAI_API_KEY`. Save.
+   and `evaluate.txt` (the evaluation prompt, which must contain the token `{{CLAIM}}`). Under
+   Environment Variables paste your OpenAI key as the value of `OPENAI_API_KEY`. Save. That key is
+   the only one the service will ever use; readers are never asked for one and cannot supply one.
 4. Deploy. The service gets an address like `https://civic.onrender.com`. Open it, paste a
    document, press Test the facts. The page asks no one for a key; the server uses yours.
 
