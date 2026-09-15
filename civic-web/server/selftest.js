@@ -10,6 +10,7 @@ import { config } from './config.js';
 import { promptStatus } from './prompts.js';
 import { clientFor, describeError } from './openai.js';
 import { recent } from './diagnostics.js';
+import { whereTheShellSetsIt } from './key.js';
 
 const ok = (title, detail = '') => ({ state: 'ok', title, detail });
 const bad = (title, detail = '', fix = '') => ({ state: 'bad', title, detail, fix });
@@ -23,12 +24,19 @@ async function checkKeyAndModel(apiKey) {
     return checks;
   }
   if (!/^[\x21-\x7E]+$/.test(apiKey)) {
-    const where = config.serverKey === apiKey ? `It came from the ${config.serverKeySource}.` : 'It came from this browser.';
-    const fix = config.serverKeySource === 'environment'
-      ? 'This key is set in your shell, where it overrides the settings file. In a Terminal window run: unset OPENAI_API_KEY  then start CIVIC again. If it comes back, it is being set in your shell profile, such as ~/.zshrc.'
-      : 'Copy the key again from platform.openai.com, in full, and put it in the settings file.';
-    checks.push(bad('The key has characters a request cannot carry',
-      `${where} It was probably copied from somewhere that shortened it for display, so it ends in an ellipsis rather than the rest of the key. Every request fails before it is sent.`,
+    const mine = config.serverKey === apiKey;
+    const o = mine ? config.key?.offending : null;
+    const where = mine ? `It came from ${config.key?.source}.` : 'It came from this browser.';
+    const which = o ? ` Character ${o.index} of it is ${JSON.stringify(o.char)}, which a request cannot carry.` : '';
+    const fix = !mine
+      ? 'Remove the key saved in this browser and add it again, in full, from platform.openai.com.'
+      : config.key?.fromFile
+        ? 'Open the settings file next to CIVIC and replace the key with the whole key from platform.openai.com.'
+        : ['This key is set in this computer\'s environment. In a Terminal window run:  unset OPENAI_API_KEY',
+           ...whereTheShellSetsIt().map((at) => `It is also set in ${at.file}, line ${at.line}; remove that line and open a new Terminal window.`),
+          ].join('  ');
+    checks.push(bad('The key cannot be sent in a request at all',
+      `${where}${which} A key copied from somewhere that shortened it for display ends this way, and every test fails before it is sent.`,
       fix));
     return checks;
   }
@@ -81,6 +89,15 @@ export async function selftest({ apiKey, build }) {
     checks.push(warn('The challenge prompt is not installed', 'Challenges are collected but not sent, as intended until that prompt is certified.'));
   }
 
+  if (config.key?.conflict) {
+    const at = whereTheShellSetsIt();
+    checks.push(warn('Two different keys were found',
+      'CIVIC used the one in its own settings file, which is the rule. A different key is set in this computer\'s environment and is being ignored.',
+      ['To remove the other one, run:  unset OPENAI_API_KEY',
+       ...at.map((x) => `It is also set in ${x.file}, line ${x.line}; remove that line and open a new Terminal window.`),
+      ].join('  ')));
+  }
+
   checks.push(...await checkKeyAndModel(apiKey));
 
   if (config.accounting && config.ledgerFile) {
@@ -108,7 +125,7 @@ export async function selftest({ apiKey, build }) {
       effort: config.evalEffort,
       webSearch: true,
       claimsPerRun: config.maxClaims,
-      keySource: config.serverKey ? 'this server' : 'the browser',
+      keySource: config.serverKey ? config.key.source : 'the browser',
     },
     checks,
     recentFailures: recent(10),
