@@ -23,9 +23,13 @@ async function checkKeyAndModel(apiKey) {
     return checks;
   }
   if (!/^[\x21-\x7E]+$/.test(apiKey)) {
+    const where = config.serverKey === apiKey ? `It came from the ${config.serverKeySource}.` : 'It came from this browser.';
+    const fix = config.serverKeySource === 'environment'
+      ? 'This key is set in your shell, where it overrides the settings file. In a Terminal window run: unset OPENAI_API_KEY  then start CIVIC again. If it comes back, it is being set in your shell profile, such as ~/.zshrc.'
+      : 'Copy the key again from platform.openai.com, in full, and put it in the settings file.';
     checks.push(bad('The key has characters a request cannot carry',
-      'It was probably copied from somewhere that shortened it for display, so it ends in an ellipsis rather than the rest of the key.',
-      'Copy the key again from platform.openai.com, in full.'));
+      `${where} It was probably copied from somewhere that shortened it for display, so it ends in an ellipsis rather than the rest of the key. Every request fails before it is sent.`,
+      fix));
     return checks;
   }
   checks.push(ok('A key is configured', `It ends ${apiKey.slice(-4)} and is ${apiKey.length} characters long.`));
