@@ -12,7 +12,6 @@ import { PDFParse } from 'pdf-parse';
 import { config } from './config.js';
 
 const MAX_BYTES = 12 * 1024 * 1024;
-const TIMEOUT_MS = 45000;
 const UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125 Safari/537.36';
 
 export class UrlError extends Error {
@@ -58,8 +57,9 @@ async function assertPublic(urlString) {
 
 async function get(urlString, { accept, signal } = {}) {
   let url = await assertPublic(urlString);
-  const timer = AbortSignal.timeout(TIMEOUT_MS);
-  const composite = signal ? AbortSignal.any([signal, timer]) : timer;
+  // No time limit of ours: a large document over a slow link takes as long as it takes. The reader
+  // can stop the run, and that is the only thing that stops the download.
+  const composite = signal;
   let res;
   for (let hop = 0; ; hop++) {
     if (hop > 5) throw new UrlError('url_redirects', 'That address redirects too many times.');
@@ -70,7 +70,6 @@ async function get(urlString, { accept, signal } = {}) {
         headers: { 'user-agent': UA, accept: accept || 'text/html,application/xhtml+xml,application/pdf,text/plain;q=0.9,*/*;q=0.8', 'accept-language': 'en,*;q=0.5' },
       });
     } catch (err) {
-      if (err?.name === 'TimeoutError') throw new UrlError('url_timeout', 'That page took too long to answer.');
       if (signal?.aborted) throw err;
       throw new UrlError('url_unreachable', `That address could not be reached: ${err?.message || 'no answer'}`);
     }

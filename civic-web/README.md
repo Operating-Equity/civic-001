@@ -151,6 +151,7 @@ truncation setting. No fallback model. No size limit of ours on the document.
 | Reasoning summary | `auto` | Display only: the model's own account of its reasoning, shown on the card. Does not change the answer. Blank to turn off. |
 | Claims run automatically | 20; the rest wait for the reader's selection | Operator's rule |
 | Retries | 8 on rate limits and 5xx, which cost nothing; at most 2 on a connection that failed or was cut, which has already spent its tokens | Never on a model or parameter error |
+| Time limits | None of ours, on either step or on reading a link. An extraction of a very long document or a determination at a high effort takes as long as it takes; only a connection the network reports dead is a failure. | Operator's rule |
 
 Environment variables: `CIVIC_MODEL`, `CIVIC_EFFORT` (both steps), or per step
 `CIVIC_EXTRACT_MODELS`, `CIVIC_EXTRACT_EFFORT`, `CIVIC_EVAL_MODELS`, `CIVIC_EVAL_EFFORT`,
