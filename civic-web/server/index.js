@@ -265,6 +265,20 @@ const server = app.listen(config.port, () => setImmediate(() => {
   if (startFailed || !server.listening) return;
   const status = promptStatus();
   console.log(`CIVIC main page on http://localhost:${config.port}`);
+  if (config.serverKeyRejected) {
+    console.log(`note: the OPENAI_API_KEY in your ${config.serverKeyRejected} cannot be used, so the key`);
+    console.log('      in this folder\'s settings file is being used instead. To stop seeing this note,');
+    console.log('      run:  unset OPENAI_API_KEY');
+  }
+  if (config.serverKey && !/^[\x21-\x7E]+$/.test(config.serverKey)) {
+    console.log('');
+    console.log('WARNING: the OpenAI key CIVIC has cannot be put in a request at all. It contains a');
+    console.log(`         character a header cannot carry, so every test will fail. It came from the`);
+    console.log(`         ${config.serverKeySource}. This usually means the key was copied from somewhere`);
+    console.log('         that shortened it for display, so it ends in an ellipsis instead of the rest');
+    console.log('         of the key. Open http://localhost:' + config.port + '/check for the full picture.');
+    console.log('');
+  }
   console.log(`if anything goes wrong, open http://localhost:${config.port}/check — it says what is wrong in plain words`);
   console.log(`prompts installed: extract=${status.extract} evaluate=${status.evaluate} challenge=${status.challenge}` + (config.challengeEnabled ? '' : ' (challenge API step withheld)'));
   const shape = requestShape();

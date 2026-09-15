@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 // Runtime configuration.
 //
 // ONE RULE GOVERNS THIS FILE. The requests sent to OpenAI carry the operator's tested
@@ -23,6 +24,42 @@ const bool = (name, fallback) => /^(1|true|yes|on)$/i.test(env(name, fallback ? 
 // It is used for both steps unless the operator sets a step separately.
 const MODEL = env('CIVIC_MODEL', 'gpt-5.6-sol');
 const EFFORT = env('CIVIC_EFFORT', 'xhigh');
+
+// Where the key comes from, and why.
+//
+// `node --env-file` never overrides a variable already in the environment. That is the documented
+// behaviour and it is usually right, but it cost a reader an afternoon: a truncated key exported in
+// their shell weeks earlier silently beat the correct key the installer had just written to .env,
+// and every request failed with a message from deep inside the HTTP library. A key that an HTTP
+// header cannot even carry is not a preference to respect; it is a mistake to step over. So when
+// the environment's key is unusable and the settings file holds a usable one, the file wins, out
+// loud.
+const HEADER_SAFE = /^[\x21-\x7E]+$/;
+
+function keyFromEnvFile() {
+  try {
+    const file = new URL('../.env', import.meta.url).pathname;
+    for (const line of fs.readFileSync(file, 'utf8').split('\n')) {
+      const m = line.match(/^\s*OPENAI_API_KEY\s*=\s*(.*)$/);
+      if (m) return m[1].trim().replace(/^["']|["']$/g, '');
+    }
+  } catch { /* no settings file, or unreadable: nothing to prefer */ }
+  return '';
+}
+
+function chooseKey() {
+  if (!bool('CIVIC_ALLOW_SERVER_KEY', false)) return { value: '', source: 'none', rejected: null };
+  const fromEnv = env('OPENAI_API_KEY', '').trim();
+  if (!fromEnv) return { value: '', source: 'none', rejected: null };
+  if (HEADER_SAFE.test(fromEnv)) return { value: fromEnv, source: 'environment', rejected: null };
+
+  const fromFile = keyFromEnvFile();
+  if (fromFile && HEADER_SAFE.test(fromFile) && fromFile !== fromEnv) {
+    return { value: fromFile, source: 'settings file', rejected: 'environment' };
+  }
+  return { value: fromEnv, source: 'environment', rejected: null };
+}
+const chosenKey = chooseKey();
 
 export const config = {
   port: int('PORT', 3000),
@@ -77,7 +114,9 @@ export const config = {
   imageUsdPerImage: Number(env('CIVIC_IMAGE_USD_PER_IMAGE', '0.02')),
 
   // Optional server-side key. Off by default.
-  serverKey: bool('CIVIC_ALLOW_SERVER_KEY', false) ? env('OPENAI_API_KEY', '') : '',
+  serverKey: chosenKey.value,
+  serverKeySource: chosenKey.source,
+  serverKeyRejected: chosenKey.rejected,
 
   // Optional: point the OpenAI client somewhere else (used by scripts/mock-openai.js in dev).
   openaiBaseUrl: env('OPENAI_BASE_URL', ''),
