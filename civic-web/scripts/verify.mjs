@@ -92,7 +92,9 @@ const extraKeys = (obj, allowed) => Object.keys(obj || {}).filter((k) => !allowe
 
 try {
   fs.writeFileSync(record, '');
-  start([path.join(root, 'scripts', 'mock-openai.js')], { MOCK_PORT: String(MOCK_PORT), MOCK_RECORD: record, MOCK_SPEED: '0.2' });
+  // The mock cuts the second request's connection a few chunks in (the determination, which
+  // follows the extraction): the server must retry it.
+  start([path.join(root, 'scripts', 'mock-openai.js')], { MOCK_PORT: String(MOCK_PORT), MOCK_RECORD: record, MOCK_SPEED: '0.2', MOCK_DROP_REQUESTS: '2' });
   await wait(`http://localhost:${MOCK_PORT}/v1/responses`, 15000, { anyResponse: true });
   start([path.join(root, 'server', 'index.js')], { PORT: String(PORT), OPENAI_BASE_URL: `http://localhost:${MOCK_PORT}/v1`, OPENAI_API_KEY: KEY, CIVIC_IMAGE_ENABLED: 'false', CIVIC_LEDGER_FILE: path.join(os.tmpdir(), 'civic-verify-ledger.jsonl') });
   await wait(`http://localhost:${PORT}/api/health`);
@@ -110,9 +112,12 @@ try {
   // The extraction is sent and completed before the determination is sent, so arrival order is
   // identity. (Telling them apart by an instructions field stopped working once a prompt could
   // travel as the message itself.)
-  check('exactly two requests were sent: one extraction, one determination', sent.length === 2, `${sent.length} requests`);
+  check('three requests were sent: the extraction, the determination whose connection was cut, and its retry', sent.length === 3, `${sent.length} requests`);
   const exBody = sent[0]?.body;
-  const evBody = sent[1]?.body;
+  const evBody = sent[sent.length - 1]?.body;
+  check('a determination whose connection is cut mid-stream is retried and completes',
+    ev.some((e) => e.t === 'retry') && ev.some((e) => e.t === 'done') && !ev.some((e) => e.t === 'error'),
+    JSON.stringify(ev.filter((e) => e.t === 'retry' || e.t === 'error')));
   check('extraction request captured', Boolean(exBody));
   check('determination request captured', Boolean(evBody));
 
@@ -161,7 +166,9 @@ try {
 
   check('no fallback or truncation warnings in either stream', ![...ex, ...ev].some((e) => e.t === 'warning'), JSON.stringify([...ex, ...ev].filter((e) => e.t === 'warning')));
   const done = ev.find((e) => e.t === 'done');
-  const streamed = ev.filter((e) => e.t === 'delta' && e.i === 0).map((e) => e.text).join('');
+  // The entry is what streamed after the last start: a retried determination begins again.
+  const lastStart = ev.map((e, k) => (e.t === 'start' && e.i === 0 ? k : -1)).reduce((a, b) => Math.max(a, b), -1);
+  const streamed = ev.filter((e, k) => k > lastStart && e.t === 'delta' && e.i === 0).map((e) => e.text).join('');
   check('determination: final text equals every streamed character (nothing stripped)', Boolean(done?.text) && done.text === streamed, `${done?.text?.length} vs ${streamed.length} chars`);
   check('determination: verdict read from the Conclusion or left unread (never guessed)', done?.verdictSource === 'conclusion' || done?.verdict === null, `source=${done?.verdictSource}`);
 } catch (err) {

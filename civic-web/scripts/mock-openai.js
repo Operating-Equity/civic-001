@@ -65,6 +65,7 @@ app.get('/v1/models/:id', (req, res) => {
 app.post('/v1/responses', async (req, res) => {
   const body = req.body || {};
   if (!KNOWN_MODELS.has(body.model)) return modelError(res, body.model);
+  const ordinal = ++requestOrdinal;
   const text = inputText(body);
   const isEvaluation = /^\s*Prompt\s*=/.test(text);
   const isArtDirection = /art director/i.test(String(body.instructions || ''));
@@ -152,8 +153,9 @@ app.post('/v1/responses', async (req, res) => {
   }
 
   const chunks = output.match(/[\s\S]{1,28}/g) || [];
-  for (const delta of chunks) {
+  for (const [k, delta] of chunks.entries()) {
     if (res.writableEnded || res.destroyed) return;
+    if (k === 3 && DROP.has(ordinal)) { res.socket.destroy(); return; }   // see MOCK_DROP_REQUESTS
     send({ type: 'response.output_text.delta', delta });
     await sleep(isEvaluation ? 18 : 25);
   }
@@ -221,6 +223,11 @@ function pickQueries(claim) {
   const words = claim.replace(/[^\w\s]/g, ' ').split(/\s+/).filter((w) => w.length > 4).slice(0, 4);
   return [words.join(' ') || claim.slice(0, 40), `${words.slice(0, 2).join(' ')} primary source`];
 }
+
+// MOCK_DROP_REQUESTS=2,5: those requests, counted from the first this process receives, lose their
+// connection a few chunks in, the way a real stream dies when a socket is cut.
+const DROP = new Set(String(process.env.MOCK_DROP_REQUESTS || '').split(',').map(Number).filter(Boolean));
+let requestOrdinal = 0;
 
 // Invented entries for development only, in the labelled shape the reader keys on: a claim
 // line, then further labelled lines kept beside it. Nothing here is from the real prompt.

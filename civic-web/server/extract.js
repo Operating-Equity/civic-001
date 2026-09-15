@@ -2,7 +2,7 @@
 // list as it arrives so the browser can show them one by one.
 import { config } from './config.js';
 import { extractionRequest } from './prompts.js';
-import { clientFor, withModelFallback, usageOf, isRetryable, sleep } from './openai.js';
+import { clientFor, withModelFallback, usageOf, isRetryable, retryBudget, sleep } from './openai.js';
 import { estimateTextCost } from './pricing.js';
 import { record } from './ledger.js';
 
@@ -124,7 +124,7 @@ export async function runExtraction({ apiKey, text, send, signal, sourceWarning 
         send({ t: 'note', code: 'no_reasoning_summary' });
         continue;
       }
-      if (tries < config.evalRetries && isRetryable(err)) {
+      if (tries < retryBudget(err) && isRetryable(err)) {
         send({ t: 'retry', attempt: tries + 1 });
         await sleep(1500 * 2 ** tries);
         continue;

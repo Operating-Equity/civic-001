@@ -76,6 +76,7 @@ export default {
     retry: 'Erneuter Versuch ({n})…',
     incomplete: 'Der Eintrag wurde durch das Ausgabelimit abgeschnitten.',
     error: 'Diese Behauptung konnte nicht geprüft werden.',
+    dropped: 'Die Verbindung zu OpenAI brach ab, bevor der Eintrag fertig war, und jeder erneute Versuch brach ebenfalls ab.',
     retryBtn: 'Erneut versuchen',
     confidence: '{n} % Konfidenz',
     inspector: 'Prüfer',

@@ -605,7 +605,7 @@ function handleEvalEvent(ev, mapIndex) {
       renderCardStatus(i); updateEvalStatus();
       break;
     case 'done': finalizeCard(i, ev); break;
-    case 'error': r.status = 'error'; r.phase = 'error'; r.error = ev.message; setCardState(i, 'error'); renderCardStatus(i); renderCardError(i); break;
+    case 'error': r.status = 'error'; r.phase = 'error'; r.error = ev.message; r.errorCode = ev.code || null; setCardState(i, 'error'); renderCardStatus(i); renderCardError(i); break;
     default: break;
   }
 }
@@ -855,7 +855,9 @@ function renderCardError(i) {
   const card = cardOf(i);
   let msg = $('.card-error', card);
   if (!msg) { msg = el('p', { class: 'card-error' }); $('.card-head', card).after(msg); }
-  msg.textContent = `${t('card.error')} ${r.error || ''}`.trim();
+  // A cut connection is said in words first; the technical reason follows, so it can be reported.
+  const why = r.errorCode === 'connection_dropped' ? `${t('card.dropped')} (${r.error || ''})` : (r.error || '');
+  msg.textContent = `${t('card.error')} ${why}`.trim();
   const foot = $('.card-foot', card);
   foot.hidden = false;
   $('.btn-challenge', card).hidden = true;

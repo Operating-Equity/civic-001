@@ -4,7 +4,9 @@
   "private": true,
   "description": "CIVIC — empirical claim testing. Main page prototype (server keeps the prompts; browser never sees them).",
   "type": "module",
-  "engines": { "node": ">=22.9" },
+  "engines": {
+    "node": ">=22.9"
+  },
   "scripts": {
     "start": "node --env-file-if-exists=.env server/index.js",
     "dev": "node --env-file-if-exists=.env --watch server/index.js",
@@ -20,6 +22,7 @@
     "marked": "^18.0.13",
     "multer": "^2.4.0",
     "openai": "^7.15.0",
-    "pdf-parse": "^2.4.5"
+    "pdf-parse": "^2.4.5",
+    "undici": "^7.29.1"
   }
 }

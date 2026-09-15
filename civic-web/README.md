@@ -150,7 +150,7 @@ truncation setting. No fallback model. No size limit of ours on the document.
 | Web search | on, both steps, not configurable | The prompts were tested in a UI where search is available to every prompt. A request without it is not what was tested. |
 | Reasoning summary | `auto` | Display only: the model's own account of its reasoning, shown on the card. Does not change the answer. Blank to turn off. |
 | Claims run automatically | 20; the rest wait for the reader's selection | Operator's rule |
-| Retries | 8, on rate limits and 5xx only | Never on a model or parameter error |
+| Retries | 8 on rate limits and 5xx, which cost nothing; at most 2 on a connection that failed or was cut, which has already spent its tokens | Never on a model or parameter error |
 
 Environment variables: `CIVIC_MODEL`, `CIVIC_EFFORT` (both steps), or per step
 `CIVIC_EXTRACT_MODELS`, `CIVIC_EXTRACT_EFFORT`, `CIVIC_EVAL_MODELS`, `CIVIC_EVAL_EFFORT`,
