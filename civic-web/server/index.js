@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 import express from 'express';
 import multer from 'multer';
 import { config, publicConfig, requestShape } from './config.js';
-import { promptStatus, hasPrompt } from './prompts.js';
+import { promptStatus, hasPrompt, promptVersions } from './prompts.js';
 import { ApiError, operatorKey, describeError } from './openai.js';
 import { openStream } from './stream.js';
 import { fileToText, normalise, ACCEPTED_SOURCE_EXT } from './documents.js';
@@ -270,7 +270,9 @@ function banner() {
     console.log(`      Open http://localhost:${config.port}/check for what to do about it.`);
     console.log('');
   }
-  console.log(`prompts installed: extract=${status.extract} evaluate=${status.evaluate} challenge=${status.challenge}` + (config.challengeEnabled ? '' : ' (challenge API step withheld)'));
+  const v = promptVersions();
+  const mark = (n) => (status[n] ? `${n} ${v[n].version} (${v[n].chars} chars)` : `${n} MISSING`);
+  console.log(`prompts installed: ${mark('extract')} · ${mark('evaluate')} · challenge=${status.challenge}` + (config.challengeEnabled ? '' : ' (challenge API step withheld)'));
   const shape = requestShape();
   console.log(`extraction requests carry: model ${shape.extract.model} · reasoning.effort ${shape.extract.effort}${shape.extract.summary ? ` · reasoning.summary ${shape.extract.summary}` : ''} · web_search · the prompt verbatim · the document whole · nothing else${shape.extract.fallback ? '  (FALLBACK LIST SET)' : ''}`);
   console.log(`determination requests carry: model ${shape.evaluate.model} · reasoning.effort ${shape.evaluate.effort}${shape.evaluate.summary ? ` · reasoning.summary ${shape.evaluate.summary}` : ''} · web_search · the prompt verbatim · nothing else${shape.evaluate.fallback ? '  (FALLBACK LIST SET)' : ''}`);
