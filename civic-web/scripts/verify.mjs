@@ -16,7 +16,8 @@ const root = path.join(here, '..');
 const MOCK_PORT = 3999;
 const PORT = 3007;
 const record = path.join(os.tmpdir(), `civic-verify-${Date.now()}.jsonl`);
-const KEY = 'sk-verify00000000000000000000';
+const KEY = 'sk-verify00000000000000000000';          // the operator's, set on the server below
+const READER_KEY = 'sk-reader11111111111111111111';   // a stranger's, offered in a header and ignored
 
 // The only keys a request may carry. Nothing else, ever.
 const ALLOWED = {
@@ -59,7 +60,8 @@ const wait = async (url, ms = 15000, { anyResponse = false } = {}) => {
 
 async function stream(url, body) {
   const events = [];
-  const res = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json', 'x-openai-key': KEY }, body: JSON.stringify(body) });
+  // Every request in this guard carries a stranger's key in the header. Nothing may ever use it.
+  const res = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json', 'x-openai-key': READER_KEY }, body: JSON.stringify(body) });
   if (!res.ok) throw new Error(`${url} HTTP ${res.status}: ${await res.text()}`);
   const reader = res.body.getReader();
   const dec = new TextDecoder();
@@ -82,7 +84,7 @@ try {
   fs.writeFileSync(record, '');
   start([path.join(root, 'scripts', 'mock-openai.js')], { MOCK_PORT: String(MOCK_PORT), MOCK_RECORD: record, MOCK_SPEED: '0.2' });
   await wait(`http://localhost:${MOCK_PORT}/v1/responses`, 15000, { anyResponse: true });
-  start([path.join(root, 'server', 'index.js')], { PORT: String(PORT), OPENAI_BASE_URL: `http://localhost:${MOCK_PORT}/v1`, CIVIC_IMAGE_ENABLED: 'false', CIVIC_LEDGER_FILE: path.join(os.tmpdir(), 'civic-verify-ledger.jsonl') });
+  start([path.join(root, 'server', 'index.js')], { PORT: String(PORT), OPENAI_BASE_URL: `http://localhost:${MOCK_PORT}/v1`, OPENAI_API_KEY: KEY, CIVIC_IMAGE_ENABLED: 'false', CIVIC_LEDGER_FILE: path.join(os.tmpdir(), 'civic-verify-ledger.jsonl') });
   await wait(`http://localhost:${PORT}/api/health`);
 
   const health = await (await fetch(`http://localhost:${PORT}/api/health`)).json();
@@ -124,6 +126,14 @@ try {
     check('determination: web search available (exactly one web_search, no options)', tools.length === 1 && tools[0].type === 'web_search' && extraKeys(tools[0], ALLOWED.webSearchTool).length === 0, JSON.stringify(tools));
     check('determination: store = false', evBody.store === false);
   }
+  // The first requirement of the product: a prompt is never run on anyone else's key, because that
+  // hands them the prompt. Both requests above offered one; neither may have used it.
+  const authHeaders = [...new Set(sent.map((r) => r.auth || ''))];
+  check('every request to OpenAI used the operator\'s key',
+    authHeaders.length === 1 && authHeaders[0] === `Bearer ${KEY}`, authHeaders.join(' | ').replace(READER_KEY, 'A READER KEY WAS USED'));
+  check('no request used the key offered by the browser',
+    !sent.some((r) => (r.auth || '').includes(READER_KEY)), 'a reader key reached OpenAI');
+
   check('no fallback or truncation warnings in either stream', ![...ex, ...ev].some((e) => e.t === 'warning'), JSON.stringify([...ex, ...ev].filter((e) => e.t === 'warning')));
   const done = ev.find((e) => e.t === 'done');
   const streamed = ev.filter((e) => e.t === 'delta' && e.i === 0).map((e) => e.text).join('');

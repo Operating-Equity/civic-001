@@ -16,7 +16,6 @@ const GLYPH = { true: '✓', false: '✕', unverified: '?', unread: '–' };
 
 const state = {
   phase: 'idle',
-  key: '',
   server: null,        // /api/health payload, or null when no server answers
   accounting: true,    // operator view: tokens and estimated cost per claim
   source: '',
@@ -46,8 +45,6 @@ const state = {
 const ui = {};
 function cacheElements() {
   Object.assign(ui, {
-    keystrip: $('#keystrip'), keyForm: $('#key-form'), keyInput: $('#key-input'), keyRemember: $('#key-remember'), keyHint: $('#key-hint'),
-    keyOpen: $('#btn-key-open'), keyChange: $('#btn-key-change'), keyRemove: $('#btn-key-remove'), keyCancel: $('#btn-key-cancel'), keyToggle: $('#btn-key-toggle'),
     source: $('#source-text'), sourceFile: $('#source-file'), sourceMeta: $('#source-meta'),
     optEcho: $('#opt-echo'), run: $('#btn-run'),
     runSection: $('#run'), runWarnings: $('#run-warnings'),
@@ -79,7 +76,6 @@ async function boot() {
   ui.langSelect.addEventListener('change', () => setLocale(ui.langSelect.value));
   document.addEventListener('civic:locale', refreshDynamicText);
 
-  wireKeyStrip();
   wireIntake();
   ui.signin.addEventListener('click', () => toast(t('nav.soon')));
   ui.signup.addEventListener('click', () => toast(t('nav.soon')));
@@ -102,72 +98,13 @@ async function boot() {
   } catch {
     state.server = null;
   }
-  refreshKeyStrip();
 }
 
 // ---------- key strip -----------------------------------------------------------------------
 
-function wireKeyStrip() {
-  refreshKeyStrip();
-  ui.keyOpen.addEventListener('click', () => openKeyForm());
-  ui.keyChange.addEventListener('click', () => openKeyForm());
-  ui.keyCancel.addEventListener('click', () => closeKeyForm());
-  ui.keyToggle.addEventListener('click', () => {
-    const show = ui.keyInput.type === 'password';
-    ui.keyInput.type = show ? 'text' : 'password';
-    ui.keyToggle.textContent = t(show ? 'key.hide' : 'key.show');
-  });
-  ui.keyRemove.addEventListener('click', () => {
-    api.keyStore.clear();
-    refreshKeyStrip();
-    toast(t('key.removed'));
-  });
-  ui.keyForm.addEventListener('submit', (e) => {
-    e.preventDefault();
-    const key = ui.keyInput.value.trim();
-    if (!api.keyStore.looksValid(key)) { toast(t('key.invalid'), { error: true }); ui.keyInput.focus(); return; }
-    api.keyStore.set(key, ui.keyRemember.checked);
-    ui.keyInput.value = '';
-    closeKeyForm();
-    refreshKeyStrip();
-    toast(t('key.saved'));
-  });
-}
-
-function refreshKeyStrip() {
-  if (state.server?.serverKey) {
-    // The operator's key is configured on this server. It wins: no box, no header, and any key left
-    // in this browser from an earlier visit is dropped so it can never break a run.
-    if (api.keyStore.get()) api.keyStore.clear();
-    ui.keystrip.hidden = true;
-    return;
-  }
-  ui.keystrip.hidden = false;
-  const key = api.keyStore.get();
-  const active = Boolean(key);
-  for (const n of $$('.key-state-missing', ui.keystrip)) n.hidden = active;
-  for (const n of $$('.key-state-active', ui.keystrip)) n.hidden = !active;
-  if (active) ui.keyHint.textContent = `sk-…${key.slice(-4)}`;
-}
-
-function openKeyForm({ attention = false } = {}) {
-  ui.keystrip.hidden = false;
-  ui.keyForm.hidden = false;
-  ui.keystrip.classList.toggle('is-attention', attention);
-  if (attention) setTimeout(() => ui.keystrip.classList.remove('is-attention'), 1200);
-  ui.keystrip.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  ui.keyInput.focus();
-}
-function closeKeyForm() { ui.keyForm.hidden = true; ui.keystrip.classList.remove('is-attention'); }
-
-function requireKey() {
-  if (state.server?.serverKey) return ''; // the operator pays; the browser sends nothing
-  const key = api.keyStore.get();
-  if (key) return key;
-  toast(t('key.needed'));
-  openKeyForm({ attention: true });
-  return null;
-}
+// There is no key strip, no key form and no stored key. CIVIC runs on the operator's key, held by
+// the server. A reader's key is never accepted, because a prompt run on someone else's key is a
+// prompt handed to them, and that is the one thing this product must never do.
 
 // ---------- intake --------------------------------------------------------------------------
 
@@ -242,11 +179,8 @@ async function startRun() {
   const text = ui.source.value.trim();
   if (text.length < 20) { toast(t('intake.empty'), { error: true }); ui.source.focus(); return; }
   if (!state.server.prompts?.extract || !state.server.prompts?.evaluate) { toast(t('errors.prompt'), { error: true }); return; }
-  const key = requireKey();
-  if (key === null) return;
 
   resetRunState();
-  state.key = key;
   state.accounting = Boolean(state.server?.accounting);
   state.source = text;
   state.phase = 'extracting';
@@ -418,7 +352,7 @@ async function runExtraction(text) {
     }
   };
   try {
-    await api.extract({ text, key: state.key, signal: state.abort.signal, onEvent });
+    await api.extract({ text, signal: state.abort.signal, onEvent });
     if (!finished && state.phase === 'extracting') failRun({ code: 'stream_ended', message: 'The connection closed before extraction finished.' });
   } catch (err) {
     if (err?.name !== 'AbortError') failRun(err);
@@ -613,7 +547,7 @@ async function runBatch(claims) {
   state.timers.push(tick);
   const onEvent = (ev) => handleEvalEvent(ev, (i) => start + i);
   try {
-    await api.evaluate({ claims, key: state.key, signal: state.abort.signal, onEvent });
+    await api.evaluate({ claims, signal: state.abort.signal, onEvent });
     if (state.phase === 'evaluating') finishBatch({ ms: Date.now() - state.evalStartedAt });
   } catch (err) {
     if (err?.name !== 'AbortError') failRun(err);
@@ -682,8 +616,9 @@ function failRun(err) {
   const code = err?.code || '';
   let message;
   if (code === 'source_too_long') message = `${t('errors.sourceTooLong')} ${err?.message || ''}`;
-  else if (err?.status === 401 || code === 'invalid_key' || code === 'missing_key') { message = t('errors.key'); openKeyForm({ attention: true }); }
-  else if (code === 'key_not_sendable') { api.keyStore.clear(); message = t('errors.keyUnusable'); refreshKeyStrip(); openKeyForm({ attention: true }); }
+  else if (err?.status === 401 || code === 'invalid_key' || code === 'missing_key') message = t('errors.key');
+  else if (code === 'key_not_sendable') message = t('errors.keyUnusable');
+  else if (code === 'no_operator_key') message = t('errors.noKey');
   else if (err?.status === 429) message = t('errors.rate');
   else if (code === 'prompt_missing') message = t('errors.prompt');
   else if (err instanceof TypeError) message = t('errors.server');
@@ -940,7 +875,7 @@ async function retryClaim(i) {
   const controller = state.abort || new AbortController();
   const onEvent = (ev) => { if (ev.t === 'batch-progress' || ev.t === 'complete' || ev.t === 'batch-start') return; handleEvalEvent(ev, () => i); };
   try {
-    await api.evaluate({ claims: [state.cards[i]], key: state.key, signal: controller.signal, onEvent });
+    await api.evaluate({ claims: [state.cards[i]], signal: controller.signal, onEvent });
   } catch (err) {
     if (err?.name !== 'AbortError') { r.status = 'error'; r.phase = 'error'; r.error = err.message; setCardState(i, 'error'); renderCardStatus(i); renderCardError(i); }
   } finally {
@@ -1016,7 +951,7 @@ function wireChallengeForm(card, i) {
   const count = $('.challenge-count', form);
 
   const renderFiles = () => {
-    list.replaceChildren(...files.map((f, idx) => el('li', {}, [f.name, el('button', { type: 'button', 'aria-label': `${t('key.remove')} ${f.name}`, text: '×', onclick: () => { files.splice(idx, 1); renderFiles(); } })])));
+    list.replaceChildren(...files.map((f, idx) => el('li', {}, [f.name, el('button', { type: 'button', 'aria-label': `${t('challenge.removeFile')} ${f.name}`, text: '×', onclick: () => { files.splice(idx, 1); renderFiles(); } })])));
     count.textContent = t('challenge.attached', { n: files.length, max: MAX_CHALLENGE_FILES });
   };
   const labels = () => {
@@ -1050,7 +985,7 @@ function wireChallengeForm(card, i) {
     submit.disabled = true;
     try {
       // Every step runs for real; the server withholds only the final call to OpenAI.
-      await api.challenge({ key: state.key, claim: state.cards[i], verdict: r?.verdict, originalEntry: r?.text, message, files });
+      await api.challenge({ claim: state.cards[i], verdict: r?.verdict, originalEntry: r?.text, message, files });
       files.length = 0;
       $('.challenge-text', form).value = '';
       closeChallenge(i, { clear: true });
@@ -1083,7 +1018,7 @@ async function startEcho(text) {
   ui.echoCap.hidden = true;
   const signal = state.abort.signal;
   try {
-    const r = await api.illustrate({ text, key: state.key, signal });
+    const r = await api.illustrate({ text, signal });
     if (signal.aborted) return;
     const src = r?.dataUrl || r?.url;
     if (!src) { ui.echo.hidden = true; return; }
@@ -1108,8 +1043,6 @@ async function startEcho(text) {
 
 function refreshDynamicText() {
   ui.langSelect.value = currentLocale();
-  refreshKeyStrip();
-  ui.keyToggle.textContent = t(ui.keyInput.type === 'password' ? 'key.show' : 'key.hide');
   updateSourceMeta();
   for (const which of ['step1', 'step2']) { const s = state.status[which]; if (s) setStatus(which, s.key, s.params); }
   ui.step2Title.textContent = state.batch.start > 0 ? t('step2.more', { n: state.batch.size }) : t('step2.title', { n: state.batch.size || MAX_CLAIMS });

@@ -20,7 +20,7 @@ async function checkKeyAndModel(apiKey) {
   const checks = [];
   if (!apiKey) {
     checks.push(bad('No OpenAI key', 'This server has no key, and none was sent from the page.',
-      'Put OPENAI_API_KEY in the .env file next to the server, with CIVIC_ALLOW_SERVER_KEY=true.'));
+      'CIVIC runs only on the operator\'s key, never on a reader\'s. Put OPENAI_API_KEY in the settings file next to the server.'));
     return checks;
   }
   if (!/^[\x21-\x7E]+$/.test(apiKey)) {

@@ -1,5 +1,5 @@
 // Append-only cost ledger for internal accounting (revenue minus cost of goods sold).
-// One JSON line per API call. Never stores claim text or the reader's key; the claim is
+// One JSON line per API call. Never stores claim text or the key; the claim is
 // represented by a short hash so repeated claims can be recognised.
 import fs from 'node:fs';
 import path from 'node:path';

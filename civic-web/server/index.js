@@ -8,7 +8,7 @@ import express from 'express';
 import multer from 'multer';
 import { config, publicConfig, requestShape } from './config.js';
 import { promptStatus, hasPrompt } from './prompts.js';
-import { ApiError, keyFromRequest, describeError } from './openai.js';
+import { ApiError, operatorKey, describeError } from './openai.js';
 import { openStream } from './stream.js';
 import { fileToText, normalise, ACCEPTED_SOURCE_EXT } from './documents.js';
 import { readUrl, UrlError } from './fetchurl.js';
@@ -104,7 +104,7 @@ app.get('/api/health', (req, res) => {
 // something a reader has to catch as a message disappears.
 app.get('/api/selftest', wrap(async (req, res) => {
   res.setHeader('Cache-Control', 'no-store');
-  res.json(await selftest({ apiKey: keyFromRequest(req, { optional: true }), build: BUILD }));
+  res.json(await selftest({ apiKey: operatorKey({ optional: true }), build: BUILD }));
 }));
 
 // The page reports its own failures here, so /check can show them afterwards.
@@ -147,7 +147,7 @@ app.post('/api/read-url', wrap(async (req, res) => {
 }));
 
 app.post('/api/extract', wrap(async (req, res) => {
-  const apiKey = keyFromRequest(req);
+  const apiKey = operatorKey();
   if (!hasPrompt('extract')) throw new ApiError(503, 'prompt_missing', 'The extraction prompt is not installed on this server.');
   const source = normalise(req.body?.text);
   if (source.chars < 20) throw new ApiError(400, 'too_short', 'Paste or upload more text; there is nothing to test yet.');
@@ -176,7 +176,7 @@ app.post('/api/extract', wrap(async (req, res) => {
 }));
 
 app.post('/api/evaluate', wrap(async (req, res) => {
-  const apiKey = keyFromRequest(req);
+  const apiKey = operatorKey();
   if (!hasPrompt('evaluate')) throw new ApiError(503, 'prompt_missing', 'The evaluation prompt is not installed on this server.');
   const claims = Array.isArray(req.body?.claims) ? req.body.claims.map((c) => String(c || '').trim()).filter(Boolean) : [];
   if (!claims.length) throw new ApiError(400, 'no_claims', 'No claims to test.');
@@ -194,7 +194,7 @@ app.post('/api/evaluate', wrap(async (req, res) => {
 }));
 
 app.post('/api/illustrate', wrap(async (req, res) => {
-  const apiKey = keyFromRequest(req);
+  const apiKey = operatorKey();
   if (!config.illustrateEnabled) return res.json({ skipped: true });
   const text = String(req.body?.text || '').trim();
   if (text.length < 20) throw new ApiError(400, 'too_short', 'Nothing to illustrate.');
@@ -211,7 +211,7 @@ app.post('/api/illustrate', wrap(async (req, res) => {
 }));
 
 app.post('/api/challenge', upload.array('files', config.challengeMaxFiles), wrap(async (req, res) => {
-  const apiKey = keyFromRequest(req);
+  const apiKey = operatorKey();
   const result = await runChallenge({
     apiKey,
     claim: req.body?.claim,

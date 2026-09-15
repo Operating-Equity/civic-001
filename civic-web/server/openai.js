@@ -1,6 +1,7 @@
 // OpenAI client helpers. One client per request, built from the key the reader supplied.
 import OpenAI from 'openai';
 import { config } from './config.js';
+import { redactPrompts } from './prompts.js';
 import { HEADER_SAFE } from './key.js';
 
 export class ApiError extends Error {
@@ -11,9 +12,8 @@ export class ApiError extends Error {
   }
 }
 
-const KEY_HEADER = 'x-openai-key';
 
-/** Reads and loosely validates the reader's key. Never logged. */
+/** Refuses a key an HTTP header cannot carry, before it reaches the library that would. */
 function assertSendable(key, where) {
   if (HEADER_SAFE.test(key)) return key;
   // Without this the key reaches the HTTP library, which refuses it with a message about
@@ -25,16 +25,26 @@ function assertSendable(key, where) {
     '. It was probably copied from somewhere that shortened it for display. Open /check for what to do.');
 }
 
-export function keyFromRequest(req, { optional = false } = {}) {
-  const key = String(req.get(KEY_HEADER) || '').trim();
-  // `optional` is the self-check asking. It must be able to look at a broken key and describe it,
-  // so it is handed the key as it is; refusing here would break the one page that explains why.
-  if (!key && config.serverKey) return optional ? config.serverKey : assertSendable(config.serverKey, config.key.source);
-  if (key && !optional) assertSendable(key, 'this browser');
-  if (!key && optional) return ''; // the self-check reports a missing key rather than refusing
-  if (!key) throw new ApiError(401, 'missing_key', 'An OpenAI API key is required.');
-  if (!/^sk-[A-Za-z0-9_\-]{20,}$/.test(key)) throw new ApiError(401, 'malformed_key', 'That does not look like an OpenAI API key.');
-  return key;
+/**
+ * The key CIVIC runs on. It is the operator's, always, and it is the only one.
+ *
+ * A reader's own key is never accepted, and this is the first requirement of the product rather
+ * than a convenience. Running a prompt on someone else's key hands them the prompt: it travels to
+ * OpenAI under their account, appears in whatever their account retains, and any error their
+ * account raises can quote it back. `store: false` narrows that exposure; it does not remove it,
+ * and it is not the operator's to accept on a stranger's account. So there is no path by which a
+ * request from a browser can choose the key. Anything arriving in a key header is ignored outright,
+ * not validated and not reported, because there is nothing a reader could send that would be used.
+ */
+export function operatorKey({ optional = false } = {}) {
+  if (!config.serverKey) {
+    if (optional) return ''; // the self-check reports a missing key rather than refusing
+    throw new ApiError(503, 'no_operator_key',
+      'This CIVIC has no OpenAI key of its own, and it will not run on anyone else\'s. ' +
+      'The operator sets OPENAI_API_KEY in the settings file beside the server. Open /check.');
+  }
+  // The self-check must be able to look at a broken key in order to explain it.
+  return optional ? config.serverKey : assertSendable(config.serverKey, config.key.source);
 }
 
 export function clientFor(apiKey) {
@@ -51,7 +61,8 @@ export function describeError(err) {
   const status = err?.status ?? err?.statusCode ?? 500;
   const code = err?.code || err?.error?.code || err?.error?.type || 'openai_error';
   let message = err?.error?.message || err?.message || 'The request to OpenAI failed.';
-  message = String(message).slice(0, 2000);
+  // An API can quote part of a request back in an error. Nothing of the prompt leaves this way.
+  message = redactPrompts(String(message)).slice(0, 2000);
   if (status === 401) return new ApiError(401, 'invalid_key', 'OpenAI rejected the API key.');
   if (status === 429) return new ApiError(429, code, 'OpenAI rate limit or quota reached. ' + message);
   if (status === 404 && /model/i.test(message)) return new ApiError(404, 'model_not_found', message);

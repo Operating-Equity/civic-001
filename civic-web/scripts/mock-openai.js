@@ -20,7 +20,7 @@ app.use(express.json({ limit: '256mb' }));
 // the server actually sent (scripts/verify-ceiling.mjs).
 app.use((req, res, next) => {
   if (process.env.MOCK_RECORD && req.method === 'POST') {
-    fs.appendFileSync(process.env.MOCK_RECORD, JSON.stringify({ ts: Date.now(), path: req.path, body: req.body }) + '\n');
+    fs.appendFileSync(process.env.MOCK_RECORD, JSON.stringify({ ts: Date.now(), path: req.path, auth: req.get('authorization') || '', body: req.body }) + '\n');
   }
   next();
 });

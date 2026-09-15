@@ -67,6 +67,30 @@ export function challengePrompt({ claim, verdict, originalEntry, challenge }) {
     .split('{{CHALLENGE}}').join(String(challenge || ''));
 }
 
+/**
+ * Removes prompt text from anything on its way out of this machine.
+ *
+ * An API can echo part of a request back inside an error message. That message is shown to the
+ * reader, so without this a single unlucky 400 could put the prompt on the screen. Any run of five
+ * consecutive words from a prompt is replaced.
+ */
+export function redactPrompts(text) {
+  let out = String(text ?? '');
+  if (!out) return out;
+  for (const name of NAMES) {
+    const prompt = vault.get(name);
+    if (!prompt) continue;
+    for (const line of prompt.split('\n')) {
+      const words = line.trim().replace(/\s+/g, ' ').split(' ');
+      for (let i = 0; i + 5 <= words.length; i++) {
+        const frag = words.slice(i, i + 5).join(' ');
+        if (frag.length >= 25 && out.includes(frag)) out = out.split(frag).join('[redacted prompt text]');
+      }
+    }
+  }
+  return out;
+}
+
 // Guard: make absolutely sure the process never prints prompt text by accident.
 for (const name of NAMES) {
   const text = vault.get(name);
