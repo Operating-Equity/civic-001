@@ -7,7 +7,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { config } from './config.js';
-import { promptStatus, promptVersions } from './prompts.js';
+import { promptStatus, promptVersions, extractionShape } from './prompts.js';
 import { clientFor, describeError } from './openai.js';
 import { recent } from './diagnostics.js';
 import { whereTheShellSetsIt } from './key.js';
@@ -82,7 +82,7 @@ export async function selftest({ apiKey, build }) {
   const prompts = promptStatus();
   const versions = promptVersions();
   for (const [name, label] of [['extract', 'extraction'], ['evaluate', 'evaluation']]) {
-    if (prompts[name]) checks.push(ok(`The ${label} prompt is installed`, `Version ${versions[name].version}, ${versions[name].chars.toLocaleString('en-US')} characters. Its text is held in memory and never leaves this machine except inside a request to OpenAI.`));
+    if (prompts[name]) checks.push(ok(`The ${label} prompt is installed`, `Version ${versions[name].version}, ${versions[name].chars.toLocaleString('en-US')} characters.${name === 'extract' ? (extractionShape() === 'inserted' ? ' The source goes in place of its final bracketed line.' : ' It is sent as the instructions, with the source as the only message.') : ''} Its text is held in memory and never leaves this machine except inside a request to OpenAI.`));
     else checks.push(bad(`The ${label} prompt is missing`, 'Without it, nothing can be tested.',
       `Point CIVIC_PROMPT_${name.toUpperCase()}_FILE at the prompt file, or place it at server/prompts/${name}.txt.`));
   }

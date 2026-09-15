@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import { resolveKey } from './key.js';
+import { extractionShape } from './prompts.js';
 // Runtime configuration.
 //
 // ONE RULE GOVERNS THIS FILE. The requests sent to OpenAI carry the operator's tested
@@ -94,11 +95,12 @@ export const config = {
 
 /** Exactly what each request will carry. Printed at startup and reported by /api/health. */
 export function requestShape() {
+  const source = extractionShape();
   return {
-    extract: { model: config.extractModels[0], effort: config.extractEffort, summary: config.extractSummary || null, webSearch: true, fallback: config.extractModels.length > 1 },
+    extract: { model: config.extractModels[0], effort: config.extractEffort, summary: config.extractSummary || null, webSearch: true, fallback: config.extractModels.length > 1, source },
     evaluate: { model: config.evalModels[0], effort: config.evalEffort, summary: config.evalReasoningSummary || null, webSearch: true, fallback: config.evalModels.length > 1 },
     // Present in every request; never anything else.
-    keys: { extract: ['model', 'instructions', 'input', 'reasoning', 'tools', 'stream', 'store'], evaluate: ['model', 'input', 'reasoning', 'tools', 'stream', 'store'] },
+    keys: { extract: source === 'inserted' ? ['model', 'input', 'reasoning', 'tools', 'stream', 'store'] : ['model', 'instructions', 'input', 'reasoning', 'tools', 'stream', 'store'], evaluate: ['model', 'input', 'reasoning', 'tools', 'stream', 'store'] },
   };
 }
 

@@ -145,7 +145,10 @@ app.post('/v1/responses', async (req, res) => {
     } else {
       await sleep(think);
     }
-    output = mockClaims(text);
+    // When the prompt is sent around the source as one message, the stand-in reads the source
+    // from the last paragraph, so no line of a prompt is ever echoed back as a claim.
+    const cut = text.lastIndexOf('\n\n');
+    output = mockClaims(body.instructions || cut < 0 ? text : text.slice(cut + 2).replace(/^[^\n]*:[ \t]*\n/, ''));
   }
 
   const chunks = output.match(/[\s\S]{1,28}/g) || [];
@@ -219,6 +222,8 @@ function pickQueries(claim) {
   return [words.join(' ') || claim.slice(0, 40), `${words.slice(0, 2).join(' ')} primary source`];
 }
 
+// Invented entries for development only, in the labelled shape the reader keys on: a claim
+// line, then further labelled lines kept beside it. Nothing here is from the real prompt.
 function mockClaims(source) {
   const sentences = source
     .replace(/\s+/g, ' ')
@@ -227,7 +232,11 @@ function mockClaims(source) {
     .filter((s) => s.length > 25);
   const picked = sentences.slice(0, 26);
   if (!picked.length) picked.push('The source contains no clearly empirical sentence.');
-  return picked.map((s, i) => `${i + 1}. ${s}`).join('\n');
+  return picked.map((s, i) => [
+    `${i + 1}. Claim: ${s}`,
+    'Attribution: The supplied text; no date given.',
+    ...(i % 3 === 0 ? ['Unspecified in source: the period the figure refers to.'] : []),
+  ].join('\n')).join('\n');
 }
 
 const INSPECTORS = ['Karl Popper', 'Richard Feynman', 'Florence Nightingale', 'Ibn al-Haytham', 'Marie Curie', 'John Snow', 'Ronald Fisher', 'Galileo Galilei', 'Barbara McClintock', 'Charles Sanders Peirce'];
