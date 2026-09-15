@@ -9,6 +9,7 @@ import { promptStatus, hasPrompt } from './prompts.js';
 import { ApiError, keyFromRequest, describeError } from './openai.js';
 import { openStream } from './stream.js';
 import { fileToText, normalise, ACCEPTED_SOURCE_EXT } from './documents.js';
+import { readUrl, UrlError } from './fetchurl.js';
 import { runExtraction } from './extract.js';
 import { runEvaluation } from './evaluate.js';
 import { runIllustration } from './illustrate.js';
@@ -54,7 +55,7 @@ const wrap = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).cat
 // ---- API ---------------------------------------------------------------------------------
 
 app.get('/api/health', (req, res) => {
-  res.json({ ok: true, ...publicConfig(promptStatus()), acceptedSourceExt: ACCEPTED_SOURCE_EXT, acceptedChallengeExt: ACCEPTED_CHALLENGE_EXT });
+  res.json({ ok: true, ...publicConfig(promptStatus()), readUrl: true, acceptedSourceExt: ACCEPTED_SOURCE_EXT, acceptedChallengeExt: ACCEPTED_CHALLENGE_EXT });
 });
 
 app.post('/api/parse', upload.single('file'), wrap(async (req, res) => {
@@ -64,6 +65,24 @@ app.post('/api/parse', upload.single('file'), wrap(async (req, res) => {
   // The whole document is returned even when it is over the limit, so the reader can see all of
   // it and decide how to split it. /api/extract is where the refusal happens.
   res.json({ name: req.file.originalname, ...parsed });
+}));
+
+// Reading a link. The reader pastes a web address instead of text, and CIVIC fetches the page, the
+// PDF or the video's caption track and hands back its words. Nothing is summarised or shortened:
+// the source's own text comes back and appears in the box, so the reader sees what will be tested.
+app.post('/api/read-url', wrap(async (req, res) => {
+  const url = String(req.body?.url || '').trim();
+  if (!url) throw new ApiError(400, 'url_empty', 'No address was given.');
+  const ac = new AbortController();
+  res.on('close', () => { if (!res.writableFinished) ac.abort(); });
+  try {
+    const out = await readUrl(url, { signal: ac.signal });
+    if (!out.text || out.text.length < 20) throw new ApiError(422, 'url_no_text', 'That address has almost no readable text.');
+    res.json({ ...out, chars: out.text.length });
+  } catch (err) {
+    if (err instanceof UrlError) throw new ApiError(err.status || 400, err.code, err.message);
+    throw err;
+  }
 }));
 
 app.post('/api/extract', wrap(async (req, res) => {

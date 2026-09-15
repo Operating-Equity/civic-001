@@ -11,9 +11,37 @@ export class ApiError extends Error {
 }
 
 /** The reader's key: session by default, local storage when they ask to remember it. */
+// An HTTP header may carry only these characters. A key copied out of a page that shortened it for
+// display, ending in an ellipsis rather than the rest of the key, and handing that to fetch() throws
+// a TypeError from deep inside the browser that means nothing to a reader. Catch it here instead.
+const HEADER_SAFE = /^[\x21-\x7E]+$/;
+
+export function cleanKey(raw) {
+  return String(raw ?? '').replace(/[\u200B-\u200D\uFEFF]/g, '').trim();
+}
+export function keyIsSendable(key) {
+  return HEADER_SAFE.test(cleanKey(key));
+}
+/** The key header, or no header at all when the server carries the operator's own key. */
+export function keyHeader(key) {
+  const k = cleanKey(key);
+  if (!k) return {};
+  if (!keyIsSendable(k)) {
+    const err = new Error('The key saved in this browser is not a usable key.');
+    err.code = 'key_not_sendable';
+    throw err;
+  }
+  return { 'x-openai-key': k };
+}
+
 export const keyStore = {
   get() {
-    try { return sessionStorage.getItem(SESSION_KEY) || localStorage.getItem(SESSION_KEY) || ''; } catch { return ''; }
+    try {
+      const raw = sessionStorage.getItem(SESSION_KEY) || localStorage.getItem(SESSION_KEY) || '';
+      const key = cleanKey(raw);
+      if (raw && !keyIsSendable(key)) { keyStore.clear(); return ''; } // unusable: drop it rather than fail later
+      return key;
+    } catch { return ''; }
   },
   set(key, remember) {
     try {
@@ -25,7 +53,7 @@ export const keyStore = {
     try { sessionStorage.removeItem(SESSION_KEY); localStorage.removeItem(SESSION_KEY); } catch { /* ignore */ }
   },
   looksValid(key) {
-    return /^sk-[A-Za-z0-9_\-]{20,}$/.test(String(key || '').trim());
+    return /^sk-[A-Za-z0-9_\-]{20,}$/.test(cleanKey(key));
   },
 };
 
@@ -42,6 +70,26 @@ export async function health() {
   return res.json();
 }
 
+/** Hands a web address to the server, which returns the source's own text. */
+export async function readUrl(url, { signal } = {}) {
+  const res = await fetch('api/read-url', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ url }),
+    signal,
+  });
+  if (!res.ok) await throwFromResponse(res);
+  return res.json();
+}
+
+/** True when the box holds one web address and nothing else. */
+export function looksLikeUrl(s) {
+  const v = String(s || '').trim();
+  if (!v || /\s/.test(v)) return false;
+  if (/^https?:\/\//i.test(v)) return true;
+  return /^[a-z0-9-]+(\.[a-z0-9-]+)+(\/[^\s]*)?$/i.test(v) && /\.[a-z]{2,}/i.test(v);
+}
+
 export async function parseFile(file, { signal } = {}) {
   const form = new FormData();
   form.append('file', file, file.name);
@@ -54,7 +102,7 @@ export async function parseFile(file, { signal } = {}) {
 export async function streamNdjson(url, body, { key, signal, onEvent }) {
   const res = await fetch(url, {
     method: 'POST',
-    headers: { 'content-type': 'application/json', 'x-openai-key': key },
+    headers: { 'content-type': 'application/json', ...keyHeader(key) },
     body: JSON.stringify(body),
     signal,
   });
@@ -93,7 +141,7 @@ export function evaluate({ claims, key, signal, onEvent }) {
 export async function illustrate({ text, key, signal }) {
   const res = await fetch('api/illustrate', {
     method: 'POST',
-    headers: { 'content-type': 'application/json', 'x-openai-key': key },
+    headers: { 'content-type': 'application/json', ...keyHeader(key) },
     body: JSON.stringify({ text }),
     signal,
   });
@@ -108,7 +156,7 @@ export async function challenge({ key, claim, verdict, originalEntry, message, f
   form.append('originalEntry', originalEntry || '');
   form.append('message', message || '');
   for (const f of files || []) form.append('files', f, f.name);
-  const res = await fetch('api/challenge', { method: 'POST', headers: { 'x-openai-key': key }, body: form, signal });
+  const res = await fetch('api/challenge', { method: 'POST', headers: keyHeader(key), body: form, signal });
   if (!res.ok) await throwFromResponse(res);
   return res.json();
 }
