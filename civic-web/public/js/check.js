@@ -87,6 +87,16 @@ async function run() {
   verdict.textContent = 'Checking…';
   try {
     const res = await fetch('api/selftest', { cache: 'no-store' });
+    if (res.status === 404) {
+      // This page came from the files on disk, but the running server has no such route: the
+      // process is older than the files around it. Almost always an earlier CIVIC window still open.
+      verdict.className = 'check-verdict is-blocked';
+      verdict.textContent = 'The CIVIC that is running is older than the CIVIC on this computer. '
+        + 'Close every CIVIC window, then start it again from the Desktop.';
+      $('#report').value = 'The running server does not have /api/selftest, so it predates the files '
+        + 'it is serving. An older CIVIC window is still holding the port.';
+      return;
+    }
     if (!res.ok) throw new Error(`the server answered ${res.status}`);
     const data = await res.json();
     verdict.className = `check-verdict ${data.ready ? 'is-ready' : 'is-blocked'}`;
