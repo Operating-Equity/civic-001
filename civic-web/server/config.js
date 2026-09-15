@@ -44,6 +44,9 @@ export const config = {
 
   // Source documents. No limit of ours. If a document exceeds the model's context window the API
   // refuses it and that error is shown verbatim; nothing is ever read in part.
+  // Development only: lets the link reader reach localhost, so the fixture site in scripts/ can be
+  // tested. Never enable on a public server; it would let a stranger aim the reader at your network.
+  allowPrivateUrls: bool('CIVIC_ALLOW_PRIVATE_URLS', false),
   maxSourceChars: int('CIVIC_MAX_SOURCE_CHARS', 0),
   allowSourceTruncation: bool('CIVIC_ALLOW_SOURCE_TRUNCATION', false),
   maxClaims: 20, // the automatic run; claims beyond wait for the reader's selection (operator's rule)

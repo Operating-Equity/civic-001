@@ -17,6 +17,7 @@ Two rules the code exists to keep:
 ```
 civic-web/
 ├── server/            Node + Express. Holds the prompts. Proxies the reader's key to OpenAI.
+│   ├── fetchurl.js    Reading a link: article, PDF or YouTube caption track, into the source's own words.
 │   ├── prompts/       The vault. Real prompts live here (gitignored) or in env vars. See its README.
 │   ├── config.js      Models, efforts, limits, feature flags (all overridable by env vars).
 │   ├── extract.js     Step 1: streaming claim extraction, claims parsed as they arrive.
@@ -88,6 +89,26 @@ all or some and runs them as an extra batch once the first batch has finished.
 
 **Download full run** on the scoreboard writes one Markdown file containing the source, the
 verbatim extraction output, and every entry with its reasoning, searches, sources and costs.
+
+## Reading a link
+
+A reader can paste a web address into the box instead of text. The server fetches it and puts the
+source's own words in the box, where they can be read before anything is tested:
+
+| Address | What comes back |
+|---|---|
+| An article or any web page | The page's prose, with scripts, styles, navigation, headers and footers removed |
+| A PDF | Its text, through the same parser used for uploads |
+| A YouTube video | The video's caption track, cues rejoined into sentences |
+| A plain text or JSON file | The file |
+
+Nothing is summarised, shortened or rewritten. When a video has no written transcript, YouTube's
+automatic captions are used and the page says so, because they contain transcription errors.
+Captions carry no speaker labels, so a multi-speaker transcript arrives as continuous text.
+
+Addresses that resolve inside a private network are refused, so a public CIVIC server cannot be
+aimed at machines behind its own firewall. `CIVIC_ALLOW_PRIVATE_URLS=true` lifts that for local
+development only.
 
 ## What is sent, exactly
 

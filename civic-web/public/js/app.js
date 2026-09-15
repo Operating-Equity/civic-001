@@ -126,8 +126,11 @@ function wireKeyStrip() {
 }
 
 function refreshKeyStrip() {
-  if (state.server?.serverKey && !api.keyStore.get()) {
-    ui.keystrip.hidden = true; // the operator's key is configured on the server
+  if (state.server?.serverKey) {
+    // The operator's key is configured on this server. It wins: no box, no header, and any key left
+    // in this browser from an earlier visit is dropped so it can never break a run.
+    if (api.keyStore.get()) api.keyStore.clear();
+    ui.keystrip.hidden = true;
     return;
   }
   ui.keystrip.hidden = false;
@@ -149,9 +152,9 @@ function openKeyForm({ attention = false } = {}) {
 function closeKeyForm() { ui.keyForm.hidden = true; ui.keystrip.classList.remove('is-attention'); }
 
 function requireKey() {
+  if (state.server?.serverKey) return ''; // the operator pays; the browser sends nothing
   const key = api.keyStore.get();
   if (key) return key;
-  if (state.server?.serverKey) return '';
   toast(t('key.needed'));
   openKeyForm({ attention: true });
   return null;
@@ -186,12 +189,49 @@ function updateSourceMeta() {
   ui.sourceMeta.textContent = n ? t('intake.chars', { n }) : '';
 }
 
+// ---------- links ---------------------------------------------------------------------------
+
+/** Fetches a web address through the server and puts its own words in the box. */
+async function readLinkIntoBox(url) {
+  const host = (() => { try { return new URL(/^https?:\/\//i.test(url) ? url : `https://${url}`).hostname.replace(/^www\./, ''); } catch { return url; } })();
+  ui.run.disabled = true;
+  ui.sourceMeta.textContent = t('intake.readingUrl', { host });
+  const controller = new AbortController();
+  state.urlAbort = controller;
+  try {
+    const got = await api.readUrl(url, { signal: controller.signal });
+    ui.source.value = got.text;
+    state.sourceLink = { url: got.url, title: got.title || host, kind: got.kind };
+    ui.sourceMeta.textContent = t('intake.readUrl', { title: got.title || host, n: fmtNumber(got.chars) });
+    if (got.note === 'automatic_captions') toast(t('intake.autoCaptions'), { ms: 7000 });
+    return true;
+  } catch (err) {
+    ui.sourceMeta.textContent = '';
+    const code = err?.code || '';
+    const known = ['url_no_transcript', 'url_forbidden', 'url_private', 'url_timeout', 'url_unreachable',
+      'url_not_web', 'url_too_big', 'url_no_text', 'url_not_text', 'url_status', 'url_redirects', 'url_empty'];
+    toast(known.includes(code) ? err.message : t('errors.url', { message: err?.message || code }), { error: true, ms: 9000 });
+    return false;
+  } finally {
+    state.urlAbort = null;
+    ui.run.disabled = false;
+  }
+}
+
 // ---------- the run -------------------------------------------------------------------------
 
 async function startRun() {
+  if (!state.server) { toast(t('errors.server'), { error: true }); return; }
+
+  // A web address in the box is read first, and its text replaces the address, so the reader sees
+  // exactly what will be tested before a single claim is extracted.
+  if (api.looksLikeUrl(ui.source.value)) {
+    const got = await readLinkIntoBox(ui.source.value.trim());
+    if (!got) return;
+  }
+
   const text = ui.source.value.trim();
   if (text.length < 20) { toast(t('intake.empty'), { error: true }); ui.source.focus(); return; }
-  if (!state.server) { toast(t('errors.server'), { error: true }); return; }
   if (!state.server.prompts?.extract || !state.server.prompts?.evaluate) { toast(t('errors.prompt'), { error: true }); return; }
   const key = requireKey();
   if (key === null) return;
@@ -555,6 +595,7 @@ function failRun(err) {
   let message;
   if (code === 'source_too_long') message = `${t('errors.sourceTooLong')} ${err?.message || ''}`;
   else if (err?.status === 401 || code === 'invalid_key' || code === 'missing_key') { message = t('errors.key'); openKeyForm({ attention: true }); }
+  else if (code === 'key_not_sendable') { api.keyStore.clear(); message = t('errors.keyUnusable'); refreshKeyStrip(); openKeyForm({ attention: true }); }
   else if (err?.status === 429) message = t('errors.rate');
   else if (code === 'prompt_missing') message = t('errors.prompt');
   else if (err instanceof TypeError) message = t('errors.server');
