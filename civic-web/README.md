@@ -57,6 +57,15 @@ narrows that exposure but does not remove it, and it was never the operator's to
 stranger's account. `npm run verify` reads the Authorization header of every request the server
 actually sent and fails if any of them carried a key offered by a browser.
 
+**The port is CIVIC's.** When `npm start` finds an older CIVIC still holding the port, it closes
+it and takes the port over, so an update can never leave yesterday's process answering with
+today's files underneath it. A CIVIC is recognised by where it runs from and which Node it runs
+on, never by its name. Anything else on the port is left alone and named in the Terminal window.
+The version stamp shown in the page footer, on `/check`, in `/api/health` and in the Terminal
+covers the page and the server alike, so which CIVIC is running is never a matter of belief.
+`CIVIC_OPEN_BROWSER=1 npm start` opens the browser once CIVIC is actually answering; the Mac
+launcher sets it.
+
 ### Without a key (development)
 
 ```bash

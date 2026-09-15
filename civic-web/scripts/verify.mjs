@@ -148,6 +148,42 @@ try {
 
 for (const r of leakChecks()) results.push(r); // no line of the prompts may sit in a committed file
 
+// The port is CIVIC's. An older CIVIC still holding it is closed and the port taken over; anything
+// else on it is left alone and named. Both are proved here with stand-in processes: one that runs
+// from CIVIC's own directory, as an installed copy does, and one that does not.
+async function takeoverChecks() {
+  const holder = (cwd, port) => {
+    const child = spawn(process.execPath, ['-e', `require('node:http').createServer().listen(${port}, () => process.send && process.send('up'))`],
+      { cwd, stdio: ['ignore', 'ignore', 'ignore', 'ipc'] });
+    return new Promise((resolve) => child.on('message', () => resolve(child)));
+  };
+  const alive = (child) => { try { process.kill(child.pid, 0); return true; } catch { return false; } };
+  const settle = (ms) => new Promise((r) => setTimeout(r, ms));
+  const env = { OPENAI_API_KEY: KEY, CIVIC_IMAGE_ENABLED: 'false', CIVIC_LEDGER_FILE: path.join(os.tmpdir(), 'civic-verify-ledger.jsonl') };
+
+  // 1. An older CIVIC (a process running from CIVIC's directory) holds the port: it must be closed.
+  const older = await holder(root, PORT + 1);
+  const taker = start([path.join(root, 'server', 'index.js')], { ...env, PORT: String(PORT + 1) });
+  let took = false;
+  try { await wait(`http://localhost:${PORT + 1}/api/health`, 20000); took = true; } catch {}
+  await settle(300);
+  check('an older CIVIC holding the port is closed and the port taken over', took && !alive(older), took ? 'the older process is still alive' : 'the new CIVIC never answered');
+  try { taker.kill('SIGTERM'); } catch {}
+  try { older.kill('SIGKILL'); } catch {}
+
+  // 2. Something that is not CIVIC holds the port: it must be left alone, and CIVIC must say so.
+  const other = await holder(os.tmpdir(), PORT + 2);
+  const refused = start([path.join(root, 'server', 'index.js')], { ...env, PORT: String(PORT + 2) });
+  let stderr = '';
+  refused.stderr.on('data', (d) => { stderr += d; });
+  const code = await new Promise((resolve) => { refused.on('exit', resolve); setTimeout(() => resolve('timeout'), 20000); });
+  check('a process that is not CIVIC on the port is left alone, and CIVIC says so',
+    code === 1 && alive(other) && /STOPPED: port \d+ is already in use/.test(stderr) && /not CIVIC/.test(stderr),
+    `exit ${code}, other alive=${alive(other)}, stderr: ${stderr.trim().slice(0, 160)}`);
+  try { other.kill('SIGKILL'); } catch {}
+}
+await takeoverChecks();
+
 const failed = results.filter((r) => !r.ok);
 for (const r of results) console.log(`${r.ok ? 'PASS' : 'FAIL'}  ${r.name}${r.ok ? '' : `   ← ${r.detail}`}`);
 console.log(failed.length
