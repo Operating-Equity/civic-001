@@ -184,8 +184,11 @@ export async function runEvaluation({ apiKey, claims, send, signal }) {
           continue;
         }
         if (tries < config.evalRetries && isRetryable(err)) {
-          send({ t: 'retry', i, attempt: tries + 1 });
-          await sleep(2000 * 2 ** tries + Math.random() * 500);
+          const waitMs = 2000 * 2 ** tries + Math.random() * 500;
+          // The status is passed on: a 429 means this key's rate limit is throttling the run, which
+          // is the difference between twenty claims running at once and twenty claims queueing.
+          send({ t: 'retry', i, attempt: tries + 1, status: err?.status ?? null, waitMs: Math.round(waitMs) });
+          await sleep(waitMs);
           continue;
         }
         const safe = describeError(err);

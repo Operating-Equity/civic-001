@@ -340,6 +340,23 @@ function showFailure(message, err) {
   ui.runWarnings.scrollIntoView({ behavior: 'smooth', block: 'center' });
 }
 
+/** Twenty claims run at the same time. The status line says so, and says when a rate limit is
+    turning them back into a queue, which is the only thing that makes a run take twenty times as
+    long as one claim. */
+function updateEvalStatus() {
+  if (state.phase !== 'evaluating' || !state.batch.size) return;
+  const running = state.results.filter((r) => r.status === 'running').length;
+  const throttled = state.results.filter((r) => r.status === 'running' && r.phase === 'retry' && r.retryStatus === 429).length;
+  const elapsed = fmtSeconds(Date.now() - state.evalStartedAt);
+  if (throttled) {
+    setStatus('step2', 'step2.throttled', { n: throttled, done: state.batch.done, total: state.batch.size, time: elapsed });
+  } else if (running) {
+    setStatus('step2', 'step2.running', { running, done: state.batch.done, total: state.batch.size, time: elapsed });
+  } else {
+    setStatus('step2', 'step2.progress', { done: state.batch.done, total: state.batch.size });
+  }
+}
+
 function renderWarnings() {
   ui.runWarnings.hidden = state.warnings.length === 0 && !state.failure;
   const rows = [];
@@ -582,6 +599,8 @@ async function runBatch(claims) {
   setStep(ui.step2, 'running');
   setBar(ui.bar2, 0);
   setStatus('step2', 'step2.progress', { done: 0, total: claims.length });
+  const evalTick = setInterval(updateEvalStatus, 500);
+  state.timers.push(evalTick);
   ui.scoreboard.hidden = false;
   ui.run.disabled = true;
   renderScoreboard();
@@ -609,7 +628,7 @@ function handleEvalEvent(ev, mapIndex) {
   if (ev.t === 'batch-start') return;
   if (ev.t === 'batch-progress') {
     state.batch.done = Math.max(state.batch.done, ev.completed);
-    setStatus('step2', 'step2.progress', { done: state.batch.done, total: state.batch.size });
+    updateEvalStatus();
     renderScoreboard();
     return;
   }
@@ -639,7 +658,10 @@ function handleEvalEvent(ev, mapIndex) {
     case 'trail': r.trail.push(ev.step); renderCardStatus(i); break;
     case 'source': r.sources.push(ev.source); break;
     case 'note': if (ev.code === 'no_reasoning_summary') r.noSummary = true; break;
-    case 'retry': r.phase = 'retry'; r.retryAttempt = ev.attempt; renderCardStatus(i); break;
+    case 'retry':
+      r.phase = 'retry'; r.retryAttempt = ev.attempt; r.retryStatus = ev.status ?? null;
+      renderCardStatus(i); updateEvalStatus();
+      break;
     case 'done': finalizeCard(i, ev); break;
     case 'error': r.status = 'error'; r.phase = 'error'; r.error = ev.message; setCardState(i, 'error'); renderCardStatus(i); renderCardError(i); break;
     default: break;

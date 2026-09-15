@@ -121,6 +121,8 @@ app.post('/v1/responses', async (req, res) => {
         send({ type: 'response.output_item.done', output_index: k, item: { id: `ws_${k}`, type: 'web_search_call', status: 'completed', action: { type: 'search', query: queries[k] } } });
       }
     }
+    const hold = Number(process.env.MOCK_EVAL_HOLD_MS || 0);
+    if (hold) await sleep(hold);
     output = mockEntry(claim);
   } else {
     // Extraction at a high reasoning effort is a long silence followed by a burst of text. The real
