@@ -36,6 +36,7 @@ export default {
     echo: 'Eco visual',
     echoHint: 'Una fotografía del tema del documento, con dirección de arte, generada con tu clave mientras se ejecuta.',
     run: 'Pon a prueba los hechos',
+    slow: 'Con razonamiento extra alto este paso tarda minutos en un documento largo, y cada una de las 20 determinaciones tarda minutos más. Se ejecutan a la vez.',
     empty: 'Pega o sube algo para probar.',
     truncated: 'El documento se recortó a {n} caracteres, el máximo por ejecución.',
   },
@@ -49,6 +50,10 @@ export default {
     none: 'No se encontraron afirmaciones empíricas en este texto.',
     incomplete: 'La extracción terminó antes por el límite de salida del modelo. Puede faltar alguna afirmación.',
     retry: 'Reintentando…',
+    thinking: 'El modelo está leyendo. No escribe nada hasta terminar de razonar · {time}',
+    thinkingSearched: 'El modelo está leyendo y ha hecho {n} búsquedas · {time}',
+    foundTimed: '{n} afirmaciones encontradas · {time}',
+    thinkingTitle: 'Lo que el modelo dice que está haciendo',
   },
   claims: {
     title: 'Afirmaciones',

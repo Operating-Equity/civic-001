@@ -37,6 +37,7 @@ export default {
     echo: 'Visual echo',
     echoHint: 'A photograph of the document\'s subject, art-directed and drawn on your key while it runs.',
     run: 'Test the facts',
+    slow: 'At extra-high reasoning this step takes minutes on a long document, and each of the 20 determinations takes minutes more. They run at the same time.',
     empty: 'Paste or upload something to test.',
     truncated: 'The document was cut to {n} characters, the maximum for one run.',
   },
@@ -50,6 +51,10 @@ export default {
     none: 'No empirical claims were found in this text.',
     incomplete: 'Extraction ended early at the model output limit. Some claims may be missing.',
     retry: 'Retrying…',
+    thinking: 'The model is reading. Nothing is written until it has finished thinking · {time}',
+    thinkingSearched: 'The model is reading and has run {n} searches · {time}',
+    foundTimed: '{n} claims found so far · {time}',
+    thinkingTitle: 'What the model says it is doing',
   },
   claims: {
     title: 'Claims',
