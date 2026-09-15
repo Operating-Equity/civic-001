@@ -1,6 +1,7 @@
 // OpenAI client helpers. One client per request, built from the key the reader supplied.
 import OpenAI from 'openai';
 import { config } from './config.js';
+import { HEADER_SAFE } from './key.js';
 
 export class ApiError extends Error {
   constructor(status, code, message) {
@@ -13,9 +14,23 @@ export class ApiError extends Error {
 const KEY_HEADER = 'x-openai-key';
 
 /** Reads and loosely validates the reader's key. Never logged. */
+function assertSendable(key, where) {
+  if (HEADER_SAFE.test(key)) return key;
+  // Without this the key reaches the HTTP library, which refuses it with a message about
+  // ByteStrings and character codes: true, and useless to the person reading it.
+  const bad = [...key].find((c) => c.codePointAt(0) > 126 || c.codePointAt(0) < 33);
+  throw new ApiError(400, 'key_not_sendable',
+    `The OpenAI key from ${where} contains a character that cannot be sent in a request` +
+    (bad ? ` (${JSON.stringify(bad)})` : '') +
+    '. It was probably copied from somewhere that shortened it for display. Open /check for what to do.');
+}
+
 export function keyFromRequest(req, { optional = false } = {}) {
   const key = String(req.get(KEY_HEADER) || '').trim();
-  if (!key && config.serverKey) return config.serverKey;
+  // `optional` is the self-check asking. It must be able to look at a broken key and describe it,
+  // so it is handed the key as it is; refusing here would break the one page that explains why.
+  if (!key && config.serverKey) return optional ? config.serverKey : assertSendable(config.serverKey, config.key.source);
+  if (key && !optional) assertSendable(key, 'this browser');
   if (!key && optional) return ''; // the self-check reports a missing key rather than refusing
   if (!key) throw new ApiError(401, 'missing_key', 'An OpenAI API key is required.');
   if (!/^sk-[A-Za-z0-9_\-]{20,}$/.test(key)) throw new ApiError(401, 'malformed_key', 'That does not look like an OpenAI API key.');
