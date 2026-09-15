@@ -258,7 +258,11 @@ app.use((err, req, res, next) => {
   res.status(safe.status || 500).json({ error: { code: safe.code, message: safe.message } });
 });
 
-const server = app.listen(config.port, () => {
+// The banner waits a tick. Binding can report success and then fail, and a window that says CIVIC
+// is running above a line saying it did not start is worse than saying nothing at all.
+let startFailed = false;
+const server = app.listen(config.port, () => setImmediate(() => {
+  if (startFailed || !server.listening) return;
   const status = promptStatus();
   console.log(`CIVIC main page on http://localhost:${config.port}`);
   console.log(`if anything goes wrong, open http://localhost:${config.port}/check — it says what is wrong in plain words`);
@@ -267,8 +271,25 @@ const server = app.listen(config.port, () => {
   console.log(`extraction requests carry: model ${shape.extract.model} · reasoning.effort ${shape.extract.effort}${shape.extract.summary ? ` · reasoning.summary ${shape.extract.summary}` : ''} · web_search · the prompt verbatim · the document whole · nothing else${shape.extract.fallback ? '  (FALLBACK LIST SET)' : ''}`);
   console.log(`determination requests carry: model ${shape.evaluate.model} · reasoning.effort ${shape.evaluate.effort}${shape.evaluate.summary ? ` · reasoning.summary ${shape.evaluate.summary}` : ''} · web_search · the prompt verbatim · nothing else${shape.evaluate.fallback ? '  (FALLBACK LIST SET)' : ''}`);
   if (config.openaiBaseUrl) console.log(`OpenAI base URL override: ${config.openaiBaseUrl}`);
-});
+}));
 // Long reasoning runs can take many minutes; do not let Node cut the stream.
+server.on('error', (err) => {
+  startFailed = true;
+  if (err?.code === 'EADDRINUSE') {
+    console.error([
+      '',
+      `STOPPED: something is already using port ${config.port}, so this CIVIC did not start.`,
+      'That is almost always an older CIVIC window still open. Close every CIVIC window,',
+      'then start it again. Until you do, the page in your browser is served by the older one,',
+      'which is why an update can look as though it did not take effect.',
+      '',
+    ].join('\n'));
+    process.exit(1);
+  }
+  console.error('[civic] server error', err?.code || err?.message || err);
+  process.exit(1);
+});
+
 server.requestTimeout = 0;
 server.headersTimeout = 60 * 1000;
 server.keepAliveTimeout = 75 * 1000;
