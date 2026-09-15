@@ -5,6 +5,7 @@
 // The prompts are sent to OpenAI VERBATIM. Nothing is prepended, appended, or injected.
 // The claim is substituted for {{CLAIM}} exactly as extracted. The verdict is read out of
 // the model's own Conclusion section afterwards, not requested by an added instruction.
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -46,6 +47,21 @@ export function promptStatus() {
 
 export function hasPrompt(name) {
   return vault.has(name);
+}
+
+/**
+ * A version mark for each installed prompt: the first eight hex digits of its SHA-256, and its
+ * length. Neither says anything about the text; both say whether the prompt that is running is
+ * the one that was meant to be, which is the question after a prompt is replaced.
+ */
+export function promptVersions() {
+  const out = {};
+  for (const name of NAMES) {
+    if (!vault.has(name)) continue;
+    const text = vault.get(name);
+    out[name] = { version: crypto.createHash('sha256').update(text).digest('hex').slice(0, 8), chars: text.length };
+  }
+  return out;
 }
 
 /** Extraction instructions (no placeholders), verbatim. */

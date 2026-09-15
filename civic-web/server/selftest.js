@@ -7,7 +7,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { config } from './config.js';
-import { promptStatus } from './prompts.js';
+import { promptStatus, promptVersions } from './prompts.js';
 import { clientFor, describeError } from './openai.js';
 import { recent } from './diagnostics.js';
 import { whereTheShellSetsIt } from './key.js';
@@ -80,8 +80,9 @@ export async function selftest({ apiKey, build }) {
   checks.push(ok('The CIVIC server is running', `Version ${build}. Node ${process.version}.`));
 
   const prompts = promptStatus();
+  const versions = promptVersions();
   for (const [name, label] of [['extract', 'extraction'], ['evaluate', 'evaluation']]) {
-    if (prompts[name]) checks.push(ok(`The ${label} prompt is installed`, 'Its text is held in memory and never leaves this machine except inside a request to OpenAI.'));
+    if (prompts[name]) checks.push(ok(`The ${label} prompt is installed`, `Version ${versions[name].version}, ${versions[name].chars.toLocaleString('en-US')} characters. Its text is held in memory and never leaves this machine except inside a request to OpenAI.`));
     else checks.push(bad(`The ${label} prompt is missing`, 'Without it, nothing can be tested.',
       `Point CIVIC_PROMPT_${name.toUpperCase()}_FILE at the prompt file, or place it at server/prompts/${name}.txt.`));
   }
@@ -126,6 +127,7 @@ export async function selftest({ apiKey, build }) {
       webSearch: true,
       claimsPerRun: config.maxClaims,
       keySource: config.serverKey ? config.key.source : 'the browser',
+      prompts: Object.entries(versions).map(([n, v]) => `${n} ${v.version}`).join(', '),
     },
     checks,
     recentFailures: recent(10),

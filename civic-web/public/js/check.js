@@ -36,6 +36,7 @@ function renderSettings(s, build) {
     ['Web search', s.webSearch ? 'on, for both steps' : 'off'],
     ['Claims per run', String(s.claimsPerRun)],
     ['Key comes from', s.keySource],
+    ['Prompt versions', s.prompts || 'none installed'],
     ['Version', build],
   ];
   const table = $('#settings');
