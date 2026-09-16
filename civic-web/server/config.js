@@ -65,7 +65,7 @@ export const config = {
   // Visual echo — a picture, not a determination. The operator asked for the fast model.
   illustrateModels: list('CIVIC_IMAGE_MODELS', 'gpt-image-2.5-flare,gpt-image-2.5-sunburst,gpt-image-1.5,gpt-image-1-mini'),
   illustrateQuality: env('CIVIC_IMAGE_QUALITY', 'high'),
-  illustrateSize: env('CIVIC_IMAGE_SIZE', '1024x1024'),
+  illustrateSize: env('CIVIC_IMAGE_SIZE', '1024x1536'),   // upright: the frame it fills is taller than wide
   illustrateEnabled: bool('CIVIC_IMAGE_ENABLED', true),
   artDirection: bool('CIVIC_IMAGE_ART_DIRECTION', true),
   artDirectionModels: list('CIVIC_IMAGE_ART_DIRECTION_MODELS', 'gpt-5.6-luna,gpt-5.6-terra,gpt-5.4-mini'),

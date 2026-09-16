@@ -1,7 +1,8 @@
 // Step 1 — empirical claim extraction, streamed. Claims are parsed out of the numbered
 // list as it arrives so the browser can show them one by one.
 import { config } from './config.js';
-import { extractionRequest } from './prompts.js';
+import { extractionRequest, extractionShape } from './prompts.js';
+import { sourceBlock } from './source.js';
 import { clientFor, withModelFallback, usageOf, isRetryable, retryBudget, sleep } from './openai.js';
 import { estimateTextCost } from './pricing.js';
 import { record } from './ledger.js';
@@ -40,9 +41,11 @@ export function splitEntry(entry) {
   return { text: rest.slice(0, next).trim(), more: rest.slice(next).trim() };
 }
 
-export async function runExtraction({ apiKey, text, send, signal, sourceWarning }) {
+export async function runExtraction({ apiKey, text, meta, send, signal, sourceWarning }) {
   const client = clientFor(apiKey);
-  const request = extractionRequest(text);
+  // A prompt with a slot for the source asked for its attribution and date information too, so
+  // the source goes in with what CIVIC knows of that. A prompt without a slot gets the text alone.
+  const request = extractionRequest(extractionShape() === 'inserted' ? sourceBlock(text, meta) : text);
   let full = '';
   let emitted = 0;
   const started = Date.now();

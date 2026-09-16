@@ -16,6 +16,9 @@ export default {
     echo: 'Eco visual',
     echoHint: 'Una fotografía del tema del documento, con dirección de arte, generada con tu clave mientras se ejecuta.',
     run: 'Pon a prueba los hechos',
+    showText: 'Mostrar el texto',
+    hideText: 'Ocultar el texto',
+    testing: 'Probando ahora',
     slow: 'El primer paso tarda minutos en un documento largo, porque el modelo lo lee entero antes de escribir nada. Las 20 determinaciones se ejecutan a la vez, así que ese paso dura más o menos lo que una sola, no veinte veces más.',
     empty: 'Pega o sube algo para probar.',
     truncated: 'El documento se recortó a {n} caracteres, el máximo por ejecución.',
@@ -37,6 +40,7 @@ export default {
   },
   claims: {
     title: 'Afirmaciones',
+    from: 'De {source}',
     testing_one: 'Probando la primera',
     testing_other: 'Probando las primeras {n}',
     all_one: 'Probando {n} afirmación',
@@ -66,7 +70,7 @@ export default {
     waiting: 'Esperando las afirmaciones',
     stopped: 'Detenido',
   },
-  score: { true: 'Verdadero', false: 'Falso', unverified: 'Sin verificar', tested: 'Probadas', tokens: 'Tokens', cost: 'Coste est.', internal: 'Interno', unread: 'Veredicto sin leer' },
+  score: { true: 'Verdadero', false: 'Falso', unverified: 'Sin verificar', tested: 'Probadas', tokens: 'Tokens', cost: 'Coste est.', internal: 'Interno', unread: 'Veredicto sin leer', extracting: 'Extrayendo afirmaciones…' },
   card: {
     pending: 'En cola',
     starting: 'Asignando un inspector…',
@@ -118,6 +122,7 @@ export default {
     tooLarge: '{name} supera los 20 MB.',
     empty: 'Escribe tu impugnación o adjunta pruebas primero.',
   },
+  source: { pasted: 'Texto pegado', file: 'Archivo subido' },
   reset: 'Empezar una nueva prueba',
   warn: {
     sourceTruncated: 'No se leyeron {n} caracteres del final del documento, así que ninguna afirmación contenida en ellos se extrajo. Solo se probaron los primeros {read} caracteres.',

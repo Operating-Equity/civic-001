@@ -17,6 +17,9 @@ export default {
     echo: 'Visual echo',
     echoHint: 'A photograph of the document\'s subject, art-directed and drawn on your key while it runs.',
     run: 'Test the facts',
+    showText: 'Show the text',
+    hideText: 'Hide the text',
+    testing: 'Now testing',
     slow: 'The first step takes minutes on a long document, because the model reads it all before writing anything. The 20 determinations then run at the same time, so that step takes about as long as one claim, not twenty times as long.',
     empty: 'Paste or upload something to test.',
     truncated: 'The document was cut to {n} characters, the maximum for one run.',
@@ -38,6 +41,7 @@ export default {
   },
   claims: {
     title: 'Claims',
+    from: 'From {source}',
     testing_one: 'Testing the first {n}',
     testing_other: 'Testing the first {n}',
     all_one: 'Testing {n} claim',
@@ -67,7 +71,7 @@ export default {
     waiting: 'Waiting for the claims',
     stopped: 'Stopped',
   },
-  score: { true: 'True', false: 'False', unverified: 'Unverified', tested: 'Tested', tokens: 'Tokens', cost: 'Est. cost', internal: 'Internal', unread: 'Verdict unread' },
+  score: { true: 'True', false: 'False', unverified: 'Unverified', tested: 'Tested', tokens: 'Tokens', cost: 'Est. cost', internal: 'Internal', unread: 'Verdict unread', extracting: 'Extracting claims…' },
   card: {
     pending: 'Queued',
     starting: 'Assigning an inspector…',
@@ -119,6 +123,7 @@ export default {
     tooLarge: '{name} is larger than 20 MB.',
     empty: 'Write your challenge or attach evidence first.',
   },
+  source: { pasted: 'Pasted text', file: 'Uploaded file' },
   reset: 'Start a new test',
   warn: {
     sourceTruncated: '{n} characters at the end of the document were not read, so any claim in them was never extracted. Only the first {read} characters were tested.',

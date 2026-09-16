@@ -104,9 +104,46 @@ function safeChar(code) {
   try { return Number.isFinite(code) && code > 0 && code <= 0x10ffff ? String.fromCodePoint(code) : ''; } catch { return ''; }
 }
 
+/** A page's own statement of who wrote it, when, and where, from its meta tags and JSON-LD. */
+export function pageIdentity(html) {
+  const s = String(html);
+  const meta = (names) => {
+    for (const n of names) {
+      const re1 = new RegExp(`<meta[^>]+(?:name|property|itemprop)=["']${n}["'][^>]*content=["']([^"']*)["']`, 'i');
+      const re2 = new RegExp(`<meta[^>]+content=["']([^"']*)["'][^>]*(?:name|property|itemprop)=["']${n}["']`, 'i');
+      const m = s.match(re1) || s.match(re2);
+      if (m?.[1]?.trim()) return decodeEntities(m[1]).trim();
+    }
+    return '';
+  };
+  const ld = [];
+  for (const m of s.matchAll(/<script[^>]+ld\+json[^>]*>([\s\S]*?)<\/script>/gi)) {
+    try { const v = JSON.parse(m[1]); ld.push(...(Array.isArray(v) ? v : [v])); } catch { /* not JSON */ }
+  }
+  const fromLd = (key) => {
+    for (const node of ld) {
+      const items = Array.isArray(node?.['@graph']) ? node['@graph'] : [node];
+      for (const it of items) {
+        const v = it?.[key];
+        if (!v) continue;
+        if (typeof v === 'string') return v;
+        if (Array.isArray(v)) return v.map((x) => (typeof x === 'string' ? x : x?.name)).filter(Boolean).join(', ');
+        if (typeof v === 'object' && v.name) return String(v.name);
+      }
+    }
+    return '';
+  };
+  return {
+    author: meta(['author', 'article:author', 'parsely-author', 'dc.creator', 'byl']) || fromLd('author'),
+    published: (meta(['article:published_time', 'datePublished', 'date', 'pubdate', 'parsely-pub-date', 'dc.date']) || fromLd('datePublished')).slice(0, 60),
+    site: meta(['og:site_name', 'application-name']),
+  };
+}
+
 export function htmlToText(html) {
   let s = String(html);
   const title = (s.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1] || '').trim();
+  const identity = pageIdentity(s);
 
   // Everything that is not the page's prose.
   s = s.replace(/<!--[\s\S]*?-->/g, '')
@@ -132,7 +169,7 @@ export function htmlToText(html) {
     .replace(/\n{3,}/g, '\n\n')
     .trim();
 
-  return { title: decodeEntities(title), text };
+  return { title: decodeEntities(title), text, ...identity };
 }
 
 // ---- YouTube --------------------------------------------------------------------------------
@@ -188,6 +225,10 @@ export async function youtubeTranscript(url, { signal } = {}) {
   const title = decodeEntities(html.match(/<meta name="title" content="([^"]*)"/)?.[1] || html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1] || '')
     .replace(/ - YouTube$/, '').trim();
 
+  const unjson = (v) => { try { return JSON.parse(`"${v}"`); } catch { return v; } };
+  const author = unjson(html.match(/"author":"((?:[^"\\]|\\.)*)"/)?.[1] || '') || decodeEntities(html.match(/<link itemprop="name" content="([^"]*)"/)?.[1] || '');
+  const published = html.match(/"publishDate":"([^"]+)"/)?.[1] || html.match(/"uploadDate":"([^"]+)"/)?.[1] || html.match(/<meta itemprop="datePublished" content="([^"]*)"/)?.[1] || '';
+
   const tracks = captionTracksFrom(html);
   if (!tracks.length) {
     throw new UrlError('url_no_transcript',
@@ -205,6 +246,9 @@ export async function youtubeTranscript(url, { signal } = {}) {
   return {
     kind: 'youtube',
     title: title || `YouTube video ${id}`,
+    author,
+    published: published.slice(0, 60),
+    site: 'YouTube',
     text: out.trim(),
     note: auto ? 'automatic_captions' : null,
     language: pick.languageCode || null,
@@ -241,9 +285,9 @@ export async function readUrl(rawUrl, { signal } = {}) {
   }
 
   if (type.includes('html') || type.includes('xml') || !type) {
-    const { title, text } = htmlToText(buf.toString('utf8'));
+    const { title, text, author, published, site } = htmlToText(buf.toString('utf8'));
     if (!text) throw new UrlError('url_no_text', 'That page has no readable text. It may be built entirely by scripts.');
-    return { kind: 'page', title: title || finalUrl.hostname, text, url: finalUrl.toString(), note: null };
+    return { kind: 'page', title: title || finalUrl.hostname, author, published, site: site || finalUrl.hostname, text, url: finalUrl.toString(), note: null };
   }
 
   if (type.startsWith('text/') || type.includes('json')) {
