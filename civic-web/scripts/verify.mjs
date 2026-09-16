@@ -11,6 +11,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { leakChecks } from './leak-check.mjs';
 import { sourceBlock } from '../server/source.js';
+import { Bucket, parseRefusal } from '../server/gate.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.join(here, '..');
@@ -94,8 +95,9 @@ const extraKeys = (obj, allowed) => Object.keys(obj || {}).filter((k) => !allowe
 try {
   fs.writeFileSync(record, '');
   // The mock refuses the second request with a rate limit (the determination, which follows the
-  // extraction) and cuts the retry's connection a few chunks in: the server must wait what OpenAI
-  // asked, go again, and after the cut go again once more.
+  // extraction; its bucket is drained first, as another user of the key would drain it) and cuts
+  // the connection of the request that follows a few chunks in: the gate must wait what OpenAI
+  // asked and send the claim again first, and after the cut the claim must go again once more.
   // The stand-in tells a determination from an extraction by how the installed evaluation prompt
   // begins (the text before the claim's placeholder, or after it when the placeholder comes first).
   const [before, after] = evaluatePrompt.split('{{CLAIM}}');
@@ -123,10 +125,11 @@ try {
   const exBody = sent[0]?.body;
   const evBody = sent[sent.length - 1]?.body;
   const retries = ev.filter((e) => e.t === 'retry');
-  check('a rate limit is waited out for exactly the time OpenAI asked, then the claim runs; a cut connection is retried; the claim completes',
-    retries.length === 2 && retries[0].reason === 'rate_limit' && retries[0].waitMs >= 700 && retries[0].waitMs <= 1200
-      && retries[1].reason === 'connection' && ev.some((e) => e.t === 'done') && !ev.some((e) => e.t === 'error'),
-    JSON.stringify(retries.concat(ev.filter((e) => e.t === 'error'))));
+  const held = ev.filter((e) => e.t === 'phase' && e.phase === 'queued');
+  check('a refusal is handled in the gate: the claim waits what OpenAI asked (0.7 s here) and goes again first, never as an error; a cut connection is retried; the claim completes',
+    held.some((e) => e.waitMs >= 650 && e.waitMs <= 1300 && e.position === 1) && retries.length === 1 && retries[0].reason === 'connection'
+      && ev.some((e) => e.t === 'done') && !ev.some((e) => e.t === 'error'),
+    JSON.stringify(held.concat(retries, ev.filter((e) => e.t === 'error'))));
   const doneEv = ev.find((e) => e.t === 'done');
   check('the Conclusion section is read out of the entry for the closed row, and it names the verdict',
     Boolean(doneEv?.conclusion) && new RegExp(`^${doneEv?.verdict === 'unverified' ? '(uncertain|unverified)' : doneEv?.verdict}`, 'i').test(doneEv?.conclusion || ''),
@@ -186,6 +189,12 @@ try {
   const streamed = ev.filter((e, k) => k > lastStart && e.t === 'delta' && e.i === 0).map((e) => e.text).join('');
   check('determination: final text equals every streamed character (nothing stripped)', Boolean(done?.text) && done.text === streamed, `${done?.text?.length} vs ${streamed.length} chars`);
   check('determination: verdict read from the Conclusion or left unread (never guessed)', done?.verdictSource === 'conclusion' || done?.verdict === null, `source=${done?.verdictSource}`);
+
+  // What the gate learned, in OpenAI's own figure: the refusal said "Requested 68147".
+  const pacing = (await (await fetch(`http://localhost:${PORT}/api/selftest`)).json()).pacing || [];
+  const g = pacing.find((x) => x.model === shape.evaluate.model);
+  check('the gate learned what OpenAI counts for a determination from OpenAI\'s own figure, exactly, and reports it on /check',
+    g?.costs?.determination === 68147 && g?.refusals === 1 && g?.tokens?.limit === 5000000, JSON.stringify({ costs: g?.costs, refusals: g?.refusals, limit: g?.tokens?.limit }));
 } catch (err) {
   check('run completed', false, err.message);
 } finally {
@@ -195,28 +204,89 @@ try {
 
 for (const r of leakChecks()) results.push(r); // no line of the prompts may sit in a committed file
 
-// The gate. Six claims against a key whose minute budget holds three requests, on a window of
-// three seconds: nothing may be refused, never more than three may be in the window, every claim
-// must finish, and the held ones must have said they were waiting.
-async function gateChecks() {
-  const MOCK2 = MOCK_PORT + 1, PORT2 = PORT + 3;
-  const reserve = 68147;
-  const mock = start([path.join(root, 'scripts', 'mock-openai.js')], { MOCK_PORT: String(MOCK2), MOCK_SPEED: '0.2', MOCK_TPM: String(reserve * 3), MOCK_RESERVE: String(reserve), MOCK_WINDOW_MS: '3000', MOCK_EVAL_HOLD_MS: '400', MOCK_EVAL_MARK: process.env.MOCK_EVAL_MARK_FOR_GATE || '' });
+// OpenAI's own arithmetic, from five refusals in one real run (16 September 2026): the wait it
+// names is exactly what refills the difference at the limit per minute. The gate must reproduce it.
+const ROWS = [
+  { used: 500000, requested: 83734, said: 10048 }, { used: 453260, requested: 58013, said: 1352 },
+  { used: 428810, requested: 83800, said: 1513 }, { used: 500000, requested: 82413, said: 9889 },
+  { used: 463491, requested: 55926, said: 2330 },
+];
+for (const row of ROWS) {
+  const b = new Bucket('tokens');
+  b.observe({ limit: 500000, remaining: 500000 - row.used }, 0);
+  const wait = b.waitFor(row.requested, 0);
+  check(`the gate's wait is OpenAI's: Limit 500000, Used ${row.used}, Requested ${row.requested} → ${row.said} ms`, wait >= row.said && wait <= row.said + 3, `${wait} ms`);
+}
+const refusal = parseRefusal({ status: 429, error: { message: 'Rate limit reached for gpt-5.6-sol in organization org-x on tokens per min (TPM): Limit 500000, Used 500000, Requested 83734. Please try again in 10.048s. Visit https://platform.openai.com/account/rate-limits to learn more.', code: 'rate_limit_exceeded' } });
+check('a refusal is read as OpenAI wrote it: the bucket, the limit, what was used, what this request costs, and the wait',
+  refusal.bucket === 'tokens' && refusal.limit === 500000 && refusal.used === 500000 && refusal.requested === 83734 && refusal.waitMs === 10048 && !refusal.perDay, JSON.stringify(refusal));
+const rpm = parseRefusal({ status: 429, error: { message: 'Rate limit reached for gpt-5.6-sol in organization org-x on requests per min (RPM): Limit 500, Used 500, Requested 1. Please try again in 120ms. Visit https://platform.openai.com/account/rate-limits to learn more.' } });
+check('a requests-per-minute refusal is told from a tokens one', rpm.bucket === 'requests' && rpm.limit === 500 && rpm.requested === 1 && rpm.waitMs === 120, JSON.stringify(rpm));
+
+// The gate, proved against a stand-in that keeps OpenAI's rule: a bucket refilled continuously
+// over the stand-in's minute (three seconds here), a cost per kind of request, a refusal with the
+// exact figures when the bucket cannot hold a request.
+const SIX = [1, 2, 3, 4, 5, 6].map((n) => `Claim number ${n} for the gate: the tower is ${300 + n} metres tall.`);
+async function gateRun(n, env, { extraction = false } = {}) {
+  const MOCK2 = MOCK_PORT + 10 + n, PORT2 = PORT + 10 + n;
+  const mock = start([path.join(root, 'scripts', 'mock-openai.js')], { MOCK_PORT: String(MOCK2), MOCK_SPEED: '0.2', MOCK_EVAL_HOLD_MS: '400', MOCK_EVAL_MARK: process.env.MOCK_EVAL_MARK_FOR_GATE || '', ...env });
   await wait(`http://localhost:${MOCK2}/v1/mock/stats`, 15000, { anyResponse: true });
   const server = start([path.join(root, 'server', 'index.js')], { PORT: String(PORT2), OPENAI_BASE_URL: `http://localhost:${MOCK2}/v1`, OPENAI_API_KEY: KEY, CIVIC_IMAGE_ENABLED: 'false', CIVIC_LEDGER_FILE: path.join(os.tmpdir(), 'civic-verify-ledger.jsonl') });
   await wait(`http://localhost:${PORT2}/api/health`);
-  const claims = [1, 2, 3, 4, 5, 6].map((n) => `Claim number ${n} for the gate: the tower is ${300 + n} metres tall.`);
-  let events = [];
-  let failure = '';
-  try { events = await stream(`http://localhost:${PORT2}/api/evaluate`, { claims }); } catch (err) { failure = err.message; }
-  const stats = await (await fetch(`http://localhost:${MOCK2}/v1/mock/stats`, { headers: { authorization: `Bearer ${KEY}` } })).json();
-  const done = events.filter((e) => e.t === 'done').length;
-  const queued = events.filter((e) => e.t === 'phase' && e.phase === 'queued').length;
-  check('the gate sends nothing the minute budget cannot hold: six claims, a budget of three, no refusal',
-    !failure && stats.refused === 0 && stats.maxInWindow <= 3 && stats.admitted === 6, `${failure} refused=${stats.refused} maxInWindow=${stats.maxInWindow} admitted=${stats.admitted}`);
-  check('the held claims said they were waiting for the budget, and all six finished', queued >= 1 && done === 6, `queued=${queued} done=${done}`);
+  const out = { events: [], ex: [], failure: '', stats: null, pacing: null };
+  const text = 'The Eiffel Tower stands about 330 metres tall. Water boils at 100 degrees Celsius at sea level. Mount Everest is 8,849 metres above sea level.';
+  // As in a real run, an extraction goes first. The first request a CIVIC ever sends teaches the
+  // gate the key's limit and nothing else (what the bucket held before it is not known); the first
+  // determination is then sent into a full minute and teaches its cost exactly, and so is the
+  // extraction that follows the claims.
+  if (extraction) { try { await stream(`http://localhost:${PORT2}/api/extract`, { text }); } catch (err) { out.failure += ` first extraction: ${err.message}`; } }
+  try { out.events = await stream(`http://localhost:${PORT2}/api/evaluate`, { claims: SIX }); } catch (err) { out.failure = err.message; }
+  if (extraction) {
+    try { out.ex = await stream(`http://localhost:${PORT2}/api/extract`, { text }); }
+    catch (err) { out.failure += ` extraction: ${err.message}`; }
+  }
+  try { out.stats = await (await fetch(`http://localhost:${MOCK2}/v1/mock/stats`, { headers: { authorization: `Bearer ${KEY}` } })).json(); } catch (err) { out.failure += ` stats: ${err.message}`; }
+  try { out.pacing = ((await (await fetch(`http://localhost:${PORT2}/api/selftest`)).json()).pacing || [])[0] || null; } catch {}
   try { server.kill('SIGTERM'); } catch {}
   try { mock.kill('SIGTERM'); } catch {}
+  return out;
+}
+async function gateChecks() {
+  const reserve = 68147;
+  const done = (r) => r.events.filter((e) => e.t === 'done').length;
+  const starts = (r) => { const d = (r.stats?.timeline || []).filter((e) => e.kind === 'determination'); return d.map((e) => e.at - d[0].at); };
+
+  // 1. Steady costs. The budget holds three; one more fits each second as the bucket refills.
+  {
+    const r = await gateRun(0, { MOCK_TPM: String(reserve * 3), MOCK_RESERVE: String(reserve), MOCK_WINDOW_MS: '3000' }, { extraction: true });
+    const t = starts(r);
+    check('the gate sends nothing the minute cannot hold: six claims, a budget of three, no refusal, all six finish',
+      !r.failure && r.stats?.refused === 0 && done(r) === 6, `${r.failure} refused=${r.stats?.refused} admitted=${r.stats?.admitted} done=${done(r)}`);
+    check('the fourth, fifth and sixth start as the bucket refills (one more each second here), not before and not long after',
+      t.length === 6 && t[2] < 1000 && [3, 4, 5].every((k) => t[k] >= (k - 2) * 1000 - 50 && t[k] <= (k - 2) * 1000 + 1500), JSON.stringify(t));
+    const held = r.events.filter((e) => e.t === 'phase' && e.phase === 'queued');
+    check('the held claims said they were waiting, with the wait and their place in the line in figures', held.some((e) => e.waitMs > 0 && e.position >= 1), JSON.stringify(held.slice(0, 3)));
+    const gate = r.events.find((e) => e.t === 'gate');
+    check('the page is told the key\'s figures: the limit, what one determination counts, how many start at once, how often one more can',
+      Boolean(gate) && gate.limit === reserve * 3 && gate.cost === reserve && gate.atOnce === 3 && Math.abs(gate.everyMs - 1000) <= 20, JSON.stringify(gate));
+    check('each kind of request learns its own cost, exactly, from a request sent into a full minute: the determination, then the extraction',
+      r.pacing?.costs?.determination === reserve && r.pacing?.costs?.extraction === reserve && r.ex.some((e) => e.t === 'done'), JSON.stringify(r.pacing?.costs));
+  }
+  // 2. A cost larger than any seen (OpenAI's estimate varies): refused once, learned from the refusal, never refused again.
+  {
+    const bigger = Math.round(reserve * 1.3);
+    const r = await gateRun(1, { MOCK_TPM: String(reserve * 3), MOCK_RESERVE_SERIES: `${reserve},${reserve},${bigger}`, MOCK_WINDOW_MS: '3000' });
+    check('a determination that costs more than any seen is refused once, the figure is learned from the refusal, and nothing is refused after it',
+      !r.failure && r.stats?.refused === 1 && done(r) === 6 && r.pacing?.costs?.determination === bigger && !r.events.some((e) => e.t === 'error'),
+      `${r.failure} refused=${r.stats?.refused} done=${done(r)} costs=${JSON.stringify(r.pacing?.costs)}`);
+  }
+  // 3. Requests per minute pace the same way: two per three seconds here, so one more every 1.5 s.
+  {
+    const r = await gateRun(2, { MOCK_TPM: '5000000', MOCK_RESERVE: String(reserve), MOCK_RPM: '2', MOCK_WINDOW_MS: '3000' });
+    const t = starts(r);
+    check('the requests-per-minute bucket paces the same way: two at once, then one every 1.5 s, no refusal',
+      !r.failure && r.stats?.refused === 0 && done(r) === 6 && t.length === 6 && t[1] < 1000 && t[5] >= 4 * 1500 - 50 && t[5] <= 4 * 1500 + 2000, `${r.failure} refused=${r.stats?.refused} starts=${JSON.stringify(t)}`);
+  }
 }
 await gateChecks();
 

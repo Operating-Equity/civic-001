@@ -66,24 +66,16 @@ app.post('/v1/responses', async (req, res) => {
   const body = req.body || {};
   if (!KNOWN_MODELS.has(body.model)) return modelError(res, body.model);
   const ordinal = ++requestOrdinal;
-  const budget = budgetHeaders(res);
-  if (LIMIT.has(ordinal)) {                          // a refusal on purpose, headers and all
-    res.set('retry-after-ms', '700');
-    res.set('retry-after', '1');
-    stats.refused++;
-    return res.status(429).json({ error: { message: `Rate limit reached for ${body.model} in organization org-mock0000000000000000000 on tokens per min (TPM): Limit ${BUDGET.limit}, Used ${BUDGET.limit - budget.remaining}, Requested ${BUDGET.reserve}. Please try again in 0.7s. Visit https://platform.openai.com/account/rate-limits to learn more.`, type: 'tokens', param: null, code: 'rate_limit_exceeded' } });
-  }
-  if (budget.remaining < BUDGET.reserve) return refuse(res, body.model, budget.remaining, budget.resetMs);
-  window.push({ at: Date.now() });
-  stats.admitted++;
-  stats.maxInWindow = Math.max(stats.maxInWindow, window.length);
-  budgetHeaders(res);                                // the reply's headers show this request deducted
   const text = inputText(body);
-  // Which of the two requests this is. The guard tells the stand-in how a determination begins
+  // Which of the requests this is. The guard tells the stand-in how a determination begins
   // (MOCK_EVAL_MARK, derived at run time from whatever evaluation prompt is installed, never
   // written down here); by hand, a message that opens "Prompt =" is taken to be one.
   const isEvaluation = process.env.MOCK_EVAL_MARK ? text.includes(process.env.MOCK_EVAL_MARK) : /^\s*Prompt\s*=/.test(text);
   const isArtDirection = /art director/i.test(String(body.instructions || ''));
+  const kind = isEvaluation ? 'determination' : isArtDirection ? 'art' : 'extraction';
+  // The limiter decides first, as the real one does; a refusal carries its figures and its headers.
+  if (!admitOrRefuse(res, body.model, kind, LIMIT.has(ordinal))) return;
+  res.on('close', () => { stats.inFlight = Math.max(0, stats.inFlight - 1); });
 
   // Exercise the case where a PARAMETER is unsupported: the server must surface this as an error,
   // never silently swap in a different, weaker model.
@@ -210,7 +202,7 @@ app.post('/v1/images/generations', async (req, res) => {
   res.json({ created: Math.floor(Date.now() / 1000), model: body.model, output_format: 'jpeg', data: [{ b64_json: imageB64 }] });
 });
 
-app.get('/v1/mock/stats', (req, res) => res.json({ ...stats, inWindow: window.length, budget: BUDGET }));
+app.get('/v1/mock/stats', (req, res) => res.json({ ...stats, tokens: { limit: TOKENS.limit, level: Math.floor(levelOf(TOKENS)) }, requests: REQUESTS ? { limit: REQUESTS.limit, level: Math.floor(levelOf(REQUESTS)) } : null, windowMs: WINDOW, costs: COSTS }));
 
 app.use((req, res) => res.status(404).json({ error: { message: `mock: no route ${req.method} ${req.path}` } }));
 
@@ -244,30 +236,76 @@ function pickQueries(claim) {
 // MOCK_DROP_REQUESTS=2,5: those requests, counted from the first this process receives, lose their
 // connection a few chunks in, the way a real stream dies when a socket is cut.
 const DROP = new Set(String(process.env.MOCK_DROP_REQUESTS || '').split(',').map(Number).filter(Boolean));
-// MOCK_RATE_LIMIT_REQUESTS=2: those requests are answered with OpenAI's rate-limit refusal, headers and
-// all, so the server's pacing can be proved. The organisation id is invented.
+// MOCK_RATE_LIMIT_REQUESTS=2: before those requests the bucket is drained, as another user of the
+// key would drain it, so they are refused with the real limiter's figures and fit again 700 ms on.
 const LIMIT = new Set(String(process.env.MOCK_RATE_LIMIT_REQUESTS || '').split(',').map(Number).filter(Boolean));
-// A token budget per window, the way OpenAI keeps one per minute, reported in OpenAI's headers on
-// every reply. MOCK_TPM is the budget, MOCK_RESERVE what one request costs in that accounting,
-// MOCK_WINDOW_MS the window. A request the budget cannot hold is refused as OpenAI refuses it.
-const BUDGET = { limit: Number(process.env.MOCK_TPM || 5_000_000), reserve: Number(process.env.MOCK_RESERVE || 68147), windowMs: Number(process.env.MOCK_WINDOW_MS || 60_000) };
-const window = [];                                   // { at } of every admitted request
-const stats = { refused: 0, maxInWindow: 0, admitted: 0 };
-function budgetHeaders(res) {
-  const now = Date.now();
-  while (window.length && now - window[0].at >= BUDGET.windowMs) window.shift();
-  const remaining = Math.max(0, BUDGET.limit - window.length * BUDGET.reserve);
-  const resetMs = window.length ? Math.max(0, window[window.length - 1].at + BUDGET.windowMs - now) : 0;
-  res.set('x-ratelimit-limit-tokens', String(BUDGET.limit));
-  res.set('x-ratelimit-remaining-tokens', String(remaining));
-  res.set('x-ratelimit-reset-tokens', `${(resetMs / 1000).toFixed(3)}s`);
-  return { remaining, resetMs };
+
+// ---- The limiter, kept as OpenAI's own figures show OpenAI keeps it (see server/gate.js) --------
+// A bucket of MOCK_TPM tokens refilled continuously over MOCK_WINDOW_MS (the stand-in's minute; the
+// real one is 60 000 ms). Each request costs the stand-in's estimate for its kind: MOCK_RESERVE for
+// a determination, MOCK_RESERVE_EXTRACT for an extraction, MOCK_RESERVE_ART for the art direction;
+// MOCK_RESERVE_SERIES ("58013,83734,...") gives successive determinations successive costs, the way
+// the real estimate varies. A request the bucket cannot hold is refused as OpenAI refuses it: the
+// same message, the same figures, the wait that refills the difference. MOCK_RPM keeps a requests
+// bucket the same way (0: none). Every reply carries the headers the real API carries. The earlier
+// stand-in kept a sliding window, in which a request's tokens came back all at once a minute after
+// it went; the gate proved against that was wrong against the real thing.
+const WINDOW = Number(process.env.MOCK_WINDOW_MS || 60_000);
+const RESERVE = Number(process.env.MOCK_RESERVE || 68147);
+const SERIES = String(process.env.MOCK_RESERVE_SERIES || '').split(',').map(Number).filter(Boolean);
+const COSTS = { determination: RESERVE, extraction: Number(process.env.MOCK_RESERVE_EXTRACT || RESERVE), art: Number(process.env.MOCK_RESERVE_ART || RESERVE) };
+const bucketOf = (limit) => ({ limit, level: limit, at: Date.now() });
+const TOKENS = bucketOf(Number(process.env.MOCK_TPM || 5_000_000));
+const REQUESTS = Number(process.env.MOCK_RPM || 0) > 0 ? bucketOf(Number(process.env.MOCK_RPM)) : null;
+const levelOf = (b, now = Date.now()) => Math.min(b.limit, b.level + (now - b.at) * b.limit / WINDOW);
+const settle = (b, now = Date.now()) => { b.level = levelOf(b, now); b.at = now; };
+const fmtWait = (ms) => (ms < 1000 ? `${Math.ceil(ms)}ms` : `${(ms / 1000).toFixed(3)}s`);
+const stats = { admitted: 0, refused: 0, inFlight: 0, maxInFlight: 0, timeline: [] };
+let determinations = 0;
+function costOf(kind) {
+  if (kind === 'determination' && SERIES.length) return SERIES[determinations++ % SERIES.length];
+  return COSTS[kind] ?? RESERVE;
 }
-function refuse(res, model, remaining, resetMs) {
+function limitHeaders(res) {
+  const now = Date.now();
+  const tokens = levelOf(TOKENS, now);
+  res.set('x-ratelimit-limit-tokens', String(TOKENS.limit));
+  res.set('x-ratelimit-remaining-tokens', String(Math.floor(tokens)));
+  res.set('x-ratelimit-reset-tokens', fmtWait((TOKENS.limit - tokens) * WINDOW / TOKENS.limit));
+  if (REQUESTS) {
+    const requests = levelOf(REQUESTS, now);
+    res.set('x-ratelimit-limit-requests', String(REQUESTS.limit));
+    res.set('x-ratelimit-remaining-requests', String(Math.floor(requests)));
+    res.set('x-ratelimit-reset-requests', fmtWait((REQUESTS.limit - requests) * WINDOW / REQUESTS.limit));
+  }
+}
+/** Admits the request, deducting its cost, or refuses it exactly as the real limiter would. */
+function admitOrRefuse(res, model, kind, drained) {
+  const now = Date.now();
+  settle(TOKENS, now);
+  if (REQUESTS) settle(REQUESTS, now);
+  const cost = costOf(kind);
+  if (drained) TOKENS.level = Math.max(0, cost - 700 * TOKENS.limit / WINDOW);   // holds this request again 700 ms from now
+  if (REQUESTS && REQUESTS.level < 1) return refuse(res, model, 'requests per min (RPM)', REQUESTS, 1);
+  if (TOKENS.level < cost) return refuse(res, model, 'tokens per min (TPM)', TOKENS, cost);
+  TOKENS.level -= cost;
+  if (REQUESTS) REQUESTS.level -= 1;
+  stats.admitted++;
+  stats.inFlight++;
+  stats.maxInFlight = Math.max(stats.maxInFlight, stats.inFlight);
+  stats.timeline.push({ at: now, kind, cost, level: Math.floor(TOKENS.level) });
+  limitHeaders(res);
+  return true;
+}
+function refuse(res, model, what, b, need) {
   stats.refused++;
-  res.set('retry-after-ms', String(Math.max(1, resetMs)));
-  res.set('retry-after', String(Math.max(1, Math.ceil(resetMs / 1000))));
-  return res.status(429).json({ error: { message: `Rate limit reached for ${model} in organization org-mock0000000000000000000 on tokens per min (TPM): Limit ${BUDGET.limit}, Used ${BUDGET.limit - remaining}, Requested ${BUDGET.reserve}. Please try again in ${(resetMs / 1000).toFixed(3)}s. Visit https://platform.openai.com/account/rate-limits to learn more.`, type: 'tokens', param: null, code: 'rate_limit_exceeded' } });
+  const used = b.limit - Math.floor(b.level);
+  const wait = (need - b.level) * WINDOW / b.limit;
+  limitHeaders(res);
+  res.set('retry-after-ms', String(Math.ceil(wait)));
+  res.set('retry-after', String(Math.max(1, Math.ceil(wait / 1000))));
+  res.status(429).json({ error: { message: `Rate limit reached for ${model} in organization org-mock0000000000000000000 on ${what}: Limit ${b.limit}, Used ${used}, Requested ${need}. Please try again in ${fmtWait(wait)}. Visit https://platform.openai.com/account/rate-limits to learn more.`, type: what.startsWith('tokens') ? 'tokens' : 'requests', param: null, code: 'rate_limit_exceeded' } });
+  return false;
 }
 let requestOrdinal = 0;
 

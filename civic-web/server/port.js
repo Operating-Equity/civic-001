@@ -64,16 +64,18 @@ async function healthBuild(port) {
 
 /**
  * Closes every older CIVIC holding the port and reports what it found. A process that is not a
- * CIVIC is never touched; it is described, so the person can close it themselves.
+ * CIVIC is never touched; it is described, so the person can close it themselves. The strongest
+ * evidence comes first: whatever holds the port answers CIVIC's own health check with a build
+ * stamp, so it is a CIVIC, whatever the process list says of it.
  */
 export async function takeOverPort(port, { appDir, home } = {}) {
   const found = { closed: [], foreign: [], unknown: false, build: '' };
   const pids = listenersOn(port);
-  if (!pids.length) { found.unknown = true; return found; }
   found.build = await healthBuild(port);
+  if (!pids.length) { found.unknown = true; return found; }
   for (const pid of pids) {
     const info = describeProcess(pid);
-    if (!isCivic(info, { appDir, home })) { found.foreign.push(info); continue; }
+    if (!found.build && !isCivic(info, { appDir, home })) { found.foreign.push(info); continue; }
     try { process.kill(pid, 'SIGTERM'); found.closed.push(info); }
     catch (err) { if (err.code !== 'ESRCH') found.foreign.push({ ...info, error: err.code }); }
   }

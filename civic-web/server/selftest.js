@@ -11,6 +11,7 @@ import { promptStatus, promptVersions, extractionShape } from './prompts.js';
 import { clientFor, describeError } from './openai.js';
 import { recent } from './diagnostics.js';
 import { whereTheShellSetsIt } from './key.js';
+import { gateStates } from './gate.js';
 
 const ok = (title, detail = '') => ({ state: 'ok', title, detail });
 const bad = (title, detail = '', fix = '') => ({ state: 'bad', title, detail, fix });
@@ -130,6 +131,9 @@ export async function selftest({ apiKey, build }) {
       prompts: Object.entries(versions).map(([n, v]) => `${n} ${v.version}`).join(', '),
     },
     checks,
+    // The gate's figures for each model: the key's minute limit, what OpenAI counts for each kind
+    // of request, what is available now, what is in flight and waiting, and what OpenAI last said.
+    pacing: gateStates(),
     recentFailures: recent(10),
   };
 }

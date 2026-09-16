@@ -4,7 +4,7 @@ import { config } from './config.js';
 import { redactPrompts } from './prompts.js';
 import { HEADER_SAFE } from './key.js';
 import { openaiFetch, NO_LIMIT_MS } from './http.js';
-import { gateFor } from './gate.js';
+import { gateFor, parseRefusal } from './gate.js';
 
 export class ApiError extends Error {
   constructor(status, code, message) {
@@ -108,25 +108,30 @@ export function isModelNotFound(err) {
   return /does not exist|do(es)? not have access|not found|no access|unknown model|model_not_found|is not available/i.test(msg);
 }
 
+/**
+ * Whether a failed attempt may be repeated: a 5xx, or a connection that failed or was cut. A rate
+ * limit never arrives here, because the gate handles it; a used-up quota, a model error and a
+ * parameter error are never repeated.
+ */
 export function isRetryable(err) {
   const s = err?.status;
-  return s === 429 || s === 500 || s === 502 || s === 503 || s === 504 || isConnectionDrop(err);
+  return s === 500 || s === 502 || s === 503 || s === 504 || isConnectionDrop(err);
 }
 
 /**
- * How many times a failed attempt may be repeated. A rate limit or a 5xx costs nothing, so the
- * operator's full budget applies. A connection cut during the reply has already spent the tokens
- * of that attempt, so it is repeated at most twice: a bad network must not spend nine
- * determinations' worth of tokens on one claim.
+ * How many times a failed attempt may be repeated. A 5xx costs nothing, so the operator's full
+ * budget applies. A connection cut during the reply has already spent the tokens of that attempt,
+ * so it is repeated at most twice: a bad network must not spend nine determinations' worth of
+ * tokens on one claim.
  */
 export function retryBudget(err) {
-  if (isRateLimit(err)) return Infinity;   // pacing, not failure: wait as long as it takes
   return isConnectionDrop(err) ? Math.min(config.evalRetries, 2) : config.evalRetries;
 }
 
 /**
- * A rate limit is OpenAI pacing this key: twenty claims at once against a per-minute budget that
- * holds seven, say. That is a queue, never a failure. A used-up quota is not a rate limit.
+ * A rate limit is OpenAI turning a request back because the key's minute does not hold it. The
+ * gate handles that with OpenAI's own figures; it is never a failure. A used-up quota is not a
+ * rate limit: it is reported in words.
  */
 export function isRateLimit(err) {
   if (err?.status !== 429) return false;
@@ -137,36 +142,38 @@ export function isRateLimit(err) {
 
 /** How long OpenAI asks to wait, from its headers or its own message; null when it does not say. */
 export function rateLimitWaitMs(err) {
-  const h = err?.headers;
-  const get = (k) => (h && typeof h.get === 'function' ? h.get(k) : h?.[k]) || '';
-  const ms = parseFloat(get('retry-after-ms'));
-  if (Number.isFinite(ms) && ms > 0) return ms;
-  const s = parseFloat(get('retry-after'));
-  if (Number.isFinite(s) && s > 0) return s * 1000;
-  const m = String(err?.error?.message || err?.message || '').match(/try again in\s+(\d+(?:\.\d+)?)\s*(ms|s)\b/i);
-  if (m) return Number(m[1]) * (m[2].toLowerCase() === 'ms' ? 1 : 1000);
-  return null;
+  return parseRefusal(err).waitMs;
 }
 
 export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /**
- * Sends one request through the gate for its model: waits until the budget covers it, sends it,
- * gives the gate OpenAI's headers from the reply (or from the refusal), and hands back the reply.
- * `stream` is the Stream for a streaming request, the response object otherwise. The caller must
- * call `release()` when the reply has been consumed, so the gate knows the request is over.
+ * Sends one request through the gate for its model: waits until the key's minute holds it, sends
+ * it, gives the gate the reply's headers, and hands back the reply. `data` is the Stream for a
+ * streaming request, the response object otherwise. The caller must call `release()` when the
+ * reply has been consumed, so the gate knows the request is over. `kind` names what the request
+ * is (an extraction, a determination, the art direction), because each kind has its own cost in
+ * OpenAI's accounting. `onHold` is told, in figures, when and why the request is waiting.
+ *
+ * A refusal never leaves here. OpenAI turns a request back with its exact figures (the limit,
+ * what was used, what this request costs, when it fits); the gate takes those, the request waits
+ * exactly that long and goes again, first in line. The caller sees a reply, a cut connection, a
+ * used-up quota, or a real error; it never sees a rate limit.
  */
-export async function throughGate(client, body, { signal, onHold } = {}) {
+export async function throughGate(client, body, { kind = 'request', signal, onHold } = {}) {
   const gate = gateFor(body.model);
-  const seq = await gate.admit({ signal, onHold });
-  try {
-    const { data, response } = await client.responses.create(body, { signal }).withResponse();
-    gate.observe(response.headers, { seq });
-    return { data, release: () => gate.done() };
-  } catch (err) {
-    gate.observe(err?.headers, { seq, message: err?.error?.message || err?.message || '', refused: err?.status === 429, waitMs: err?.status === 429 ? rateLimitWaitMs(err) : null });
-    gate.done();
-    throw err;
+  let ticket = await gate.admit({ kind, signal, onHold });
+  for (;;) {
+    try {
+      const { data, response } = await client.responses.create(body, { signal }).withResponse();
+      gate.replied(ticket, response.headers);
+      return { data, response, release: () => gate.done(ticket) };
+    } catch (err) {
+      if (!isRateLimit(err)) { gate.failed(ticket, err); throw err; }
+      const refusal = parseRefusal(err);
+      gate.refused(ticket, refusal);
+      ticket = await gate.admit({ kind, signal, onHold, first: true, notBefore: refusal.waitMs ? Date.now() + refusal.waitMs : 0 });
+    }
   }
 }
 
