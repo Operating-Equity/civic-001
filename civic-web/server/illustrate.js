@@ -50,7 +50,7 @@ async function artDirect({ client, text, signal }) {
         reasoning: { effort: config.artDirectionEffort },
         stream: false,
         store: false,
-      }, { signal });
+      }, { kind: 'art', signal });
       release();
       return { response: r, model: m };
     });

@@ -3,7 +3,7 @@
 import { config } from './config.js';
 import { extractionRequest, extractionShape } from './prompts.js';
 import { sourceBlock } from './source.js';
-import { clientFor, withModelFallback, usageOf, isRetryable, retryBudget, isRateLimit, isConnectionDrop, rateLimitWaitMs, sleep, throughGate } from './openai.js';
+import { clientFor, withModelFallback, usageOf, isRetryable, retryBudget, isConnectionDrop, rateLimitWaitMs, sleep, throughGate } from './openai.js';
 import { estimateTextCost } from './pricing.js';
 import { record } from './ledger.js';
 
@@ -68,7 +68,7 @@ export async function runExtraction({ apiKey, text, meta, send, signal, sourceWa
       stream: true,
       store: false,
     };
-    return throughGate(client, body, { signal, onHold: ({ waitMs }) => send({ t: 'phase', phase: 'queued', waitMs }) });
+    return throughGate(client, body, { kind: 'extraction', signal, onHold: (h) => send({ t: 'phase', phase: 'queued', ...h }) });
   };
 
   let usage = null;
@@ -132,11 +132,12 @@ export async function runExtraction({ apiKey, text, meta, send, signal, sourceWa
         continue;
       }
       if (tries < retryBudget(err) && isRetryable(err)) {
-        const asked = isRateLimit(err) ? rateLimitWaitMs(err) : null;
-        const waitMs = (asked !== null ? asked : Math.min(1500 * 2 ** tries, 60 * 1000)) + Math.random() * 500;
-        const reason = isRateLimit(err) ? 'rate_limit' : (isConnectionDrop(err) ? 'connection' : 'error');
-        send({ t: 'retry', attempt: tries + 1, status: err?.status ?? null, reason, waitMs: Math.round(waitMs) });
-        await sleep(waitMs);
+        // As in evaluate.js: a 5xx or a cut connection rejoins the line at the gate; OpenAI's own
+        // retry-after, when given, is honoured first; no back-off of ours; a rate limit never arrives here.
+        const waitMs = rateLimitWaitMs(err) || 0;
+        const reason = isConnectionDrop(err) ? 'connection' : 'error';
+        send({ t: 'retry', attempt: tries + 1, status: err?.status ?? null, reason, waitMs });
+        if (waitMs > 0) await sleep(waitMs);
         continue;
       }
       throw err;

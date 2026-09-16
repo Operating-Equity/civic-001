@@ -39,6 +39,7 @@ const state = {
   extractChars: 0,
   found: 0,
   evalStartedAt: 0,
+  gate: null,          // the key's minute figures, from the server, once OpenAI has given them
   status: { step1: null, step2: null },
 };
 
@@ -50,7 +51,7 @@ function cacheElements() {
     runSection: $('#run'), runWarnings: $('#run-warnings'),
     step1: $('#step-extract'), step1Status: $('#step1-status'), bar1: $('#bar-extract'),
     step1Thinking: $('#step1-thinking'), step1ThinkingSummary: $('#step1-thinking-summary'), step1ThinkingBody: $('#step1-thinking-body'),
-    step2: $('#step-eval'), step2Title: $('#step2-title'), step2Status: $('#step2-status'), bar2: $('#bar-eval'),
+    step2: $('#step-eval'), step2Title: $('#step2-title'), step2Status: $('#step2-status'), step2Gate: $('#step2-gate'), bar2: $('#bar-eval'),
     echo: $('#echo'), echoImg: $('#echo-img'), echoShimmer: $('#echo-shimmer'), echoCap: $('#echo-cap'),
     intake: $('#intake'), intakeSummary: $('#intake-summary'), intakeSummaryText: $('#intake-summary-text'), showText: $('#btn-show-text'),
     scoreSourceTitle: $('#score-source-title'), scoreSourceSub: $('#score-source-sub'), scorePhase: $('#score-phase'), claimsFrom: $('#claims-from'),
@@ -271,7 +272,7 @@ function resetRunState() {
     phase: 'idle', warnings: [], claims: [], claimsRaw: '', beyond: [], cards: [], results: [], extraction: null, echo: null,
     batch: { start: 0, size: 0, done: 0 }, counts: { true: 0, false: 0, unverified: 0 }, unread: 0,
     tokens: 0, cost: 0, unpriced: false,
-    extractStartedAt: 0, extractChars: 0, found: 0, evalStartedAt: 0, status: { step1: null, step2: null },
+    extractStartedAt: 0, extractChars: 0, found: 0, evalStartedAt: 0, gate: null, status: { step1: null, step2: null },
   });
   ui.runWarnings.replaceChildren();
   ui.runWarnings.hidden = true;
@@ -291,6 +292,7 @@ function resetRunState() {
   setStep(ui.step1, 'idle'); setBar(ui.bar1, 0);
   setStep(ui.step2, 'idle'); setBar(ui.bar2, 0);
   setStatus('step1', null); setStatus('step2', null);
+  renderGateLine();
   ui.step2Title.textContent = t('step2.title', { n: MAX_CLAIMS });
   renderScoreboard();
 }
@@ -342,12 +344,22 @@ function updateEvalStatus() {
   const throttled = state.results.filter((r) => r.phase === 'queued' || (r.status === 'running' && r.phase === 'retry' && r.retryStatus === 429)).length;
   const elapsed = fmtSeconds(Date.now() - state.evalStartedAt);
   if (throttled) {
-    setStatus('step2', 'step2.throttled', { n: throttled, done: state.batch.done, total: state.batch.size, time: elapsed });
+    setStatus('step2', 'step2.throttled', { running: running - throttled, n: throttled, done: state.batch.done, total: state.batch.size, time: elapsed });
   } else if (running) {
     setStatus('step2', 'step2.running', { running, done: state.batch.done, total: state.batch.size, time: elapsed });
   } else {
     setStatus('step2', 'step2.progress', { done: state.batch.done, total: state.batch.size });
   }
+}
+
+/** The key's minute figures, in OpenAI's own numbers, once the gate has them: how many
+    determinations start at once and how often one more can. */
+function renderGateLine() {
+  const g = state.gate;
+  if (!ui.step2Gate) return;
+  if (!g) { ui.step2Gate.hidden = true; ui.step2Gate.textContent = ''; return; }
+  ui.step2Gate.hidden = false;
+  ui.step2Gate.textContent = t('step2.gate', { limit: fmtNumber(g.limit), cost: fmtNumber(g.cost), atOnce: g.atOnce, every: Math.max(1, Math.round(g.everyMs / 1000)) });
 }
 
 function renderWarnings() {
@@ -637,6 +649,7 @@ async function runBatch(claims, nodes) {
 function handleEvalEvent(ev, mapIndex) {
   if (ev.t === 'error' && ev.i === undefined) { failRun(ev); return; }
   if (ev.t === 'warning') { addWarning(ev); return; }
+  if (ev.t === 'gate') { state.gate = ev; renderGateLine(); return; }
   if (ev.t === 'batch-start') return;
   if (ev.t === 'batch-progress') {
     state.batch.done = Math.max(state.batch.done, ev.completed);
@@ -656,7 +669,7 @@ function handleEvalEvent(ev, mapIndex) {
       break;
     case 'phase':
       if (ev.phase === 'incomplete') { r.incomplete = ev.reason || 'incomplete'; }
-      else if (ev.phase === 'queued') { r.phase = 'queued'; r.queuedUntil = ev.waitMs ? Date.now() + ev.waitMs : 0; renderCardStatus(i); updateEvalStatus(); }
+      else if (ev.phase === 'queued') { r.phase = 'queued'; r.queuedUntil = ev.waitMs ? Date.now() + ev.waitMs : 0; r.queuePosition = ev.position || 0; renderCardStatus(i); updateEvalStatus(); }
       else if (r.phase !== 'writing') { r.phase = ev.phase; renderCardStatus(i); }
       break;
     case 'reasoning':
@@ -1170,6 +1183,7 @@ function refreshDynamicText() {
   ui.langSelect.value = currentLocale();
   updateSourceMeta();
   for (const which of ['step1', 'step2']) { const s = state.status[which]; if (s) setStatus(which, s.key, s.params); }
+  renderGateLine();
   ui.step2Title.textContent = state.batch.start > 0 ? t('step2.more', { n: state.batch.size }) : t('step2.title', { n: state.batch.size || MAX_CLAIMS });
   renderWarnings();
   renderClaimsHeadings();

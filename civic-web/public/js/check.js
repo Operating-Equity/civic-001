@@ -29,7 +29,25 @@ function renderChecks(checks) {
   }
 }
 
-function renderSettings(s, build) {
+/** The gate's figures, in OpenAI's own numbers: what the key's minute holds and what each request costs. */
+function pacingRows(pacing) {
+  const rows = [];
+  const n = (v) => Number(v).toLocaleString('en-US');
+  for (const g of pacing || []) {
+    const parts = [];
+    if (g.tokens?.limit) parts.push(`${n(g.tokens.limit)} tokens a minute`);
+    if (g.requests?.limit) parts.push(`${n(g.requests.limit)} requests a minute`);
+    for (const [kind, cost] of Object.entries(g.costs || {})) parts.push(`OpenAI counts ${n(cost)} for one ${kind}`);
+    if (g.determination) parts.push(`${g.determination.atOnce} determinations start at once, then one more every ${(g.determination.everyMs / 1000).toFixed(1)} s`);
+    if (g.tokens?.available !== null && g.tokens?.available !== undefined) parts.push(`${n(g.tokens.available)} tokens available now`);
+    parts.push(`${g.inFlight} in flight · ${g.waiting} waiting · ${g.replies} replies · ${g.refusals} refusals`);
+    rows.push([`Pacing, ${g.model}`, parts.join(' · ')]);
+  }
+  if (!rows.length) rows.push(['Pacing', 'Nothing has been sent since this CIVIC started. The key\'s minute figures arrive with the first reply.']);
+  return rows;
+}
+
+function renderSettings(s, build, pacing) {
   const rows = [
     ['Model', s.model],
     ['Reasoning effort', s.effort],
@@ -38,6 +56,7 @@ function renderSettings(s, build) {
     ['Key comes from', s.keySource],
     ['Prompt versions', s.prompts || 'none installed'],
     ['Version', build],
+    ...pacingRows(pacing),
   ];
   const table = $('#settings');
   table.textContent = '';
@@ -74,6 +93,7 @@ function asText(data) {
     '',
     'Settings',
     ...Object.entries(data.settings).map(([k, v]) => `  ${k}: ${v}`),
+    ...pacingRows(data.pacing).map(([k, v]) => `  ${k}: ${v}`),
   ];
   if (data.recentFailures?.length) {
     lines.push('', 'Recent failures');
@@ -103,7 +123,7 @@ async function run() {
     verdict.className = `check-verdict ${data.ready ? 'is-ready' : 'is-blocked'}`;
     verdict.textContent = data.summary;
     renderChecks(data.checks);
-    renderSettings(data.settings, data.build);
+    renderSettings(data.settings, data.build, data.pacing);
     renderFailures(data.recentFailures);
     $('#report').value = asText(data);
   } catch (err) {

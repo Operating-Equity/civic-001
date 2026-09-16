@@ -7,7 +7,8 @@
 // read, the verdict is null and the card says so rather than guessing.
 import { config } from './config.js';
 import { evaluationPrompt } from './prompts.js';
-import { clientFor, withModelFallback, usageOf, isRetryable, retryBudget, isRateLimit, isConnectionDrop, rateLimitWaitMs, sleep, describeError, throughGate } from './openai.js';
+import { clientFor, withModelFallback, usageOf, isRetryable, retryBudget, isConnectionDrop, rateLimitWaitMs, sleep, describeError, throughGate } from './openai.js';
+import { gateFor } from './gate.js';
 import { estimateTextCost } from './pricing.js';
 import { record, claimHash } from './ledger.js';
 
@@ -79,6 +80,19 @@ export async function runEvaluation({ apiKey, claims, send, signal }) {
 
   const tools = [{ type: 'web_search' }]; // always; the prompts were tested with search available
 
+  // The key's minute figures, once the gate has them from OpenAI: the page is told the limit, what
+  // OpenAI counts for one determination, how many start at once and how often one more can. All
+  // of it is OpenAI's own arithmetic; it is sent whenever the figures change.
+  let announced = '';
+  const announceGate = (model) => {
+    const g = gateFor(model).state();
+    if (!g.determination) return;
+    const key = `${g.tokens.limit}:${g.costs.determination}:${g.determination.everyMs}`;
+    if (key === announced) return;
+    announced = key;
+    send({ t: 'gate', model, limit: g.tokens.limit, cost: g.costs.determination, ...g.determination });
+  };
+
   const evaluateOne = async (claim, i) => {
     const prompt = evaluationPrompt(claim);
     const startedAt = Date.now();
@@ -106,8 +120,8 @@ export async function runEvaluation({ apiKey, claims, send, signal }) {
         stream: true,
         store: false, // the key belongs to the reader; the prompt must not appear in their dashboard
       };
-      // Through the gate: sent only when the key's minute budget covers it. A held claim's row says so.
-      return throughGate(client, body, { signal, onHold: ({ waitMs }) => send({ t: 'phase', i, phase: 'queued', waitMs }) });
+      // Through the gate: sent only when the key's minute holds it. A held claim's row says so, in figures.
+      return throughGate(client, body, { kind: 'determination', signal, onHold: (h) => send({ t: 'phase', i, phase: 'queued', ...h }) });
     };
 
     for (let tries = 0; ; tries++) {
@@ -117,6 +131,7 @@ export async function runEvaluation({ apiKey, claims, send, signal }) {
         await withModelFallback('evaluate', config.evalModels, async (model) => {
           const { data: stream, release } = await request(model);
           modelUsed = model;
+          announceGate(model);
           try {
           send({ t: 'start', i, model, requested: config.evalModels[0], at: Date.now() });
           for await (const event of stream) {
@@ -195,15 +210,14 @@ export async function runEvaluation({ apiKey, claims, send, signal }) {
           continue;
         }
         if (tries < retryBudget(err) && isRetryable(err)) {
-          // A rate limit is OpenAI pacing this key: wait exactly as long as it asks, then go again,
-          // for as long as it takes. Anything else backs off, never beyond the one-minute window
-          // that rate limits are measured in. The reason is passed on, so the row can say
-          // "waiting for the key's rate limit" rather than showing an error.
-          const asked = isRateLimit(err) ? rateLimitWaitMs(err) : null;
-          const waitMs = (asked !== null ? asked : Math.min(2000 * 2 ** tries, 60 * 1000)) + Math.random() * 500;
-          const reason = isRateLimit(err) ? 'rate_limit' : (isConnectionDrop(err) ? 'connection' : 'error');
-          send({ t: 'retry', i, attempt: tries + 1, status: err?.status ?? null, reason, waitMs: Math.round(waitMs) });
-          await sleep(waitMs);
+          // A 5xx cost nothing and is tried again; a cut connection has spent its tokens and is
+          // tried again at most twice. The attempt rejoins the line at the gate, and its place in
+          // the line is its wait; when OpenAI names a wait of its own (retry-after), that comes
+          // first. No back-off of ours. A rate limit never arrives here: the gate handles it.
+          const waitMs = rateLimitWaitMs(err) || 0;
+          const reason = isConnectionDrop(err) ? 'connection' : 'error';
+          send({ t: 'retry', i, attempt: tries + 1, status: err?.status ?? null, reason, waitMs });
+          if (waitMs > 0) await sleep(waitMs);
           continue;
         }
         const safe = describeError(err);
