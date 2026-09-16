@@ -129,12 +129,15 @@ development only.
 Every request to OpenAI carries the operator's tested configuration and nothing else. There is no
 number in this program in the path of a determination that the operator did not set.
 
-**Extraction request:** `model`, `input` (the extraction prompt, verbatim, with the document in
+**Extraction request:** `model`, `input` (the extraction prompt, verbatim, with the source in
 place of its final bracketed line, as the only message), `reasoning.effort`, `reasoning.summary`,
-`tools` (one `web_search`, no options), `stream`, `store`. A prompt without a final bracketed
-line is sent as `instructions` instead, with the document as the only message. The reply is read
-as a numbered list; in each entry the text under a `Claim:` label is what is tested, and any
-further labelled lines are shown beside it, verbatim.
+`tools` (one `web_search`, no options), `stream`, `store`. The source goes into that slot with
+what CIVIC knows of its attribution, since the slot asks for it: for a link, the page's title,
+author, site, date and address and the day CIVIC read it; for a file, its name and the day; for
+pasted text, the day it was pasted and that nothing else was given. Nothing is guessed. A prompt
+without a final bracketed line is sent as `instructions` instead, with the text alone as the only
+message. The reply is read as a numbered list; in each entry the text under a `Claim:` label is
+what is tested, and any further labelled lines are shown beside it, verbatim.
 
 **Determination request:** `model`, `input` (the evaluation prompt, verbatim, with the claim in
 place of `{{CLAIM}}`, as the only message), `reasoning.effort`, `reasoning.summary`, `tools`

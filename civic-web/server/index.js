@@ -13,6 +13,7 @@ import { ApiError, operatorKey, describeError } from './openai.js';
 import { openStream } from './stream.js';
 import { fileToText, normalise, ACCEPTED_SOURCE_EXT } from './documents.js';
 import { readUrl, UrlError } from './fetchurl.js';
+import { sourceMeta } from './source.js';
 import { runExtraction } from './extract.js';
 import { runEvaluation } from './evaluate.js';
 import { runIllustration } from './illustrate.js';
@@ -154,7 +155,7 @@ app.post('/api/extract', wrap(async (req, res) => {
 
   const stream = openStream(req, res);
   try {
-    await runExtraction({ apiKey, text: source.text, send: stream.send, signal: stream.signal, sourceWarning });
+    await runExtraction({ apiKey, text: source.text, meta: sourceMeta(req.body?.source), send: stream.send, signal: stream.signal, sourceWarning });
   } catch (err) {
     const safe = describeError(err);
     stream.send({ t: 'error', code: safe.code, message: safe.message, status: safe.status });

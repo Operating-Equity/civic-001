@@ -88,8 +88,8 @@ export async function streamNdjson(url, body, { signal, onEvent }) {
   }
 }
 
-export function extract({ text, signal, onEvent }) {
-  return streamNdjson('api/extract', { text }, { signal, onEvent });
+export function extract({ text, source, signal, onEvent }) {
+  return streamNdjson('api/extract', { text, source }, { signal, onEvent });
 }
 
 export function evaluate({ claims, signal, onEvent }) {

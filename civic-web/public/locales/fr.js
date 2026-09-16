@@ -16,6 +16,9 @@ export default {
     echo: 'Écho visuel',
     echoHint: 'Une photographie du sujet du document, dirigée artistiquement et générée avec votre clé pendant le traitement.',
     run: 'Testez les faits',
+    showText: 'Afficher le texte',
+    hideText: 'Masquer le texte',
+    testing: 'Test en cours',
     slow: 'La première étape prend des minutes sur un long document, car le modèle le lit en entier avant d\'écrire quoi que ce soit. Les 20 déterminations s\'exécutent ensuite en même temps : cette étape dure à peu près le temps d\'une seule, pas vingt fois plus.',
     empty: 'Collez ou téléversez quelque chose à tester.',
     truncated: 'Le document a été tronqué à {n} caractères, le maximum par test.',
@@ -37,6 +40,7 @@ export default {
   },
   claims: {
     title: 'Affirmations',
+    from: 'Source : {source}',
     testing_one: 'Test de la première',
     testing_other: 'Test des {n} premières',
     all_one: 'Test de {n} affirmation',
@@ -66,7 +70,7 @@ export default {
     waiting: 'En attente des affirmations',
     stopped: 'Arrêté',
   },
-  score: { true: 'Vrai', false: 'Faux', unverified: 'Non vérifié', tested: 'Testées', tokens: 'Jetons', cost: 'Coût est.', internal: 'Interne', unread: 'Verdict non lu' },
+  score: { true: 'Vrai', false: 'Faux', unverified: 'Non vérifié', tested: 'Testées', tokens: 'Jetons', cost: 'Coût est.', internal: 'Interne', unread: 'Verdict non lu', extracting: 'Extraction des affirmations…' },
   card: {
     pending: 'En file',
     starting: 'Désignation d\'un inspecteur…',
@@ -118,6 +122,7 @@ export default {
     tooLarge: '{name} dépasse 20 Mo.',
     empty: 'Rédigez votre contestation ou joignez des preuves d\'abord.',
   },
+  source: { pasted: 'Texte collé', file: 'Fichier importé' },
   reset: 'Lancer un nouveau test',
   warn: {
     sourceTruncated: '{n} caractères à la fin du document n\'ont pas été lus ; aucune affirmation qu\'ils contiennent n\'a été extraite. Seuls les {read} premiers caractères ont été testés.',

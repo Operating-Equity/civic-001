@@ -52,6 +52,8 @@ function cacheElements() {
     step1Thinking: $('#step1-thinking'), step1ThinkingSummary: $('#step1-thinking-summary'), step1ThinkingBody: $('#step1-thinking-body'),
     step2: $('#step-eval'), step2Title: $('#step2-title'), step2Status: $('#step2-status'), bar2: $('#bar-eval'),
     echo: $('#echo'), echoImg: $('#echo-img'), echoShimmer: $('#echo-shimmer'), echoCap: $('#echo-cap'),
+    intake: $('#intake'), intakeSummary: $('#intake-summary'), intakeSummaryText: $('#intake-summary-text'), showText: $('#btn-show-text'),
+    scoreSourceTitle: $('#score-source-title'), scoreSourceSub: $('#score-source-sub'), scorePhase: $('#score-phase'), claimsFrom: $('#claims-from'),
     claims: $('#claims'), claimsSub: $('#claims-sub'), claimsList: $('#claims-list'),
     beyond: $('#claims-beyond'), beyondTitle: $('#claims-beyond-title'), beyondList: $('#claims-beyond-list'), beyondHint: $('#claims-beyond-hint'),
     selectAll: $('#btn-select-all'), testSelected: $('#btn-test-selected'),
@@ -110,6 +112,10 @@ async function boot() {
 
 function wireIntake() {
   ui.source.addEventListener('input', updateSourceMeta);
+  ui.showText.addEventListener('click', () => {
+    const open = ui.intake.classList.toggle('is-open');
+    ui.showText.textContent = t(open ? 'intake.hideText' : 'intake.showText');
+  });
   ui.sourceFile.addEventListener('change', async () => {
     const file = ui.sourceFile.files?.[0];
     if (!file) return;
@@ -118,6 +124,8 @@ function wireIntake() {
       if (!state.server) throw new api.ApiError(0, 'no_server', t('errors.server'));
       const parsed = await api.parseFile(file);
       ui.source.value = parsed.text;
+      state.sourceMeta = { kind: 'file', name: parsed.name };
+      state.loadedText = parsed.text;
       ui.sourceMeta.textContent = t('intake.loaded', { name: parsed.name, chars: parsed.chars });
       if (parsed.truncated) toast(t('intake.truncated', { n: parsed.chars }), { ms: 7000 });
     } catch (err) {
@@ -133,6 +141,45 @@ function wireIntake() {
 function updateSourceMeta() {
   const n = ui.source.value.trim().length;
   ui.sourceMeta.textContent = n ? t('intake.chars', { n }) : '';
+  // Text typed or pasted over what a link or a file brought in is no longer that link or file.
+  if (state.loadedText && ui.source.value !== state.loadedText) { state.sourceMeta = { kind: 'text' }; state.loadedText = ''; }
+}
+
+// ---------- what the source is ---------------------------------------------------------------
+
+/** The source's identity for people: a title and a line under it. Nothing here is guessed. */
+function describeSource() {
+  const m = state.sourceMeta || { kind: 'text' };
+  const chars = t('intake.chars', { n: (state.source || ui.source.value).trim().length });
+  if (m.kind === 'link') {
+    return { title: m.title || m.url, sub: [m.author, m.published, m.site].filter(Boolean).join(' · ') || m.url };
+  }
+  if (m.kind === 'file') return { title: m.name, sub: `${t('source.file')} · ${chars}` };
+  return { title: t('source.pasted'), sub: chars };
+}
+
+/** Says, in the run header, in the closed intake and above the claims, what is being tested. */
+function renderSource() {
+  const { title, sub } = describeSource();
+  ui.scoreSourceTitle.textContent = title;
+  ui.scoreSourceSub.textContent = sub;
+  ui.intakeSummaryText.replaceChildren(document.createTextNode(`${t('intake.testing')} `), el('b', { text: title }), document.createTextNode(sub ? ` · ${sub}` : ''));
+  ui.claimsFrom.textContent = t('claims.from', { source: sub ? `${title} · ${sub}` : title });
+  ui.claimsFrom.hidden = false;
+}
+
+function collapseIntake() {
+  ui.intake.classList.add('is-collapsed');
+  ui.intake.classList.remove('is-open');
+  ui.intakeSummary.hidden = false;
+  ui.showText.textContent = t('intake.showText');
+  ui.source.readOnly = true;
+}
+
+function expandIntake() {
+  ui.intake.classList.remove('is-collapsed', 'is-open');
+  ui.intakeSummary.hidden = true;
+  ui.source.readOnly = false;
 }
 
 // ---------- links ---------------------------------------------------------------------------
@@ -148,6 +195,8 @@ async function readLinkIntoBox(url) {
     const got = await api.readUrl(url, { signal: controller.signal });
     ui.source.value = got.text;
     state.sourceLink = { url: got.url, title: got.title || host, kind: got.kind };
+    state.sourceMeta = { kind: 'link', url: got.url, title: got.title || host, author: got.author || '', published: got.published || '', site: got.site || host };
+    state.loadedText = got.text;
     ui.sourceMeta.textContent = t('intake.readUrl', { title: got.title || host, n: fmtNumber(got.chars) });
     if (got.note === 'automatic_captions') toast(t('intake.autoCaptions'), { ms: 7000 });
     return true;
@@ -186,9 +235,16 @@ async function startRun() {
   state.phase = 'extracting';
   state.abort = new AbortController();
 
+  // The page becomes the run: the intake closes to a line, and the run header, with what is being
+  // tested and the way out, is on screen from the first second.
+  collapseIntake();
+  renderSource();
+  ui.scoreboard.hidden = false;
+  ui.scorePhase.hidden = false;
+  ui.scorePhase.textContent = t('score.extracting');
   ui.runSection.hidden = false;
   ui.run.disabled = true;
-  ui.runSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  window.scrollTo({ top: 0, behavior: 'smooth' });
 
   if (ui.optEcho.checked) startEcho(text);
   await runExtraction(text);
@@ -244,7 +300,11 @@ function resetAll() {
   resetRunState();
   ui.runSection.hidden = true;
   ui.run.disabled = false;
+  expandIntake();
   ui.source.value = '';
+  state.sourceMeta = { kind: 'text' };
+  state.loadedText = '';
+  ui.claimsFrom.hidden = true;
   updateSourceMeta();
   window.scrollTo({ top: 0, behavior: 'smooth' });
   ui.source.focus();
@@ -352,7 +412,7 @@ async function runExtraction(text) {
     }
   };
   try {
-    await api.extract({ text, signal: state.abort.signal, onEvent });
+    await api.extract({ text, source: state.sourceMeta, signal: state.abort.signal, onEvent });
     if (!finished && state.phase === 'extracting') failRun({ code: 'stream_ended', message: 'The connection closed before extraction finished.' });
   } catch (err) {
     if (err?.name !== 'AbortError') failRun(err);
@@ -544,6 +604,7 @@ async function runBatch(claims) {
   const evalTick = setInterval(updateEvalStatus, 500);
   state.timers.push(evalTick);
   ui.scoreboard.hidden = false;
+  ui.scorePhase.hidden = true;
   ui.run.disabled = true;
   renderScoreboard();
   renderBeyondTools();
@@ -918,6 +979,7 @@ function exportRun() {
     `# CIVIC run — ${new Date().toLocaleString()}`,
     '',
     ...(state.warnings.length ? ['> **Warnings:** ' + state.warnings.map((w) => w.code === 'source_truncated' ? `${w.omitted} characters of the source were not read` : `model fell back to ${w.used} from ${w.requested}`).join('; '), ''] : []),
+    `Source: ${describeSource().title}${describeSource().sub ? ` · ${describeSource().sub}` : ''}`,
     `Claims extracted: ${state.claims.length}. Tested: ${state.results.filter((r) => r.status === 'done').length}.`,
     `True ${state.counts.true} · False ${state.counts.false} · Unverified ${state.counts.unverified}` + (state.unread ? ` · verdict unread ${state.unread}` : ''),
     state.accounting ? `Tokens ${state.tokens}. Estimated cost ${fmtUsd(state.cost)}${state.unpriced ? '+' : ''}.` : '',

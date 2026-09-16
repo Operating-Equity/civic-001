@@ -10,6 +10,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { leakChecks } from './leak-check.mjs';
+import { sourceBlock } from '../server/source.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.join(here, '..');
@@ -131,8 +132,10 @@ try {
     const exText = exBody.input?.[0]?.content?.[0]?.text;
     if (slot) {
       check('extraction: no instructions field (the prompt is the message)', exBody.instructions === undefined);
-      check('extraction: the prompt sent verbatim with the source in place of its final bracketed line, as the only message',
-        exBody.input?.length === 1 && exText === extractPrompt.slice(0, slot.start) + source + extractPrompt.slice(slot.end), `${exText?.length} chars`);
+      // The slot takes the source with its attribution lines: for pasted text, the day it was pasted.
+      const expected = extractPrompt.slice(0, slot.start) + sourceBlock(source, { kind: 'text' }) + extractPrompt.slice(slot.end);
+      check('extraction: the prompt sent verbatim with the source and its attribution lines in place of its final bracketed line, as the only message',
+        exBody.input?.length === 1 && exText === expected, `${exText?.length} vs ${expected.length} chars`);
     } else {
       check('extraction: prompt sent verbatim as instructions', exBody.instructions === extractPrompt, `${exBody.instructions?.length} vs ${extractPrompt.length} chars`);
       check('extraction: the document sent whole, as the only message', exBody.input?.length === 1 && exText === source);

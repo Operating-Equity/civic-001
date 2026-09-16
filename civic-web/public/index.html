@@ -41,6 +41,11 @@
   <section class="intake glass frame" id="intake" aria-labelledby="intake-title">
     <i class="bk bk-tl" aria-hidden="true"></i><i class="bk bk-tr" aria-hidden="true"></i><i class="bk bk-bl" aria-hidden="true"></i><i class="bk bk-br" aria-hidden="true"></i>
     <h1 class="intake-title" id="intake-title" data-i18n="intake.title">Test the facts.</h1>
+    <!-- While a test runs the box closes to this line, so the results are not pushed down the page. -->
+    <div class="intake-summary" id="intake-summary" hidden>
+      <span class="intake-summary-text" id="intake-summary-text"></span>
+      <button type="button" class="btn btn-text btn-small" id="btn-show-text"></button>
+    </div>
     <p class="intake-lede" data-i18n="intake.lede">Paste a transcript, article, speech, post or study, or a link to one. CIVIC extracts every empirical claim it contains and tests the first 20.</p>
     <label class="visually-hidden" for="source-text" data-i18n="intake.title">Test the facts.</label>
     <textarea id="source-text" class="source" rows="9" placeholder="Paste text, or a link to an article, a PDF or a YouTube video…" data-i18n-placeholder="intake.placeholder" spellcheck="false"></textarea>
@@ -66,6 +71,30 @@
 
   <!-- The run: appears once a test starts. -->
   <section class="run" id="run" hidden aria-live="polite">
+
+    <!-- The run header. It sits at the top of the run and stays on screen while the reader scrolls,
+         so what is being tested, how it is going, and "Start a new test" are never far away. -->
+    <div class="scoreboard glass" id="scoreboard" hidden>
+      <div class="score-source" id="score-source">
+        <span class="score-source-title" id="score-source-title"></span>
+        <span class="score-source-sub" id="score-source-sub"></span>
+      </div>
+      <div class="score score-true"><span class="score-n" id="score-true">0</span><span class="score-l"><svg class="icon" viewBox="0 0 20 20" aria-hidden="true"><path d="M4 10.5l4 4 8-9" stroke="currentColor" stroke-width="2.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg><span data-i18n="score.true">True</span></span></div>
+      <div class="score score-false"><span class="score-n" id="score-false">0</span><span class="score-l"><svg class="icon" viewBox="0 0 20 20" aria-hidden="true"><path d="M5 5l10 10M15 5L5 15" stroke="currentColor" stroke-width="2.2" fill="none" stroke-linecap="round"/></svg><span data-i18n="score.false">False</span></span></div>
+      <div class="score score-unverified"><span class="score-n" id="score-unverified">0</span><span class="score-l"><svg class="icon" viewBox="0 0 20 20" aria-hidden="true"><path d="M7.5 7.5a2.5 2.5 0 1 1 3.6 2.2c-.7.4-1.1.9-1.1 1.8M10 15h.01" stroke="currentColor" stroke-width="2.2" fill="none" stroke-linecap="round"/></svg><span data-i18n="score.unverified">Unverified</span></span></div>
+      <div class="score-meta">
+        <span id="score-phase" hidden></span>
+        <span><span data-i18n="score.tested">Tested</span> <b class="mono" id="score-tested">0/20</b></span>
+        <span id="score-unread-wrap" hidden><span data-i18n="score.unread">Verdict unread</span> <b class="mono" id="score-unread">0</b></span>
+        <span><span data-i18n="score.tokens">Tokens</span> <b class="mono" id="score-tokens">0</b></span>
+        <span class="score-internal" id="score-internal" hidden><span class="chip chip-internal" data-i18n="score.internal">Internal</span> <span data-i18n="score.cost">Est. cost</span> <b class="mono" id="score-cost">$0.00</b></span>
+      </div>
+      <div class="scoreboard-actions">
+        <button type="button" class="btn btn-text btn-small" id="btn-export" hidden></button>
+        <button type="button" class="btn btn-outline btn-small" id="btn-reset-top" data-i18n="reset">Start a new test</button>
+      </div>
+    </div>
+
 
     <ul class="run-warnings" id="run-warnings" hidden></ul>
 
@@ -94,7 +123,8 @@
         </div>
       </div>
 
-      <figure class="echo" id="echo" hidden>
+      <figure class="echo frame" id="echo" hidden>
+        <i class="bk bk-tl" aria-hidden="true"></i><i class="bk bk-tr" aria-hidden="true"></i><i class="bk bk-bl" aria-hidden="true"></i><i class="bk bk-br" aria-hidden="true"></i>
         <div class="echo-frame">
           <img id="echo-img" alt="Symbolic photograph of the document" data-i18n-alt="echo.alt" hidden>
           <div class="echo-shimmer" id="echo-shimmer"><span data-i18n="echo.making">Composing the frame…</span></div>
@@ -108,6 +138,7 @@
         <h2 class="claims-title" id="claims-title" data-i18n="claims.title">Claims</h2>
         <span class="claims-sub" id="claims-sub"></span>
       </div>
+      <p class="claims-from" id="claims-from" hidden></p>
       <ol class="claims-list" id="claims-list"></ol>
       <div class="claims-beyond" id="claims-beyond" hidden>
         <div class="claims-beyond-head">
@@ -125,22 +156,6 @@
         <pre class="raw-body" id="claims-raw-body"></pre>
       </details>
     </section>
-
-    <div class="scoreboard glass" id="scoreboard" hidden>
-      <div class="score score-true"><span class="score-n" id="score-true">0</span><span class="score-l"><svg class="icon" viewBox="0 0 20 20" aria-hidden="true"><path d="M4 10.5l4 4 8-9" stroke="currentColor" stroke-width="2.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg><span data-i18n="score.true">True</span></span></div>
-      <div class="score score-false"><span class="score-n" id="score-false">0</span><span class="score-l"><svg class="icon" viewBox="0 0 20 20" aria-hidden="true"><path d="M5 5l10 10M15 5L5 15" stroke="currentColor" stroke-width="2.2" fill="none" stroke-linecap="round"/></svg><span data-i18n="score.false">False</span></span></div>
-      <div class="score score-unverified"><span class="score-n" id="score-unverified">0</span><span class="score-l"><svg class="icon" viewBox="0 0 20 20" aria-hidden="true"><path d="M7.5 7.5a2.5 2.5 0 1 1 3.6 2.2c-.7.4-1.1.9-1.1 1.8M10 15h.01" stroke="currentColor" stroke-width="2.2" fill="none" stroke-linecap="round"/></svg><span data-i18n="score.unverified">Unverified</span></span></div>
-      <div class="score-meta">
-        <span><span data-i18n="score.tested">Tested</span> <b class="mono" id="score-tested">0/20</b></span>
-        <span id="score-unread-wrap" hidden><span data-i18n="score.unread">Verdict unread</span> <b class="mono" id="score-unread">0</b></span>
-        <span><span data-i18n="score.tokens">Tokens</span> <b class="mono" id="score-tokens">0</b></span>
-        <span class="score-internal" id="score-internal" hidden><span class="chip chip-internal" data-i18n="score.internal">Internal</span> <span data-i18n="score.cost">Est. cost</span> <b class="mono" id="score-cost">$0.00</b></span>
-      </div>
-      <div class="scoreboard-actions">
-        <button type="button" class="btn btn-text btn-small" id="btn-export" hidden></button>
-        <button type="button" class="btn btn-outline btn-small" id="btn-reset-top" data-i18n="reset">Start a new test</button>
-      </div>
-    </div>
 
     <div class="results" id="results"></div>
 

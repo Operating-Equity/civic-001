@@ -16,6 +16,9 @@ export default {
     echo: 'Visuelles Echo',
     echoHint: 'Eine Fotografie des Themas, mit Bildregie erstellt und mit Ihrem Schlüssel erzeugt, während der Lauf läuft.',
     run: 'Fakten prüfen',
+    showText: 'Text anzeigen',
+    hideText: 'Text ausblenden',
+    testing: 'Wird geprüft',
     slow: 'Der erste Schritt dauert bei einem langen Dokument Minuten, weil das Modell alles liest, bevor es etwas schreibt. Die 20 Bestimmungen laufen dann gleichzeitig, dieser Schritt dauert also etwa so lange wie eine einzelne, nicht zwanzigmal so lange.',
     empty: 'Fügen Sie etwas ein oder laden Sie etwas hoch.',
     truncated: 'Das Dokument wurde auf {n} Zeichen gekürzt, das Maximum pro Lauf.',
@@ -37,6 +40,7 @@ export default {
   },
   claims: {
     title: 'Behauptungen',
+    from: 'Aus {source}',
     testing_one: 'Die erste wird geprüft',
     testing_other: 'Die ersten {n} werden geprüft',
     all_one: '{n} Behauptung wird geprüft',
@@ -66,7 +70,7 @@ export default {
     waiting: 'Warten auf die Behauptungen',
     stopped: 'Gestoppt',
   },
-  score: { true: 'Wahr', false: 'Falsch', unverified: 'Ungeprüft', tested: 'Geprüft', tokens: 'Tokens', cost: 'Gesch. Kosten', internal: 'Intern', unread: 'Urteil ungelesen' },
+  score: { true: 'Wahr', false: 'Falsch', unverified: 'Ungeprüft', tested: 'Geprüft', tokens: 'Tokens', cost: 'Gesch. Kosten', internal: 'Intern', unread: 'Urteil ungelesen', extracting: 'Behauptungen werden extrahiert…' },
   card: {
     pending: 'In der Warteschlange',
     starting: 'Ein Prüfer wird zugewiesen…',
@@ -118,6 +122,7 @@ export default {
     tooLarge: '{name} ist größer als 20 MB.',
     empty: 'Schreiben Sie zuerst Ihre Anfechtung oder hängen Sie Belege an.',
   },
+  source: { pasted: 'Eingefügter Text', file: 'Hochgeladene Datei' },
   reset: 'Neuen Test starten',
   warn: {
     sourceTruncated: '{n} Zeichen am Ende des Dokuments wurden nicht gelesen, daher wurde keine darin enthaltene Behauptung extrahiert. Geprüft wurden nur die ersten {read} Zeichen.',
