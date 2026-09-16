@@ -43,8 +43,8 @@ export function splitEntry(entry) {
 
 export async function runExtraction({ apiKey, text, meta, send, signal, sourceWarning }) {
   const client = clientFor(apiKey);
-  // A prompt with a slot for the source asked for its attribution and date information too, so
-  // the source goes in with what CIVIC knows of that. A prompt without a slot gets the text alone.
+  // A prompt with a slot for the source asked for what is known of its origin too, so the source
+  // goes in with what CIVIC knows of that. A prompt without a slot gets the text alone.
   const request = extractionRequest(extractionShape() === 'inserted' ? sourceBlock(text, meta) : text);
   let full = '';
   let emitted = 0;

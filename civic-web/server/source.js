@@ -1,7 +1,7 @@
 // What the source is, said plainly: for the prompt's attribution slot and for the page.
 //
-// The extraction prompt asks for the source together with its available attribution and date
-// information. CIVIC knows some of that: for a link, the page's title, author, site, date and
+// The extraction prompt's slot asks for the source together with what is known of who produced
+// it and when. CIVIC knows some of that: for a link, the page's title, author, site, date and
 // address, and the day it read them; for a file, its name and the day; for pasted text, only the
 // day. Only what is known is said, and nothing is guessed.
 const KINDS = new Set(['text', 'file', 'link']);
