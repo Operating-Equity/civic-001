@@ -78,6 +78,8 @@ export default {
     searching: 'Quellen werden geprüft…',
     writing: 'Eintrag wird verfasst…',
     retry: 'Erneuter Versuch ({n})…',
+    waitingLimit: 'Warten auf das Nutzungslimit des Schlüssels · {s} s',
+    quota: 'OpenAI meldet, dass das Kontingent dieses Schlüssels aufgebraucht ist; der Betreiber muss Guthaben hinzufügen.',
     incomplete: 'Der Eintrag wurde durch das Ausgabelimit abgeschnitten.',
     error: 'Diese Behauptung konnte nicht geprüft werden.',
     dropped: 'Die Verbindung zu OpenAI brach ab, bevor der Eintrag fertig war, und jeder erneute Versuch brach ebenfalls ab.',

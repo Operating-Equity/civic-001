@@ -78,6 +78,8 @@ export default {
     searching: 'Consultando fuentes…',
     writing: 'Redactando la entrada…',
     retry: 'Reintentando (intento {n})…',
+    waitingLimit: 'Esperando el límite de uso de la clave · {s} s',
+    quota: 'OpenAI indica que la cuota de esta clave se ha agotado; el operador debe añadir crédito.',
     incomplete: 'La entrada se cortó por el límite de salida.',
     error: 'Esta afirmación no pudo probarse.',
     dropped: 'La conexión con OpenAI se cortó antes de que terminara la entrada, y todos los reintentos se cortaron también.',

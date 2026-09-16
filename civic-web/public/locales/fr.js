@@ -78,6 +78,8 @@ export default {
     searching: 'Vérification des sources…',
     writing: 'Rédaction de l\'entrée…',
     retry: 'Nouvelle tentative ({n})…',
+    waitingLimit: 'En attente de la limite de débit de la clé · {s} s',
+    quota: 'OpenAI indique que le quota de cette clé est épuisé ; l\'opérateur doit ajouter du crédit.',
     incomplete: 'L\'entrée a été coupée par la limite de sortie.',
     error: 'Cette affirmation n\'a pas pu être testée.',
     dropped: 'La connexion à OpenAI a été coupée avant la fin de l\'entrée, et chaque nouvelle tentative l\'a été aussi.',

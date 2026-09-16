@@ -79,6 +79,8 @@ export default {
     searching: 'Checking sources…',
     writing: 'Writing the entry…',
     retry: 'Retrying (attempt {n})…',
+    waitingLimit: 'Waiting for the key\'s rate limit · {s} s',
+    quota: 'OpenAI says this key\'s quota is used up; the operator needs to add credit.',
     incomplete: 'The entry was cut short by the output limit.',
     error: 'This claim could not be tested.',
     dropped: 'The connection to OpenAI was cut before the entry finished, and every retry was cut too.',

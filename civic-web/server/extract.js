@@ -3,7 +3,7 @@
 import { config } from './config.js';
 import { extractionRequest, extractionShape } from './prompts.js';
 import { sourceBlock } from './source.js';
-import { clientFor, withModelFallback, usageOf, isRetryable, retryBudget, sleep } from './openai.js';
+import { clientFor, withModelFallback, usageOf, isRetryable, retryBudget, isRateLimit, isConnectionDrop, rateLimitWaitMs, sleep } from './openai.js';
 import { estimateTextCost } from './pricing.js';
 import { record } from './ledger.js';
 
@@ -128,8 +128,11 @@ export async function runExtraction({ apiKey, text, meta, send, signal, sourceWa
         continue;
       }
       if (tries < retryBudget(err) && isRetryable(err)) {
-        send({ t: 'retry', attempt: tries + 1 });
-        await sleep(1500 * 2 ** tries);
+        const asked = isRateLimit(err) ? rateLimitWaitMs(err) : null;
+        const waitMs = (asked !== null ? asked : Math.min(1500 * 2 ** tries, 60 * 1000)) + Math.random() * 500;
+        const reason = isRateLimit(err) ? 'rate_limit' : (isConnectionDrop(err) ? 'connection' : 'error');
+        send({ t: 'retry', attempt: tries + 1, status: err?.status ?? null, reason, waitMs: Math.round(waitMs) });
+        await sleep(waitMs);
         continue;
       }
       throw err;
