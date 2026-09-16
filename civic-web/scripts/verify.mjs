@@ -93,9 +93,14 @@ const extraKeys = (obj, allowed) => Object.keys(obj || {}).filter((k) => !allowe
 
 try {
   fs.writeFileSync(record, '');
-  // The mock cuts the second request's connection a few chunks in (the determination, which
-  // follows the extraction): the server must retry it.
-  start([path.join(root, 'scripts', 'mock-openai.js')], { MOCK_PORT: String(MOCK_PORT), MOCK_RECORD: record, MOCK_SPEED: '0.2', MOCK_DROP_REQUESTS: '2' });
+  // The mock refuses the second request with a rate limit (the determination, which follows the
+  // extraction) and cuts the retry's connection a few chunks in: the server must wait what OpenAI
+  // asked, go again, and after the cut go again once more.
+  // The stand-in tells a determination from an extraction by how the installed evaluation prompt
+  // begins (the text before the claim's placeholder, or after it when the placeholder comes first).
+  const [before, after] = evaluatePrompt.split('{{CLAIM}}');
+  const evalMark = (before.trim() || after.trim()).slice(0, 60);
+  start([path.join(root, 'scripts', 'mock-openai.js')], { MOCK_PORT: String(MOCK_PORT), MOCK_RECORD: record, MOCK_SPEED: '0.2', MOCK_RATE_LIMIT_REQUESTS: '2', MOCK_DROP_REQUESTS: '3', MOCK_EVAL_MARK: evalMark });
   await wait(`http://localhost:${MOCK_PORT}/v1/responses`, 15000, { anyResponse: true });
   start([path.join(root, 'server', 'index.js')], { PORT: String(PORT), OPENAI_BASE_URL: `http://localhost:${MOCK_PORT}/v1`, OPENAI_API_KEY: KEY, CIVIC_IMAGE_ENABLED: 'false', CIVIC_LEDGER_FILE: path.join(os.tmpdir(), 'civic-verify-ledger.jsonl') });
   await wait(`http://localhost:${PORT}/api/health`);
@@ -113,12 +118,18 @@ try {
   // The extraction is sent and completed before the determination is sent, so arrival order is
   // identity. (Telling them apart by an instructions field stopped working once a prompt could
   // travel as the message itself.)
-  check('three requests were sent: the extraction, the determination whose connection was cut, and its retry', sent.length === 3, `${sent.length} requests`);
+  check('four requests were sent: the extraction, a rate-limited determination, its retry that was cut, and the retry that completed', sent.length === 4, `${sent.length} requests`);
   const exBody = sent[0]?.body;
   const evBody = sent[sent.length - 1]?.body;
-  check('a determination whose connection is cut mid-stream is retried and completes',
-    ev.some((e) => e.t === 'retry') && ev.some((e) => e.t === 'done') && !ev.some((e) => e.t === 'error'),
-    JSON.stringify(ev.filter((e) => e.t === 'retry' || e.t === 'error')));
+  const retries = ev.filter((e) => e.t === 'retry');
+  check('a rate limit is waited out for exactly the time OpenAI asked, then the claim runs; a cut connection is retried; the claim completes',
+    retries.length === 2 && retries[0].reason === 'rate_limit' && retries[0].waitMs >= 700 && retries[0].waitMs <= 1200
+      && retries[1].reason === 'connection' && ev.some((e) => e.t === 'done') && !ev.some((e) => e.t === 'error'),
+    JSON.stringify(retries.concat(ev.filter((e) => e.t === 'error'))));
+  const doneEv = ev.find((e) => e.t === 'done');
+  check('the Conclusion section is read out of the entry for the closed row, and it names the verdict',
+    Boolean(doneEv?.conclusion) && new RegExp(`^${doneEv?.verdict === 'unverified' ? '(uncertain|unverified)' : doneEv?.verdict}`, 'i').test(doneEv?.conclusion || ''),
+    JSON.stringify(doneEv?.conclusion));
   check('extraction request captured', Boolean(exBody));
   check('determination request captured', Boolean(evBody));
 

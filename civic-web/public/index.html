@@ -157,8 +157,6 @@
       </details>
     </section>
 
-    <div class="results" id="results"></div>
-
     <div class="run-end">
       <button type="button" class="btn btn-outline btn-large" id="btn-reset" data-i18n="reset">Start a new test</button>
     </div>
@@ -185,6 +183,8 @@
         <span class="badge" hidden><span class="badge-glyph" aria-hidden="true"></span><span class="badge-text"></span></span>
       </div>
     </header>
+    <!-- The closed row: the conclusion behind the verdict. Opening the row shows everything below. -->
+    <p class="card-brief" hidden></p>
     <div class="card-progress">
       <div class="bar bar-thin" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i></i></div>
       <span class="card-status"></span>

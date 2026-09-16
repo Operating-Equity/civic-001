@@ -251,12 +251,29 @@ body {
 .claims-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-block-end: 8px; }
 .claims-title { font-family: var(--font-display); font-weight: 600; font-size: 26px; margin: 0; letter-spacing: .01em; }
 .claims-sub { font-size: 14px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
-.claims-list { margin: 0; padding: 0; list-style: none; counter-reset: claim; display: grid; gap: 2px; }
+/* The list is the results. While the claims are still arriving, each row is the claim alone; once
+   they are all in, each row is a card: the claim, its verdict and the conclusion behind it, closed.
+   Opening a row shows everything the run produced for it; closing it returns the row to its size,
+   so forty claims can be read down the page and only the ones that matter are opened. */
+.claims-list { margin: 0; padding: 0; list-style: none; counter-reset: claim; display: grid; gap: 6px; }
 .claims-list li { display: grid; grid-template-columns: 34px 1fr; gap: 10px; padding: 7px 0; border-block-start: 1px solid var(--line-soft); font-size: 15px; line-height: 1.45; animation: open .25s ease-out; }
 .claims-list li::before { counter-increment: claim; content: counter(claim, decimal-leading-zero); font-family: var(--font-mono); font-size: 13px; color: var(--blue-deep); padding-block-start: 2px; }
+.claims-list li:has(> .card) { display: block; padding: 0; border: 0; }
+.claims-list li:has(> .card)::before { content: none; }
 .claims-list.is-beyond { counter-reset: claim 20; }
 .claims-list.is-beyond li { color: var(--ink-3); }
 .claims-list.is-beyond li::before { color: var(--ink-3); }
+.claims-list li .card { padding: 12px 16px 12px 14px; }
+.card-head { cursor: pointer; }
+.card-head:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; border-radius: var(--radius-sm); }
+.card-head::after { content: "▸"; color: var(--ink-3); font-size: 12px; align-self: start; padding-block-start: 7px; transition: transform .15s ease; }
+.card.is-open .card-head::after { transform: rotate(90deg); }
+.card.has-check .card-head { grid-template-columns: auto auto 1fr auto auto; }
+.card-check { width: 16px; height: 16px; margin: 5px 0 0; accent-color: var(--blue); }
+.card-brief { margin: 6px 0 0 34px; font-size: 14px; line-height: 1.45; color: var(--ink-2); cursor: pointer; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.card.is-open .card-brief { display: none; }
+.card:not(.is-open) .entry, .card:not(.is-open) .card-detail, .card:not(.is-open) .card-foot, .card:not(.is-open) .card-note, .card:not(.is-open) .challenge { display: none !important; }
+.card-error .btn { margin-inline-start: 6px; vertical-align: baseline; }
 .claims-beyond { margin-block-start: 16px; padding-block-start: 12px; border-block-start: 1px dashed var(--line); }
 .claims-beyond-head { display: flex; justify-content: space-between; align-items: center; gap: 10px 16px; flex-wrap: wrap; }
 .claims-beyond-title { margin: 0; font-size: 13px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--ink-2); }
@@ -293,7 +310,6 @@ body {
 .score-meta b { font-weight: 500; color: var(--ink); }
 
 /* results */
-.results { display: grid; gap: 14px; }
 .card, .claims, .claims-beyond, .raw { scroll-margin-top: 96px; }
 .card { padding: 20px 24px 18px; border-radius: var(--radius); background: var(--glass-strong); border: 1px solid var(--glass-edge); box-shadow: var(--shadow-soft); transition: box-shadow .3s ease; }
 .card .bk { opacity: 0; border-color: var(--blue); }
@@ -304,19 +320,19 @@ body {
 .card[data-state="done"].verdict-unverified .bk { border-color: var(--unv); }
 .card[data-state="error"] .bk { opacity: .6; border-color: var(--ink-3); }
 @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
-.card-head { display: grid; grid-template-columns: auto 1fr auto; gap: 8px 16px; align-items: start; }
+.card-head { display: grid; grid-template-columns: auto 1fr auto auto; gap: 8px 16px; align-items: start; }
 .card-n { font-size: 13px; color: var(--ink-3); padding-block-start: 5px; }
 .card[data-state="done"].verdict-true .card-n { color: var(--true); }
 .card[data-state="done"].verdict-false .card-n { color: var(--false); }
 .card[data-state="done"].verdict-unverified .card-n { color: var(--unv); }
-.card-claim { margin: 0; font-size: 17px; line-height: 1.45; font-weight: 500; text-wrap: pretty; }
+.card-claim { margin: 0; font-size: 16px; line-height: 1.45; font-weight: 500; text-wrap: pretty; }
 .card-verdict { display: flex; align-items: center; gap: 10px; justify-self: end; }
 .badge {
   display: inline-flex; align-items: center; gap: 7px;
-  font-family: var(--font-display); font-weight: 700; font-size: 22px; letter-spacing: .05em; text-transform: uppercase; line-height: 1;
-  padding: 8px 14px 7px; border-radius: 8px; border: 1px solid; animation: badge-in .35s ease-out;
+  font-family: var(--font-display); font-weight: 700; font-size: 16px; letter-spacing: .05em; text-transform: uppercase; line-height: 1;
+  padding: 6px 10px 5px; border-radius: 8px; border: 1px solid; animation: badge-in .35s ease-out;
 }
-.badge-glyph { font-family: var(--font-body); font-weight: 700; font-size: 18px; line-height: 1; }
+.badge-glyph { font-family: var(--font-body); font-weight: 700; font-size: 14px; line-height: 1; }
 .verdict-true .badge { color: var(--true); background: var(--true-bg); border-color: var(--true-edge); }
 .verdict-false .badge { color: var(--false); background: var(--false-bg); border-color: var(--false-edge); }
 .verdict-unverified .badge { color: var(--unv); background: var(--unv-bg); border-color: var(--unv-edge); }
@@ -416,6 +432,9 @@ body {
   .score-n { font-size: 30px; }
   .card-status { white-space: normal; }
   .card-head { grid-template-columns: auto 1fr; }
+  .card-head::after { display: none; }
+  .card.has-check .card-head { grid-template-columns: auto auto 1fr; }
+  .card-brief { margin-inline-start: 0; }
   .card-verdict { grid-column: 1 / -1; justify-self: start; }
   .card-foot .btn { margin-inline-start: 0; }
   .step-head { grid-template-columns: auto 1fr; }

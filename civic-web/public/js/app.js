@@ -277,7 +277,6 @@ function resetRunState() {
   ui.runWarnings.hidden = true;
   ui.claimsList.replaceChildren();
   ui.beyondList.replaceChildren();
-  ui.results.replaceChildren();
   ui.claims.hidden = true;
   ui.beyond.hidden = true;
   ui.claimsRaw.hidden = true;
@@ -482,10 +481,10 @@ function finishExtraction(ev) {
   state.claims = all;
   const first = all.slice(0, MAX_CLAIMS);
   state.beyond = all.slice(MAX_CLAIMS).map((c, k) => ({ n: MAX_CLAIMS + k + 1, ...c, selected: false, tested: false }));
-  ui.claimsList.replaceChildren(...first.map((c) => el('li', {}, [claimNode(c)])));
+  ui.claimsList.replaceChildren(...first.map((c, k) => el('li', {}, [buildCard(c, k + 1)])));
   ui.claims.hidden = all.length === 0 && !state.claimsRaw;
   renderClaimsHeadings();
-  renderBeyond();
+  buildBeyondRows();
   renderClaimsRaw();
   addCost(ev.cost);
 
@@ -499,7 +498,7 @@ function finishExtraction(ev) {
     ui.run.disabled = false;
     return;
   }
-  runBatch(first); // the first 20 (or fewer) always run
+  runBatch(first, [...ui.claimsList.querySelectorAll('.card')]); // the first 20 (or fewer) always run, in their rows
 }
 
 function renderClaimsHeadings() {
@@ -523,23 +522,33 @@ function renderClaimsRaw() {
 
 // ---------- claims beyond the first 20: the reader chooses -------------------------------------
 
-function renderBeyond() {
+function buildBeyondRows() {
   const items = state.beyond;
   ui.beyond.hidden = items.length === 0;
   if (!items.length) return;
   ui.beyondTitle.textContent = t('claims.more', { n: items.length });
-  const busy = state.phase === 'evaluating' || state.phase === 'extracting';
   ui.beyondList.replaceChildren(...items.map((item) => {
-    const box = el('input', { type: 'checkbox', 'aria-label': item.text });
-    box.checked = item.selected;
-    box.disabled = item.tested || busy;
+    const card = buildCard(item, item.n);
+    const box = el('input', { type: 'checkbox', class: 'card-check', 'aria-label': item.text });
     box.addEventListener('change', () => { item.selected = box.checked; renderBeyondTools(); });
-    return el('li', { class: `selectable${item.tested ? ' is-tested' : ''}` }, [
-      box,
-      claimNode(item),
-      item.tested ? el('span', { class: 'tag', text: t('claims.tested') }) : null,
-    ]);
+    $('.card-head', card).prepend(box);
+    item.node = card;
+    item.box = box;
+    return el('li', {}, [card]);
   }));
+  syncBeyondRows();
+}
+
+/** The checkboxes follow the state; a tested row is a row like any other. */
+function syncBeyondRows() {
+  const busy = state.phase === 'evaluating' || state.phase === 'extracting';
+  for (const item of state.beyond) {
+    if (!item.box) continue;
+    item.box.checked = item.selected;
+    item.box.disabled = item.tested || busy;
+    item.box.hidden = item.tested;
+    item.node.classList.toggle('has-check', !item.tested);
+  }
   renderBeyondTools();
 }
 
@@ -564,7 +573,7 @@ function toggleSelectAll() {
   const open = state.beyond.filter((b) => !b.tested);
   const allSelected = open.length > 0 && open.every((b) => b.selected);
   for (const b of open) b.selected = !allSelected;
-  renderBeyond();
+  syncBeyondRows();
 }
 
 async function testSelected() {
@@ -572,11 +581,11 @@ async function testSelected() {
   const chosen = state.beyond.filter((b) => !b.tested && b.selected);
   if (!chosen.length) return;
   for (const b of chosen) { b.tested = true; b.selected = false; }
-  renderBeyond();
+  syncBeyondRows();
   // The server tests at most 20 per request; larger selections run in consecutive batches.
   for (let i = 0; i < chosen.length; i += MAX_CLAIMS) {
-    const chunk = chosen.slice(i, i + MAX_CLAIMS).map(claimOf);
-    await runBatch(chunk);
+    const chunk = chosen.slice(i, i + MAX_CLAIMS);
+    await runBatch(chunk.map(claimOf), chunk.map((b) => b.node));
     if (state.phase !== 'done') break; // a failure or reset stops the queue
   }
 }
@@ -589,10 +598,11 @@ function averageCost() {
 
 // ---------- step 2: one batch of determinations ---------------------------------------------------
 
-async function runBatch(claims) {
+async function runBatch(claims, nodes) {
   const start = state.cards.length;
   state.cards.push(...claims);
   for (const _ of claims) state.results.push(newResult());
+  nodes.forEach((node, k) => { node.dataset.index = String(start + k); node.dataset.state = 'pending'; });
   state.batch = { start, size: claims.length, done: 0 };
   state.phase = 'evaluating';
   state.evalStartedAt = Date.now();
@@ -607,10 +617,8 @@ async function runBatch(claims) {
   ui.scorePhase.hidden = true;
   ui.run.disabled = true;
   renderScoreboard();
-  renderBeyondTools();
-  const newCards = claims.map((claim, k) => buildCard(claim, start + k));
-  ui.results.append(...newCards);
-  newCards[0]?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  syncBeyondRows();
+  for (let k = 0; k < claims.length; k++) renderCardStatus(start + k);
 
   const tick = setInterval(updateEvalBars, 250);
   state.timers.push(tick);
@@ -663,6 +671,7 @@ function handleEvalEvent(ev, mapIndex) {
     case 'note': if (ev.code === 'no_reasoning_summary') r.noSummary = true; break;
     case 'retry':
       r.phase = 'retry'; r.retryAttempt = ev.attempt; r.retryStatus = ev.status ?? null;
+      r.retryReason = ev.reason || null; r.retryUntil = Date.now() + (ev.waitMs || 0);
       renderCardStatus(i); updateEvalStatus();
       break;
     case 'done': finalizeCard(i, ev); break;
@@ -678,7 +687,7 @@ function finishBatch(ev) {
   setStatus('step2', 'step2.done', { total: state.batch.size, time: fmtSeconds(ev.ms || Date.now() - state.evalStartedAt) });
   ui.run.disabled = false;
   renderScoreboard();
-  renderBeyondTools();
+  syncBeyondRows();
 }
 
 function failRun(err) {
@@ -702,7 +711,7 @@ function failRun(err) {
   if (state.phase === 'evaluating') { setStatus('step2', 'step2.stopped'); }
   state.phase = 'done';
   ui.run.disabled = false;
-  renderBeyondTools();
+  syncBeyondRows();
 }
 
 function updateEvalBars() {
@@ -713,6 +722,7 @@ function updateEvalBars() {
   for (let i = start; i < start + size; i++) {
     const r = state.results[i];
     if (!r || r.status !== 'running') continue;
+    if (r.phase === 'retry') renderCardStatus(i);
     const elapsed = now - r.startedAt;
     let f;
     if (r.phase === 'starting') f = easeTime(elapsed, 4000, 0.08);
@@ -727,27 +737,52 @@ function updateEvalBars() {
 
 // ---------- cards ---------------------------------------------------------------------------
 
-function cardOf(i) { return ui.results.children[i]; }
+function cardOf(i) { return document.querySelector(`.card[data-index="${i}"]`); }
 
-function buildCard(claim, i) {
+function buildCard(claim, n) {
   const node = ui.cardTpl.content.firstElementChild.cloneNode(true);
-  node.dataset.index = String(i);
-  $('.card-n', node).textContent = String(i + 1).padStart(2, '0');
+  $('.card-n', node).textContent = String(n).padStart(2, '0');
   $('.card-claim', node).textContent = claim.text;
   if (claim.more) $('.card-claim', node).append(el('span', { class: 'card-more', text: claim.more }));
   $('.card-status', node).textContent = t('card.pending');
+  // The row's place in the run is known only once its batch starts; everything reads it then.
+  const idx = () => Number(node.dataset.index);
   $('.btn-challenge', node).textContent = t('card.challenge');
-  $('.btn-challenge', node).addEventListener('click', () => toggleChallenge(i));
+  $('.btn-challenge', node).addEventListener('click', () => toggleChallenge(idx()));
   $('.btn-retry', node).textContent = t('card.retryBtn');
-  $('.btn-retry', node).addEventListener('click', () => retryClaim(i));
+  $('.btn-retry', node).addEventListener('click', () => retryClaim(idx()));
   const copy = $('.btn-copy', node);
   copy.textContent = t('card.copy');
   copy.addEventListener('click', async () => {
-    const ok = await copyText(state.results[i]?.text || '');
+    const ok = await copyText(state.results[idx()]?.text || '');
     toast(t(ok ? 'card.copied' : 'card.copyFailed'), { error: !ok });
   });
-  wireChallengeForm(node, i);
+  // The row opens and closes in place. Closed, it is the claim, the verdict and the conclusion
+  // behind it; open, it is everything the run produced. Controls inside never toggle it.
+  const head = $('.card-head', node);
+  head.setAttribute('role', 'button');
+  head.tabIndex = 0;
+  head.setAttribute('aria-expanded', 'false');
+  const toggle = (e) => { if (e.target.closest('button, a, input, label, textarea')) return; toggleCard(node); };
+  head.addEventListener('click', toggle);
+  $('.card-brief', node).addEventListener('click', toggle);
+  head.addEventListener('keydown', (e) => { if (e.target === head && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); toggleCard(node); } });
+  wireChallengeForm(node, idx);
   return node;
+}
+
+function toggleCard(node) {
+  const open = node.classList.toggle('is-open');
+  $('.card-head', node).setAttribute('aria-expanded', String(open));
+}
+
+/** The closed row's line: the Conclusion section behind the verdict, in the model's own words. */
+function renderBrief(i) {
+  const r = state.results[i];
+  const brief = $('.card-brief', cardOf(i));
+  const text = r.conclusion || (r.verdict ? '' : t('card.noteUnread'));
+  brief.textContent = text;
+  brief.hidden = !text;
 }
 
 function setCardState(i, stateName) {
@@ -761,7 +796,8 @@ function renderCardStatus(i) {
   const card = cardOf(i);
   const map = { pending: 'card.pending', starting: 'card.starting', reasoning: 'card.reasoning', searching: 'card.searching', writing: 'card.writing', error: 'card.error' };
   let text;
-  if (r.phase === 'retry') text = t('card.retry', { n: r.retryAttempt || 1 });
+  if (r.phase === 'retry' && r.retryReason === 'rate_limit') text = t('card.waitingLimit', { s: Math.max(0, Math.ceil(((r.retryUntil || 0) - Date.now()) / 1000)) });
+  else if (r.phase === 'retry') text = t('card.retry', { n: r.retryAttempt || 1 });
   else if (r.phase === 'searching' && r.trail.length) text = t('card.searchingN', { n: r.trail.length });
   else text = t(map[r.phase] || 'card.pending');
   $('.card-status', card).textContent = text;
@@ -790,7 +826,7 @@ function finalizeCard(i, ev) {
     text: ev.text || r.text,
     reasoning: ev.reasoning || r.reasoning || '',
     verdict: ev.verdict || null, verdictSource: ev.verdictSource || 'none',
-    confidence: ev.confidence ?? null, inspector: ev.inspector || null,
+    confidence: ev.confidence ?? null, inspector: ev.inspector || null, conclusion: ev.conclusion || null,
     usage: ev.usage || null, cost: ev.cost || null, ms: ev.ms ?? null,
     model: ev.model || null, requested: ev.requested || null, fellBack: ev.fellBack || null, effort: ev.effort || null, mode: ev.mode || null,
     trail: ev.trail?.length ? ev.trail : r.trail, sources: ev.sources?.length ? ev.sources : r.sources,
@@ -801,6 +837,7 @@ function finalizeCard(i, ev) {
   card.classList.add(`verdict-${r.verdict || 'unread'}`);
   card.dataset.state = 'done';
   renderEntry(i);
+  renderBrief(i);
   renderBadge(i);
   renderCardDetail(i);
   renderCardNote(i);
@@ -916,9 +953,13 @@ function renderCardError(i) {
   const card = cardOf(i);
   let msg = $('.card-error', card);
   if (!msg) { msg = el('p', { class: 'card-error' }); $('.card-head', card).after(msg); }
-  // A cut connection is said in words first; the technical reason follows, so it can be reported.
-  const why = r.errorCode === 'connection_dropped' ? `${t('card.dropped')} (${r.error || ''})` : (r.error || '');
-  msg.textContent = `${t('card.error')} ${why}`.trim();
+  // Said in words first; the technical reason follows, so it can be reported.
+  const why = r.errorCode === 'connection_dropped' ? `${t('card.dropped')} (${r.error || ''})`
+    : r.errorCode === 'quota_exhausted' ? `${t('card.quota')} (${r.error || ''})`
+    : (r.error || '');
+  msg.replaceChildren(document.createTextNode(`${t('card.error')} ${why}`.trim()),
+    el('button', { type: 'button', class: 'btn btn-small btn-text', text: t('card.retryBtn'), onclick: () => retryClaim(i) }));
+  $('.card-brief', card).hidden = true;
   const foot = $('.card-foot', card);
   foot.hidden = false;
   $('.btn-challenge', card).hidden = true;
@@ -932,6 +973,7 @@ async function retryClaim(i) {
   if (!r || r.status === 'running' || state.phase === 'evaluating') return;
   const card = cardOf(i);
   $('.card-error', card)?.remove();
+  $('.card-brief', card).hidden = true;
   $('.btn-retry', card).hidden = true;
   $('.btn-challenge', card).hidden = false;
   $('.card-foot', card).hidden = true;
@@ -940,6 +982,7 @@ async function retryClaim(i) {
   renderCardStatus(i);
   const tick = setInterval(() => {
     if (r.status !== 'running') return;
+    if (r.phase === 'retry') renderCardStatus(i);
     const elapsed = Date.now() - r.startedAt;
     const f = r.phase === 'writing' ? 0.48 + easeChars(r.chars, 4500, 0.47) : 0.08 + easeTime(elapsed, 90000, 0.4);
     setBar(card.querySelector('.bar'), Math.min(0.96, f));
@@ -1017,7 +1060,7 @@ function exportRun() {
 const MAX_CHALLENGE_FILES = 5;
 const MAX_CHALLENGE_BYTES = 20 * 1024 * 1024;
 
-function wireChallengeForm(card, i) {
+function wireChallengeForm(card, idx) {
   const form = $('.challenge', card);
   const files = [];
   const input = $('.challenge-file', form);
@@ -1049,11 +1092,12 @@ function wireChallengeForm(card, i) {
     input.value = '';
     renderFiles();
   });
-  $('.challenge-cancel', form).addEventListener('click', () => closeChallenge(i, { clear: false }));
+  $('.challenge-cancel', form).addEventListener('click', () => closeChallenge(idx(), { clear: false }));
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
     const message = $('.challenge-text', form).value.trim();
     if (!message && !files.length) { toast(t('challenge.empty'), { error: true }); return; }
+    const i = idx();
     const r = state.results[i];
     const submit = $('.challenge-submit', form);
     submit.disabled = true;
@@ -1103,7 +1147,7 @@ async function startEcho(text) {
       ui.echoShimmer.hidden = true;
       ui.echoImg.hidden = false;
       if (state.accounting) {
-        ui.echoCap.textContent = `${r.model || ''} · ${fmtSeconds(r.ms || 0)}`;
+        ui.echoCap.textContent = r.model || '';
         ui.echoCap.hidden = false;
       }
     };
@@ -1122,7 +1166,7 @@ function refreshDynamicText() {
   ui.step2Title.textContent = state.batch.start > 0 ? t('step2.more', { n: state.batch.size }) : t('step2.title', { n: state.batch.size || MAX_CLAIMS });
   renderWarnings();
   renderClaimsHeadings();
-  renderBeyond();
+  syncBeyondRows();
   renderClaimsRaw();
   renderScoreboard();
   if (!ui.export.hidden) ui.export.textContent = t('run.export');

@@ -153,7 +153,8 @@ truncation setting. No fallback model. No size limit of ours on the document.
 | Web search | on, both steps, not configurable | The prompts were tested in a UI where search is available to every prompt. A request without it is not what was tested. |
 | Reasoning summary | `auto` | Display only: the model's own account of its reasoning, shown on the card. Does not change the answer. Blank to turn off. |
 | Claims run automatically | 20; the rest wait for the reader's selection | Operator's rule |
-| Retries | 8 on rate limits and 5xx, which cost nothing; at most 2 on a connection that failed or was cut, which has already spent its tokens | Never on a model or parameter error |
+| Rate limits | Never a failure. Twenty claims at once against a per-minute budget that holds fewer is a queue: each claim waits exactly as long as OpenAI asks, then goes again, for as long as it takes; the row says it is waiting. A used-up quota is reported in words. | OpenAI's own numbers |
+| Retries | 8 on 5xx, which cost nothing; at most 2 on a connection that failed or was cut, which has already spent its tokens | Never on a model or parameter error |
 | Time limits | None of ours, on either step or on reading a link. An extraction of a very long document or a determination at a high effort takes as long as it takes; only a connection the network reports dead is a failure. | Operator's rule |
 
 Environment variables: `CIVIC_MODEL`, `CIVIC_EFFORT` (both steps), or per step

@@ -72,7 +72,7 @@ export function describeError(err) {
   // An API can quote part of a request back in an error. Nothing of the prompt leaves this way.
   message = redactPrompts(String(message)).slice(0, 2000);
   if (status === 401) return new ApiError(401, 'invalid_key', 'OpenAI rejected the API key.');
-  if (status === 429) return new ApiError(429, code, 'OpenAI rate limit or quota reached. ' + message);
+  if (status === 429) return isRateLimit(err) ? new ApiError(429, 'rate_limited', message) : new ApiError(429, 'quota_exhausted', message);
   if (status === 404 && /model/i.test(message)) return new ApiError(404, 'model_not_found', message);
   if (isConnectionDrop(err)) return new ApiError(502, 'connection_dropped', message);
   return new ApiError(status >= 400 && status < 600 ? status : 502, code, message);
@@ -119,7 +119,32 @@ export function isRetryable(err) {
  * determinations' worth of tokens on one claim.
  */
 export function retryBudget(err) {
+  if (isRateLimit(err)) return Infinity;   // pacing, not failure: wait as long as it takes
   return isConnectionDrop(err) ? Math.min(config.evalRetries, 2) : config.evalRetries;
+}
+
+/**
+ * A rate limit is OpenAI pacing this key: twenty claims at once against a per-minute budget that
+ * holds seven, say. That is a queue, never a failure. A used-up quota is not a rate limit.
+ */
+export function isRateLimit(err) {
+  if (err?.status !== 429) return false;
+  const code = err?.error?.code || err?.code || '';
+  const msg = String(err?.error?.message || err?.message || '');
+  return !(code === 'insufficient_quota' || /exceeded your current quota|billing details/i.test(msg));
+}
+
+/** How long OpenAI asks to wait, from its headers or its own message; null when it does not say. */
+export function rateLimitWaitMs(err) {
+  const h = err?.headers;
+  const get = (k) => (h && typeof h.get === 'function' ? h.get(k) : h?.[k]) || '';
+  const ms = parseFloat(get('retry-after-ms'));
+  if (Number.isFinite(ms) && ms > 0) return ms;
+  const s = parseFloat(get('retry-after'));
+  if (Number.isFinite(s) && s > 0) return s * 1000;
+  const m = String(err?.error?.message || err?.message || '').match(/try again in\s+(\d+(?:\.\d+)?)\s*(ms|s)\b/i);
+  if (m) return Number(m[1]) * (m[2].toLowerCase() === 'ms' ? 1 : 1000);
+  return null;
 }
 
 export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));

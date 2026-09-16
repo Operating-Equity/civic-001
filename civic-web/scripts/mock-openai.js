@@ -66,8 +66,16 @@ app.post('/v1/responses', async (req, res) => {
   const body = req.body || {};
   if (!KNOWN_MODELS.has(body.model)) return modelError(res, body.model);
   const ordinal = ++requestOrdinal;
+  if (LIMIT.has(ordinal)) {
+    res.set('retry-after-ms', '700');
+    res.set('retry-after', '1');
+    return res.status(429).json({ error: { message: `Rate limit reached for ${body.model} in organization org-mock0000000000000000000 on tokens per min (TPM): Limit 500000, Used 472163, Requested 68147. Please try again in 0.7s. Visit https://platform.openai.com/account/rate-limits to learn more.`, type: 'tokens', param: null, code: 'rate_limit_exceeded' } });
+  }
   const text = inputText(body);
-  const isEvaluation = /^\s*Prompt\s*=/.test(text);
+  // Which of the two requests this is. The guard tells the stand-in how a determination begins
+  // (MOCK_EVAL_MARK, derived at run time from whatever evaluation prompt is installed, never
+  // written down here); by hand, a message that opens "Prompt =" is taken to be one.
+  const isEvaluation = process.env.MOCK_EVAL_MARK ? text.includes(process.env.MOCK_EVAL_MARK) : /^\s*Prompt\s*=/.test(text);
   const isArtDirection = /art director/i.test(String(body.instructions || ''));
 
   // Exercise the case where a PARAMETER is unsupported: the server must surface this as an error,
@@ -227,6 +235,9 @@ function pickQueries(claim) {
 // MOCK_DROP_REQUESTS=2,5: those requests, counted from the first this process receives, lose their
 // connection a few chunks in, the way a real stream dies when a socket is cut.
 const DROP = new Set(String(process.env.MOCK_DROP_REQUESTS || '').split(',').map(Number).filter(Boolean));
+// MOCK_RATE_LIMIT_REQUESTS=2: those requests are answered with OpenAI's rate-limit refusal, headers and
+// all, so the server's pacing can be proved. The organisation id is invented.
+const LIMIT = new Set(String(process.env.MOCK_RATE_LIMIT_REQUESTS || '').split(',').map(Number).filter(Boolean));
 let requestOrdinal = 0;
 
 // Invented entries for development only, in the labelled shape the reader keys on: a claim

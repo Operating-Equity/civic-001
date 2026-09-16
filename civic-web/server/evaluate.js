@@ -7,7 +7,7 @@
 // read, the verdict is null and the card says so rather than guessing.
 import { config } from './config.js';
 import { evaluationPrompt } from './prompts.js';
-import { clientFor, withModelFallback, usageOf, isRetryable, retryBudget, sleep, describeError } from './openai.js';
+import { clientFor, withModelFallback, usageOf, isRetryable, retryBudget, isRateLimit, isConnectionDrop, rateLimitWaitMs, sleep, describeError } from './openai.js';
 import { estimateTextCost } from './pricing.js';
 import { record, claimHash } from './ledger.js';
 
@@ -37,11 +37,17 @@ export function parseEntry(raw) {
 
   // 1. The author's own output format: section 6, "Conclusion".
   const headings = [...text.matchAll(/(?:^|\n)[^\n]{0,12}\**\s*Conclusion\**\s*[:\-–]/gi)];
+  // The Conclusion section itself, up to the next section, is what the row shows when closed.
+  let conclusion = null;
   if (headings.length) {
-    const at = headings[headings.length - 1].index;
+    const h = headings[headings.length - 1];
+    const at = h.index;
     const window = text.slice(at, at + 400);
     const m = window.match(WORD_RE);
     if (m) { verdict = VERDICT_WORDS[m[1].toLowerCase()]; source = 'conclusion'; }
+    const rest = text.slice(at + h[0].length);
+    const stop = rest.search(/\n\s*(?:#{1,6}\s|\d+\.\s*\*{0,2}[A-Z]|\*{2}[A-Z][^*\n]{1,40}\*{2}\s*[:\-–])/);
+    conclusion = rest.slice(0, stop >= 0 ? stop : undefined).replace(/^\s*\*+\s*/, '').replace(/\*\*/g, '').trim().slice(0, 1500) || null;
   }
 
   // 2. An explicit tag, if the author ever adds one to the prompt.
@@ -61,7 +67,7 @@ export function parseEntry(raw) {
   const inspector = name ? name[1].replace(/[\[\]]/g, '').trim().slice(0, 160) : null;
 
   // text is returned untouched.
-  return { verdict, verdictSource: source, confidence, inspector, text };
+  return { verdict, verdictSource: source, confidence, inspector, conclusion, text };
 }
 
 export async function runEvaluation({ apiKey, claims, send, signal }) {
@@ -184,10 +190,14 @@ export async function runEvaluation({ apiKey, claims, send, signal }) {
           continue;
         }
         if (tries < retryBudget(err) && isRetryable(err)) {
-          const waitMs = 2000 * 2 ** tries + Math.random() * 500;
-          // The status is passed on: a 429 means this key's rate limit is throttling the run, which
-          // is the difference between twenty claims running at once and twenty claims queueing.
-          send({ t: 'retry', i, attempt: tries + 1, status: err?.status ?? null, waitMs: Math.round(waitMs) });
+          // A rate limit is OpenAI pacing this key: wait exactly as long as it asks, then go again,
+          // for as long as it takes. Anything else backs off, never beyond the one-minute window
+          // that rate limits are measured in. The reason is passed on, so the row can say
+          // "waiting for the key's rate limit" rather than showing an error.
+          const asked = isRateLimit(err) ? rateLimitWaitMs(err) : null;
+          const waitMs = (asked !== null ? asked : Math.min(2000 * 2 ** tries, 60 * 1000)) + Math.random() * 500;
+          const reason = isRateLimit(err) ? 'rate_limit' : (isConnectionDrop(err) ? 'connection' : 'error');
+          send({ t: 'retry', i, attempt: tries + 1, status: err?.status ?? null, reason, waitMs: Math.round(waitMs) });
           await sleep(waitMs);
           continue;
         }
@@ -214,6 +224,7 @@ export async function runEvaluation({ apiKey, claims, send, signal }) {
     send({
       t: 'done', i,
       verdict: parsed.verdict, verdictSource: parsed.verdictSource, confidence: parsed.confidence, inspector: parsed.inspector,
+      conclusion: parsed.conclusion, // the Conclusion section, for the closed row
       text: parsed.text,            // complete, unmodified
       reasoning: reasoning.trim() || null,
       trail, sources,
