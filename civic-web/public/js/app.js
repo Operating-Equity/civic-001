@@ -341,10 +341,12 @@ function showFailure(message, err) {
 function updateEvalStatus() {
   if (state.phase !== 'evaluating' || !state.batch.size) return;
   const running = state.results.filter((r) => r.status === 'running').length;
-  const throttled = state.results.filter((r) => r.phase === 'queued' || (r.status === 'running' && r.phase === 'retry' && r.retryStatus === 429)).length;
+  // A claim held at the gate has not started; one waiting to go again has, but is not working.
+  const throttled = state.results.filter((r) => r.phase === 'queued' || (r.status === 'running' && r.phase === 'retry')).length;
+  const working = state.results.filter((r) => r.status === 'running' && r.phase !== 'queued' && r.phase !== 'retry').length;
   const elapsed = fmtSeconds(Date.now() - state.evalStartedAt);
   if (throttled) {
-    setStatus('step2', 'step2.throttled', { running: running - throttled, n: throttled, done: state.batch.done, total: state.batch.size, time: elapsed });
+    setStatus('step2', 'step2.throttled', { running: working, n: throttled, done: state.batch.done, total: state.batch.size, time: elapsed });
   } else if (running) {
     setStatus('step2', 'step2.running', { running, done: state.batch.done, total: state.batch.size, time: elapsed });
   } else {
