@@ -72,7 +72,10 @@ app.post('/v1/responses', async (req, res) => {
     return res.status(429).json({ error: { message: `Rate limit reached for ${body.model} in organization org-mock0000000000000000000 on tokens per min (TPM): Limit 500000, Used 472163, Requested 68147. Please try again in 0.7s. Visit https://platform.openai.com/account/rate-limits to learn more.`, type: 'tokens', param: null, code: 'rate_limit_exceeded' } });
   }
   const text = inputText(body);
-  const isEvaluation = /^\s*Prompt\s*=/.test(text);
+  // Which of the two requests this is. The guard tells the stand-in how a determination begins
+  // (MOCK_EVAL_MARK, derived at run time from whatever evaluation prompt is installed, never
+  // written down here); by hand, a message that opens "Prompt =" is taken to be one.
+  const isEvaluation = process.env.MOCK_EVAL_MARK ? text.includes(process.env.MOCK_EVAL_MARK) : /^\s*Prompt\s*=/.test(text);
   const isArtDirection = /art director/i.test(String(body.instructions || ''));
 
   // Exercise the case where a PARAMETER is unsupported: the server must surface this as an error,

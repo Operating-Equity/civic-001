@@ -96,7 +96,11 @@ try {
   // The mock refuses the second request with a rate limit (the determination, which follows the
   // extraction) and cuts the retry's connection a few chunks in: the server must wait what OpenAI
   // asked, go again, and after the cut go again once more.
-  start([path.join(root, 'scripts', 'mock-openai.js')], { MOCK_PORT: String(MOCK_PORT), MOCK_RECORD: record, MOCK_SPEED: '0.2', MOCK_RATE_LIMIT_REQUESTS: '2', MOCK_DROP_REQUESTS: '3' });
+  // The stand-in tells a determination from an extraction by how the installed evaluation prompt
+  // begins (the text before the claim's placeholder, or after it when the placeholder comes first).
+  const [before, after] = evaluatePrompt.split('{{CLAIM}}');
+  const evalMark = (before.trim() || after.trim()).slice(0, 60);
+  start([path.join(root, 'scripts', 'mock-openai.js')], { MOCK_PORT: String(MOCK_PORT), MOCK_RECORD: record, MOCK_SPEED: '0.2', MOCK_RATE_LIMIT_REQUESTS: '2', MOCK_DROP_REQUESTS: '3', MOCK_EVAL_MARK: evalMark });
   await wait(`http://localhost:${MOCK_PORT}/v1/responses`, 15000, { anyResponse: true });
   start([path.join(root, 'server', 'index.js')], { PORT: String(PORT), OPENAI_BASE_URL: `http://localhost:${MOCK_PORT}/v1`, OPENAI_API_KEY: KEY, CIVIC_IMAGE_ENABLED: 'false', CIVIC_LEDGER_FILE: path.join(os.tmpdir(), 'civic-verify-ledger.jsonl') });
   await wait(`http://localhost:${PORT}/api/health`);
