@@ -25,6 +25,7 @@ export default {
   },
   step1: {
     title: 'Extrayendo afirmaciones empíricas',
+    queued: 'Esperando espacio en el presupuesto por minuto de la clave…',
     reading: 'Leyendo {n} caracteres…',
     found_one: '{n} afirmación encontrada hasta ahora',
     found_other: '{n} afirmaciones encontradas hasta ahora',
@@ -79,6 +80,7 @@ export default {
     writing: 'Redactando la entrada…',
     retry: 'Reintentando (intento {n})…',
     waitingLimit: 'Esperando el límite de uso de la clave · {s} s',
+    queued: 'Esperando espacio en el presupuesto por minuto de la clave',
     quota: 'OpenAI indica que la cuota de esta clave se ha agotado; el operador debe añadir crédito.',
     incomplete: 'La entrada se cortó por el límite de salida.',
     error: 'Esta afirmación no pudo probarse.',

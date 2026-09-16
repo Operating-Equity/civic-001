@@ -339,7 +339,7 @@ function showFailure(message, err) {
 function updateEvalStatus() {
   if (state.phase !== 'evaluating' || !state.batch.size) return;
   const running = state.results.filter((r) => r.status === 'running').length;
-  const throttled = state.results.filter((r) => r.status === 'running' && r.phase === 'retry' && r.retryStatus === 429).length;
+  const throttled = state.results.filter((r) => r.phase === 'queued' || (r.status === 'running' && r.phase === 'retry' && r.retryStatus === 429)).length;
   const elapsed = fmtSeconds(Date.now() - state.evalStartedAt);
   if (throttled) {
     setStatus('step2', 'step2.throttled', { n: throttled, done: state.batch.done, total: state.batch.size, time: elapsed });
@@ -403,6 +403,7 @@ async function runExtraction(text) {
         state.extractSearches = ev.searches || (state.extractSearches + 1);
         break;
       case 'retry': setStatus('step1', 'step1.retry'); break;
+      case 'phase': if (ev.phase === 'queued') setStatus('step1', 'step1.queued'); break;
       case 'warning': addWarning(ev); break;
       case 'phase': if (ev.phase === 'incomplete') toast(t('step1.incomplete'), { error: true, ms: 9000 }); break;
       case 'done': finished = true; finishExtraction(ev); break;
@@ -655,6 +656,7 @@ function handleEvalEvent(ev, mapIndex) {
       break;
     case 'phase':
       if (ev.phase === 'incomplete') { r.incomplete = ev.reason || 'incomplete'; }
+      else if (ev.phase === 'queued') { r.phase = 'queued'; r.queuedUntil = ev.waitMs ? Date.now() + ev.waitMs : 0; renderCardStatus(i); updateEvalStatus(); }
       else if (r.phase !== 'writing') { r.phase = ev.phase; renderCardStatus(i); }
       break;
     case 'reasoning':
@@ -721,7 +723,9 @@ function updateEvalBars() {
   const { start, size } = state.batch;
   for (let i = start; i < start + size; i++) {
     const r = state.results[i];
-    if (!r || r.status !== 'running') continue;
+    if (!r) continue;
+    if (r.phase === 'queued') { renderCardStatus(i); continue; }
+    if (r.status !== 'running') continue;
     if (r.phase === 'retry') renderCardStatus(i);
     const elapsed = now - r.startedAt;
     let f;
@@ -796,7 +800,10 @@ function renderCardStatus(i) {
   const card = cardOf(i);
   const map = { pending: 'card.pending', starting: 'card.starting', reasoning: 'card.reasoning', searching: 'card.searching', writing: 'card.writing', error: 'card.error' };
   let text;
-  if (r.phase === 'retry' && r.retryReason === 'rate_limit') text = t('card.waitingLimit', { s: Math.max(0, Math.ceil(((r.retryUntil || 0) - Date.now()) / 1000)) });
+  if (r.phase === 'queued') {
+    const s = r.queuedUntil ? Math.max(0, Math.ceil((r.queuedUntil - Date.now()) / 1000)) : 0;
+    text = t('card.queued') + (s > 0 ? ` · ${s} s` : '');
+  } else if (r.phase === 'retry' && r.retryReason === 'rate_limit') text = t('card.waitingLimit', { s: Math.max(0, Math.ceil(((r.retryUntil || 0) - Date.now()) / 1000)) });
   else if (r.phase === 'retry') text = t('card.retry', { n: r.retryAttempt || 1 });
   else if (r.phase === 'searching' && r.trail.length) text = t('card.searchingN', { n: r.trail.length });
   else text = t(map[r.phase] || 'card.pending');

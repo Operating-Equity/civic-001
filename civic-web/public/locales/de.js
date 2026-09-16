@@ -25,6 +25,7 @@ export default {
   },
   step1: {
     title: 'Empirische Behauptungen werden extrahiert',
+    queued: 'Warten auf Platz im Minutenbudget des Schlüssels…',
     reading: '{n} Zeichen werden gelesen…',
     found_one: 'Bisher {n} Behauptung gefunden',
     found_other: 'Bisher {n} Behauptungen gefunden',
@@ -79,6 +80,7 @@ export default {
     writing: 'Eintrag wird verfasst…',
     retry: 'Erneuter Versuch ({n})…',
     waitingLimit: 'Warten auf das Nutzungslimit des Schlüssels · {s} s',
+    queued: 'Warten auf Platz im Minutenbudget des Schlüssels',
     quota: 'OpenAI meldet, dass das Kontingent dieses Schlüssels aufgebraucht ist; der Betreiber muss Guthaben hinzufügen.',
     incomplete: 'Der Eintrag wurde durch das Ausgabelimit abgeschnitten.',
     error: 'Diese Behauptung konnte nicht geprüft werden.',

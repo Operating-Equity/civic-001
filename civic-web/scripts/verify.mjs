@@ -100,6 +100,7 @@ try {
   // begins (the text before the claim's placeholder, or after it when the placeholder comes first).
   const [before, after] = evaluatePrompt.split('{{CLAIM}}');
   const evalMark = (before.trim() || after.trim()).slice(0, 60);
+  process.env.MOCK_EVAL_MARK_FOR_GATE = evalMark;
   start([path.join(root, 'scripts', 'mock-openai.js')], { MOCK_PORT: String(MOCK_PORT), MOCK_RECORD: record, MOCK_SPEED: '0.2', MOCK_RATE_LIMIT_REQUESTS: '2', MOCK_DROP_REQUESTS: '3', MOCK_EVAL_MARK: evalMark });
   await wait(`http://localhost:${MOCK_PORT}/v1/responses`, 15000, { anyResponse: true });
   start([path.join(root, 'server', 'index.js')], { PORT: String(PORT), OPENAI_BASE_URL: `http://localhost:${MOCK_PORT}/v1`, OPENAI_API_KEY: KEY, CIVIC_IMAGE_ENABLED: 'false', CIVIC_LEDGER_FILE: path.join(os.tmpdir(), 'civic-verify-ledger.jsonl') });
@@ -193,6 +194,31 @@ try {
 }
 
 for (const r of leakChecks()) results.push(r); // no line of the prompts may sit in a committed file
+
+// The gate. Six claims against a key whose minute budget holds three requests, on a window of
+// three seconds: nothing may be refused, never more than three may be in the window, every claim
+// must finish, and the held ones must have said they were waiting.
+async function gateChecks() {
+  const MOCK2 = MOCK_PORT + 1, PORT2 = PORT + 3;
+  const reserve = 68147;
+  const mock = start([path.join(root, 'scripts', 'mock-openai.js')], { MOCK_PORT: String(MOCK2), MOCK_SPEED: '0.2', MOCK_TPM: String(reserve * 3), MOCK_RESERVE: String(reserve), MOCK_WINDOW_MS: '3000', MOCK_EVAL_HOLD_MS: '400', MOCK_EVAL_MARK: process.env.MOCK_EVAL_MARK_FOR_GATE || '' });
+  await wait(`http://localhost:${MOCK2}/v1/mock/stats`, 15000, { anyResponse: true });
+  const server = start([path.join(root, 'server', 'index.js')], { PORT: String(PORT2), OPENAI_BASE_URL: `http://localhost:${MOCK2}/v1`, OPENAI_API_KEY: KEY, CIVIC_IMAGE_ENABLED: 'false', CIVIC_LEDGER_FILE: path.join(os.tmpdir(), 'civic-verify-ledger.jsonl') });
+  await wait(`http://localhost:${PORT2}/api/health`);
+  const claims = [1, 2, 3, 4, 5, 6].map((n) => `Claim number ${n} for the gate: the tower is ${300 + n} metres tall.`);
+  let events = [];
+  let failure = '';
+  try { events = await stream(`http://localhost:${PORT2}/api/evaluate`, { claims }); } catch (err) { failure = err.message; }
+  const stats = await (await fetch(`http://localhost:${MOCK2}/v1/mock/stats`, { headers: { authorization: `Bearer ${KEY}` } })).json();
+  const done = events.filter((e) => e.t === 'done').length;
+  const queued = events.filter((e) => e.t === 'phase' && e.phase === 'queued').length;
+  check('the gate sends nothing the minute budget cannot hold: six claims, a budget of three, no refusal',
+    !failure && stats.refused === 0 && stats.maxInWindow <= 3 && stats.admitted === 6, `${failure} refused=${stats.refused} maxInWindow=${stats.maxInWindow} admitted=${stats.admitted}`);
+  check('the held claims said they were waiting for the budget, and all six finished', queued >= 1 && done === 6, `queued=${queued} done=${done}`);
+  try { server.kill('SIGTERM'); } catch {}
+  try { mock.kill('SIGTERM'); } catch {}
+}
+await gateChecks();
 
 // The port is CIVIC's. An older CIVIC still holding it is closed and the port taken over; anything
 // else on it is left alone and named. Both are proved here with stand-in processes: one that runs

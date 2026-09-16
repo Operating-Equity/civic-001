@@ -25,6 +25,7 @@ export default {
   },
   step1: {
     title: 'Extraction des affirmations empiriques',
+    queued: 'En attente de place dans le budget par minute de la clé…',
     reading: 'Lecture de {n} caractères…',
     found_one: '{n} affirmation trouvée jusqu\'ici',
     found_other: '{n} affirmations trouvées jusqu\'ici',
@@ -79,6 +80,7 @@ export default {
     writing: 'Rédaction de l\'entrée…',
     retry: 'Nouvelle tentative ({n})…',
     waitingLimit: 'En attente de la limite de débit de la clé · {s} s',
+    queued: 'En attente de place dans le budget par minute de la clé',
     quota: 'OpenAI indique que le quota de cette clé est épuisé ; l\'opérateur doit ajouter du crédit.',
     incomplete: 'L\'entrée a été coupée par la limite de sortie.',
     error: 'Cette affirmation n\'a pas pu être testée.',

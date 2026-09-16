@@ -7,7 +7,7 @@
 // read, the verdict is null and the card says so rather than guessing.
 import { config } from './config.js';
 import { evaluationPrompt } from './prompts.js';
-import { clientFor, withModelFallback, usageOf, isRetryable, retryBudget, isRateLimit, isConnectionDrop, rateLimitWaitMs, sleep, describeError } from './openai.js';
+import { clientFor, withModelFallback, usageOf, isRetryable, retryBudget, isRateLimit, isConnectionDrop, rateLimitWaitMs, sleep, describeError, throughGate } from './openai.js';
 import { estimateTextCost } from './pricing.js';
 import { record, claimHash } from './ledger.js';
 
@@ -106,7 +106,8 @@ export async function runEvaluation({ apiKey, claims, send, signal }) {
         stream: true,
         store: false, // the key belongs to the reader; the prompt must not appear in their dashboard
       };
-      return client.responses.create(body, { signal });
+      // Through the gate: sent only when the key's minute budget covers it. A held claim's row says so.
+      return throughGate(client, body, { signal, onHold: ({ waitMs }) => send({ t: 'phase', i, phase: 'queued', waitMs }) });
     };
 
     for (let tries = 0; ; tries++) {
@@ -114,8 +115,9 @@ export async function runEvaluation({ apiKey, claims, send, signal }) {
         text = '';
         reasoning = '';
         await withModelFallback('evaluate', config.evalModels, async (model) => {
-          const stream = await request(model);
+          const { data: stream, release } = await request(model);
           modelUsed = model;
+          try {
           send({ t: 'start', i, model, requested: config.evalModels[0], at: Date.now() });
           for await (const event of stream) {
             if (signal.aborted) return;
@@ -178,6 +180,9 @@ export async function runEvaluation({ apiKey, claims, send, signal }) {
               default:
                 break;
             }
+          }
+          } finally {
+            release();   // the gate learns the request is over, whatever ended it
           }
         }, (f) => { fellBack = f; send({ t: 'warning', i, code: 'model_fallback', ...f }); });
         break;

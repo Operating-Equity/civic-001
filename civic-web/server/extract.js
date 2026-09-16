@@ -3,7 +3,7 @@
 import { config } from './config.js';
 import { extractionRequest, extractionShape } from './prompts.js';
 import { sourceBlock } from './source.js';
-import { clientFor, withModelFallback, usageOf, isRetryable, retryBudget, isRateLimit, isConnectionDrop, rateLimitWaitMs, sleep } from './openai.js';
+import { clientFor, withModelFallback, usageOf, isRetryable, retryBudget, isRateLimit, isConnectionDrop, rateLimitWaitMs, sleep, throughGate } from './openai.js';
 import { estimateTextCost } from './pricing.js';
 import { record } from './ledger.js';
 
@@ -68,7 +68,7 @@ export async function runExtraction({ apiKey, text, meta, send, signal, sourceWa
       stream: true,
       store: false,
     };
-    return client.responses.create(body, { signal });
+    return throughGate(client, body, { signal, onHold: ({ waitMs }) => send({ t: 'phase', phase: 'queued', waitMs }) });
   };
 
   let usage = null;
@@ -81,9 +81,10 @@ export async function runExtraction({ apiKey, text, meta, send, signal, sourceWa
       full = '';
       emitted = 0;
       await withModelFallback('extract', config.extractModels, async (model) => {
-        const stream = await attempt(model);
+        const { data: stream, release } = await attempt(model);
         modelUsed = model;
         send({ t: 'start', model, requested: config.extractModels[0], at: started });
+        try {
         for await (const event of stream) {
           if (signal.aborted) return;
           if (event.type === 'response.output_text.delta') {
@@ -117,6 +118,9 @@ export async function runExtraction({ apiKey, text, meta, send, signal, sourceWa
             e.status = 502;
             throw e;
           }
+        }
+        } finally {
+          release();
         }
       }, (f) => { fellBack = f; send({ t: 'warning', code: 'model_fallback', ...f }); });
       break;
