@@ -8,7 +8,7 @@
 //   2. Image. The brief is composed into a fixed house style drawn from the CIVIC photograph:
 //      a documentary frame in morning light, people at human scale, no text of any kind.
 import { config } from './config.js';
-import { clientFor, withModelFallback } from './openai.js';
+import { clientFor, withModelFallback, throughGate } from './openai.js';
 import { estimateImageCost, estimateTextCost } from './pricing.js';
 import { record } from './ledger.js';
 
@@ -43,18 +43,15 @@ async function artDirect({ client, text, signal }) {
   const excerpt = String(text).replace(/\s+/g, ' ').slice(0, 6000);
   try {
     const { response, model } = await withModelFallback('artdirect', config.artDirectionModels, async (m) => {
-      const r = await client.responses.create(
-        {
-          model: m,
-          instructions: ART_DIRECTION_INSTRUCTIONS,
-          input: [{ role: 'user', content: [{ type: 'input_text', text: excerpt }] }],
-          reasoning: { effort: config.artDirectionEffort },
-          max_output_tokens: 700,
-          stream: false,
-          store: false,
-        },
-        { signal },
-      );
+      const { data: r, release } = await throughGate(client, {
+        model: m,
+        instructions: ART_DIRECTION_INSTRUCTIONS,
+        input: [{ role: 'user', content: [{ type: 'input_text', text: excerpt }] }],
+        reasoning: { effort: config.artDirectionEffort },
+        stream: false,
+        store: false,
+      }, { signal });
+      release();
       return { response: r, model: m };
     });
     const brief = (response.output_text || '').trim();

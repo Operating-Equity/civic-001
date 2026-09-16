@@ -4,6 +4,7 @@ import { config } from './config.js';
 import { redactPrompts } from './prompts.js';
 import { HEADER_SAFE } from './key.js';
 import { openaiFetch, NO_LIMIT_MS } from './http.js';
+import { gateFor } from './gate.js';
 
 export class ApiError extends Error {
   constructor(status, code, message) {
@@ -148,6 +149,26 @@ export function rateLimitWaitMs(err) {
 }
 
 export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * Sends one request through the gate for its model: waits until the budget covers it, sends it,
+ * gives the gate OpenAI's headers from the reply (or from the refusal), and hands back the reply.
+ * `stream` is the Stream for a streaming request, the response object otherwise. The caller must
+ * call `release()` when the reply has been consumed, so the gate knows the request is over.
+ */
+export async function throughGate(client, body, { signal, onHold } = {}) {
+  const gate = gateFor(body.model);
+  const seq = await gate.admit({ signal, onHold });
+  try {
+    const { data, response } = await client.responses.create(body, { signal }).withResponse();
+    gate.observe(response.headers, { seq });
+    return { data, release: () => gate.done() };
+  } catch (err) {
+    gate.observe(err?.headers, { seq, message: err?.error?.message || err?.message || '', refused: err?.status === 429, waitMs: err?.status === 429 ? rateLimitWaitMs(err) : null });
+    gate.done();
+    throw err;
+  }
+}
 
 /**
  * Tries each model id in order until one is accepted by the account. Remembers the winner

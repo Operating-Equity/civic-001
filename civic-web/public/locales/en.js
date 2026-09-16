@@ -26,6 +26,7 @@ export default {
   },
   step1: {
     title: 'Extracting empirical claims',
+    queued: 'Waiting for room in the key\'s minute budget…',
     reading: 'Reading {n} characters…',
     found_one: '{n} claim found so far',
     found_other: '{n} claims found so far',
@@ -80,6 +81,7 @@ export default {
     writing: 'Writing the entry…',
     retry: 'Retrying (attempt {n})…',
     waitingLimit: 'Waiting for the key\'s rate limit · {s} s',
+    queued: 'Waiting for room in the key\'s minute budget',
     quota: 'OpenAI says this key\'s quota is used up; the operator needs to add credit.',
     incomplete: 'The entry was cut short by the output limit.',
     error: 'This claim could not be tested.',

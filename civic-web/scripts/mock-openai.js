@@ -66,11 +66,18 @@ app.post('/v1/responses', async (req, res) => {
   const body = req.body || {};
   if (!KNOWN_MODELS.has(body.model)) return modelError(res, body.model);
   const ordinal = ++requestOrdinal;
-  if (LIMIT.has(ordinal)) {
+  const budget = budgetHeaders(res);
+  if (LIMIT.has(ordinal)) {                          // a refusal on purpose, headers and all
     res.set('retry-after-ms', '700');
     res.set('retry-after', '1');
-    return res.status(429).json({ error: { message: `Rate limit reached for ${body.model} in organization org-mock0000000000000000000 on tokens per min (TPM): Limit 500000, Used 472163, Requested 68147. Please try again in 0.7s. Visit https://platform.openai.com/account/rate-limits to learn more.`, type: 'tokens', param: null, code: 'rate_limit_exceeded' } });
+    stats.refused++;
+    return res.status(429).json({ error: { message: `Rate limit reached for ${body.model} in organization org-mock0000000000000000000 on tokens per min (TPM): Limit ${BUDGET.limit}, Used ${BUDGET.limit - budget.remaining}, Requested ${BUDGET.reserve}. Please try again in 0.7s. Visit https://platform.openai.com/account/rate-limits to learn more.`, type: 'tokens', param: null, code: 'rate_limit_exceeded' } });
   }
+  if (budget.remaining < BUDGET.reserve) return refuse(res, body.model, budget.remaining, budget.resetMs);
+  window.push({ at: Date.now() });
+  stats.admitted++;
+  stats.maxInWindow = Math.max(stats.maxInWindow, window.length);
+  budgetHeaders(res);                                // the reply's headers show this request deducted
   const text = inputText(body);
   // Which of the two requests this is. The guard tells the stand-in how a determination begins
   // (MOCK_EVAL_MARK, derived at run time from whatever evaluation prompt is installed, never
@@ -203,6 +210,8 @@ app.post('/v1/images/generations', async (req, res) => {
   res.json({ created: Math.floor(Date.now() / 1000), model: body.model, output_format: 'jpeg', data: [{ b64_json: imageB64 }] });
 });
 
+app.get('/v1/mock/stats', (req, res) => res.json({ ...stats, inWindow: window.length, budget: BUDGET }));
+
 app.use((req, res) => res.status(404).json({ error: { message: `mock: no route ${req.method} ${req.path}` } }));
 
 app.listen(PORT, () => console.log(`mock OpenAI on http://localhost:${PORT}/v1  (speed x${SPEED})`));
@@ -238,6 +247,28 @@ const DROP = new Set(String(process.env.MOCK_DROP_REQUESTS || '').split(',').map
 // MOCK_RATE_LIMIT_REQUESTS=2: those requests are answered with OpenAI's rate-limit refusal, headers and
 // all, so the server's pacing can be proved. The organisation id is invented.
 const LIMIT = new Set(String(process.env.MOCK_RATE_LIMIT_REQUESTS || '').split(',').map(Number).filter(Boolean));
+// A token budget per window, the way OpenAI keeps one per minute, reported in OpenAI's headers on
+// every reply. MOCK_TPM is the budget, MOCK_RESERVE what one request costs in that accounting,
+// MOCK_WINDOW_MS the window. A request the budget cannot hold is refused as OpenAI refuses it.
+const BUDGET = { limit: Number(process.env.MOCK_TPM || 5_000_000), reserve: Number(process.env.MOCK_RESERVE || 68147), windowMs: Number(process.env.MOCK_WINDOW_MS || 60_000) };
+const window = [];                                   // { at } of every admitted request
+const stats = { refused: 0, maxInWindow: 0, admitted: 0 };
+function budgetHeaders(res) {
+  const now = Date.now();
+  while (window.length && now - window[0].at >= BUDGET.windowMs) window.shift();
+  const remaining = Math.max(0, BUDGET.limit - window.length * BUDGET.reserve);
+  const resetMs = window.length ? Math.max(0, window[window.length - 1].at + BUDGET.windowMs - now) : 0;
+  res.set('x-ratelimit-limit-tokens', String(BUDGET.limit));
+  res.set('x-ratelimit-remaining-tokens', String(remaining));
+  res.set('x-ratelimit-reset-tokens', `${(resetMs / 1000).toFixed(3)}s`);
+  return { remaining, resetMs };
+}
+function refuse(res, model, remaining, resetMs) {
+  stats.refused++;
+  res.set('retry-after-ms', String(Math.max(1, resetMs)));
+  res.set('retry-after', String(Math.max(1, Math.ceil(resetMs / 1000))));
+  return res.status(429).json({ error: { message: `Rate limit reached for ${model} in organization org-mock0000000000000000000 on tokens per min (TPM): Limit ${BUDGET.limit}, Used ${BUDGET.limit - remaining}, Requested ${BUDGET.reserve}. Please try again in ${(resetMs / 1000).toFixed(3)}s. Visit https://platform.openai.com/account/rate-limits to learn more.`, type: 'tokens', param: null, code: 'rate_limit_exceeded' } });
+}
 let requestOrdinal = 0;
 
 // Invented entries for development only, in the labelled shape the reader keys on: a claim
