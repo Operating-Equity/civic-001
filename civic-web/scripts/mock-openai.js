@@ -299,8 +299,10 @@ function costOf(kind) {
   if (kind === 'determination' && SERIES.length) return SERIES[determinations++ % SERIES.length];
   return COSTS[kind] ?? RESERVE;
 }
-function limitHeaders(res) {
-  const now = Date.now();
+// The headers are written for the moment of the decision, as the real ones are: with a three-second
+// minute the bucket refills 68 tokens a millisecond, and a header written a millisecond later
+// would show a cost 68 tokens short.
+function limitHeaders(res, now = Date.now()) {
   const tokens = levelOf(TOKENS, now);
   res.set('x-ratelimit-limit-tokens', String(TOKENS.limit));
   res.set('x-ratelimit-remaining-tokens', String(Math.floor(tokens)));
@@ -328,14 +330,14 @@ function admitOrRefuse(res, model, kind, drained) {
   stats.maxInFlight = Math.max(stats.maxInFlight, stats.inFlight);
   const entry = { at: now, kind, cost, level: Math.floor(TOKENS.level), endedAt: null };
   stats.timeline.push(entry);
-  limitHeaders(res);
+  limitHeaders(res, now);
   return entry;
 }
 function refuse(res, model, what, b, need) {
   stats.refused++;
   const used = b.limit - Math.floor(b.level);
   const wait = (need - b.level) * WINDOW / b.limit;
-  limitHeaders(res);
+  limitHeaders(res, b.at);
   res.set('retry-after-ms', String(Math.ceil(wait)));
   res.set('retry-after', String(Math.max(1, Math.ceil(wait / 1000))));
   res.status(429).json({ error: { message: `Rate limit reached for ${model} in organization org-mock0000000000000000000 on ${what}: Limit ${b.limit}, Used ${used}, Requested ${need}. Please try again in ${fmtWait(wait)}. Visit https://platform.openai.com/account/rate-limits to learn more.`, type: what.startsWith('tokens') ? 'tokens' : 'requests', param: null, code: 'rate_limit_exceeded' } });
