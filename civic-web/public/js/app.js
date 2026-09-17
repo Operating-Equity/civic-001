@@ -469,7 +469,9 @@ function renderExtractThinking() {
 
 // A claim is the text that is tested and, when the model wrote further labelled lines beside it
 // (who said it and when, what the source does not say), those lines, verbatim.
-function claimOf(c) { return { text: c.text, more: c.more || '' }; }
+// The Claim line is the row's title; the further lines are shown under it; the whole entry, as the
+// extractor wrote it, is what is tested, so the who and the when travel with every claim.
+function claimOf(c) { return { text: c.text, more: c.more || '', entry: c.entry || c.text }; }
 function claimNode(c) {
   return el('div', {}, [el('span', { class: 'claim-text', text: c.text }), c.more ? el('div', { class: 'claim-more', text: c.more }) : null]);
 }
@@ -639,7 +641,7 @@ async function runBatch(claims, nodes) {
   state.timers.push(tick);
   const onEvent = (ev) => handleEvalEvent(ev, (i) => start + i);
   try {
-    await api.evaluate({ claims: claims.map((c) => c.text), signal: state.abort.signal, onEvent });
+    await api.evaluate({ claims: claims.map((c) => c.entry || c.text), text: state.source, source: state.sourceMeta, signal: state.abort.signal, onEvent });
     if (state.phase === 'evaluating') finishBatch({ ms: Date.now() - state.evalStartedAt });
   } catch (err) {
     if (err?.name !== 'AbortError') failRun(err);
@@ -1012,7 +1014,7 @@ async function retryClaim(i) {
   const controller = state.abort || new AbortController();
   const onEvent = (ev) => { if (ev.t === 'batch-progress' || ev.t === 'complete' || ev.t === 'batch-start') return; handleEvalEvent(ev, () => i); };
   try {
-    await api.evaluate({ claims: [state.cards[i].text], signal: controller.signal, onEvent });
+    await api.evaluate({ claims: [state.cards[i].entry || state.cards[i].text], text: state.source, source: state.sourceMeta, signal: controller.signal, onEvent });
   } catch (err) {
     if (err?.name !== 'AbortError') { r.status = 'error'; r.phase = 'error'; r.error = err.message; setCardState(i, 'error'); renderCardStatus(i); renderCardError(i); }
   } finally {

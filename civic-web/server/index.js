@@ -13,7 +13,7 @@ import { ApiError, operatorKey, describeError } from './openai.js';
 import { openStream } from './stream.js';
 import { fileToText, normalise, ACCEPTED_SOURCE_EXT } from './documents.js';
 import { readUrl, UrlError } from './fetchurl.js';
-import { sourceMeta } from './source.js';
+import { sourceMeta, sourceBlock } from './source.js';
 import { runExtraction } from './extract.js';
 import { runEvaluation } from './evaluate.js';
 import { runIllustration } from './illustrate.js';
@@ -170,10 +170,14 @@ app.post('/api/evaluate', wrap(async (req, res) => {
   const claims = Array.isArray(req.body?.claims) ? req.body.claims.map((c) => String(c || '').trim()).filter(Boolean) : [];
   if (!claims.length) throw new ApiError(400, 'no_claims', 'No claims to test.');
   if (claims.length > config.maxClaims) throw new ApiError(400, 'too_many_claims', `At most ${config.maxClaims} claims can be tested in one run.`);
+  // The source the claims came from goes ahead of the prompt in every determination, exactly as
+  // the extractor received it, so "the speech" has a speaker and a date when a claim is tested.
+  const source = req.body?.text ? normalise(req.body.text) : null;
+  const document = source && source.chars >= 20 ? sourceBlock(source.text, sourceMeta(req.body?.source)) : '';
 
   const stream = openStream(req, res);
   try {
-    await runEvaluation({ apiKey, claims, send: stream.send, signal: stream.signal });
+    await runEvaluation({ apiKey, claims, document, send: stream.send, signal: stream.signal });
   } catch (err) {
     const safe = describeError(err);
     stream.send({ t: 'error', code: safe.code, message: safe.message, status: safe.status });
@@ -277,7 +281,7 @@ function banner() {
   const shape = requestShape();
   const placing = shape.extract.source === 'inserted' ? 'the prompt verbatim with the source in place of its final bracketed line, as the only message' : 'the prompt verbatim as instructions · the document whole as the only message';
   console.log(`extraction requests carry: model ${shape.extract.model} · reasoning.effort ${shape.extract.effort}${shape.extract.summary ? ` · reasoning.summary ${shape.extract.summary}` : ''} · web_search · ${placing} · nothing else${shape.extract.fallback ? '  (FALLBACK LIST SET)' : ''}`);
-  console.log(`determination requests carry: model ${shape.evaluate.model} · reasoning.effort ${shape.evaluate.effort}${shape.evaluate.summary ? ` · reasoning.summary ${shape.evaluate.summary}` : ''} · web_search · the prompt verbatim · nothing else${shape.evaluate.fallback ? '  (FALLBACK LIST SET)' : ''}`);
+  console.log(`determination requests carry: model ${shape.evaluate.model} · reasoning.effort ${shape.evaluate.effort}${shape.evaluate.summary ? ` · reasoning.summary ${shape.evaluate.summary}` : ''} · web_search · the source as a message ahead of the prompt · the prompt verbatim with the claim's whole entry in its slot · nothing else${shape.evaluate.fallback ? '  (FALLBACK LIST SET)' : ''}`);
   if (config.openaiBaseUrl) console.log(`OpenAI base URL override: ${config.openaiBaseUrl}`);
 }
 
