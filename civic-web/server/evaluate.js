@@ -7,8 +7,9 @@
 // read, the verdict is null and the card says so rather than guessing.
 import { config } from './config.js';
 import { evaluationPrompt } from './prompts.js';
-import { clientFor, withModelFallback, usageOf, isRetryable, retryBudget, isConnectionDrop, rateLimitWaitMs, sleep, describeError, throughGate } from './openai.js';
-import { gateFor } from './gate.js';
+import { clientFor, withModelFallback, usageOf, isRetryable, retryBudget, isRateLimit, isConnectionDrop, rateLimitWaitMs, sleep, describeError, throughGate, streamFailure } from './openai.js';
+import { gateFor, parseRefusal } from './gate.js';
+import { record as recordFailure } from './diagnostics.js';
 import { estimateTextCost } from './pricing.js';
 import { record, claimHash } from './ledger.js';
 
@@ -36,8 +37,9 @@ export function parseEntry(raw) {
   let verdict = null;
   let source = 'none';
 
-  // 1. The author's own output format: section 6, "Conclusion".
-  const headings = [...text.matchAll(/(?:^|\n)[^\n]{0,12}\**\s*Conclusion\**\s*[:\-–]/gi)];
+  // 1. The author's own output format: section 6, "Conclusion". The heading may be followed by a
+  // colon, a dash of any kind, a bracket, or nothing at all with the verdict on the next line.
+  const headings = [...text.matchAll(/(?:^|\n)[^\n]{0,12}\**\s*Conclusion\b\**\s*[:\-–—(]?/gi)];
   // The Conclusion section itself, up to the next section, is what the row shows when closed.
   let conclusion = null;
   if (headings.length) {
@@ -69,6 +71,14 @@ export function parseEntry(raw) {
 
   // text is returned untouched.
   return { verdict, verdictSource: source, confidence, inspector, conclusion, text };
+}
+
+/** The entry around its last "Conclusion", for the record of a verdict that could not be read. */
+export function conclusionExcerpt(text) {
+  const s = String(text || '');
+  const at = s.toLowerCase().lastIndexOf('conclusion');
+  const piece = at >= 0 ? s.slice(Math.max(0, at - 40), at + 240) : s.slice(-240);
+  return (at >= 0 ? 'At the entry\'s last "Conclusion": ' : 'No "Conclusion" in the entry; its end: ') + piece.replace(/\s+/g, ' ').trim();
 }
 
 export async function runEvaluation({ apiKey, claims, send, signal }) {
@@ -187,11 +197,8 @@ export async function runEvaluation({ apiKey, claims, send, signal }) {
                 send({ t: 'phase', i, phase: 'incomplete', reason: incomplete });
                 break;
               case 'response.failed':
-              case 'error': {
-                const e = new Error(event.response?.error?.message || event.message || 'evaluation failed');
-                e.status = 502;
-                throw e;
-              }
+              case 'error':
+                throw streamFailure(event, 'evaluation failed');
               default:
                 break;
             }
@@ -209,11 +216,22 @@ export async function runEvaluation({ apiKey, claims, send, signal }) {
           send({ t: 'note', i, code: 'no_reasoning_summary' });
           continue;
         }
+        if (isRateLimit(err)) {
+          // A refusal inside a streamed reply: the response's own later call (after a web search,
+          // say) found the minute short, and OpenAI ended the response with its figures instead of
+          // turning the request back at the door. The figures go to the gate as any refusal's do;
+          // the claim waits exactly what OpenAI asked and goes again, whole. Never a failure.
+          const refusal = parseRefusal(err);
+          gateFor(modelUsed || config.evalModels[0]).refusedInStream('determination', refusal);
+          send({ t: 'retry', i, attempt: tries + 1, status: 429, reason: 'rate_limit', waitMs: refusal.waitMs || 0 });
+          if (refusal.waitMs) await sleep(refusal.waitMs);
+          continue;
+        }
         if (tries < retryBudget(err) && isRetryable(err)) {
           // A 5xx cost nothing and is tried again; a cut connection has spent its tokens and is
           // tried again at most twice. The attempt rejoins the line at the gate, and its place in
           // the line is its wait; when OpenAI names a wait of its own (retry-after), that comes
-          // first. No back-off of ours. A rate limit never arrives here: the gate handles it.
+          // first. No back-off of ours. A refusal at the door never arrives here: the gate handles it.
           const waitMs = rateLimitWaitMs(err) || 0;
           const reason = isConnectionDrop(err) ? 'connection' : 'error';
           send({ t: 'retry', i, attempt: tries + 1, status: err?.status ?? null, reason, waitMs });
@@ -231,6 +249,9 @@ export async function runEvaluation({ apiKey, claims, send, signal }) {
 
     if (signal.aborted) return;
     const parsed = parseEntry(text);
+    // A verdict that could not be read is never guessed; what the entry said at its Conclusion is
+    // kept for /check, so the reader can be corrected to the form the model actually wrote.
+    if (!parsed.verdict) recordFailure({ where: 'server:verdict', code: 'verdict_unread', message: conclusionExcerpt(text) });
     const ms = Date.now() - startedAt;
     const cost = estimateTextCost({ model: modelUsed, usage, searches: trail.length });
     record({

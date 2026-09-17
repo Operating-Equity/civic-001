@@ -148,6 +148,23 @@ export function rateLimitWaitMs(err) {
 export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /**
+ * A streamed reply that OpenAI ended with an error event. A rate limit can arrive this way: the
+ * response was accepted at the door, and one of its own later calls (after a web search, say)
+ * found the minute short, so OpenAI ended the response with its figures in an error event instead
+ * of turning the request back with a 429. Such an error is given the status of a refusal, so it is
+ * read and waited out as one; anything else is a failed reply.
+ */
+export function streamFailure(event, fallback) {
+  const message = event?.response?.error?.message || event?.message || fallback;
+  const code = event?.response?.error?.code || event?.code || '';
+  const e = new Error(message);
+  e.error = { message, code };
+  e.code = code;
+  e.status = code === 'rate_limit_exceeded' || /rate limit reached/i.test(message) ? 429 : 502;
+  return e;
+}
+
+/**
  * Sends one request through the gate for its model: waits until the key's minute holds it, sends
  * it, gives the gate the reply's headers, and hands back the reply. `data` is the Stream for a
  * streaming request, the response object otherwise. The caller must call `release()` when the

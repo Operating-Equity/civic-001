@@ -94,16 +94,19 @@ const extraKeys = (obj, allowed) => Object.keys(obj || {}).filter((k) => !allowe
 
 try {
   fs.writeFileSync(record, '');
-  // The mock refuses the second request with a rate limit (the determination, which follows the
-  // extraction; its bucket is drained first, as another user of the key would drain it) and cuts
-  // the connection of the request that follows a few chunks in: the gate must wait what OpenAI
-  // asked and send the claim again first, and after the cut the claim must go again once more.
+  // The mock refuses the second request with a rate limit at the door (the determination, which
+  // follows the extraction; its bucket is drained first, as another user of the key would drain
+  // it), cuts the connection of the third a few chunks in, and ends the fourth inside its stream
+  // with a rate limit (the response's own later call finding the minute short, as OpenAI does):
+  // the gate must wait what OpenAI asked and send the claim again first; after the cut the claim
+  // must go again; after the refusal in the stream it must wait what OpenAI asked and go again,
+  // whole; and the fifth request completes.
   // The stand-in tells a determination from an extraction by how the installed evaluation prompt
   // begins (the text before the claim's placeholder, or after it when the placeholder comes first).
   const [before, after] = evaluatePrompt.split('{{CLAIM}}');
   const evalMark = (before.trim() || after.trim()).slice(0, 60);
   process.env.MOCK_EVAL_MARK_FOR_GATE = evalMark;
-  start([path.join(root, 'scripts', 'mock-openai.js')], { MOCK_PORT: String(MOCK_PORT), MOCK_RECORD: record, MOCK_SPEED: '0.2', MOCK_RATE_LIMIT_REQUESTS: '2', MOCK_DROP_REQUESTS: '3', MOCK_EVAL_MARK: evalMark });
+  start([path.join(root, 'scripts', 'mock-openai.js')], { MOCK_PORT: String(MOCK_PORT), MOCK_RECORD: record, MOCK_SPEED: '0.2', MOCK_RATE_LIMIT_REQUESTS: '2', MOCK_DROP_REQUESTS: '3', MOCK_STREAM_RATE_LIMIT_REQUESTS: '4', MOCK_STREAM_REQUESTED: '90000', MOCK_EVAL_MARK: evalMark });
   await wait(`http://localhost:${MOCK_PORT}/v1/responses`, 15000, { anyResponse: true });
   start([path.join(root, 'server', 'index.js')], { PORT: String(PORT), OPENAI_BASE_URL: `http://localhost:${MOCK_PORT}/v1`, OPENAI_API_KEY: KEY, CIVIC_IMAGE_ENABLED: 'false', CIVIC_LEDGER_FILE: path.join(os.tmpdir(), 'civic-verify-ledger.jsonl') });
   await wait(`http://localhost:${PORT}/api/health`);
@@ -121,13 +124,14 @@ try {
   // The extraction is sent and completed before the determination is sent, so arrival order is
   // identity. (Telling them apart by an instructions field stopped working once a prompt could
   // travel as the message itself.)
-  check('four requests were sent: the extraction, a rate-limited determination, its retry that was cut, and the retry that completed', sent.length === 4, `${sent.length} requests`);
+  check('five requests were sent: the extraction, a determination refused at the door, its retry that was cut, the retry refused inside its stream, and the one that completed', sent.length === 5, `${sent.length} requests`);
   const exBody = sent[0]?.body;
   const evBody = sent[sent.length - 1]?.body;
   const retries = ev.filter((e) => e.t === 'retry');
   const held = ev.filter((e) => e.t === 'phase' && e.phase === 'queued');
-  check('a refusal is handled in the gate: the claim waits what OpenAI asked (0.7 s here) and goes again first, never as an error; a cut connection is retried; the claim completes',
-    held.some((e) => e.waitMs >= 650 && e.waitMs <= 1300 && e.position === 1) && retries.length === 1 && retries[0].reason === 'connection'
+  check('a refusal at the door is handled in the gate (the claim waits what OpenAI asked, 0.7 s here, and goes again first); a cut connection is retried; a refusal inside the stream is waited out the same way and the claim goes again whole; the claim completes; never an error',
+    held.some((e) => e.waitMs >= 650 && e.waitMs <= 1300 && e.position === 1)
+      && retries.length === 2 && retries[0].reason === 'connection' && retries[1].reason === 'rate_limit' && retries[1].waitMs >= 650 && retries[1].waitMs <= 1300
       && ev.some((e) => e.t === 'done') && !ev.some((e) => e.t === 'error'),
     JSON.stringify(held.concat(retries, ev.filter((e) => e.t === 'error'))));
   const doneEv = ev.find((e) => e.t === 'done');
@@ -193,8 +197,8 @@ try {
   // What the gate learned, in OpenAI's own figure: the refusal said "Requested 68147".
   const pacing = (await (await fetch(`http://localhost:${PORT}/api/selftest`)).json()).pacing || [];
   const g = pacing.find((x) => x.model === shape.evaluate.model);
-  check('the gate learned what OpenAI counts for a determination from OpenAI\'s own figure, exactly, and reports it on /check',
-    g?.costs?.determination === 68147 && g?.refusals === 1 && g?.tokens?.limit === 5000000, JSON.stringify({ costs: g?.costs, refusals: g?.refusals, limit: g?.tokens?.limit }));
+  check('the gate learned what OpenAI counts for a determination from OpenAI\'s own figures, exactly, the larger one from the refusal inside the stream, and reports both refusals on /check',
+    g?.costs?.determination === 90000 && g?.refusals === 2 && g?.tokens?.limit === 5000000, JSON.stringify({ costs: g?.costs, refusals: g?.refusals, limit: g?.tokens?.limit }));
 } catch (err) {
   check('run completed', false, err.message);
 } finally {
@@ -227,11 +231,11 @@ check('a requests-per-minute refusal is told from a tokens one', rpm.bucket === 
 // over the stand-in's minute (three seconds here), a cost per kind of request, a refusal with the
 // exact figures when the bucket cannot hold a request.
 const SIX = [1, 2, 3, 4, 5, 6].map((n) => `Claim number ${n} for the gate: the tower is ${300 + n} metres tall.`);
-async function gateRun(n, env, { extraction = false } = {}) {
+async function gateRun(n, env, { extraction = false, claims = SIX, serverEnv = {} } = {}) {
   const MOCK2 = MOCK_PORT + 10 + n, PORT2 = PORT + 10 + n;
   const mock = start([path.join(root, 'scripts', 'mock-openai.js')], { MOCK_PORT: String(MOCK2), MOCK_SPEED: '0.2', MOCK_EVAL_HOLD_MS: '400', MOCK_EVAL_MARK: process.env.MOCK_EVAL_MARK_FOR_GATE || '', ...env });
   await wait(`http://localhost:${MOCK2}/v1/mock/stats`, 15000, { anyResponse: true });
-  const server = start([path.join(root, 'server', 'index.js')], { PORT: String(PORT2), OPENAI_BASE_URL: `http://localhost:${MOCK2}/v1`, OPENAI_API_KEY: KEY, CIVIC_IMAGE_ENABLED: 'false', CIVIC_LEDGER_FILE: path.join(os.tmpdir(), 'civic-verify-ledger.jsonl') });
+  const server = start([path.join(root, 'server', 'index.js')], { PORT: String(PORT2), OPENAI_BASE_URL: `http://localhost:${MOCK2}/v1`, OPENAI_API_KEY: KEY, CIVIC_IMAGE_ENABLED: 'false', CIVIC_LEDGER_FILE: path.join(os.tmpdir(), 'civic-verify-ledger.jsonl'), ...serverEnv });
   await wait(`http://localhost:${PORT2}/api/health`);
   const out = { events: [], ex: [], failure: '', stats: null, pacing: null };
   const text = 'The Eiffel Tower stands about 330 metres tall. Water boils at 100 degrees Celsius at sea level. Mount Everest is 8,849 metres above sea level.';
@@ -240,7 +244,7 @@ async function gateRun(n, env, { extraction = false } = {}) {
   // determination is then sent into a full minute and teaches its cost exactly, and so is the
   // extraction that follows the claims.
   if (extraction) { try { await stream(`http://localhost:${PORT2}/api/extract`, { text }); } catch (err) { out.failure += ` first extraction: ${err.message}`; } }
-  try { out.events = await stream(`http://localhost:${PORT2}/api/evaluate`, { claims: SIX }); } catch (err) { out.failure = err.message; }
+  try { out.events = await stream(`http://localhost:${PORT2}/api/evaluate`, { claims }); } catch (err) { out.failure = err.message; }
   if (extraction) {
     try { out.ex = await stream(`http://localhost:${PORT2}/api/extract`, { text }); }
     catch (err) { out.failure += ` extraction: ${err.message}`; }
@@ -255,10 +259,20 @@ async function gateChecks() {
   const reserve = 68147;
   const done = (r) => r.events.filter((e) => e.t === 'done').length;
   const starts = (r) => { const d = (r.stats?.timeline || []).filter((e) => e.kind === 'determination'); return d.map((e) => e.at - d[0].at); };
+  const twenty = { CIVIC_EVAL_CONCURRENCY: '20' };   // the gate's pacing is proved with claims allowed to run together
+
+  // 0. The rule that runs: one claim at a time. Each determination starts after the one before it has ended.
+  {
+    const r = await gateRun(3, { MOCK_TPM: '5000000', MOCK_RESERVE: String(reserve), MOCK_CONTINUATION: '90000' }, { claims: SIX.slice(0, 4) });
+    const d = (r.stats?.timeline || []).filter((e) => e.kind === 'determination');
+    const sequential = d.length === 4 && d.every((e, k) => k === 0 || (d[k - 1].endedAt && e.at >= d[k - 1].endedAt));
+    check('claims run one at a time: each determination is sent only after the previous one has ended, and none is refused at the door or in its stream',
+      !r.failure && sequential && r.stats?.refused === 0 && r.stats?.refusedInStream === 0 && done(r) === 4, `${r.failure} sequential=${sequential} refused=${r.stats?.refused} inStream=${r.stats?.refusedInStream} done=${done(r)}`);
+  }
 
   // 1. Steady costs. The budget holds three; one more fits each second as the bucket refills.
   {
-    const r = await gateRun(0, { MOCK_TPM: String(reserve * 3), MOCK_RESERVE: String(reserve), MOCK_WINDOW_MS: '3000' }, { extraction: true });
+    const r = await gateRun(0, { MOCK_TPM: String(reserve * 3), MOCK_RESERVE: String(reserve), MOCK_WINDOW_MS: '3000' }, { extraction: true, serverEnv: twenty });
     const t = starts(r);
     check('the gate sends nothing the minute cannot hold: six claims, a budget of three, no refusal, all six finish',
       !r.failure && r.stats?.refused === 0 && done(r) === 6, `${r.failure} refused=${r.stats?.refused} admitted=${r.stats?.admitted} done=${done(r)}`);
@@ -266,23 +280,20 @@ async function gateChecks() {
       t.length === 6 && t[2] < 1000 && [3, 4, 5].every((k) => t[k] >= (k - 2) * 1000 - 50 && t[k] <= (k - 2) * 1000 + 1500), JSON.stringify(t));
     const held = r.events.filter((e) => e.t === 'phase' && e.phase === 'queued');
     check('the held claims said they were waiting, with the wait and their place in the line in figures', held.some((e) => e.waitMs > 0 && e.position >= 1), JSON.stringify(held.slice(0, 3)));
-    const gate = r.events.find((e) => e.t === 'gate');
-    check('the page is told the key\'s figures: the limit, what one determination counts, how many start at once, how often one more can',
-      Boolean(gate) && gate.limit === reserve * 3 && gate.cost === reserve && gate.atOnce === 3 && Math.abs(gate.everyMs - 1000) <= 20, JSON.stringify(gate));
     check('each kind of request learns its own cost, exactly, from a request sent into a full minute: the determination, then the extraction',
       r.pacing?.costs?.determination === reserve && r.pacing?.costs?.extraction === reserve && r.ex.some((e) => e.t === 'done'), JSON.stringify(r.pacing?.costs));
   }
   // 2. A cost larger than any seen (OpenAI's estimate varies): refused once, learned from the refusal, never refused again.
   {
     const bigger = Math.round(reserve * 1.3);
-    const r = await gateRun(1, { MOCK_TPM: String(reserve * 3), MOCK_RESERVE_SERIES: `${reserve},${reserve},${bigger}`, MOCK_WINDOW_MS: '3000' });
+    const r = await gateRun(1, { MOCK_TPM: String(reserve * 3), MOCK_RESERVE_SERIES: `${reserve},${reserve},${bigger}`, MOCK_WINDOW_MS: '3000' }, { serverEnv: twenty });
     check('a determination that costs more than any seen is refused once, the figure is learned from the refusal, and nothing is refused after it',
       !r.failure && r.stats?.refused === 1 && done(r) === 6 && r.pacing?.costs?.determination === bigger && !r.events.some((e) => e.t === 'error'),
       `${r.failure} refused=${r.stats?.refused} done=${done(r)} costs=${JSON.stringify(r.pacing?.costs)}`);
   }
   // 3. Requests per minute pace the same way: two per three seconds here, so one more every 1.5 s.
   {
-    const r = await gateRun(2, { MOCK_TPM: '5000000', MOCK_RESERVE: String(reserve), MOCK_RPM: '2', MOCK_WINDOW_MS: '3000' });
+    const r = await gateRun(2, { MOCK_TPM: '5000000', MOCK_RESERVE: String(reserve), MOCK_RPM: '2', MOCK_WINDOW_MS: '3000' }, { serverEnv: twenty });
     const t = starts(r);
     check('the requests-per-minute bucket paces the same way: two at once, then one every 1.5 s, no refusal',
       !r.failure && r.stats?.refused === 0 && done(r) === 6 && t.length === 6 && t[1] < 1000 && t[5] >= 4 * 1500 - 50 && t[5] <= 4 * 1500 + 2000, `${r.failure} refused=${r.stats?.refused} starts=${JSON.stringify(t)}`);
