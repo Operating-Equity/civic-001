@@ -96,6 +96,11 @@ export const config = {
 
   // Optional: point the OpenAI client somewhere else (used by scripts/mock-openai.js in dev).
   openaiBaseUrl: env('OPENAI_BASE_URL', ''),
+
+  // Sign-in by code (server/access.js). Empty: the door is open, as on the operator's Mac. Set:
+  // every API route but the health line needs a cookie issued for one of these codes.
+  accessCodes: list('CIVIC_ACCESS_CODES', '').map((c) => c.toUpperCase().replace(/[^A-Z0-9]/g, '')).filter(Boolean),
+  signinLog: env('CIVIC_SIGNIN_LOG', new URL('../data/signins.jsonl', import.meta.url).pathname),
 };
 
 /** Exactly what each request will carry. Printed at startup and reported by /api/health. */

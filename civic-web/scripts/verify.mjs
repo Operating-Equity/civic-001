@@ -14,6 +14,7 @@ import { sourceBlock } from '../server/source.js';
 import { Bucket, parseRefusal } from '../server/gate.js';
 import { parseEntry } from '../server/verdict.js';
 import { isConnectionDrop, connectionWait, describeError } from '../server/openai.js';
+import { generateCode, normalise, ALPHABET } from '../server/access.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.join(here, '..');
@@ -392,6 +393,65 @@ async function outageChecks() {
     outage.length === 2 && outage[1].code === 'ECONNREFUSED' && /addresses: /.test(outage[1].message) && outage[0].code === 'reachable' && /reachable again after \d+\.\d s and \d+ goes/.test(outage[0].message), JSON.stringify(outage));
 }
 await outageChecks();
+
+// The door. With codes set, the API needs the cookie a listed code earns; the page, the health line
+// and the sign-in itself stay open. A cookie is bound to the code it was issued under: taking that
+// code off the list signs out its holders and nobody else. The health line counts runs in flight.
+const seen = new Set(Array.from({ length: 200 }, generateCode));
+check('a generated code is seven characters from the alphabet without look-alikes, and two hundred of them are all different',
+  seen.size === 200 && [...seen].every((c) => new RegExp(`^[${ALPHABET}]{7}$`).test(c)) && !/[01OIL]/.test(ALPHABET), [...seen].slice(0, 3).join(' '));
+check('a code typed in lower case with spaces and dashes is read as the listed one', normalise(' ab cd-234 ') === 'ABCD234', normalise(' ab cd-234 '));
+async function accessChecks() {
+  const MOCK2 = MOCK_PORT + 15, PORT2 = PORT + 15, PORT3 = PORT + 16;
+  const mock = start([path.join(root, 'scripts', 'mock-openai.js')], { MOCK_PORT: String(MOCK2), MOCK_SPEED: '0.2', MOCK_EVAL_MARK: process.env.MOCK_EVAL_MARK_FOR_GATE || '' });
+  await wait(`http://localhost:${MOCK2}/v1/mock/stats`, 15000, { anyResponse: true });
+  const env = { OPENAI_BASE_URL: `http://localhost:${MOCK2}/v1`, OPENAI_API_KEY: KEY, CIVIC_IMAGE_ENABLED: 'false', CIVIC_LEDGER_FILE: path.join(os.tmpdir(), 'civic-verify-ledger.jsonl'), CIVIC_SIGNIN_LOG: path.join(os.tmpdir(), 'civic-verify-signins.jsonl') };
+  const server = start([path.join(root, 'server', 'index.js')], { ...env, PORT: String(PORT2), CIVIC_ACCESS_CODES: 'ABCD234,EFGH567' });
+  const other = start([path.join(root, 'server', 'index.js')], { ...env, PORT: String(PORT3), CIVIC_ACCESS_CODES: 'EFGH567' });
+  await wait(`http://localhost:${PORT2}/api/health`);
+  await wait(`http://localhost:${PORT3}/api/health`);
+  const base = `http://localhost:${PORT2}`;
+  const json = async (url, init) => { const r = await fetch(url, init); let body = null; try { body = await r.json(); } catch {} return { status: r.status, body, cookie: (r.headers.get('set-cookie') || '').split(';')[0] }; };
+  const post = (url, body, headers = {}) => json(url, { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify(body) });
+  const text = 'The Eiffel Tower stands about 330 metres tall. Water boils at 100 degrees Celsius at sea level.';
+  try {
+    const health = await json(`${base}/api/health`);
+    check('the health line stays open with codes set, says a sign-in is required, names no session, and counts no run in flight',
+      health.status === 200 && health.body?.access?.required === true && health.body?.access?.session === null && health.body?.active === 0, JSON.stringify({ status: health.status, access: health.body?.access, active: health.body?.active }));
+    const refused = await post(`${base}/api/extract`, { text });
+    check('without a sign-in the API refuses with signin_required', refused.status === 401 && refused.body?.error?.code === 'signin_required', JSON.stringify(refused));
+    const wrong = await post(`${base}/api/signin`, { email: 'x@example.com', code: 'ZZZZ999' });
+    check('a code not on the list is refused in those words, and no cookie is set', wrong.status === 401 && wrong.body?.error?.code === 'code_not_listed' && !wrong.cookie, JSON.stringify(wrong));
+    const ok = await post(`${base}/api/signin`, { email: 'reader@example.com', code: 'abcd-234' });
+    check('a listed code, typed in lower case with a dash, signs in and sets the cookie', ok.status === 200 && ok.body?.session?.email === 'reader@example.com' && ok.cookie.startsWith('civic_access='), JSON.stringify(ok));
+    const cookie = ok.cookie;
+    const named = await json(`${base}/api/health`, { headers: { cookie } });
+    check('the health line then names the session', named.body?.access?.session?.email === 'reader@example.com', JSON.stringify(named.body?.access));
+    const res = await fetch(`${base}/api/extract`, { method: 'POST', headers: { 'content-type': 'application/json', cookie }, body: JSON.stringify({ text }) });
+    const during = await json(`${base}/api/health`);
+    const streamed = await res.text();
+    const after = await json(`${base}/api/health`);
+    check('with the cookie the extraction streams and completes; while it streams the health line counts one run in flight, and none after',
+      res.status === 200 && /"t":"done"/.test(streamed) && during.body?.active === 1 && after.body?.active === 0, `status=${res.status} during=${during.body?.active} after=${after.body?.active}`);
+    const selftestNo = await json(`${base}/api/selftest`);
+    const selftest = await json(`${base}/api/selftest`, { headers: { cookie } });
+    check('the check page\'s data needs the cookie, and then lists the sign-in with its email',
+      selftestNo.status === 401 && selftest.status === 200 && selftest.body?.signins?.[0]?.email === 'reader@example.com' && selftest.body?.access?.required === true, JSON.stringify({ without: selftestNo.status, with: selftest.status, signins: selftest.body?.signins }));
+    const revoked = await json(`http://localhost:${PORT3}/api/health`, { headers: { cookie } });
+    const okB = await post(`${base}/api/signin`, { email: 'b@example.com', code: 'EFGH567' });
+    const stillIn = await json(`http://localhost:${PORT3}/api/health`, { headers: { cookie: okB.cookie } });
+    check('taking a code off the list signs out exactly its holders: on a CIVIC without ABCD234 the cookie issued under it proves nothing, and one issued under EFGH567 is honoured',
+      revoked.body?.access?.session === null && stillIn.body?.access?.session?.email === 'b@example.com', JSON.stringify({ revoked: revoked.body?.access, stillIn: stillIn.body?.access }));
+    const out = await post(`${base}/api/signout`, {}, { cookie });
+    check('signing out clears the cookie', out.status === 200 && out.cookie === 'civic_access=', JSON.stringify(out));
+  } catch (err) {
+    check('the door\'s checks completed', false, err.message);
+  }
+  try { server.kill('SIGTERM'); } catch {}
+  try { other.kill('SIGTERM'); } catch {}
+  try { mock.kill('SIGTERM'); } catch {}
+}
+await accessChecks();
 
 // The port is CIVIC's. An older CIVIC still holding it is closed and the port taken over; anything
 // else on it is left alone and named. Both are proved here with stand-in processes: one that runs

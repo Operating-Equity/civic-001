@@ -24,6 +24,7 @@ function netWords(code, why) {
 const state = {
   phase: 'idle',
   server: null,        // /api/health payload, or null when no server answers
+  session: null,       // { email } once a code has been accepted, when a sign-in is required
   accounting: true,    // operator view: tokens and estimated cost per claim
   source: '',
   warnings: [],   // anything that could have cost a claim, shown at the top of the run
@@ -72,7 +73,9 @@ function cacheElements() {
     scoreInternal: $('#score-internal'), scoreCost: $('#score-cost'), export: $('#btn-export'),
     buildStamp: $('#build-stamp'),
     results: $('#results'), resetTop: $('#btn-reset-top'), reset: $('#btn-reset'),
-    langSelect: $('#lang-select'), signin: $('#btn-signin'), signup: $('#btn-signup'),
+    langSelect: $('#lang-select'), signin: $('#btn-signin'), signup: $('#btn-signup'), signout: $('#btn-signout'), who: $('#nav-who'),
+    signinDialog: $('#signin-dialog'), signinForm: $('#signin-form'), signinEmail: $('#signin-email'), signinCode: $('#signin-code'),
+    signinNote: $('#signin-note'), signinSubmit: $('#signin-submit'), signinCancel: $('#signin-cancel'),
     cardTpl: $('#tpl-card'),
   });
 }
@@ -88,7 +91,7 @@ async function boot() {
   document.addEventListener('civic:locale', refreshDynamicText);
 
   wireIntake();
-  ui.signin.addEventListener('click', () => toast(t('nav.soon')));
+  wireSignIn();
   ui.signup.addEventListener('click', () => toast(t('nav.soon')));
   ui.resetTop.addEventListener('click', resetAll);
   ui.reset.addEventListener('click', resetAll);
@@ -106,9 +109,93 @@ async function boot() {
     state.server = await api.health();
     if (ui.buildStamp && state.server?.build) ui.buildStamp.textContent = `build ${state.server.build}`;
     state.accounting = Boolean(state.server.accounting);
+    state.session = state.server.access?.session || null;
   } catch {
     state.server = null;
   }
+  renderNav();
+}
+
+// ---------- sign-in by code -------------------------------------------------------------------
+
+// No accounts yet: a code from the operator's list opens the door, and the email address typed
+// beside it is kept with the sign-in. The dialog opens from the Sign in button, and from any
+// action the server refuses for want of a sign-in; that action then proceeds on its own.
+let pendingSignIn = null;   // { resolve, reject } while a refused action waits on the dialog
+
+function wireSignIn() {
+  api.onSignInRequired(requireSignIn);
+  ui.signin.addEventListener('click', () => { if (state.server?.access?.required) openSignIn(); else toast(t('signin.open')); });
+  ui.signout.addEventListener('click', signOut);
+  ui.signinForm.addEventListener('submit', submitSignIn);
+  ui.signinCancel.addEventListener('click', () => ui.signinDialog.close());
+  ui.signinDialog.addEventListener('close', () => {
+    const p = pendingSignIn;
+    pendingSignIn = null;
+    if (!p) return;
+    const e = new Error('sign-in abandoned'); e.name = 'AbortError'; p.reject(e);
+    // The action that needed the sign-in is abandoned with it: a run in progress stops, the text stays.
+    if (state.phase === 'extracting' || state.phase === 'evaluating') {
+      const text = ui.source.value;
+      resetAll();
+      ui.source.value = text;
+      updateSourceMeta();
+    }
+  });
+}
+
+function openSignIn() {
+  ui.signinNote.hidden = true;
+  ui.signinCode.value = '';
+  if (!ui.signinDialog.open) ui.signinDialog.showModal();
+  (ui.signinEmail.value ? ui.signinCode : ui.signinEmail).focus();
+}
+
+/** Called by the API client on a refusal for want of a sign-in; resolves once the reader has one. */
+function requireSignIn() {
+  return new Promise((resolve, reject) => {
+    pendingSignIn = { resolve, reject };
+    openSignIn();
+  });
+}
+
+async function submitSignIn(event) {
+  event.preventDefault();
+  const email = ui.signinEmail.value.trim();
+  const code = ui.signinCode.value.trim();
+  if (!code) { ui.signinCode.focus(); return; }
+  ui.signinSubmit.disabled = true;
+  try {
+    const out = await api.signin({ email, code });
+    state.session = out.session || { email };
+    renderNav();
+    const p = pendingSignIn;
+    pendingSignIn = null;
+    ui.signinDialog.close();
+    p?.resolve();
+  } catch (err) {
+    ui.signinNote.textContent = err?.code === 'code_not_listed' ? t('signin.notListed') : (err?.message || t('errors.server'));
+    ui.signinNote.hidden = false;
+    ui.signinCode.select();
+  } finally {
+    ui.signinSubmit.disabled = false;
+  }
+}
+
+async function signOut() {
+  try { await api.signout(); } catch { /* the cookie is gone either way */ }
+  state.session = null;
+  renderNav();
+}
+
+/** The nav says who is signed in, when a sign-in is required; otherwise it is as it always was. */
+function renderNav() {
+  const required = Boolean(state.server?.access?.required);
+  const signedIn = required && Boolean(state.session);
+  ui.signin.hidden = signedIn;
+  ui.signout.hidden = !signedIn;
+  ui.who.hidden = !signedIn;
+  ui.who.textContent = signedIn ? (state.session.email || t('signin.signedIn')) : '';
 }
 
 // ---------- key strip -----------------------------------------------------------------------
@@ -666,14 +753,56 @@ async function runBatch(claims, nodes) {
 
   const tick = setInterval(updateEvalBars, 250);
   state.timers.push(tick);
-  const onEvent = (ev) => handleEvalEvent(ev, (i) => start + i);
+  // One request per claim, two in flight (the operator's rule; the server's gate goes on pacing
+  // OpenAI across requests). A response then lasts one claim, never a batch, well inside what a
+  // host allows, and a cut costs one claim's attempt, which is requested again.
+  const signal = state.abort.signal;
+  const queue = claims.map((_, k) => start + k);
+  const settled = () => { state.batch.done++; updateEvalStatus(); renderScoreboard(); };
+  const worker = async () => {
+    while (queue.length && !signal.aborted && state.phase === 'evaluating') {
+      await runClaim(queue.shift(), signal, { keepGoing: () => state.phase === 'evaluating', onSettled: settled });
+    }
+  };
   try {
-    await api.evaluate({ claims: claims.map((c) => c.entry || c.text), text: state.source, source: state.sourceMeta, signal: state.abort.signal, onEvent });
+    await Promise.all([worker(), worker()]);
     if (state.phase === 'evaluating') finishBatch({ ms: Date.now() - state.evalStartedAt });
-  } catch (err) {
-    if (err?.name !== 'AbortError') failRun(err);
   } finally {
     clearInterval(tick);
+  }
+}
+
+/**
+ * One claim, on its own stream. The stream ends with the claim's result (`done`, or an error of
+ * its own), or it is cut: the browser's network, or a deploy ending the server it was on. A cut
+ * stream is opened again a second later and the claim starts over; only its attempt is lost.
+ * A refusal of the request itself (no key, no prompt) ends the run, as it always did.
+ */
+async function runClaim(i, signal, { keepGoing = () => true, onSettled = () => {} } = {}) {
+  const claim = state.cards[i];
+  const r = state.results[i];
+  for (;;) {
+    let settled = false;
+    let runFailure = null;
+    const onEvent = (ev) => {
+      if (ev.t === 'batch-start' || ev.t === 'batch-progress' || ev.t === 'complete') return;
+      if (ev.t === 'error' && ev.i === undefined) { runFailure = ev; return; }
+      if (ev.t === 'done' || (ev.t === 'error' && ev.i !== undefined)) settled = true;
+      handleEvalEvent(ev, () => i);
+    };
+    try {
+      await api.evaluate({ claims: [claim.entry || claim.text], text: state.source, source: state.sourceMeta, signal, onEvent });
+    } catch (err) {
+      if (err?.name === 'AbortError' || signal.aborted) return;
+      if (err instanceof api.ApiError) { failRun(err); return; }   // the server refused the request itself
+      // Anything else is the connection to CIVIC failing or being cut: it is opened again below.
+    }
+    if (signal.aborted || !keepGoing()) return;
+    if (runFailure) { failRun(runFailure); return; }
+    if (settled) { onSettled(); return; }
+    r.phase = 'reconnecting';
+    renderCardStatus(i);
+    await new Promise((resolve) => setTimeout(resolve, 1000));
   }
 }
 
@@ -843,7 +972,7 @@ function setCardState(i, stateName) {
 function renderCardStatus(i) {
   const r = state.results[i];
   const card = cardOf(i);
-  const map = { pending: 'card.pending', starting: 'card.starting', reasoning: 'card.reasoning', searching: 'card.searching', writing: 'card.writing', error: 'card.error' };
+  const map = { pending: 'card.pending', starting: 'card.starting', reasoning: 'card.reasoning', searching: 'card.searching', writing: 'card.writing', reconnecting: 'card.reconnecting', error: 'card.error' };
   let text;
   if (r.phase === 'queued') {
     const s = r.queuedUntil ? Math.max(0, Math.ceil((r.queuedUntil - Date.now()) / 1000)) : 0;
@@ -1039,11 +1168,8 @@ async function retryClaim(i) {
     setBar(card.querySelector('.bar'), Math.min(0.96, f));
   }, 250);
   const controller = state.abort || new AbortController();
-  const onEvent = (ev) => { if (ev.t === 'batch-progress' || ev.t === 'complete' || ev.t === 'batch-start') return; handleEvalEvent(ev, () => i); };
   try {
-    await api.evaluate({ claims: [state.cards[i].entry || state.cards[i].text], text: state.source, source: state.sourceMeta, signal: controller.signal, onEvent });
-  } catch (err) {
-    if (err?.name !== 'AbortError') { r.status = 'error'; r.phase = 'error'; r.error = err.message; setCardState(i, 'error'); renderCardStatus(i); renderCardError(i); }
+    await runClaim(i, controller.signal);
   } finally {
     clearInterval(tick);
     renderScoreboard();
@@ -1212,6 +1338,7 @@ async function startEcho(text) {
 
 function refreshDynamicText() {
   ui.langSelect.value = currentLocale();
+  renderNav();
   updateSourceMeta();
   for (const which of ['step1', 'step2']) { const s = state.status[which]; if (s) setStatus(which, s.key, s.params); }
   renderGateLine();

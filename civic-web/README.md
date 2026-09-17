@@ -156,7 +156,8 @@ truncation setting. No fallback model. No size limit of ours on the document.
 | Reasoning effort, both steps | `xhigh` | Operator, tested |
 | Web search | on, both steps, not configurable | The prompts were tested in a UI where search is available to every prompt. A request without it is not what was tested. |
 | Reasoning summary | `auto` | Display only: the model's own account of its reasoning, shown on the card. Does not change the answer. Blank to turn off. |
-| Claims run automatically | 10, two at a time; the rest wait for the reader's selection | Operator's rule |
+| Claims run automatically | 10, two at a time, each on its own request; the rest wait for the reader's selection | Operator's rule |
+| Sign-in | Off unless `CIVIC_ACCESS_CODES` is set (comma-separated seven-character codes). Then every API route but the health line needs the cookie a listed code earns: the page's Sign in opens a dialog for an email address and a code; only the code is checked, the email is kept with the sign-in and listed on /check. A cookie is bound to the code it was issued under, so taking a code off the list signs out its holders and nobody else. Nothing is counted and nothing locks. | Operator's rule; accounts come later |
 | Pacing | OpenAI keeps a bucket of the key's minute limit that refills continuously at that limit per minute; each request costs what OpenAI estimates for it, and a request the bucket cannot hold is refused with exactly the wait that refills the difference (its refusals say so, to the millisecond). CIVIC reads those figures from every reply and sends one request at a time: the next goes only after the previous reply's headers have been read, and only when the bucket holds its cost. What each kind of request costs is learned from OpenAI's exact figures alone: a request sent into a full minute, or a refusal. The page shows the figures: how many determinations start at once and how often one more can. | OpenAI's own numbers |
 | Rate limits | Never a failure, never an error on a row. A refusal at the door sets the bucket to OpenAI's figures; the refused request waits exactly what OpenAI asked and goes first. A refusal can also arrive inside a running reply, when the response's own later call (after a web search) finds the minute short and OpenAI ends the response with its figures in an error event: it is read the same way, the claim waits exactly what OpenAI asked, and goes again whole. This is why claims run two at a time rather than twenty: a running reply is charged again at each of its later calls, by far more than its admission showed, so many parallel claims starve one another. A used-up quota is reported in words. | OpenAI's own numbers |
 | Retries | None counted on a connection that could not be made or was cut: that is the operating system's report ("no route to host", "connection refused", "connection reset"), never OpenAI's, and nothing was decided by it. The claim waits for the connection and goes again a second after the failed go began, however long the route is missing; a go that finds no route costs nothing. The row says why it waits, in the system's words, and /check records the outage with its start, its cause, its length and the machine's addresses at the time. 8 on a 5xx, which costs nothing. No back-off of ours: a failed attempt rejoins the line at the gate, and OpenAI's own retry-after, when given, comes first. | Never on a model or parameter error |
@@ -260,24 +261,26 @@ fidelity at the cost of time, put `gpt-image-2.5-sunburst` first in `CIVIC_IMAGE
 ## Deploy without a terminal
 
 The repository root carries `render.yaml`, which lets [Render](https://render.com) build and
-run the server straight from GitHub:
+run the server straight from GitHub, and `docs/cloud.md` holds the whole plan and its state.
 
-1. Sign up at render.com with your GitHub account and allow it to see `Operating-Equity/civic-001`.
-2. New → Blueprint → choose the repository and the branch. Render reads `render.yaml` and creates
-   the `civic` service.
+1. Install Render's GitHub app on the organisation with access to `Operating-Equity/civic-001`.
+2. New → Blueprint → choose the repository and `main`. Render reads `render.yaml` and creates the
+   `civic` service. (The same service can be created through Render's API with the same settings.)
 3. Open the service → Environment. Under Secret Files add `extract.txt` (the extraction prompt)
    and `evaluate.txt` (the evaluation prompt, which must contain the token `{{CLAIM}}`). Under
-   Environment Variables paste your OpenAI key as the value of `OPENAI_API_KEY`. Save. That key is
-   the only one the service will ever use; readers are never asked for one and cannot supply one.
-4. Deploy. The service gets an address like `https://civic.onrender.com`. Open it, paste a
-   document, press Test the facts. The page asks no one for a key; the server uses yours.
+   Environment Variables set `OPENAI_API_KEY` (the operator's key, the only one the service will
+   ever use) and `CIVIC_ACCESS_CODES` (the codes that open the door, comma-separated). Save.
+4. Deploy. The service gets an address like `https://civic.onrender.com`. Open it, press Sign in,
+   enter a code, paste a document, press Test the facts.
 
 The prompts live only in Render's secret store and the server's memory; they are never in the
-repository. The internal ledger on Render is written to a temporary disk and does not persist
-between deploys; set `CIVIC_LEDGER_FILE` to a persistent disk path if you attach one.
+repository. The internal ledger and the sign-in log are written to a temporary disk and do not
+persist between deploys; Render's own log stream keeps the sign-in lines.
 
-Long determinations stream for many minutes. Verify the plan you choose does not cut idle HTTP
-connections; the server sends a heartbeat line every 15 seconds to keep them open.
+Each claim is tested on its own request, so no response outlasts one claim (Render allows a
+response 100 minutes). A deploy ends the process that was running, and with it any claim it was
+still streaming: `/api/health` reports `active`, the runs in flight, and an update is merged only
+when that is zero; a claim whose stream is cut anyway is requested again by the page.
 
 ## Deploy anywhere else
 
