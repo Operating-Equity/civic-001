@@ -12,6 +12,7 @@ import { fileURLToPath } from 'node:url';
 import { leakChecks } from './leak-check.mjs';
 import { sourceBlock } from '../server/source.js';
 import { Bucket, parseRefusal } from '../server/gate.js';
+import { parseEntry } from '../server/verdict.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.join(here, '..');
@@ -210,6 +211,27 @@ try {
 }
 
 for (const r of leakChecks()) results.push(r); // no line of the prompts may sit in a committed file
+
+// The verdict reader, against the forms the model writes its Conclusion in. Each must read as
+// the model meant; an entry that states no verdict at all is Unverified by the operator's ruling.
+const FORMS = [
+  ['6. **Conclusion**: True — the record states it.\n7. **Confidence**: 90%', 'true', 'conclusion'],
+  ['**6. Conclusion**\nFalse. The record contradicts it.\n\n**7. Confidence**: 80%', 'false', 'conclusion'],
+  ['### 6. Conclusion\n\n**Uncertain** — no primary record.\n\n### 7. Confidence\n40%', 'unverified', 'conclusion'],
+  ['6. Conclusion — TRUE\n7. Confidence: 95%', 'true', 'conclusion'],
+  ['6) Conclusion (False): the count was 17.\n7) Confidence: 85%', 'false', 'conclusion'],
+  ['**Conclusion:** The evidence shows the claim is **True**.\n**Confidence:** 88%', 'true', 'conclusion'],
+  ['6. **Conclusion**: It is not true that the figure was 19; the record shows 17. **False**.\n7. **Confidence**: 90%', 'false', 'conclusion'],
+  ['Conclusion: Uncertain.\nConfidence: 50%', 'unverified', 'conclusion'],
+  ['5. The record settles it.\nFinal verdict: **False** (confidence 80%)', 'false', 'tag'],
+  ['6. **Conclusion**: Two records were compared, and both give the same count. Neither was contradicted. The statement is therefore true as worded.\n7. Confidence: 82%', 'true', 'conclusion'],
+  ['6. Conclusion: Although the narrative is widely repeated as true, the primary record shows the figure was 17, not 19. False.\n7. Confidence: 90%', 'false', 'conclusion'],
+  ['An entry with no conclusion and no verdict word at all.', 'unverified', 'unread'],
+];
+for (const [text, want, from] of FORMS) {
+  const got = parseEntry(text);
+  check(`the reader takes the model's own verdict from: ${JSON.stringify(text.slice(0, 44))}… → ${want}`, got.verdict === want && got.verdictSource === from, `read ${got.verdict} from ${got.verdictSource}`);
+}
 
 // OpenAI's own arithmetic, from five refusals in one real run (16 September 2026): the wait it
 // names is exactly what refills the difference at the limit per minute. The gate must reproduce it.

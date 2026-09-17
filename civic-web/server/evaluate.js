@@ -1,5 +1,5 @@
 // Step 2 — each claim is tested by the protected evaluation prompt, sent verbatim.
-// One claim at a time (config.evalConcurrency). What is tested is the claim's whole entry as the
+// Two claims at a time (config.evalConcurrency). What is tested is the claim's whole entry as the
 // extractor wrote it (Claim, Attribution, what the source leaves unspecified), and the source goes
 // ahead of the prompt as its own message, as the conversation carried it in the workflow the
 // prompts were tested in. A claim tested bare, with "the speech" and no speaker or date, was
@@ -7,8 +7,9 @@
 //
 // Nothing the model returns is edited, trimmed or withheld. The card receives the complete
 // output text, the reasoning summary, every web search the model performed, and every source
-// it cited. The verdict is read out of the model's own Conclusion section; when it cannot be
-// read, the verdict is null and the card says so rather than guessing.
+// it cited. The verdict is read out of the model's own Conclusion, in whatever form the model
+// wrote it (server/verdict.js); an entry that states no verdict at all is Unverified, by the
+// operator's ruling, and its closing words are recorded for /check.
 import { config } from './config.js';
 import { evaluationPrompt } from './prompts.js';
 import { clientFor, withModelFallback, usageOf, isRetryable, retryBudget, isRateLimit, isConnectionDrop, rateLimitWaitMs, sleep, describeError, throughGate, streamFailure } from './openai.js';
@@ -16,77 +17,8 @@ import { gateFor, parseRefusal } from './gate.js';
 import { record as recordFailure } from './diagnostics.js';
 import { estimateTextCost } from './pricing.js';
 import { record, claimHash } from './ledger.js';
-
-export const VERDICTS = ['true', 'false', 'unverified'];
-
-// The author's output format asks for True / False / Uncertain. The page shows Unverified in
-// place of Uncertain, as specified. Nothing else is mapped.
-const VERDICT_WORDS = {
-  true: 'true',
-  false: 'false',
-  uncertain: 'unverified',
-  unverified: 'unverified',
-  unverifiable: 'unverified',
-  indeterminate: 'unverified',
-  inconclusive: 'unverified',
-};
-const WORD_RE = /\b(true|false|uncertain|unverified|unverifiable|indeterminate|inconclusive)\b/i;
-
-/**
- * Reads the verdict out of the finished entry without changing it.
- * Returns verdict: null when the Conclusion cannot be read — never a silent default.
- */
-export function parseEntry(raw) {
-  const text = String(raw || '');
-  let verdict = null;
-  let source = 'none';
-
-  // 1. The author's own output format: section 6, "Conclusion". The heading may be followed by a
-  // colon, a dash of any kind, a bracket, or nothing at all with the verdict on the next line.
-  const headings = [...text.matchAll(/(?:^|\n)[^\n]{0,12}\**\s*Conclusion\b\**\s*[:\-–—(]?/gi)];
-  // The Conclusion section itself, up to the next section, is what the row shows when closed.
-  let conclusion = null;
-  if (headings.length) {
-    const h = headings[headings.length - 1];
-    const at = h.index;
-    const window = text.slice(at, at + 400);
-    const m = window.match(WORD_RE);
-    if (m) { verdict = VERDICT_WORDS[m[1].toLowerCase()]; source = 'conclusion'; }
-    const rest = text.slice(at + h[0].length);
-    const stop = rest.search(/\n\s*(?:#{1,6}\s|\d+\.\s*\*{0,2}[A-Z]|\*{2}[A-Z][^*\n]{1,40}\*{2}\s*[:\-–])/);
-    conclusion = rest.slice(0, stop >= 0 ? stop : undefined).replace(/^\s*\*+\s*/, '').replace(/\*\*/g, '').trim().slice(0, 1500) || null;
-  }
-
-  // 2. An explicit tag, if the author ever adds one to the prompt.
-  if (!verdict) {
-    const tag = text.match(/\bVERDICT\s*[:\-–]\s*\**\s*(True|False|Unverified|Uncertain)\b/i);
-    if (tag) { verdict = VERDICT_WORDS[tag[1].toLowerCase()]; source = 'tag'; }
-  }
-
-  // There is no third step. Scanning the closing lines for any verdict word would be a guess,
-  // and a guess is exactly what this file must never make. An entry whose Conclusion states
-  // neither True nor False is Unverified: the operator's ruling of 17 September ("Verdict not
-  // read = unverified"), since his format knows no other state. The source stays 'unread', so the
-  // ledger and /check can tell such an entry from one that said Uncertain.
-  if (!verdict) { verdict = 'unverified'; source = 'unread'; }
-
-  const conf = text.match(/Confidence\**\s*[:\-–]?\s*\**\s*(\d{1,3})\s*%/i);
-  const confidence = conf ? Math.min(100, Number(conf[1])) : null;
-
-  const name = text.match(/\*\*Name\*\*\s*[:\-–]?\s*\**\s*([^\n*]+)/i) || text.match(/^\s*0\.\s*\**Name\**\s*[:\-–]?\s*([^\n]+)/im);
-  const inspector = name ? name[1].replace(/[\[\]]/g, '').trim().slice(0, 160) : null;
-
-  // text is returned untouched.
-  return { verdict, verdictSource: source, confidence, inspector, conclusion, text };
-}
-
-/** The entry around its last "Conclusion", for the record of a verdict that could not be read. */
-export function conclusionExcerpt(text) {
-  const s = String(text || '');
-  const at = s.toLowerCase().lastIndexOf('conclusion');
-  const piece = at >= 0 ? s.slice(Math.max(0, at - 40), at + 240) : s.slice(-240);
-  return (at >= 0 ? 'At the entry\'s last "Conclusion": ' : 'No "Conclusion" in the entry; its end: ') + piece.replace(/\s+/g, ' ').trim();
-}
+import { parseEntry, conclusionExcerpt } from './verdict.js';
+export { parseEntry, VERDICTS } from './verdict.js';
 
 export async function runEvaluation({ apiKey, claims, document = '', send, signal }) {
   const client = clientFor(apiKey);
