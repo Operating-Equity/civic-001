@@ -13,6 +13,7 @@ import { leakChecks } from './leak-check.mjs';
 import { sourceBlock } from '../server/source.js';
 import { Bucket, parseRefusal } from '../server/gate.js';
 import { parseEntry } from '../server/verdict.js';
+import { isConnectionDrop, connectionWait, describeError } from '../server/openai.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.join(here, '..');
@@ -258,6 +259,34 @@ check('a refusal is read as OpenAI wrote it: the bucket, the limit, what was use
 const rpm = parseRefusal({ status: 429, error: { message: 'Rate limit reached for gpt-5.6-sol in organization org-x on requests per min (RPM): Limit 500, Used 500, Requested 1. Please try again in 120ms. Visit https://platform.openai.com/account/rate-limits to learn more.' } });
 check('a requests-per-minute refusal is told from a tokens one', rpm.bucket === 'requests' && rpm.limit === 500 && rpm.requested === 1 && rpm.waitMs === 120, JSON.stringify(rpm));
 
+// The connection, as the operating system reports it. The shape of 17 September: the SDK's
+// "Connection error." over fetch's "fetch failed" over Node's report of trying every address of
+// the name and being refused a route for each (an AggregateError with an empty message, its code
+// the first address's). Each must be known as a connection failure, read in the system's words,
+// and followed by the next go a second after the failed one began; an error OpenAI answered is
+// none of that.
+const addr = (code, address) => Object.assign(new Error(`connect ${code} ${address}:443`), { code, syscall: 'connect', address, port: 443 });
+const everyAddress = (code) => Object.assign(new AggregateError([addr(code, '2606:4700::6810:1'), addr(code, '104.18.0.1')], ''), { code });
+const viaSdk = (cause) => Object.assign(new Error('Connection error.'), { name: 'APIConnectionError', cause: new TypeError('fetch failed', { cause }) });
+const NET = [
+  [viaSdk(everyAddress('EHOSTUNREACH')), 'EHOSTUNREACH', 'no route to host'],
+  [viaSdk(everyAddress('ENETUNREACH')), 'ENETUNREACH', 'the network is unreachable'],
+  [viaSdk(addr('ECONNREFUSED', '127.0.0.1')), 'ECONNREFUSED', 'the connection was refused'],
+  [viaSdk(Object.assign(new Error('getaddrinfo ENOTFOUND api.openai.com'), { code: 'ENOTFOUND', syscall: 'getaddrinfo' })), 'ENOTFOUND', 'the name api.openai.com could not be resolved'],
+  [Object.assign(new TypeError('terminated'), { cause: Object.assign(new Error('other side closed'), { code: 'UND_ERR_SOCKET' }) }), 'UND_ERR_SOCKET', 'the connection was cut during the reply'],
+  [Object.assign(new Error('read ECONNRESET'), { code: 'ECONNRESET', syscall: 'read' }), 'ECONNRESET', 'the connection was reset'],
+];
+for (const [err, code, why] of NET) {
+  const w = connectionWait(err, 0, 400);
+  check(`a connection failure is known as one and read in the system's words: ${code} → "${why}"; the next go a second after the failed one began (600 ms more here)`,
+    isConnectionDrop(err) && w.code === code && w.why === why && w.waitMs === 600, JSON.stringify({ drop: isConnectionDrop(err), ...w }));
+}
+check('a failure that itself took longer than the interval is followed at once', connectionWait(NET[0][0], 0, 1400).waitMs === 0);
+const described = describeError(viaSdk(everyAddress('EHOSTUNREACH'))).message;
+check('the record of a connection failure names every address that was tried', /2606:4700::6810:1/.test(described) && /104\.18\.0\.1/.test(described) && /EHOSTUNREACH/.test(described), described);
+const parameter = Object.assign(new Error('Unsupported value: reasoning.effort'), { status: 400, error: { message: 'Unsupported value: reasoning.effort' } });
+check('an error OpenAI answered with a status is not a connection failure', !isConnectionDrop(parameter));
+
 // The gate, proved against a stand-in that keeps OpenAI's rule: a bucket refilled continuously
 // over the stand-in's minute (three seconds here), a cost per kind of request, a refusal with the
 // exact figures when the bucket cannot hold a request.
@@ -329,6 +358,40 @@ async function gateChecks() {
   }
 }
 await gateChecks();
+
+// The connection that cannot be made. The server is started pointing at a port with nothing
+// listening: the operating system refuses each connection before any request leaves, the same
+// class of failure as the missing route of 17 September. Two claims are sent; the stand-in is
+// started on that port three seconds later. The claims must wait, go again a second after each
+// failed go began, and complete when the connection can be made: never an error, never a count.
+async function outageChecks() {
+  const MOCK2 = MOCK_PORT + 14, PORT2 = PORT + 14;
+  const server = start([path.join(root, 'server', 'index.js')], { PORT: String(PORT2), OPENAI_BASE_URL: `http://localhost:${MOCK2}/v1`, OPENAI_API_KEY: KEY, CIVIC_IMAGE_ENABLED: 'false', CIVIC_LEDGER_FILE: path.join(os.tmpdir(), 'civic-verify-ledger.jsonl') });
+  await wait(`http://localhost:${PORT2}/api/health`);
+  const run = stream(`http://localhost:${PORT2}/api/evaluate`, { claims: SIX.slice(0, 2) });
+  await new Promise((r) => setTimeout(r, 3000));
+  const mock = start([path.join(root, 'scripts', 'mock-openai.js')], { MOCK_PORT: String(MOCK2), MOCK_SPEED: '0.2', MOCK_EVAL_MARK: process.env.MOCK_EVAL_MARK_FOR_GATE || '' });
+  let events = [];
+  let failure = '';
+  try { events = await run; } catch (err) { failure = err.message; }
+  let failures = [];
+  try { failures = (await (await fetch(`http://localhost:${PORT2}/api/selftest`)).json()).recentFailures || []; } catch (err) { failure += ` selftest: ${err.message}`; }
+  try { server.kill('SIGTERM'); } catch {}
+  try { mock.kill('SIGTERM'); } catch {}
+
+  const retries = events.filter((e) => e.t === 'retry');
+  const gaps = [0, 1].flatMap((i) => { const rs = retries.filter((e) => e.i === i); return rs.slice(1).map((e, k) => e.at - rs[k].at); });
+  check('a connection that cannot be made is waited for, never counted: two claims, no route for three seconds, both complete with verdicts, never an error',
+    !failure && events.filter((e) => e.t === 'done' && e.verdict).length === 2 && !events.some((e) => e.t === 'error'),
+    `${failure} done=${events.filter((e) => e.t === 'done').length} errors=${JSON.stringify(events.filter((e) => e.t === 'error'))}`);
+  check('every wait says why, in the system\'s words, and when it began',
+    retries.length >= 4 && retries.every((e) => e.reason === 'connection' && e.code === 'ECONNREFUSED' && e.why === 'the connection was refused' && e.since > 0 && e.at >= e.since), JSON.stringify(retries.slice(0, 2)));
+  check('the claim goes again a second after each failed go began, not sooner and not much later', gaps.length >= 2 && gaps.every((g) => g >= 900 && g <= 2500), JSON.stringify(gaps));
+  const outage = failures.filter((f) => f.where === 'server:connection');
+  check('/check records the outage once, with its cause and the machine\'s addresses, and once more when the connection is made again, with its length and the goes it took',
+    outage.length === 2 && outage[1].code === 'ECONNREFUSED' && /addresses: /.test(outage[1].message) && outage[0].code === 'reachable' && /reachable again after \d+\.\d s and \d+ goes/.test(outage[0].message), JSON.stringify(outage));
+}
+await outageChecks();
 
 // The port is CIVIC's. An older CIVIC still holding it is closed and the port taken over; anything
 // else on it is left alone and named. Both are proved here with stand-in processes: one that runs

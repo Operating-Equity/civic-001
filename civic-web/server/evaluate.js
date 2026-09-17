@@ -12,7 +12,8 @@
 // operator's ruling, and its closing words are recorded for /check.
 import { config } from './config.js';
 import { evaluationPrompt } from './prompts.js';
-import { clientFor, withModelFallback, usageOf, isRetryable, retryBudget, isRateLimit, isConnectionDrop, rateLimitWaitMs, sleep, describeError, throughGate, streamFailure } from './openai.js';
+import { clientFor, withModelFallback, usageOf, isRetryable, isRateLimit, isConnectionDrop, connectionWait, rateLimitWaitMs, sleep, describeError, throughGate, streamFailure } from './openai.js';
+import { noteFailure } from './reach.js';
 import { gateFor, parseRefusal } from './gate.js';
 import { record as recordFailure } from './diagnostics.js';
 import { estimateTextCost } from './pricing.js';
@@ -78,6 +79,7 @@ export async function runEvaluation({ apiKey, claims, document = '', send, signa
     };
 
     for (let tries = 0; ; tries++) {
+      const attemptAt = Date.now();
       try {
         text = '';
         reasoning = '';
@@ -170,14 +172,26 @@ export async function runEvaluation({ apiKey, claims, document = '', send, signa
           if (refusal.waitMs) await sleep(refusal.waitMs);
           continue;
         }
-        if (tries < retryBudget(err) && isRetryable(err)) {
-          // A 5xx cost nothing and is tried again; a cut connection has spent its tokens and is
-          // tried again at most twice. The attempt rejoins the line at the gate, and its place in
-          // the line is its wait; when OpenAI names a wait of its own (retry-after), that comes
-          // first. No back-off of ours. A refusal at the door never arrives here: the gate handles it.
+        if (isConnectionDrop(err)) {
+          // The connection could not be made, or was cut: the operating system's report, never
+          // OpenAI's. Nothing was decided, and a request that never left this computer spent
+          // nothing. It is a wait for the connection, as a refusal is a wait for the minute: the
+          // claim goes again a second after this go began, however long the route is missing,
+          // and is never counted out. The row says why, in the system's words; the outage is on
+          // record for /check, with its start, its cause and its length.
+          const { code, why, waitMs } = connectionWait(err, attemptAt);
+          const { since } = noteFailure({ code, why });
+          send({ t: 'retry', i, attempt: tries + 1, status: null, reason: 'connection', code, why, since, waitMs, at: Date.now() });
+          if (waitMs > 0) await sleep(waitMs);
+          continue;
+        }
+        if (tries < config.evalRetries && isRetryable(err)) {
+          // A 5xx from OpenAI cost nothing and is tried again, on the operator's count. The attempt
+          // rejoins the line at the gate, and its place in the line is its wait; when OpenAI names
+          // a wait of its own (retry-after), that comes first. No back-off of ours. A refusal at
+          // the door never arrives here: the gate handles it.
           const waitMs = rateLimitWaitMs(err) || 0;
-          const reason = isConnectionDrop(err) ? 'connection' : 'error';
-          send({ t: 'retry', i, attempt: tries + 1, status: err?.status ?? null, reason, waitMs });
+          send({ t: 'retry', i, attempt: tries + 1, status: err?.status ?? null, reason: 'error', waitMs });
           if (waitMs > 0) await sleep(waitMs);
           continue;
         }
