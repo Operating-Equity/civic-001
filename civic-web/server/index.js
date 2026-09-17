@@ -10,7 +10,7 @@ import multer from 'multer';
 import { config, publicConfig, requestShape } from './config.js';
 import { promptStatus, hasPrompt, promptVersions } from './prompts.js';
 import { ApiError, operatorKey, describeError } from './openai.js';
-import { openStream } from './stream.js';
+import { openStream, activeStreams } from './stream.js';
 import { fileToText, normalise, ACCEPTED_SOURCE_EXT } from './documents.js';
 import { readUrl, UrlError } from './fetchurl.js';
 import { sourceMeta, sourceBlock } from './source.js';
@@ -23,6 +23,7 @@ import { whereTheShellSetsIt } from './key.js';
 import { record as recordFailure } from './diagnostics.js';
 import { buildStamp } from './build.js';
 import { takeOverPort } from './port.js';
+import { gate, sessionOf, required as signinRequired, codes as accessCodes, normalise as normaliseCode, issue, setCookie, clearCookie, recordSignin, recentSignins } from './access.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const publicDir = path.join(here, '..', 'public');
@@ -83,17 +84,38 @@ const upload = multer({
 
 const wrap = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 
+// The door (server/access.js): with CIVIC_ACCESS_CODES set, every API route but the health line
+// and the sign-in itself needs the cookie a listed code earns.
+app.use(gate);
+
 // ---- API ---------------------------------------------------------------------------------
 
 app.get('/api/health', (req, res) => {
-  res.json({ ok: true, build: BUILD, ...publicConfig(promptStatus()), readUrl: true, acceptedSourceExt: ACCEPTED_SOURCE_EXT, acceptedChallengeExt: ACCEPTED_CHALLENGE_EXT });
+  const session = sessionOf(req);
+  res.json({
+    ok: true, build: BUILD, ...publicConfig(promptStatus()), readUrl: true, acceptedSourceExt: ACCEPTED_SOURCE_EXT, acceptedChallengeExt: ACCEPTED_CHALLENGE_EXT,
+    active: activeStreams(),                                            // runs in flight right now; an update waits for zero
+    access: { required: signinRequired(), session: session ? { email: session.email } : null },
+  });
 });
+
+// Sign-in by code. The code is the only thing checked; the email is kept with the sign-in.
+app.post('/api/signin', (req, res) => {
+  const email = String(req.body?.email || '').trim().slice(0, 254);
+  const code = normaliseCode(req.body?.code);
+  if (!signinRequired()) return res.json({ ok: true, required: false, session: { email } });
+  if (!accessCodes().includes(code)) throw new ApiError(401, 'code_not_listed', 'That code is not on the list.');
+  setCookie(req, res, issue(email, code));
+  recordSignin(email, code);
+  res.json({ ok: true, required: true, session: { email } });
+});
+app.post('/api/signout', (req, res) => { clearCookie(req, res); res.json({ ok: true }); });
 
 // Is CIVIC able to work right now? Answered in plain language at /check, so a fault is never
 // something a reader has to catch as a message disappears.
 app.get('/api/selftest', wrap(async (req, res) => {
   res.setHeader('Cache-Control', 'no-store');
-  res.json(await selftest({ apiKey: operatorKey({ optional: true }), build: BUILD }));
+  res.json({ ...await selftest({ apiKey: operatorKey({ optional: true }), build: BUILD }), signins: recentSignins(10), access: { required: signinRequired() } });
 }));
 
 // The page reports its own failures here, so /check can show them afterwards.
@@ -339,5 +361,13 @@ server.on('error', async (err) => {
 server.requestTimeout = 0;
 server.headersTimeout = 60 * 1000;
 server.keepAliveTimeout = 75 * 1000;
+
+// A deploy, or the launcher closing an older copy, ends this process with SIGTERM. The listener
+// closes at once, so the port is free for the next CIVIC; a stream still open finishes what it can
+// within whatever grace the host gives; the process ends when the last connection closes.
+process.on('SIGTERM', () => {
+  server.close(() => process.exit(0));
+  if (typeof server.closeIdleConnections === 'function') server.closeIdleConnections();
+});
 
 server.listen(config.port);

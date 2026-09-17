@@ -7,13 +7,17 @@ evaluate.txt) when a session needs to upload them to Render as secret files. The
 non-developer: no GitHub mechanics for them, no tasks pushed onto them that can be automated,
 nothing of the model's output withheld, no arbitrary limits, prompts sent byte for byte. -->
 
-# Handoff: where the move to Render stands (17 September 2026, evening UTC)
+# Handoff: where the move to Render stands (18 September 2026)
 
-- Stage 0 (code) not started. Stage 1: the Render GitHub app is installed on the
-  Operating-Equity organisation with access to civic-001 (done); the operator's Render account
-  is connected to GitHub; the card under Billing is pending unless the operator says otherwise;
-  the claude.ai environment has network reach to api.render.com and *.onrender.com and carries
-  RENDER_API_KEY (and, if the operator added it, OPENAI_API_KEY).
+- Stage 0 (code) is done and merged: sign-in by code (server/access.js, the dialog on the page,
+  CIVIC_ACCESS_CODES), one request per claim with a cut stream requested again, /api/health
+  reporting `active` and `access`, SIGTERM closing the listener, the upload cap, render.yaml.
+  The guard has 85 checks; the door and the per-claim run are proved in the browser.
+- Stage 1: the Render GitHub app is installed on the Operating-Equity organisation with access
+  to civic-001; the operator's Render account is connected to GitHub; the claude.ai environment
+  has network reach to api.render.com and *.onrender.com and carries RENDER_API_KEY and
+  OPENAI_API_KEY. The card under Billing is the operator's. The service is created through the
+  API from the session that continues this (see the status section of the plan below).
 - The Render workspace id (the API's ownerId) is tea-dak7rhnqj5pc73a4dj50. No service exists yet.
 - The repository root's render.yaml is the blueprint to follow when creating the service through
   the API (rootDir civic-web, Node 22, npm install / npm start, health check /api/health).

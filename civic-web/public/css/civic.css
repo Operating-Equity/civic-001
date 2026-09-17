@@ -487,3 +487,14 @@ body {
 /* A bracketed box is square: the brackets are 90 degrees, and a rounded edge under them is not. */
 .frame, .frame .echo-frame, .frame .echo-cap { border-radius: 0; }
 .bk-tl, .bk-tr, .bk-bl, .bk-br { border-radius: 0; }
+
+/* Sign-in by code: a small square dialog, the corners as the brackets are. */
+dialog.signin { border: 1px solid var(--line); border-radius: 0; padding: 26px 26px 20px; width: min(420px, calc(100vw - 32px)); background: var(--paper); color: var(--ink); box-shadow: 0 24px 60px rgba(21, 24, 29, 0.28); }
+dialog.signin::backdrop { background: rgba(21, 24, 29, 0.45); }
+.signin-form { display: grid; gap: 14px; }
+.signin-title { margin: 0; font-size: 22px; }
+.signin-lede { margin: 0; color: var(--ink-2); font-size: 14px; line-height: 1.45; }
+.signin-code { font-family: var(--font-mono); font-size: 20px; letter-spacing: 0.18em; text-transform: uppercase; }
+.signin-note { margin: 0; color: var(--false); font-size: 14px; }
+.signin-actions { display: flex; justify-content: flex-end; gap: 8px; margin-block-start: 4px; }
+.nav-who { font-size: 14px; color: var(--ink-2); max-width: 24ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

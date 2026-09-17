@@ -26,10 +26,35 @@
       <svg class="icon" viewBox="0 0 20 20" aria-hidden="true"><path d="M10 2a8 8 0 1 0 0 16 8 8 0 0 0 0-16Zm6.4 7.2h-2.6a13 13 0 0 0-1-4.5 6.4 6.4 0 0 1 3.6 4.5ZM10 3.6c.9 1.1 1.8 3 2.1 5.6H7.9c.3-2.6 1.2-4.5 2.1-5.6ZM3.6 10.8h2.6a13 13 0 0 0 1 4.5 6.4 6.4 0 0 1-3.6-4.5Zm2.6-1.6H3.6a6.4 6.4 0 0 1 3.6-4.5 13 13 0 0 0-1 4.5Zm3.8 7.2c-.9-1.1-1.8-3-2.1-5.6h4.2c-.3 2.6-1.2 4.5-2.1 5.6Zm2.8-1.1a13 13 0 0 0 1-4.5h2.6a6.4 6.4 0 0 1-3.6 4.5Z" fill="currentColor"/></svg>
       <select id="lang-select" class="lang-select"></select>
     </label>
+    <span class="nav-who" id="nav-who" hidden></span>
     <button type="button" class="btn btn-text" id="btn-signin" data-i18n="nav.signin">Sign in</button>
+    <button type="button" class="btn btn-text" id="btn-signout" data-i18n="signin.signout" hidden>Sign out</button>
     <button type="button" class="btn btn-outline" id="btn-signup" data-i18n="nav.signup">Sign up</button>
   </nav>
 </header>
+
+<!-- Sign-in by code. Opened by the Sign in button, and by any action the server refuses for want
+     of a sign-in; that action proceeds on its own once the code is accepted. Only the code is
+     checked; the email address is kept with the sign-in. -->
+<dialog class="signin" id="signin-dialog">
+  <form class="signin-form" id="signin-form" novalidate>
+    <h2 class="signin-title" data-i18n="signin.title">Sign in</h2>
+    <p class="signin-lede" data-i18n="signin.lede">Enter your access code. Your email address is kept with the sign-in and is not checked.</p>
+    <label class="field">
+      <span class="field-label" data-i18n="signin.email">Email</span>
+      <input class="input" id="signin-email" type="email" autocomplete="email" spellcheck="false">
+    </label>
+    <label class="field">
+      <span class="field-label" data-i18n="signin.code">Access code</span>
+      <input class="input signin-code" id="signin-code" type="text" autocomplete="one-time-code" autocapitalize="characters" spellcheck="false" maxlength="9">
+    </label>
+    <p class="signin-note" id="signin-note" hidden></p>
+    <div class="signin-actions">
+      <button type="button" class="btn btn-text" id="signin-cancel" data-i18n="signin.cancel">Cancel</button>
+      <button type="submit" class="btn btn-primary" id="signin-submit" data-i18n="signin.submit">Sign in</button>
+    </div>
+  </form>
+</dialog>
 
 <main class="page">
 

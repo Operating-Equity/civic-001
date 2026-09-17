@@ -82,6 +82,23 @@ function renderFailures(list) {
   box.append(ul);
 }
 
+/** Who signed in, most recent first, when a sign-in is required. */
+function renderSignins(data) {
+  let box = $('#signins');
+  if (!box) { box = el('div', 'check-failures'); box.id = 'signins'; $('#failures').after(box); }
+  box.textContent = '';
+  if (!data.access?.required) return;
+  box.append(el('h2', null, 'Recent sign-ins'));
+  if (!data.signins?.length) { box.append(el('p', 'check-detail', 'Nobody has signed in since this CIVIC started.')); return; }
+  const ul = el('ul');
+  for (const s of data.signins) {
+    const li = document.createElement('li');
+    li.append(el('time', null, new Date(s.at).toLocaleString()), document.createTextNode(` · ${s.email || 'no email given'} · code ending ${s.code}`));
+    ul.append(li);
+  }
+  box.append(ul);
+}
+
 function asText(data) {
   const lines = [
     `CIVIC self-check · ${data.at}`,
@@ -97,6 +114,10 @@ function asText(data) {
   if (data.recentFailures?.length) {
     lines.push('', 'Recent failures');
     for (const f of data.recentFailures) lines.push(`  ${f.at} ${f.where} ${f.code || ''} ${f.message}`);
+  }
+  if (data.access?.required) {
+    lines.push('', 'Recent sign-ins');
+    for (const s of data.signins || []) lines.push(`  ${s.at} ${s.email || 'no email given'} code ending ${s.code}`);
   }
   return lines.join('\n');
 }
@@ -117,6 +138,13 @@ async function run() {
         + 'it is serving. An older CIVIC window is still holding the port.';
       return;
     }
+    if (res.status === 401) {
+      // The door is locked and this browser has not signed in: the main page's Sign in opens it.
+      verdict.className = 'check-verdict is-blocked';
+      verdict.textContent = 'Sign in on the main page first, then check again.';
+      $('#report').value = 'This CIVIC needs a sign-in. Open the main page, sign in with an access code, then come back here.';
+      return;
+    }
     if (!res.ok) throw new Error(`the server answered ${res.status}`);
     const data = await res.json();
     verdict.className = `check-verdict ${data.ready ? 'is-ready' : 'is-blocked'}`;
@@ -124,6 +152,7 @@ async function run() {
     renderChecks(data.checks);
     renderSettings(data.settings, data.build, data.pacing);
     renderFailures(data.recentFailures);
+    renderSignins(data);
     $('#report').value = asText(data);
   } catch (err) {
     verdict.className = 'check-verdict is-blocked';

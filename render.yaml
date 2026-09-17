@@ -1,16 +1,20 @@
-# One-click hosting on Render (render.com). Render reads this file from the repository and
-# creates the CIVIC web service with no terminal involved. After the service exists, add the two
-# prompts as Secret Files named extract.txt and evaluate.txt in the Render dashboard; they are
-# mounted at /etc/secrets/ and never enter the repository.
+# Hosting on Render (render.com). Render reads this file from the repository (New → Blueprint) and
+# creates the CIVIC web service; a service created through Render's API carries the same settings.
+# After the service exists, the two prompts go in as Secret Files named extract.txt and
+# evaluate.txt (mounted at /etc/secrets/, never in the repository), and the two values marked
+# sync: false are set in Render and nowhere else: the operator's OpenAI key, and the access codes
+# that open the door (civic-web/server/access.js).
 services:
   - type: web
     name: civic
     runtime: node
+    plan: starter            # always on; 512 MB, which the upload cap below respects
+    region: ohio
     rootDir: civic-web
     buildCommand: npm install
     startCommand: npm start
     healthCheckPath: /api/health
-    autoDeploy: true
+    autoDeploy: true         # every merge to main deploys itself; a merge waits until /api/health reports no run in flight
     envVars:
       - key: NODE_VERSION
         value: "22"
@@ -20,6 +24,14 @@ services:
         value: /etc/secrets/evaluate.txt
       - key: CIVIC_LEDGER_FILE
         value: /tmp/civic-ledger.jsonl
-      # The operator's key, pasted once in the Render dashboard. The page then never asks for one.
+      - key: CIVIC_SIGNIN_LOG
+        value: /tmp/civic-signins.jsonl
+      - key: CIVIC_MAX_UPLOAD_BYTES
+        value: "67108864"    # 64 MB: an upload is held whole in memory and parsed there; Starter has 512 MB
+      - key: CIVIC_ALLOW_PRIVATE_URLS
+        value: "false"
+      # The operator's key and the access codes: set in Render, never here.
       - key: OPENAI_API_KEY
+        sync: false
+      - key: CIVIC_ACCESS_CODES
         sync: false
