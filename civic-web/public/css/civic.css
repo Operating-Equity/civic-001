@@ -480,3 +480,7 @@ body {
 .step-thinking .raw-body { max-height: 11rem; overflow-y: auto; white-space: pre-wrap; }
 
 .intake-slow { margin: .6rem 0 0; max-width: 46rem; }
+
+/* A bracketed box is square: the brackets are 90 degrees, and a rounded edge under them is not. */
+.frame, .frame .echo-frame, .frame .echo-cap { border-radius: 0; }
+.bk-tl, .bk-tr, .bk-bl, .bk-br { border-radius: 0; }
