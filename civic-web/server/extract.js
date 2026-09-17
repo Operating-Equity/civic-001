@@ -3,7 +3,8 @@
 import { config } from './config.js';
 import { extractionRequest, extractionShape } from './prompts.js';
 import { sourceBlock } from './source.js';
-import { clientFor, withModelFallback, usageOf, isRetryable, retryBudget, isConnectionDrop, rateLimitWaitMs, sleep, throughGate } from './openai.js';
+import { clientFor, withModelFallback, usageOf, isRetryable, retryBudget, isRateLimit, isConnectionDrop, rateLimitWaitMs, sleep, throughGate, streamFailure } from './openai.js';
+import { gateFor, parseRefusal } from './gate.js';
 import { estimateTextCost } from './pricing.js';
 import { record } from './ledger.js';
 
@@ -114,9 +115,7 @@ export async function runExtraction({ apiKey, text, meta, send, signal, sourceWa
             incomplete = event.response?.incomplete_details?.reason || 'incomplete';
             send({ t: 'phase', phase: 'incomplete', reason: incomplete });
           } else if (event.type === 'response.failed' || event.type === 'error') {
-            const e = new Error(event.response?.error?.message || event.message || 'extraction failed');
-            e.status = 502;
-            throw e;
+            throw streamFailure(event, 'extraction failed');
           }
         }
         } finally {
@@ -131,9 +130,18 @@ export async function runExtraction({ apiKey, text, meta, send, signal, sourceWa
         send({ t: 'note', code: 'no_reasoning_summary' });
         continue;
       }
+      if (isRateLimit(err)) {
+        // A refusal inside the streamed reply, as in evaluate.js: OpenAI's figures go to the gate,
+        // the extraction waits exactly what OpenAI asked, and goes again, whole.
+        const refusal = parseRefusal(err);
+        gateFor(modelUsed || config.extractModels[0]).refusedInStream('extraction', refusal);
+        send({ t: 'retry', attempt: tries + 1, status: 429, reason: 'rate_limit', waitMs: refusal.waitMs || 0 });
+        if (refusal.waitMs) await sleep(refusal.waitMs);
+        continue;
+      }
       if (tries < retryBudget(err) && isRetryable(err)) {
         // As in evaluate.js: a 5xx or a cut connection rejoins the line at the gate; OpenAI's own
-        // retry-after, when given, is honoured first; no back-off of ours; a rate limit never arrives here.
+        // retry-after, when given, is honoured first; no back-off of ours; a refusal at the door never arrives here.
         const waitMs = rateLimitWaitMs(err) || 0;
         const reason = isConnectionDrop(err) ? 'connection' : 'error';
         send({ t: 'retry', attempt: tries + 1, status: err?.status ?? null, reason, waitMs });

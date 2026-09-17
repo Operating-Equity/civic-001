@@ -235,6 +235,23 @@ export class RateGate {
 
   /** OpenAI turned the request back. Its figures are the truth; the request goes again, first. */
   refused(ticket, refusal, at = Date.now()) {
+    this.applyRefusal(ticket.kind, refusal, at);
+    if (this.lane === ticket) this.lane = null;
+    this.inFlight = Math.max(0, this.inFlight - 1);
+    this.wake();
+  }
+
+  /**
+   * OpenAI ended a running reply with a refusal (see streamFailure in openai.js): the response's
+   * own later call found the minute short. The figures count exactly as a refusal at the door does;
+   * the caller starts the claim again through admit(), which waits by them.
+   */
+  refusedInStream(kind, refusal, at = Date.now()) {
+    this.applyRefusal(kind, refusal, at);
+    this.wake();
+  }
+
+  applyRefusal(kind, refusal, at) {
     this.refusals++;
     if (!refusal.perDay) {
       const b = refusal.bucket === 'requests' ? this.requests : this.tokens;
@@ -245,12 +262,9 @@ export class RateGate {
         // No Used figure: the bucket is placed so that it holds the request exactly when OpenAI said.
         b.observe({ limit: b.limit, remaining: Math.max(0, need - refusal.waitMs * (b.rate ?? b.limit / 60000)), resetMs: refusal.resetMs }, at);
       }
-      if (refusal.bucket === 'tokens') this.learn(ticket.kind, refusal.requested);
+      if (refusal.bucket === 'tokens') this.learn(kind, refusal.requested);
     }
-    this.last = { at, kind: ticket.kind, refusal: { bucket: refusal.bucket, limit: refusal.limit, used: refusal.used, requested: refusal.requested, waitMs: refusal.waitMs } };
-    if (this.lane === ticket) this.lane = null;
-    this.inFlight = Math.max(0, this.inFlight - 1);
-    this.wake();
+    this.last = { at, kind, refusal: { bucket: refusal.bucket, limit: refusal.limit, used: refusal.used, requested: refusal.requested, waitMs: refusal.waitMs } };
   }
 
   /** The request failed before its reply began (a cut connection, a 5xx). Any figures it carried count. */
@@ -289,11 +303,10 @@ export class RateGate {
   /** For the check page, its report and the log. */
   state(now = Date.now()) {
     const bucket = (b) => ({ limit: b.limit, available: b.known() ? Math.floor(b.available(now)) : null, fullInMs: b.known() ? Math.max(0, Math.ceil(b.fullAt - now)) : null });
+    // The costs are what OpenAI has shown at the door or in a refusal. A running reply is charged
+    // again at each of its own later calls, so no figure here says how many can run at once.
     const costs = Object.fromEntries(this.costs);
-    const determination = costs.determination && this.tokens.known()
-      ? { atOnce: Math.max(1, Math.floor(this.tokens.limit / costs.determination)), everyMs: Math.round(costs.determination / this.tokens.rate) }
-      : null;
-    return { model: this.model, tokens: bucket(this.tokens), requests: bucket(this.requests), costs, determination, inFlight: this.inFlight, waiting: this.queue.length, replies: this.replies, refusals: this.refusals, last: this.last };
+    return { model: this.model, tokens: bucket(this.tokens), requests: bucket(this.requests), costs, inFlight: this.inFlight, waiting: this.queue.length, replies: this.replies, refusals: this.refusals, last: this.last };
   }
 }
 

@@ -74,8 +74,9 @@ app.post('/v1/responses', async (req, res) => {
   const isArtDirection = /art director/i.test(String(body.instructions || ''));
   const kind = isEvaluation ? 'determination' : isArtDirection ? 'art' : 'extraction';
   // The limiter decides first, as the real one does; a refusal carries its figures and its headers.
-  if (!admitOrRefuse(res, body.model, kind, LIMIT.has(ordinal))) return;
-  res.on('close', () => { stats.inFlight = Math.max(0, stats.inFlight - 1); });
+  const entry = admitOrRefuse(res, body.model, kind, LIMIT.has(ordinal));
+  if (!entry) return;
+  res.on('close', () => { entry.endedAt = Date.now(); stats.inFlight = Math.max(0, stats.inFlight - 1); });
 
   // Exercise the case where a PARAMETER is unsupported: the server must surface this as an error,
   // never silently swap in a different, weaker model.
@@ -128,6 +129,27 @@ app.post('/v1/responses', async (req, res) => {
         send({ type: 'response.web_search_call.completed', item_id: `ws_${k}` });
         send({ type: 'response.output_item.done', output_index: k, item: { id: `ws_${k}`, type: 'web_search_call', status: 'completed', action: { type: 'search', query: queries[k] } } });
       }
+    }
+    // The response's own later call, after the search: its whole context is charged to the bucket
+    // now, as OpenAI charges it. When the bucket lacks it, OpenAI does not turn anything back at
+    // the door (the door is long passed); it ends the response with its figures in an error event.
+    // MOCK_CONTINUATION is that charge for every determination (0: none); MOCK_STREAM_RATE_LIMIT_REQUESTS
+    // drains the bucket before those requests reach this point, so they end this way and fit again
+    // 700 ms on, and MOCK_STREAM_REQUESTED is the figure such a planted refusal cites and charges.
+    const planted = STREAM_LIMIT.has(ordinal);
+    if (CONTINUATION > 0 || planted) {
+      const need = planted && STREAM_REQUESTED > 0 ? STREAM_REQUESTED : CONTINUATION > 0 ? CONTINUATION : RESERVE;
+      settle(TOKENS);
+      if (planted) TOKENS.level = Math.max(0, need - 700 * TOKENS.limit / WINDOW);
+      if (TOKENS.level < need) {
+        stats.refusedInStream++;
+        const used = TOKENS.limit - Math.floor(TOKENS.level);
+        const wait = (need - TOKENS.level) * WINDOW / TOKENS.limit;
+        send({ type: 'response.failed', sequence_number: 99, response: { id, object: 'response', status: 'failed', model: body.model, error: { code: 'rate_limit_exceeded', message: `Rate limit reached for ${body.model} in organization org-mock0000000000000000000 on tokens per min (TPM): Limit ${TOKENS.limit}, Used ${used}, Requested ${need}. Please try again in ${fmtWait(wait)}. Visit https://platform.openai.com/account/rate-limits to learn more.` } } });
+        res.end();
+        return;
+      }
+      TOKENS.level -= need;
     }
     const hold = Number(process.env.MOCK_EVAL_HOLD_MS || 0);
     if (hold) await sleep(hold);
@@ -260,7 +282,10 @@ const REQUESTS = Number(process.env.MOCK_RPM || 0) > 0 ? bucketOf(Number(process
 const levelOf = (b, now = Date.now()) => Math.min(b.limit, b.level + (now - b.at) * b.limit / WINDOW);
 const settle = (b, now = Date.now()) => { b.level = levelOf(b, now); b.at = now; };
 const fmtWait = (ms) => (ms < 1000 ? `${Math.ceil(ms)}ms` : `${(ms / 1000).toFixed(3)}s`);
-const stats = { admitted: 0, refused: 0, inFlight: 0, maxInFlight: 0, timeline: [] };
+const CONTINUATION = Number(process.env.MOCK_CONTINUATION || 0);
+const STREAM_LIMIT = new Set(String(process.env.MOCK_STREAM_RATE_LIMIT_REQUESTS || '').split(',').map(Number).filter(Boolean));
+const STREAM_REQUESTED = Number(process.env.MOCK_STREAM_REQUESTED || 0);
+const stats = { admitted: 0, refused: 0, refusedInStream: 0, inFlight: 0, maxInFlight: 0, timeline: [] };
 let determinations = 0;
 function costOf(kind) {
   if (kind === 'determination' && SERIES.length) return SERIES[determinations++ % SERIES.length];
@@ -293,9 +318,10 @@ function admitOrRefuse(res, model, kind, drained) {
   stats.admitted++;
   stats.inFlight++;
   stats.maxInFlight = Math.max(stats.maxInFlight, stats.inFlight);
-  stats.timeline.push({ at: now, kind, cost, level: Math.floor(TOKENS.level) });
+  const entry = { at: now, kind, cost, level: Math.floor(TOKENS.level), endedAt: null };
+  stats.timeline.push(entry);
   limitHeaders(res);
-  return true;
+  return entry;
 }
 function refuse(res, model, what, b, need) {
   stats.refused++;

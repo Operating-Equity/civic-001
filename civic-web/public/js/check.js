@@ -37,8 +37,7 @@ function pacingRows(pacing) {
     const parts = [];
     if (g.tokens?.limit) parts.push(`${n(g.tokens.limit)} tokens a minute`);
     if (g.requests?.limit) parts.push(`${n(g.requests.limit)} requests a minute`);
-    for (const [kind, cost] of Object.entries(g.costs || {})) parts.push(`OpenAI counts ${n(cost)} for one ${kind}`);
-    if (g.determination) parts.push(`${g.determination.atOnce} determinations start at once, then one more every ${(g.determination.everyMs / 1000).toFixed(1)} s`);
+    for (const [kind, cost] of Object.entries(g.costs || {})) parts.push(`OpenAI has counted up to ${n(cost)} for one ${kind}`);
     if (g.tokens?.available !== null && g.tokens?.available !== undefined) parts.push(`${n(g.tokens.available)} tokens available now`);
     parts.push(`${g.inFlight} in flight · ${g.waiting} waiting · ${g.replies} replies · ${g.refusals} refusals`);
     rows.push([`Pacing, ${g.model}`, parts.join(' · ')]);
