@@ -90,6 +90,19 @@ export async function runEvaluation({ apiKey, claims, send, signal }) {
 
   const tools = [{ type: 'web_search' }]; // always; the prompts were tested with search available
 
+  // The key's minute figures, once the gate has them from OpenAI: the page is told the limit, what
+  // OpenAI counts for one determination, how many start at once and how often one more can. All
+  // of it is OpenAI's own arithmetic; it is sent whenever the figures change.
+  let announced = '';
+  const announceGate = (model) => {
+    const g = gateFor(model).state();
+    if (!g.determination) return;
+    const key = `${g.tokens.limit}:${g.costs.determination}:${g.determination.everyMs}`;
+    if (key === announced) return;
+    announced = key;
+    send({ t: 'gate', model, limit: g.tokens.limit, cost: g.costs.determination, ...g.determination });
+  };
+
   const evaluateOne = async (claim, i) => {
     const prompt = evaluationPrompt(claim);
     const startedAt = Date.now();
@@ -128,6 +141,7 @@ export async function runEvaluation({ apiKey, claims, send, signal }) {
         await withModelFallback('evaluate', config.evalModels, async (model) => {
           const { data: stream, release } = await request(model);
           modelUsed = model;
+          announceGate(model);
           try {
           send({ t: 'start', i, model, requested: config.evalModels[0], at: Date.now() });
           for await (const event of stream) {
