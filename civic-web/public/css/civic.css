@@ -256,15 +256,18 @@ body {
    they are all in, each row is a card: the claim, its verdict and the conclusion behind it, closed.
    Opening a row shows everything the run produced for it; closing it returns the row to its size,
    so forty claims can be read down the page and only the ones that matter are opened. */
+/* The rows' grid and counter are the rows' alone (direct children): an entry rendered inside a
+   row has lists of its own, and a rule reaching them once put each point's text in the 34 px
+   number column, one word per line. */
 .claims-list { margin: 0; padding: 0; list-style: none; counter-reset: claim; display: grid; gap: 6px; }
-.claims-list li { display: grid; grid-template-columns: 34px 1fr; gap: 10px; padding: 7px 0; border-block-start: 1px solid var(--line-soft); font-size: 15px; line-height: 1.45; animation: open .25s ease-out; }
-.claims-list li::before { counter-increment: claim; content: counter(claim, decimal-leading-zero); font-family: var(--font-mono); font-size: 13px; color: var(--blue-deep); padding-block-start: 2px; }
-.claims-list li:has(> .card) { display: block; padding: 0; border: 0; }
-.claims-list li:has(> .card)::before { content: none; }
-.claims-list.is-beyond { counter-reset: claim 20; }
-.claims-list.is-beyond li { color: var(--ink-3); }
-.claims-list.is-beyond li::before { color: var(--ink-3); }
-.claims-list li .card { padding: 12px 16px 12px 14px; }
+.claims-list > li { display: grid; grid-template-columns: 34px 1fr; gap: 10px; padding: 7px 0; border-block-start: 1px solid var(--line-soft); font-size: 15px; line-height: 1.45; animation: open .25s ease-out; }
+.claims-list > li::before { counter-increment: claim; content: counter(claim, decimal-leading-zero); font-family: var(--font-mono); font-size: 13px; color: var(--blue-deep); padding-block-start: 2px; }
+.claims-list > li:has(> .card) { display: block; padding: 0; border: 0; }
+.claims-list > li:has(> .card)::before { content: none; }
+.claims-list.is-beyond { counter-reset: claim 10; }
+.claims-list.is-beyond > li { color: var(--ink-3); }
+.claims-list.is-beyond > li::before { color: var(--ink-3); }
+.claims-list > li .card { padding: 12px 16px 12px 14px; }
 .card-head { cursor: pointer; }
 .card-head:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; border-radius: var(--radius-sm); }
 .card-head::after { content: "▸"; color: var(--ink-3); font-size: 12px; align-self: start; padding-block-start: 7px; transition: transform .15s ease; }
@@ -280,11 +283,11 @@ body {
 .claims-beyond-title { margin: 0; font-size: 13px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--ink-2); }
 .claims-beyond-tools { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .claims-beyond-hint { margin: 4px 0 6px; }
-.claims-list.is-beyond li.selectable { grid-template-columns: 34px 22px 1fr auto; color: var(--ink); }
-.claims-list.is-beyond li.selectable::before { color: var(--ink-3); }
-.claims-list.is-beyond li.selectable input { width: 16px; height: 16px; margin: 3px 0 0; accent-color: var(--blue); }
-.claims-list.is-beyond li.is-tested { color: var(--ink-3); }
-.claims-list.is-beyond li.is-tested .claim-text { text-decoration: line-through; text-decoration-color: var(--line); }
+.claims-list.is-beyond > li.selectable { grid-template-columns: 34px 22px 1fr auto; color: var(--ink); }
+.claims-list.is-beyond > li.selectable::before { color: var(--ink-3); }
+.claims-list.is-beyond > li.selectable input { width: 16px; height: 16px; margin: 3px 0 0; accent-color: var(--blue); }
+.claims-list.is-beyond > li.is-tested { color: var(--ink-3); }
+.claims-list.is-beyond > li.is-tested .claim-text { text-decoration: line-through; text-decoration-color: var(--line); }
 .claim-more, .card-more { display: block; margin-block-start: 3px; font-size: 13px; line-height: 1.4; font-weight: 400; color: var(--ink-2); white-space: pre-line; }
 .tag { align-self: start; font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--true); background: var(--true-bg); padding: 2px 7px; border-radius: 999px; }
 

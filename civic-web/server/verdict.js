@@ -24,16 +24,22 @@ const VERDICT_WORDS = {
 };
 const ANY_VERDICT = /\b(true|false|uncertain|unverified|unverifiable|indeterminate|inconclusive)\b/gi;
 
-/** The last "Conclusion" heading, in any decoration, and the section that follows it. */
-function conclusionSection(text) {
+/**
+ * Every "Conclusion" heading, in any decoration, with the section that follows it, from the last
+ * to the first. The last is usually the one (section 6 of the format), but the Logic Audit that
+ * follows it often names the conclusion at the start of a line ("3. **Conclusion–evidence
+ * match:** ..."), and an entry read from that line alone showed no verdict where the section
+ * above it stated one plainly. So each is tried in turn, and the first that states a verdict wins.
+ */
+function conclusionSections(text) {
   const headings = [...text.matchAll(/(?:^|\n)[^\n]{0,12}\**\s*Conclusion\b\**\s*[:\-–—(\[]?\s*/gi)];
-  if (!headings.length) return null;
-  const h = headings[headings.length - 1];
-  const rest = text.slice(h.index + h[0].length);
-  // The section ends at the next heading: a numbered item, a Markdown heading, a bold label
-  // line, or the Confidence line.
-  const stop = rest.search(/\n\s*(?:#{1,6}\s|\d+[.)]\s*\*{0,2}[A-Z]|\*{2}[A-Z][^*\n]{1,40}\*{2}\s*[:\-–—]|\**\s*Confidence\b)/);
-  return rest.slice(0, stop >= 0 ? stop : undefined);
+  return headings.reverse().map((h) => {
+    const rest = text.slice(h.index + h[0].length);
+    // The section ends at the next heading: a numbered item, a Markdown heading, a bold label
+    // line, or the Confidence line.
+    const stop = rest.search(/\n\s*(?:#{1,6}\s|\d+[.)]\s*\*{0,2}[A-Z]|\*{2}[A-Z][^*\n]{1,40}\*{2}\s*[:\-–—]|\**\s*Confidence\b)/);
+    return rest.slice(0, stop >= 0 ? stop : undefined);
+  });
 }
 
 /**
@@ -71,14 +77,16 @@ export function parseEntry(raw) {
   let verdict = null;
   let source = 'none';
 
-  // 1. The Conclusion section, in whatever form the model wrote its heading.
-  const section = conclusionSection(text);
+  // 1. The Conclusion section, in whatever form the model wrote its heading: the last heading
+  //    whose section states a verdict, and the row's closing text comes from that section.
+  const sections = conclusionSections(text);
   let conclusion = null;
-  if (section !== null) {
-    verdict = statedVerdict(section);
-    if (verdict) source = 'conclusion';
-    conclusion = section.replace(/^\s*\*+\s*/, '').replace(/\*\*/g, '').trim().slice(0, 1500) || null;
+  const asText = (s) => s.replace(/^\s*\*+\s*/, '').replace(/\*\*/g, '').trim().slice(0, 1500) || null;
+  for (const section of sections) {
+    const stated = statedVerdict(section);
+    if (stated) { verdict = stated; source = 'conclusion'; conclusion = asText(section); break; }
   }
+  if (!conclusion && sections.length) conclusion = asText(sections[0]);
 
   // 2. A closing verdict line, wherever it is: "Verdict: False", "Final verdict — True".
   if (!verdict) {

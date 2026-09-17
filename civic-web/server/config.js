@@ -63,7 +63,7 @@ export const config = {
   allowPrivateUrls: bool('CIVIC_ALLOW_PRIVATE_URLS', false),
   maxSourceChars: int('CIVIC_MAX_SOURCE_CHARS', 0),
   allowSourceTruncation: bool('CIVIC_ALLOW_SOURCE_TRUNCATION', false),
-  maxClaims: 20, // the automatic run; claims beyond wait for the reader's selection (operator's rule)
+  maxClaims: 10, // the automatic run; claims beyond wait for the reader's selection (operator's rule, ten since 17 September)
   maxUploadBytes: int('CIVIC_MAX_UPLOAD_BYTES', 200 * 1024 * 1024),
   heartbeatMs: 15000,
 

@@ -387,6 +387,12 @@ specificity (${verdict === 'Uncertain' ? 2 : 5}), average ${verdict === 'Uncerta
 **Findings**: What is directly supported was separated from what is inferred, and the evidence that
 would change the answer was named rather than left implicit.
 
+1. **Documentary count:** the tally was taken from the primary record and read twice.
+2. **Ambiguity:** the period might mean:
+   - fourteen consecutive seven-day periods; or
+   - fourteen separate sitting weeks, excluding breaks.
+3. **Falsification:** one further authenticated instance would falsify the figure as stated.
+
 **Conclusion**: ${verdict}. ${verdict === 'True' ? 'The primary record states the proposition as claimed.' : verdict === 'False' ? 'The primary record contradicts the proposition as stated.' : 'No primary record was found that settles the proposition either way.'}
 
 **Confidence**: ${conf}%. ${verdict === 'Uncertain' ? 'Confidence is limited by the absence of a primary source.' : 'Residual uncertainty reflects the possibility of an unpublished correction.'}`;
