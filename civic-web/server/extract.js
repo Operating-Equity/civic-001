@@ -3,7 +3,8 @@
 import { config } from './config.js';
 import { extractionRequest, extractionShape } from './prompts.js';
 import { sourceBlock } from './source.js';
-import { clientFor, withModelFallback, usageOf, isRetryable, retryBudget, isRateLimit, isConnectionDrop, rateLimitWaitMs, sleep, throughGate, streamFailure } from './openai.js';
+import { clientFor, withModelFallback, usageOf, isRetryable, isRateLimit, isConnectionDrop, connectionWait, rateLimitWaitMs, sleep, throughGate, streamFailure } from './openai.js';
+import { noteFailure } from './reach.js';
 import { gateFor, parseRefusal } from './gate.js';
 import { estimateTextCost } from './pricing.js';
 import { record } from './ledger.js';
@@ -78,6 +79,7 @@ export async function runExtraction({ apiKey, text, meta, send, signal, sourceWa
   let fellBack = null;
   if (sourceWarning) send({ t: 'warning', ...sourceWarning });
   for (let tries = 0; ; tries++) {
+    const attemptAt = Date.now();
     try {
       full = '';
       emitted = 0;
@@ -139,12 +141,22 @@ export async function runExtraction({ apiKey, text, meta, send, signal, sourceWa
         if (refusal.waitMs) await sleep(refusal.waitMs);
         continue;
       }
-      if (tries < retryBudget(err) && isRetryable(err)) {
-        // As in evaluate.js: a 5xx or a cut connection rejoins the line at the gate; OpenAI's own
-        // retry-after, when given, is honoured first; no back-off of ours; a refusal at the door never arrives here.
+      if (isConnectionDrop(err)) {
+        // As in evaluate.js: a connection that could not be made or was cut is the operating
+        // system's report, not OpenAI's; the extraction waits for the connection, going again a
+        // second after this go began, however long the route is missing, never counted out.
+        const { code, why, waitMs } = connectionWait(err, attemptAt);
+        const { since } = noteFailure({ code, why });
+        send({ t: 'retry', attempt: tries + 1, status: null, reason: 'connection', code, why, since, waitMs, at: Date.now() });
+        if (waitMs > 0) await sleep(waitMs);
+        continue;
+      }
+      if (tries < config.evalRetries && isRetryable(err)) {
+        // As in evaluate.js: a 5xx rejoins the line at the gate on the operator's count; OpenAI's
+        // own retry-after, when given, is honoured first; no back-off of ours; a refusal at the
+        // door never arrives here.
         const waitMs = rateLimitWaitMs(err) || 0;
-        const reason = isConnectionDrop(err) ? 'connection' : 'error';
-        send({ t: 'retry', attempt: tries + 1, status: err?.status ?? null, reason, waitMs });
+        send({ t: 'retry', attempt: tries + 1, status: err?.status ?? null, reason: 'error', waitMs });
         if (waitMs > 0) await sleep(waitMs);
         continue;
       }

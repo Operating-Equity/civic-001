@@ -3,8 +3,9 @@
 // Node's fetch gives up on a response body that has been silent for five minutes, and every claim
 // in a run once failed at that mark with the one word "terminated". No limit of ours replaces it:
 // an extraction of a very long document, or a determination at a high reasoning effort, takes as
-// long as it takes, and nothing here predicts how long that is. The only failure is a connection
-// the network itself reports dead. TCP keepalive makes that report arrive: the operating system
+// long as it takes, and nothing here predicts how long that is. The only thing that ends a request
+// early is a connection the network itself reports dead, and that is made again, not counted as a
+// failure (openai.js, connectionWait). TCP keepalive makes the report arrive: the operating system
 // probes a silent connection and errors it if the other side has gone, and it keeps the path open
 // through routers that drop idle connections.
 import { Agent, fetch as undiciFetch } from 'undici';

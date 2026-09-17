@@ -14,6 +14,13 @@ import { $, $$, el, renderMarkdown, setBar, toast, easeChars, easeTime, bump, do
 const MAX_CLAIMS = 10; // the automatic run (the operator's number); anything beyond is the reader's explicit choice
 const GLYPH = { true: '✓', false: '✕', unverified: '?', unread: '–' };
 
+/** A connection failure in the reader's language, from the operating system's code; the server's own words otherwise. */
+function netWords(code, why) {
+  const key = `net.${code || 'connection'}`;
+  const words = t(key);
+  return words === key ? (why || t('net.connection')) : words;
+}
+
 const state = {
   phase: 'idle',
   server: null,        // /api/health payload, or null when no server answers
@@ -38,6 +45,7 @@ const state = {
   extractStartedAt: 0,
   extractChars: 0,
   found: 0,
+  extractWait: null,   // while the extraction waits for the connection to OpenAI: { code, why, since }
   evalStartedAt: 0,
   gate: null,          // the key's minute figures, from the server, once OpenAI has given them
   status: { step1: null, step2: null },
@@ -272,7 +280,7 @@ function resetRunState() {
     phase: 'idle', warnings: [], claims: [], claimsRaw: '', beyond: [], cards: [], results: [], extraction: null, echo: null,
     batch: { start: 0, size: 0, done: 0 }, counts: { true: 0, false: 0, unverified: 0 }, unread: 0,
     tokens: 0, cost: 0, unpriced: false,
-    extractStartedAt: 0, extractChars: 0, found: 0, evalStartedAt: 0, gate: null, status: { step1: null, step2: null },
+    extractStartedAt: 0, extractChars: 0, found: 0, extractWait: null, evalStartedAt: 0, gate: null, status: { step1: null, step2: null },
   });
   ui.runWarnings.replaceChildren();
   ui.runWarnings.hidden = true;
@@ -341,11 +349,16 @@ function showFailure(message, err) {
 function updateEvalStatus() {
   if (state.phase !== 'evaluating' || !state.batch.size) return;
   const running = state.results.filter((r) => r.status === 'running').length;
+  // A claim waiting for the connection to OpenAI is neither working nor held by the key's minute.
+  const unreachable = state.results.filter((r) => r.status === 'running' && r.phase === 'retry' && r.retryReason === 'connection');
   // A claim held at the gate has not started; one waiting to go again has, but is not working.
-  const throttled = state.results.filter((r) => r.phase === 'queued' || (r.status === 'running' && r.phase === 'retry')).length;
+  const throttled = state.results.filter((r) => r.phase === 'queued' || (r.status === 'running' && r.phase === 'retry' && r.retryReason !== 'connection')).length;
   const working = state.results.filter((r) => r.status === 'running' && r.phase !== 'queued' && r.phase !== 'retry').length;
   const elapsed = fmtSeconds(Date.now() - state.evalStartedAt);
-  if (throttled) {
+  if (unreachable.length) {
+    const w = unreachable[0];
+    setStatus('step2', 'step2.unreachable', { running: working, n: unreachable.length, why: netWords(w.retryCode, w.retryWhy), done: state.batch.done, total: state.batch.size, time: elapsed });
+  } else if (throttled) {
     setStatus('step2', 'step2.throttled', { running: working, n: throttled, done: state.batch.done, total: state.batch.size, time: elapsed });
   } else if (running) {
     setStatus('step2', 'step2.running', { running, done: state.batch.done, total: state.batch.size, time: elapsed });
@@ -416,10 +429,17 @@ async function runExtraction(text) {
       case 'trail':
         state.extractSearches = ev.searches || (state.extractSearches + 1);
         break;
-      case 'retry': setStatus('step1', 'step1.retry'); break;
-      case 'phase': if (ev.phase === 'queued') setStatus('step1', 'step1.queued'); break;
+      case 'start': state.extractWait = null; break;   // the connection was made; the model is reading
+      case 'retry':
+        // A connection failure is a wait for the connection, shown as such until the next go begins.
+        state.extractWait = ev.reason === 'connection' ? { code: ev.code, why: ev.why, since: ev.since || Date.now() } : null;
+        if (!state.extractWait) setStatus('step1', 'step1.retry');
+        break;
+      case 'phase':
+        if (ev.phase === 'queued') setStatus('step1', 'step1.queued');
+        if (ev.phase === 'incomplete') toast(t('step1.incomplete'), { error: true, ms: 9000 });
+        break;
       case 'warning': addWarning(ev); break;
-      case 'phase': if (ev.phase === 'incomplete') toast(t('step1.incomplete'), { error: true, ms: 9000 }); break;
       case 'done': finished = true; finishExtraction(ev); break;
       case 'error': finished = true; failRun(ev); break;
       default: break;
@@ -438,6 +458,13 @@ async function runExtraction(text) {
 function updateExtractBar() {
   if (state.phase !== 'extracting') return;
   const elapsed = Date.now() - state.extractStartedAt;
+
+  // The connection to OpenAI cannot be made: the line says so, why, and for how long, until it can.
+  if (state.extractWait) {
+    ui.bar1.classList.add('is-waiting');
+    setStatus('step1', 'step1.unreachable', { why: netWords(state.extractWait.code, state.extractWait.why), time: fmtSeconds(Date.now() - state.extractWait.since) });
+    return;
+  }
 
   // At high reasoning effort the model thinks for minutes before it writes anything. A bar tuned to
   // seconds reaches its ceiling and sits there, which reads as a dead page. So until the first claim
@@ -691,6 +718,7 @@ function handleEvalEvent(ev, mapIndex) {
     case 'retry':
       r.phase = 'retry'; r.retryAttempt = ev.attempt; r.retryStatus = ev.status ?? null;
       r.retryReason = ev.reason || null; r.retryUntil = Date.now() + (ev.waitMs || 0);
+      r.retryCode = ev.code || null; r.retryWhy = ev.why || null; r.retrySince = ev.since || Date.now();
       renderCardStatus(i); updateEvalStatus();
       break;
     case 'done': finalizeCard(i, ev); break;
@@ -821,6 +849,7 @@ function renderCardStatus(i) {
     const s = r.queuedUntil ? Math.max(0, Math.ceil((r.queuedUntil - Date.now()) / 1000)) : 0;
     text = t('card.queued') + (s > 0 ? ` · ${s} s` : '');
   } else if (r.phase === 'retry' && r.retryReason === 'rate_limit') text = t('card.waitingLimit', { s: Math.max(0, Math.ceil(((r.retryUntil || 0) - Date.now()) / 1000)) });
+  else if (r.phase === 'retry' && r.retryReason === 'connection') text = t('card.waitingConnection', { why: netWords(r.retryCode, r.retryWhy), time: fmtSeconds(Date.now() - (r.retrySince || Date.now())) });
   else if (r.phase === 'retry') text = t('card.retry', { n: r.retryAttempt || 1 });
   else if (r.phase === 'searching' && r.trail.length) text = t('card.searchingN', { n: r.trail.length });
   else text = t(map[r.phase] || 'card.pending');
@@ -978,9 +1007,7 @@ function renderCardError(i) {
   let msg = $('.card-error', card);
   if (!msg) { msg = el('p', { class: 'card-error' }); $('.card-head', card).after(msg); }
   // Said in words first; the technical reason follows, so it can be reported.
-  const why = r.errorCode === 'connection_dropped' ? `${t('card.dropped')} (${r.error || ''})`
-    : r.errorCode === 'quota_exhausted' ? `${t('card.quota')} (${r.error || ''})`
-    : (r.error || '');
+  const why = r.errorCode === 'quota_exhausted' ? `${t('card.quota')} (${r.error || ''})` : (r.error || '');
   msg.replaceChildren(document.createTextNode(`${t('card.error')} ${why}`.trim()),
     el('button', { type: 'button', class: 'btn btn-small btn-text', text: t('card.retryBtn'), onclick: () => retryClaim(i) }));
   $('.card-brief', card).hidden = true;

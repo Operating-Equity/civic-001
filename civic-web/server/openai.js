@@ -5,6 +5,7 @@ import { redactPrompts } from './prompts.js';
 import { HEADER_SAFE } from './key.js';
 import { openaiFetch, NO_LIMIT_MS } from './http.js';
 import { gateFor, parseRefusal } from './gate.js';
+import { noteReply } from './reach.js';
 
 export class ApiError extends Error {
   constructor(status, code, message) {
@@ -66,7 +67,7 @@ export function describeError(err) {
   let message = err?.error?.message || err?.message || 'The request to OpenAI failed.';
   // A connection failure arrives as one word ("terminated") with the reason underneath it, in a
   // chain of causes. The whole chain is the message, so the reason is never lost.
-  for (let c = err?.cause, depth = 0; c && depth < 3; c = c.cause, depth++) {
+  for (const c of causes(err).slice(1)) {
     const part = c.message || c.code;
     if (part && !String(message).includes(part)) message += `: ${part}`;
   }
@@ -80,16 +81,38 @@ export function describeError(err) {
 }
 
 /**
- * The connection failed or was cut, before or during the reply. Nothing OpenAI decided: no status,
- * no verdict on the request. Such a failure is retried like a rate limit; a model or parameter
- * error never is.
+ * An error and every error underneath it: its cause, its cause's cause, and, when Node tried
+ * every address a name resolves to and was refused each, that report's error for each address
+ * (an AggregateError with an empty message, its code the first address's). The connection failure
+ * of 17 September arrived that way: "Connection error." over "fetch failed" over a bare
+ * EHOSTUNREACH, with the addresses tried underneath.
  */
+export function causes(err, limit = 12) {
+  const out = [];
+  const queue = [err];
+  while (queue.length && out.length < limit) {
+    const e = queue.shift();
+    if (!e || typeof e !== 'object' || out.includes(e)) continue;
+    out.push(e);
+    if (e.cause) queue.push(e.cause);
+    if (Array.isArray(e.errors)) queue.push(...e.errors);
+  }
+  return out;
+}
+
+/**
+ * The connection could not be made, or was cut before or during the reply: the operating system's
+ * report, never OpenAI's. Nothing was decided about the request, and a request that never left
+ * this computer spent nothing. Such a failure is waited out (connectionWait), never counted; a
+ * model or parameter error is never repeated.
+ */
+const CONNECTION_CODES = new Set(['ECONNRESET', 'ECONNREFUSED', 'ETIMEDOUT', 'EPIPE', 'EAI_AGAIN', 'ENOTFOUND',
+  'EHOSTUNREACH', 'ENETUNREACH', 'ENETDOWN', 'EHOSTDOWN', 'ECONNABORTED', 'EADDRNOTAVAIL',
+  'UND_ERR_SOCKET', 'UND_ERR_BODY_TIMEOUT', 'UND_ERR_HEADERS_TIMEOUT', 'UND_ERR_CONNECT_TIMEOUT']);
 export function isConnectionDrop(err) {
-  const codes = new Set(['ECONNRESET', 'ECONNREFUSED', 'ETIMEDOUT', 'EPIPE', 'EAI_AGAIN', 'ENOTFOUND',
-    'UND_ERR_SOCKET', 'UND_ERR_BODY_TIMEOUT', 'UND_ERR_HEADERS_TIMEOUT', 'UND_ERR_CONNECT_TIMEOUT']);
-  for (let e = err, depth = 0; e && depth < 5; e = e.cause, depth++) {
+  for (const e of causes(err)) {
     if (e.status) return false;
-    if (codes.has(e.code)) return true;
+    if (CONNECTION_CODES.has(e.code)) return true;
     if (e.name === 'APIConnectionError' || e.name === 'APIConnectionTimeoutError') return true;
     if (/terminated|fetch failed|other side closed|socket hang up|network error/i.test(String(e.message))) return true;
   }
@@ -109,23 +132,69 @@ export function isModelNotFound(err) {
 }
 
 /**
- * Whether a failed attempt may be repeated: a 5xx, or a connection that failed or was cut. A rate
- * limit never arrives here, because the gate handles it; a used-up quota, a model error and a
- * parameter error are never repeated.
+ * Whether a failed attempt may be repeated on the operator's count: a 5xx from OpenAI, which cost
+ * nothing. A rate limit never arrives here, because the gate handles it; a connection failure is
+ * waited out (connectionWait), not counted; a used-up quota, a model error and a parameter error
+ * are never repeated.
  */
 export function isRetryable(err) {
   const s = err?.status;
-  return s === 500 || s === 502 || s === 503 || s === 504 || isConnectionDrop(err);
+  return s === 500 || s === 502 || s === 503 || s === 504;
 }
 
 /**
- * How many times a failed attempt may be repeated. A 5xx costs nothing, so the operator's full
- * budget applies. A connection cut during the reply has already spent the tokens of that attempt,
- * so it is repeated at most twice: a bad network must not spend nine determinations' worth of
- * tokens on one claim.
+ * The interval between goes at a connection that cannot be made. A go into a missing route fails
+ * within a millisecond, and going again in the same millisecond is going into the same fault; so
+ * the next go waits until this much has passed since the last began. It limits nothing: a go that
+ * finds no route costs nothing (no packet reaches OpenAI, no token is counted), and a second is
+ * the finest interval the page shows a wait in. There is no count. The claim goes again until the
+ * connection can be made, however long that is; the row says why it waits, in the system's words.
  */
-export function retryBudget(err) {
-  return isConnectionDrop(err) ? Math.min(config.evalRetries, 2) : config.evalRetries;
+export const CONNECTION_RETRY_MS = 1000;
+
+/** The operating system's codes, in words, for the row and the record. */
+const CONNECTION_WORDS = new Map([
+  ['EHOSTUNREACH', 'no route to host'],
+  ['ENETUNREACH', 'the network is unreachable'],
+  ['ENETDOWN', 'the network is down'],
+  ['EHOSTDOWN', 'the host is down'],
+  ['ECONNREFUSED', 'the connection was refused'],
+  ['ENOTFOUND', 'the name {host} could not be resolved'],
+  ['EAI_AGAIN', 'the name {host} could not be resolved'],
+  ['ETIMEDOUT', 'the connection timed out'],
+  ['UND_ERR_CONNECT_TIMEOUT', 'the connection timed out'],
+  ['ECONNRESET', 'the connection was reset'],
+  ['ECONNABORTED', 'the connection was aborted'],
+  ['EPIPE', 'the connection was closed while sending'],
+  ['EADDRNOTAVAIL', 'no local address was available'],
+  ['UND_ERR_SOCKET', 'the connection was cut during the reply'],
+  ['UND_ERR_BODY_TIMEOUT', 'the reply stopped'],
+  ['UND_ERR_HEADERS_TIMEOUT', 'the reply never began'],
+]);
+
+function apiHost() {
+  try { return new URL(config.openaiBaseUrl || 'https://api.openai.com/v1').hostname; } catch { return 'api.openai.com'; }
+}
+
+/** What a connection failure was, as the operating system reported it: the code, and the words. */
+export function connectionFailure(err) {
+  const chain = causes(err);
+  for (const e of chain) {
+    const words = CONNECTION_WORDS.get(e.code);
+    if (words) return { code: e.code, why: words.replace('{host}', apiHost()) };
+  }
+  const said = chain.map((e) => String(e.message || '')).join(' ');
+  if (/other side closed|socket hang up|terminated/i.test(said)) return { code: 'cut', why: 'the connection was cut during the reply' };
+  return { code: 'connection', why: 'the connection failed' };
+}
+
+/**
+ * What follows a connection failure: the code, the words, and the wait until the next go, which
+ * is CONNECTION_RETRY_MS after the failed go began. A failure that itself took longer than that
+ * (a connection that timed out) has waited enough, and the next go is immediate.
+ */
+export function connectionWait(err, startedAt, now = Date.now()) {
+  return { ...connectionFailure(err), waitMs: Math.max(0, CONNECTION_RETRY_MS - (now - startedAt)) };
 }
 
 /**
@@ -174,8 +243,9 @@ export function streamFailure(event, fallback) {
  *
  * A refusal never leaves here. OpenAI turns a request back with its exact figures (the limit,
  * what was used, what this request costs, when it fits); the gate takes those, the request waits
- * exactly that long and goes again, first in line. The caller sees a reply, a cut connection, a
- * used-up quota, or a real error; it never sees a rate limit.
+ * exactly that long and goes again, first in line. The caller sees a reply, a connection failure
+ * (which it waits out, see connectionWait), a used-up quota, or a real error; it never sees a
+ * rate limit.
  */
 export async function throughGate(client, body, { kind = 'request', signal, onHold } = {}) {
   const gate = gateFor(body.model);
@@ -183,9 +253,11 @@ export async function throughGate(client, body, { kind = 'request', signal, onHo
   for (;;) {
     try {
       const { data, response } = await client.responses.create(body, { signal }).withResponse();
+      noteReply();   // a reply of any kind is OpenAI reached: an outage on record is over
       gate.replied(ticket, response.headers);
       return { data, response, release: () => gate.done(ticket) };
     } catch (err) {
+      if (!isConnectionDrop(err)) noteReply();
       if (!isRateLimit(err)) { gate.failed(ticket, err); throw err; }
       const refusal = parseRefusal(err);
       gate.refused(ticket, refusal);
