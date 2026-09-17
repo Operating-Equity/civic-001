@@ -195,7 +195,7 @@ try {
   const lastStart = ev.map((e, k) => (e.t === 'start' && e.i === 0 ? k : -1)).reduce((a, b) => Math.max(a, b), -1);
   const streamed = ev.filter((e, k) => k > lastStart && e.t === 'delta' && e.i === 0).map((e) => e.text).join('');
   check('determination: final text equals every streamed character (nothing stripped)', Boolean(done?.text) && done.text === streamed, `${done?.text?.length} vs ${streamed.length} chars`);
-  check('determination: verdict read from the Conclusion or left unread (never guessed)', done?.verdictSource === 'conclusion' || done?.verdict === null, `source=${done?.verdictSource}`);
+  check('determination: verdict read from the Conclusion, or Unverified when the Conclusion states neither True nor False (never guessed)', done?.verdictSource === 'conclusion' || (done?.verdict === 'unverified' && done?.verdictSource === 'unread'), `source=${done?.verdictSource} verdict=${done?.verdict}`);
 
   // What the gate learned, in OpenAI's own figure: the refusal said "Requested 68147".
   const pacing = (await (await fetch(`http://localhost:${PORT}/api/selftest`)).json()).pacing || [];
@@ -264,13 +264,11 @@ async function gateChecks() {
   const starts = (r) => { const d = (r.stats?.timeline || []).filter((e) => e.kind === 'determination'); return d.map((e) => e.at - d[0].at); };
   const twenty = { CIVIC_EVAL_CONCURRENCY: '20' };   // the gate's pacing is proved with claims allowed to run together
 
-  // 0. The rule that runs: one claim at a time. Each determination starts after the one before it has ended.
+  // 0. The rule that runs: two claims at a time, never more, and none refused at the door or in its stream.
   {
     const r = await gateRun(3, { MOCK_TPM: '5000000', MOCK_RESERVE: String(reserve), MOCK_CONTINUATION: '90000' }, { claims: SIX.slice(0, 4) });
-    const d = (r.stats?.timeline || []).filter((e) => e.kind === 'determination');
-    const sequential = d.length === 4 && d.every((e, k) => k === 0 || (d[k - 1].endedAt && e.at >= d[k - 1].endedAt));
-    check('claims run one at a time: each determination is sent only after the previous one has ended, and none is refused at the door or in its stream',
-      !r.failure && sequential && r.stats?.refused === 0 && r.stats?.refusedInStream === 0 && done(r) === 4, `${r.failure} sequential=${sequential} refused=${r.stats?.refused} inStream=${r.stats?.refusedInStream} done=${done(r)}`);
+    check('claims run two at a time: two determinations run together and never a third, and none is refused at the door or in its stream',
+      !r.failure && r.stats?.maxInFlight === 2 && r.stats?.refused === 0 && r.stats?.refusedInStream === 0 && done(r) === 4, `${r.failure} maxInFlight=${r.stats?.maxInFlight} refused=${r.stats?.refused} inStream=${r.stats?.refusedInStream} done=${done(r)}`);
   }
 
   // 1. Steady costs. The budget holds three; one more fits each second as the bucket refills.

@@ -64,8 +64,11 @@ export function parseEntry(raw) {
   }
 
   // There is no third step. Scanning the closing lines for any verdict word would be a guess,
-  // and a guess is exactly what this file must never make. No Conclusion, no verdict: the card
-  // says so and the claim is counted in no column.
+  // and a guess is exactly what this file must never make. An entry whose Conclusion states
+  // neither True nor False is Unverified: the operator's ruling of 17 September ("Verdict not
+  // read = unverified"), since his format knows no other state. The source stays 'unread', so the
+  // ledger and /check can tell such an entry from one that said Uncertain.
+  if (!verdict) { verdict = 'unverified'; source = 'unread'; }
 
   const conf = text.match(/Confidence\**\s*[:\-–]?\s*\**\s*(\d{1,3})\s*%/i);
   const confidence = conf ? Math.min(100, Number(conf[1])) : null;
@@ -257,9 +260,9 @@ export async function runEvaluation({ apiKey, claims, document = '', send, signa
 
     if (signal.aborted) return;
     const parsed = parseEntry(text);
-    // A verdict that could not be read is never guessed; what the entry said at its Conclusion is
-    // kept for /check, so the reader can be corrected to the form the model actually wrote.
-    if (!parsed.verdict) recordFailure({ where: 'server:verdict', code: 'verdict_unread', message: conclusionExcerpt(text) });
+    // An entry whose Conclusion could not be read counts as Unverified; what it said at its
+    // Conclusion is kept for /check, so the reader can be corrected to the form the model wrote.
+    if (parsed.verdictSource === 'unread') recordFailure({ where: 'server:verdict', code: 'verdict_unread', message: conclusionExcerpt(text) });
     const ms = Date.now() - startedAt;
     const cost = estimateTextCost({ model: modelUsed, usage, searches: trail.length });
     record({
