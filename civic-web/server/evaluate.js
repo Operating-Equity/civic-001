@@ -1,5 +1,9 @@
 // Step 2 — each claim is tested by the protected evaluation prompt, sent verbatim.
-// All claims run in parallel (bounded by config.evalConcurrency).
+// One claim at a time (config.evalConcurrency). What is tested is the claim's whole entry as the
+// extractor wrote it (Claim, Attribution, what the source leaves unspecified), and the source goes
+// ahead of the prompt as its own message, as the conversation carried it in the workflow the
+// prompts were tested in. A claim tested bare, with "the speech" and no speaker or date, was
+// being tested without the context the extraction prompt had written for it.
 //
 // Nothing the model returns is edited, trimmed or withheld. The card receives the complete
 // output text, the reasoning summary, every web search the model performed, and every source
@@ -81,7 +85,7 @@ export function conclusionExcerpt(text) {
   return (at >= 0 ? 'At the entry\'s last "Conclusion": ' : 'No "Conclusion" in the entry; its end: ') + piece.replace(/\s+/g, ' ').trim();
 }
 
-export async function runEvaluation({ apiKey, claims, send, signal }) {
+export async function runEvaluation({ apiKey, claims, document = '', send, signal }) {
   const client = clientFor(apiKey);
   const total = claims.length;
   let completed = 0;
@@ -124,7 +128,11 @@ export async function runEvaluation({ apiKey, claims, send, signal }) {
       if (wantSummary) reasoning.summary = config.evalReasoningSummary;
       const body = {
         model,
-        input: [{ role: 'user', content: [{ type: 'input_text', text: prompt }] }], // the prompt, verbatim, alone
+        // The source ahead, as its own message, then the prompt verbatim with the entry in its slot.
+        input: [
+          ...(document ? [{ role: 'user', content: [{ type: 'input_text', text: document }] }] : []),
+          { role: 'user', content: [{ type: 'input_text', text: prompt }] },
+        ],
         reasoning,
         tools,
         stream: true,

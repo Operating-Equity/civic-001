@@ -118,7 +118,9 @@ try {
   const source = 'The Eiffel Tower stands about 330 metres tall. Water boils at 100 degrees Celsius at sea level. Mount Everest is 8,849 metres above sea level.';
   const claim = 'The Eiffel Tower stands about 330 metres tall.';
   const ex = await stream(`http://localhost:${PORT}/api/extract`, { text: source });
-  const ev = await stream(`http://localhost:${PORT}/api/evaluate`, { claims: [claim] });
+  // The page tests each claim's whole entry, with the source it came from, as the page does.
+  const entry = ex.find((e) => e.t === 'done')?.claims?.[0]?.entry || claim;
+  const ev = await stream(`http://localhost:${PORT}/api/evaluate`, { claims: [entry], text: source, source: { kind: 'text' } });
 
   const sent = fs.readFileSync(record, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)).filter((r) => r.path === '/v1/responses');
   // The extraction is sent and completed before the determination is sent, so arrival order is
@@ -166,14 +168,15 @@ try {
     check('extraction: store = false', exBody.store === false);
   }
   if (evBody) {
-    const userText = evBody.input?.[0]?.content?.[0]?.text;
+    const userText = evBody.input?.[evBody.input.length - 1]?.content?.[0]?.text;
+    const ahead = evBody.input?.length === 2 ? evBody.input[0]?.content?.[0]?.text : null;
     check('determination: model is the configured model', evBody.model === shape.evaluate.model, evBody.model);
     check('determination: reasoning.effort is the configured effort', evBody.reasoning?.effort === shape.evaluate.effort, JSON.stringify(evBody.reasoning));
     check('determination: no keys beyond model, input, reasoning, tools, stream, store', extraKeys(evBody, ALLOWED.evaluate).length === 0, extraKeys(evBody, ALLOWED.evaluate).join(', '));
     check('determination: no reasoning keys beyond effort, summary', extraKeys(evBody.reasoning, ALLOWED.reasoning).length === 0, extraKeys(evBody.reasoning, ALLOWED.reasoning).join(', '));
     check('determination: no instructions field (nothing added around the prompt)', evBody.instructions === undefined);
-    check('determination: the prompt sent verbatim with the claim substituted', userText === evaluatePrompt.split('{{CLAIM}}').join(claim), `${userText?.length} chars`);
-    check('determination: exactly one message, the prompt', Array.isArray(evBody.input) && evBody.input.length === 1);
+    check('determination: the prompt sent verbatim with the claim\'s whole entry (Claim, Attribution, what is unspecified) in place of {{CLAIM}}', userText === evaluatePrompt.split('{{CLAIM}}').join(entry) && /^Claim:/.test(entry) && /\nAttribution:/.test(entry), `${userText?.length} chars; entry: ${JSON.stringify(entry).slice(0, 120)}`);
+    check('determination: exactly two messages, the source ahead of the prompt exactly as the extractor received it, then the prompt', Array.isArray(evBody.input) && evBody.input.length === 2 && ahead === sourceBlock(source, { kind: 'text' }), `${evBody.input?.length} messages`);
     const tools = evBody.tools || [];
     check('determination: web search available (exactly one web_search, no options)', tools.length === 1 && tools[0].type === 'web_search' && extraKeys(tools[0], ALLOWED.webSearchTool).length === 0, JSON.stringify(tools));
     check('determination: store = false', evBody.store === false);

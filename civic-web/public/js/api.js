@@ -92,8 +92,8 @@ export function extract({ text, source, signal, onEvent }) {
   return streamNdjson('api/extract', { text, source }, { signal, onEvent });
 }
 
-export function evaluate({ claims, signal, onEvent }) {
-  return streamNdjson('api/evaluate', { claims }, { signal, onEvent });
+export function evaluate({ claims, text, source, signal, onEvent }) {
+  return streamNdjson('api/evaluate', { claims, text, source }, { signal, onEvent });
 }
 
 export async function illustrate({ text, signal }) {

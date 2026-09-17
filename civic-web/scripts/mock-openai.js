@@ -53,6 +53,13 @@ function inputText(body) {
   if (typeof input === 'string') return input;
   return (input || []).flatMap((m) => (m.content || []).map((c) => c.text || '')).join('\n');
 }
+/** The last message: the prompt, when a source travels ahead of it. */
+function lastText(body) {
+  const input = body.input;
+  if (typeof input === 'string') return input;
+  const last = (input || [])[(input || []).length - 1];
+  return ((last && last.content) || []).map((c) => c.text || '').join('\n');
+}
 
 // Reading a model's description, which is what the self-check uses to prove a key may use a model.
 // It costs no tokens, so the mock answers it the same way the real API does.
@@ -70,7 +77,8 @@ app.post('/v1/responses', async (req, res) => {
   // Which of the requests this is. The guard tells the stand-in how a determination begins
   // (MOCK_EVAL_MARK, derived at run time from whatever evaluation prompt is installed, never
   // written down here); by hand, a message that opens "Prompt =" is taken to be one.
-  const isEvaluation = process.env.MOCK_EVAL_MARK ? text.includes(process.env.MOCK_EVAL_MARK) : /^\s*Prompt\s*=/.test(text);
+  const prompt = lastText(body);
+  const isEvaluation = process.env.MOCK_EVAL_MARK ? prompt.includes(process.env.MOCK_EVAL_MARK) : /^\s*Prompt\s*=/.test(prompt);
   const isArtDirection = /art director/i.test(String(body.instructions || ''));
   const kind = isEvaluation ? 'determination' : isArtDirection ? 'art' : 'extraction';
   // The limiter decides first, as the real one does; a refusal carries its figures and its headers.
@@ -105,7 +113,7 @@ app.post('/v1/responses', async (req, res) => {
 
   let output;
   if (isEvaluation) {
-    const claim = text.split('\n')[0].replace(/^\s*Prompt\s*=\s*/, '').trim();
+    const claim = prompt.split('\n')[0].replace(/^\s*Prompt\s*=\s*/, '').trim();
 
     if (body.reasoning?.summary) {
       for (const part of MOCK_REASONING) {

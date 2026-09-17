@@ -103,7 +103,7 @@ export function requestShape() {
   const source = extractionShape();
   return {
     extract: { model: config.extractModels[0], effort: config.extractEffort, summary: config.extractSummary || null, webSearch: true, fallback: config.extractModels.length > 1, source },
-    evaluate: { model: config.evalModels[0], effort: config.evalEffort, summary: config.evalReasoningSummary || null, webSearch: true, fallback: config.evalModels.length > 1 },
+    evaluate: { model: config.evalModels[0], effort: config.evalEffort, summary: config.evalReasoningSummary || null, webSearch: true, fallback: config.evalModels.length > 1, source: 'ahead' },
     // Present in every request; never anything else.
     keys: { extract: source === 'inserted' ? ['model', 'input', 'reasoning', 'tools', 'stream', 'store'] : ['model', 'instructions', 'input', 'reasoning', 'tools', 'stream', 'store'], evaluate: ['model', 'input', 'reasoning', 'tools', 'stream', 'store'] },
   };

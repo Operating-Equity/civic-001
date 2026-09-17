@@ -139,9 +139,13 @@ without a final bracketed line is sent as `instructions` instead, with the text 
 message. The reply is read as a numbered list; in each entry the text under a `Claim:` label is
 what is tested, and any further labelled lines are shown beside it, verbatim.
 
-**Determination request:** `model`, `input` (the evaluation prompt, verbatim, with the claim in
-place of `{{CLAIM}}`, as the only message), `reasoning.effort`, `reasoning.summary`, `tools`
-(one `web_search`, no options), `stream`, `store`.
+**Determination request:** `model`, `input` (two messages: first the source exactly as the
+extractor received it, its attribution lines and its text; then the evaluation prompt, verbatim,
+with the claim's whole entry, Claim, Attribution and Unspecified lines, in place of `{{CLAIM}}`),
+`reasoning.effort`, `reasoning.summary`, `tools` (one `web_search`, no options), `stream`,
+`store`. The source goes ahead because the conversation carried it in the workflow the prompts
+were tested in; a claim tested bare, "the speech" with no speaker or date, was being tested
+without the context the extraction prompt had written for it.
 
 Nothing else. No output token cap. No reasoning mode. No verbosity. No search context size. No
 truncation setting. No fallback model. No size limit of ours on the document.
