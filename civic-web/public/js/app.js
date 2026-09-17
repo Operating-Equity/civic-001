@@ -11,7 +11,7 @@ import { t, setLocale, initLocale, LOCALES, currentLocale, fmtNumber, fmtCompact
 import * as api from './api.js';
 import { $, $$, el, renderMarkdown, setBar, toast, easeChars, easeTime, bump, download, copyText } from './render.js';
 
-const MAX_CLAIMS = 20; // the automatic run; anything beyond is the reader's explicit choice
+const MAX_CLAIMS = 10; // the automatic run (the operator's number); anything beyond is the reader's explicit choice
 const GLYPH = { true: '✓', false: '✕', unverified: '?', unread: '–' };
 
 const state = {
@@ -23,7 +23,7 @@ const state = {
   claims: [],
   claimsRaw: '',
   beyond: [],          // { n, text, selected, tested }
-  cards: [],           // claims that have cards, in card order: the first 20, then chosen extras
+  cards: [],           // claims that have cards, in card order: the first ten, then chosen extras
   results: [],
   extraction: null,
   echo: null,
@@ -515,7 +515,7 @@ function finishExtraction(ev) {
     ui.run.disabled = false;
     return;
   }
-  runBatch(first, [...ui.claimsList.querySelectorAll('.card')]); // the first 20 (or fewer) always run, in their rows
+  runBatch(first, [...ui.claimsList.querySelectorAll('.card')]); // the first ten (or fewer) always run, in their rows
 }
 
 function renderClaimsHeadings() {
@@ -537,7 +537,7 @@ function renderClaimsRaw() {
   ui.claimsRawBody.textContent = parts.join(`\n\n${'─'.repeat(40)}\n\n`);
 }
 
-// ---------- claims beyond the first 20: the reader chooses -------------------------------------
+// ---------- claims beyond the first ten: the reader chooses ------------------------------------
 
 function buildBeyondRows() {
   const items = state.beyond;

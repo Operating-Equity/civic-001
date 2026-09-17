@@ -227,6 +227,12 @@ const FORMS = [
   ['6. **Conclusion**: Two records were compared, and both give the same count. Neither was contradicted. The statement is therefore true as worded.\n7. Confidence: 82%', 'true', 'conclusion'],
   ['6. Conclusion: Although the narrative is widely repeated as true, the primary record shows the figure was 17, not 19. False.\n7. Confidence: 90%', 'false', 'conclusion'],
   ['An entry with no conclusion and no verdict word at all.', 'unverified', 'unread'],
+  // The operator's own entry of 17 September: section 6 states the verdict under a sub-heading,
+  // and the Logic Audit after it names the conclusion at the start of a numbered line.
+  [['## 6. Conclusion', '', '### False as written', '', 'During the fourteen House sitting weeks ending June 18, 2026, **22 pieces of legislation in total** received Royal Assent—not 19.', '',
+    'This finding does **not** establish intentional deception.', '', '## 7. Confidence and Logic Audit', '', '**Confidence: 98%**', '',
+    '1. **Documentary count:** approximately 99% confidence.', '3. **Conclusion–evidence match:** the verdict follows from the statutory tally; no step relies on narrative.'].join('\n'), 'false', 'conclusion'],
+  [['4. **Analysis**', 'Provisional conclusion: True, pending the record.', 'The record was then read.', '', '6. **Conclusion**: False. The record shows 17.', '7. **Confidence**: 90%'].join('\n'), 'false', 'conclusion'],
 ];
 for (const [text, want, from] of FORMS) {
   const got = parseEntry(text);
