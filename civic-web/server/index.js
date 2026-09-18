@@ -154,7 +154,8 @@ app.post('/api/read-url', wrap(async (req, res) => {
     if (!out.text || out.text.length < 20) throw new ApiError(422, 'url_no_text', 'That address has almost no readable text.');
     res.json({ ...out, chars: out.text.length });
   } catch (err) {
-    if (err instanceof UrlError) throw new ApiError(err.status || 400, err.code, err.message);
+    if (ac.signal.aborted) return; // the page has gone (reloaded, or stopped): nothing failed
+    if (err instanceof UrlError) { const e = new ApiError(err.status || 400, err.code, err.message); e.detail = err.detail || null; throw e; }
     throw err;
   }
 }));
@@ -299,7 +300,7 @@ app.use((err, req, res, next) => {
     return res.status(413).json({ error: { code: err.code, message: err.code === 'LIMIT_FILE_SIZE' ? 'That file is too large.' : err.message } });
   }
   const safe = err instanceof ApiError ? err : describeError(err);
-  recordFailure({ where: `server:${req.method} ${req.path}`, code: safe.code, message: safe.message, status: safe.status });
+  recordFailure({ where: `server:${req.method} ${req.path}`, code: safe.code, message: safe.message, status: safe.status, detail: safe.detail || null });
   if (!(err instanceof ApiError)) console.error('[civic]', safe.status, safe.code);
   res.status(safe.status || 500).json({ error: { code: safe.code, message: safe.message } });
 });

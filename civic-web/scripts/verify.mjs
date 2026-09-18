@@ -674,6 +674,53 @@ async function illustrateChecks() {
 }
 await illustrateChecks();
 
+// A link the server cannot read tells the reader what to do, at once (18 September): a Google app
+// link is refused before any fetch, an open Google redirect is unwrapped, an unreachable address gets
+// plain words with the cause recorded for the operator, and a read the page abandons is no failure.
+async function linkChecks() {
+  const MOCK2 = MOCK_PORT + 20, PORT2 = PORT + 20, SITE = PORT + 21;
+  const site = http.createServer((req, res) => {
+    if (req.url.startsWith('/page')) { res.writeHead(200, { 'content-type': 'text/html' }); res.end(`<html><head><title>A page of facts</title></head><body><article><p>${'The Eiffel Tower stands about 330 metres tall. '.repeat(8)}</p></article></body></html>`); return; }
+    if (req.url.startsWith('/slow')) { setTimeout(() => { res.writeHead(200, { 'content-type': 'text/html' }); res.end(`<html><head><title>Slow</title></head><body><p>${'Water boils at 100 degrees Celsius at sea level. '.repeat(8)}</p></body></html>`); }, 2500); return; }
+    res.writeHead(404); res.end();
+  });
+  await new Promise((r) => site.listen(SITE, r));
+  const mock = start([path.join(root, 'scripts', 'mock-openai.js')], { MOCK_PORT: String(MOCK2), MOCK_SPEED: '0.2' });
+  await wait(`http://localhost:${MOCK2}/v1/mock/stats`, 15000, { anyResponse: true });
+  const server = start([path.join(root, 'server', 'index.js')], { PORT: String(PORT2), OPENAI_BASE_URL: `http://localhost:${MOCK2}/v1`, OPENAI_API_KEY: KEY, CIVIC_IMAGE_ENABLED: 'false', CIVIC_LEDGER_FILE: path.join(os.tmpdir(), 'civic-verify-ledger.jsonl'), CIVIC_ALLOW_PRIVATE_URLS: 'true', CIVIC_ERROR_LOG: path.join(os.tmpdir(), `civic-verify-link-errors-${Date.now()}.log`) });
+  await wait(`http://localhost:${PORT2}/api/health`);
+  const base = `http://localhost:${PORT2}`;
+  const read = async (url, { signal } = {}) => { const t0 = Date.now(); const r = await fetch(`${base}/api/read-url`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ url }), signal }); return { status: r.status, ms: Date.now() - t0, body: await r.json().catch(() => null) }; };
+  const failures = async () => ((await (await fetch(`${base}/api/selftest`)).json()).recentFailures || []);
+  try {
+    const goto = await read('https://www.google.com/goto?url=CAESvAEB6zswFZzRCvZZdw1C9iLOirg91vHQMHMiOh9q0dnQB9zlU50TGLQx6N8kjZtVpXTd3wGLsANsreI85');
+    check('a Google app link is refused at once, before any fetch, with the sentence that tells the reader what to do',
+      goto.status === 400 && goto.body?.error?.code === 'url_app_link' && /Google app link/.test(goto.body?.error?.message || '') && goto.ms < 1000, JSON.stringify(goto));
+    const news = await read('https://news.google.com/articles/CBMiabc123');
+    check('a Google News article link is refused the same way', news.status === 400 && news.body?.error?.code === 'url_app_link', JSON.stringify(news));
+    const open = await read(`https://www.google.com/url?q=http://localhost:${SITE}/page&sa=t`);
+    check('an open Google redirect is unwrapped and its destination read', open.status === 200 && open.body?.title === 'A page of facts' && open.body?.chars > 100, JSON.stringify(open).slice(0, 200));
+    const dead = await read(`http://localhost:${PORT + 30}/`); // nothing listens there (port 1 is refused by the client itself as a bad port)
+    const rec = (await failures()).find((f) => f.where === 'server:POST /api/read-url');
+    check('an unreachable address answers in plain words, and the failure record carries the cause for the operator',
+      dead.status === 400 && dead.body?.error?.code === 'url_unreachable' && dead.body?.error?.message === 'That address could not be reached.' && Boolean(rec) && /ECONNREFUSED|ETIMEDOUT|UND_ERR/.test(rec?.detail || ''), JSON.stringify({ dead, rec }));
+    const before = (await failures()).length;
+    const ac = new AbortController();
+    const gone = read(`http://localhost:${SITE}/slow`, { signal: ac.signal }).catch(() => 'aborted');
+    await new Promise((r) => setTimeout(r, 300));
+    ac.abort();
+    await gone;
+    await new Promise((r) => setTimeout(r, 3000)); // the slow page answers after the request is gone
+    const after = (await failures()).length;
+    check('a read the page abandons (the reader reloaded) leaves no failure record', after === before, `${before} → ${after}`);
+  } finally {
+    try { server.kill('SIGTERM'); } catch {}
+    try { mock.kill('SIGTERM'); } catch {}
+    site.close();
+  }
+}
+await linkChecks();
+
 // The port is CIVIC's. An older CIVIC still holding it is closed and the port taken over; anything
 // else on it is left alone and named. Both are proved here with stand-in processes: one that runs
 // from CIVIC's own directory, as an installed copy does, and one that does not.
