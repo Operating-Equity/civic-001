@@ -75,7 +75,7 @@ export default {
     waiting: 'En attente des affirmations',
     stopped: 'Arrêté',
   },
-  score: { true: 'Vrai', false: 'Faux', unverified: 'Non vérifié', tested: 'Testées', tokens: 'Jetons', cost: 'Coût est.', internal: 'Interne', unread: 'Verdict non lu', extracting: 'Extraction des affirmations…' },
+  score: { true: 'Vrai', false: 'Faux', unverified: 'Non vérifié', cost: 'Coût est.', internal: 'Interne', unread: 'Verdict non lu', extracting: 'Extraction des affirmations…' },
   card: {
     pending: 'En file',
     starting: 'Désignation d\'un inspecteur…',
@@ -182,5 +182,5 @@ export default {
   },
   echo: { alt: 'Illustration symbolique du document', making: 'Composition du cadre…' },
   time: { seconds_one: '{n} seconde', seconds_other: '{n} secondes', minutes: '{m} min {s} s' },
-  footer: { service: 'Un service de', privacy: 'Votre clé est conservée uniquement dans ce navigateur et sert uniquement à lancer vos tests.' },
+  footer: { service: 'Un service de' },
 };

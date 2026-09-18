@@ -64,7 +64,31 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
   system declined creating the disk through the API; it is the operator's, in Render's dashboard:
   the service → Disks → Add Disk, name civic-data, mount path /var/data, size 1 GB (Render
   deploys on its own). Once it exists, the four file variables move to /var/data through the API
-  and the next merge applies them.
+  and the next merge applies them. State on 18 September, 16:20 UTC: PR #33 merged at 16:12 with
+  active 0 and Render deployed it by itself (same build, docs only); /api/selftest lists the
+  operator's code allowed 150 and the other four 5, with every count at 0 because the uses file
+  restarted with the instance (it stays under /tmp until the disk exists). The operator's second
+  run on the address (15:51–16:11 UTC: one extraction of 227 s, ten determinations of 152–244 s two
+  at a time, every job released, no reconnection, no error) was made on the change set's build.
+  The extraction prompt's cutoff (a maximum of forty claims, named in nine places) was put to the
+  operator, who first chose to leave it and then (18 September, 16:40 UTC) asked for no cutoff:
+  the number is raised, and only the number (40 → 1000 in eight places, "forty" → "one thousand"
+  in one), so every empirical claim comes through; the vault copy carries hash fad6cbae (8,331
+  characters), the secret file on Render was replaced through the API, and the next deploy loads
+  it. Open: the disk, then the file variables.
+- **18 September, night: the operator's second list.** The scoreboard's Tested and Tokens items
+  are gone (the counts and, with accounting on, the estimated cost remain); the empty caption bar
+  that painted a light strip over the bottom of the picture is gone (the Images API returns no
+  model name, and the bar showed that empty name); the footer line about a key in the browser is
+  gone; the picture is now an edit of the CIVIC photograph (the page's own background,
+  `public/assets/civic-scene-1920.jpg`, the file the operator attached), sent with every request
+  as the style reference with the instruction to take only how it is made and none of what it
+  shows (server/illustrate.js; the SDK streams the file afresh on every attempt because a
+  buffered upload fails with the server's fetch); the ledger records OpenAI's usage for it. The
+  pace: the operator asked for four claims at once; the arithmetic (the key's 500,000-a-minute
+  limit; each running claim charged 67,000–89,000 at each call after a search; four ≈ 600,000,
+  three ≈ 450,000) was put to the operator, who chose three, as a second release after this one
+  is live and the check page's pacing row has been read from a run on it.
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 

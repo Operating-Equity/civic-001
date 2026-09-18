@@ -252,14 +252,19 @@ When accounts arrive, the prompts should move to a secrets manager rather than f
 One model id per step means no fallback. Only if the operator lists several ids in
 `CIVIC_EXTRACT_MODELS` or `CIVIC_EVAL_MODELS` does the server move down the list, and only when the
 key cannot use the earlier id; when that happens the page shows a warning naming both models.
-The scoreboard shows total tokens per run so cost can be estimated per document.
+The scoreboard shows the three counts and, with internal accounting on, the run's estimated cost;
+each card shows its own tokens.
 
 ### Why the echo looks the way it does
 
 An image model handed raw document text returns something generic. Stage one therefore reads the
 document and writes a specific brief — subject, setting, foreground, light, palette, lens — and
-stage two draws that brief in one fixed house style taken from the CIVIC photograph: a documentary
-frame in natural light, people at ordinary scale, and no text, charts or symbols anywhere in it.
+stage two makes that brief as an edit of the CIVIC photograph (the page's own background,
+`public/assets/civic-scene-1920.jpg`), attached to every request as the style reference: the model
+takes only how that picture is made and none of what it shows, and no text, charts or symbols
+appear anywhere in the result (the operator's rule of 18 September). Every echo therefore uploads
+that file (531 KB) and OpenAI bills its image input tokens, which the ledger line records as
+`usage`; the flat per-image estimate is `CIVIC_IMAGE_USD_PER_IMAGE`.
 Set `CIVIC_IMAGE_ART_DIRECTION=false` to send raw text instead and see the difference. For more
 fidelity at the cost of time, put `gpt-image-2.5-sunburst` first in `CIVIC_IMAGE_MODELS` or raise
 `CIVIC_IMAGE_QUALITY` to `xhigh`.

@@ -608,6 +608,65 @@ async function usesChecks() {
 }
 await usesChecks();
 
+// The visual echo is an edit of the CIVIC photograph, sent with every request as the style
+// reference (the operator's rule of 18 September): the picture takes its style and none of its
+// content, and the request carries nothing beyond the knobs the operator tested with.
+async function illustrateChecks() {
+  const MOCK2 = MOCK_PORT + 19, PORT2 = PORT + 19;
+  const record2 = path.join(os.tmpdir(), `civic-verify-illustrate-${Date.now()}.jsonl`);
+  const ledger2 = path.join(os.tmpdir(), `civic-verify-illustrate-ledger-${Date.now()}.jsonl`);
+  const reference = path.join(root, 'public', 'assets', 'civic-scene-1920.jpg');
+  const referenceBytes = fs.statSync(reference).size;
+  const source = fs.readFileSync(path.join(root, 'server', 'illustrate.js'), 'utf8');
+  const style = (source.match(/export const STYLE_REFERENCE = `([^`]*)`;/) || [])[1] || '';
+  const text = 'The Eiffel Tower stands about 330 metres tall. Water boils at 100 degrees Celsius at sea level.';
+  const session = async (mockEnv) => {
+    fs.writeFileSync(record2, '');
+    const mock = start([path.join(root, 'scripts', 'mock-openai.js')], { MOCK_PORT: String(MOCK2), MOCK_RECORD: record2, MOCK_SPEED: '0.2', ...mockEnv });
+    await wait(`http://localhost:${MOCK2}/v1/mock/stats`, 15000, { anyResponse: true });
+    const server = start([path.join(root, 'server', 'index.js')], { PORT: String(PORT2), OPENAI_BASE_URL: `http://localhost:${MOCK2}/v1`, OPENAI_API_KEY: KEY, CIVIC_LEDGER_FILE: ledger2 });
+    await wait(`http://localhost:${PORT2}/api/health`);
+    try {
+      const res = await fetch(`http://localhost:${PORT2}/api/illustrate`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text }) });
+      const reply = await res.json();
+      const lines = fs.readFileSync(record2, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l));
+      const ledger = fs.existsSync(ledger2) ? fs.readFileSync(ledger2, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)) : [];
+      return { status: res.status, reply, edits: lines.filter((l) => l.path === '/v1/images/edits'), generations: lines.filter((l) => l.path === '/v1/images/generations'), ledger: ledger.filter((l) => l.kind === 'illustrate') };
+    } finally {
+      try { server.kill('SIGTERM'); } catch {}
+      try { mock.kill('SIGTERM'); } catch {}
+      await new Promise((r) => setTimeout(r, 400));
+    }
+  };
+  const isReference = (part) => part && part.name === 'civic-scene-1920.jpg' && part.type === 'image/jpeg' && part.bytes === referenceBytes;
+  try {
+    const a = await session({});
+    const body = a.edits[0]?.body || {};
+    check('the echo is requested as an edit, never a generation, and the photograph itself goes with it (name, type and every byte)',
+      a.status === 200 && a.edits.length === 1 && a.generations.length === 0 && isReference(body.image), JSON.stringify({ status: a.status, edits: a.edits.length, generations: a.generations.length, image: body.image }));
+    const sent = String(body.prompt || '').split('\n\nSTYLE:\n')[1] || '';
+    check('the prompt ends with the style instruction verbatim: style only, none of the picture\'s content, no text of any kind',
+      style.length > 100 && sent === style && /no part of its\s+scene/.test(sent) && /Absolutely no text, letters, numbers/.test(sent) && !/\bpark\b|\bpeople\b|\bbuilding|\bCIVIC\b/i.test(sent), JSON.stringify({ styleChars: style.length, sentChars: sent.length, equal: sent === style }));
+    const keys = Object.keys(body).sort();
+    const allowed = ['image', 'model', 'n', 'output_compression', 'output_format', 'prompt', 'quality', 'size'];
+    check('the edit carries only model, image, prompt, n, size, quality, output_format and output_compression, on the operator\'s key',
+      keys.every((k) => allowed.includes(k)) && keys.includes('image') && keys.includes('prompt') && a.edits[0].auth === `Bearer ${KEY}`, JSON.stringify(keys));
+    check('the page receives the picture as a data URL with its cost, no model name, and the ledger line records the reference and OpenAI\'s usage figures',
+      typeof a.reply?.dataUrl === 'string' && a.reply.dataUrl.startsWith('data:image/jpeg;base64,') && a.reply.cost?.priced === true && !('model' in a.reply)
+        && a.ledger.length === 1 && a.ledger[0].reference === 'civic-scene-1920.jpg' && a.ledger[0].usage?.input_tokens_details?.image_tokens > 0 && a.ledger[0].model === 'gpt-image-2.5-flare',
+      JSON.stringify({ keys: Object.keys(a.reply || {}), ledger: a.ledger[0] }));
+    const b = await session({ MOCK_IMAGE_REJECT_KNOBS: '1' });
+    const second = b.edits[1]?.body || {};
+    check('an image model that rejects the newer knobs gets one retry with the minimal set, the photograph streamed afresh, and the picture still arrives',
+      b.status === 200 && b.edits.length === 2 && Object.keys(second).sort().join(',') === 'image,model,n,prompt,size' && isReference(second.image) && typeof b.reply?.dataUrl === 'string',
+      JSON.stringify({ status: b.status, edits: b.edits.length, secondKeys: Object.keys(second).sort(), image: second.image }));
+  } finally {
+    try { fs.unlinkSync(record2); } catch {}
+    try { fs.unlinkSync(ledger2); } catch {}
+  }
+}
+await illustrateChecks();
+
 // The port is CIVIC's. An older CIVIC still holding it is closed and the port taken over; anything
 // else on it is left alone and named. Both are proved here with stand-in processes: one that runs
 // from CIVIC's own directory, as an installed copy does, and one that does not.

@@ -75,7 +75,7 @@ export default {
     waiting: 'Warten auf die Behauptungen',
     stopped: 'Gestoppt',
   },
-  score: { true: 'Wahr', false: 'Falsch', unverified: 'Ungeprüft', tested: 'Geprüft', tokens: 'Tokens', cost: 'Gesch. Kosten', internal: 'Intern', unread: 'Urteil ungelesen', extracting: 'Behauptungen werden extrahiert…' },
+  score: { true: 'Wahr', false: 'Falsch', unverified: 'Ungeprüft', cost: 'Gesch. Kosten', internal: 'Intern', unread: 'Urteil ungelesen', extracting: 'Behauptungen werden extrahiert…' },
   card: {
     pending: 'In der Warteschlange',
     starting: 'Ein Prüfer wird zugewiesen…',
@@ -182,5 +182,5 @@ export default {
   },
   echo: { alt: 'Symbolische Illustration des Dokuments', making: 'Der Bildausschnitt entsteht…' },
   time: { seconds_one: '{n} Sekunde', seconds_other: '{n} Sekunden', minutes: '{m} Min {s} s' },
-  footer: { service: 'Ein Dienst von', privacy: 'Ihr Schlüssel wird nur in diesem Browser gespeichert und nur für Ihre Tests verwendet.' },
+  footer: { service: 'Ein Dienst von' },
 };
