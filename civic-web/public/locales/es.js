@@ -19,7 +19,7 @@ export default {
     showText: 'Mostrar el texto',
     hideText: 'Ocultar el texto',
     testing: 'Probando ahora',
-    slow: 'El primer paso tarda minutos en un documento largo, porque el modelo lo lee entero antes de escribir nada. Las diez determinaciones se ejecutan después de tres en tres, y cada una tarda unos minutos.',
+    slow: 'El primer paso tarda minutos en un documento largo para encontrar todas las afirmaciones que se van a probar, porque el modelo lee y examina todas las declaraciones antes de escribir nada. Las diez determinaciones se ejecutan después de tres en tres, y cada una tarda unos minutos.',
     empty: 'Pega o sube algo para probar.',
     truncated: 'El documento se recortó a {n} caracteres, el máximo por ejecución.',
   },

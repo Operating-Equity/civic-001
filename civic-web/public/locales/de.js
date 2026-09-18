@@ -19,7 +19,7 @@ export default {
     showText: 'Text anzeigen',
     hideText: 'Text ausblenden',
     testing: 'Wird geprüft',
-    slow: 'Der erste Schritt dauert bei einem langen Dokument Minuten, weil das Modell alles liest, bevor es etwas schreibt. Die zehn Bestimmungen laufen dann zu dritt, jede dauert einige Minuten.',
+    slow: 'Der erste Schritt dauert bei einem langen Dokument Minuten, um alle behaupteten Aussagen zu finden, die geprüft werden sollen, weil das Modell alle Aussagen liest und prüft, bevor es etwas schreibt. Die zehn Bestimmungen laufen dann zu dritt, jede dauert einige Minuten.',
     empty: 'Fügen Sie etwas ein oder laden Sie etwas hoch.',
     truncated: 'Das Dokument wurde auf {n} Zeichen gekürzt, das Maximum pro Lauf.',
   },

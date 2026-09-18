@@ -19,7 +19,7 @@ export default {
     showText: 'Afficher le texte',
     hideText: 'Masquer le texte',
     testing: 'Test en cours',
-    slow: 'La première étape prend des minutes sur un long document, car le modèle le lit en entier avant d\'écrire quoi que ce soit. Les dix déterminations s\'exécutent ensuite trois par trois, chacune en quelques minutes.',
+    slow: 'La première étape prend des minutes sur un long document pour trouver toutes les affirmations à tester, car le modèle lit et examine toutes les déclarations avant d\'écrire quoi que ce soit. Les dix déterminations s\'exécutent ensuite trois par trois, chacune en quelques minutes.',
     empty: 'Collez ou téléversez quelque chose à tester.',
     truncated: 'Le document a été tronqué à {n} caractères, le maximum par test.',
   },
