@@ -5,8 +5,13 @@
 //   1. Art direction. A small, quick model reads the document and writes a concrete scene brief:
 //      subject, setting, foreground, light, palette, lens. Dumping raw document text at an image
 //      model is what produces generic, childish pictures; a specific brief is what does not.
-//   2. Image. The brief is composed into a fixed house style drawn from the CIVIC photograph:
-//      a documentary frame in morning light, people at human scale, no text of any kind.
+//   2. Image. The brief is made as an edit of the CIVIC photograph (the page's own background),
+//      attached to every request as the style reference: the model takes only how that picture
+//      is made and none of what it shows, and no text of any kind appears (the operator's rule
+//      of 18 September). The file is streamed afresh on every attempt: the SDK encodes the
+//      multipart body itself, and a stream is consumed once.
+import fs from 'node:fs';
+import { toStreamingFile } from 'openai';
 import { config } from './config.js';
 import { clientFor, withModelFallback, throughGate } from './openai.js';
 import { estimateImageCost, estimateTextCost } from './pricing.js';
@@ -31,9 +36,16 @@ scales of justice, lightbulbs, brains, magnifying glasses, or glowing orbs. If t
 about an event, photograph the place it happened. If it is about a measurement, photograph the
 thing measured. If it is about people, photograph the people at ordinary human scale.`;
 
-const HOUSE_STYLE = `Documentary photograph, shot on a full-frame camera with natural light.
-Unstaged and calm: a real moment, not an illustration and not a rendering. Fine photographic
-grain, true-to-life colour, deep clear air, no haze filter, no vignette, no HDR, no glow.
+/** The style reference: the page's own background picture, sent with every request as a fresh stream. */
+const REFERENCE = new URL('../public/assets/civic-scene-1920.jpg', import.meta.url);
+const REFERENCE_NAME = 'civic-scene-1920.jpg';
+const referenceImage = () => toStreamingFile(fs.createReadStream(REFERENCE), REFERENCE_NAME, { type: 'image/jpeg' });
+
+export const STYLE_REFERENCE = `The attached image is the style reference and nothing more. Take from it only how it is made:
+its rendering style, the quality and direction of its light, its palette, its materials and
+surfaces, its depth and camera character, its finish. Take nothing that it shows: no part of its
+scene, none of its figures, structures or lettering may appear. The picture is of the subject
+described above alone, made in that style.
 Absolutely no text, letters, numbers, captions, watermarks, logos, signage, charts, diagrams,
 user interfaces or screens anywhere in the image.`;
 
@@ -70,25 +82,27 @@ export async function runIllustration({ apiKey, text, signal }) {
   const subject = brief
     ? `Photograph this brief exactly:\n${brief}`
     : `Photograph the subject matter of this text, as a real place or moment, with no words in the frame:\n${String(text).replace(/\s+/g, ' ').slice(0, 2000)}`;
-  const prompt = `${subject}\n\nSTYLE:\n${HOUSE_STYLE}`;
+  const prompt = `${subject}\n\nSTYLE:\n${STYLE_REFERENCE}`;
 
+  let used = null; // the image model the request was made with (the Images API names none in its reply)
   const image = await withModelFallback('illustrate', config.illustrateModels, async (model) => {
+    used = model;
     const params = {
       model,
+      image: referenceImage(),
       prompt,
       n: 1,
       size: config.illustrateSize,
       quality: config.illustrateQuality,
       output_format: 'jpeg',
       output_compression: 88,
-      moderation: 'low',
     };
     try {
-      return await client.images.generate(params, { signal });
+      return await client.images.edit(params, { signal });
     } catch (err) {
-      // Older image models reject the newer knobs; retry once with the minimal set.
+      // Older image models reject the newer knobs; retry once with the minimal set (and a fresh stream).
       if (err?.status === 400 && !/model/i.test(String(err?.message))) {
-        return client.images.generate({ model, prompt, n: 1, size: config.illustrateSize }, { signal });
+        return client.images.edit({ model, image: referenceImage(), prompt, n: 1, size: config.illustrateSize }, { signal });
       }
       throw err;
     }
@@ -98,9 +112,8 @@ export async function runIllustration({ apiKey, text, signal }) {
   if (!item) return null;
   const ms = Date.now() - startedAt;
   const cost = estimateImageCost();
-  const model = image.model || null;
-  record({ kind: 'illustrate', model, quality: config.illustrateQuality, artDirected: Boolean(brief), ms, usd: cost.usd, priced: cost.priced });
-  const common = { model, ms, cost, artDirected: Boolean(brief) };
+  record({ kind: 'illustrate', model: used, quality: config.illustrateQuality, artDirected: Boolean(brief), reference: REFERENCE_NAME, usage: image.usage || null, ms, usd: cost.usd, priced: cost.priced });
+  const common = { ms, cost, artDirected: Boolean(brief) };
   if (item.b64_json) return { dataUrl: `data:image/${item.output_format || 'jpeg'};base64,${item.b64_json}`, ...common };
   if (item.url) return { url: item.url, ...common };
   return null;

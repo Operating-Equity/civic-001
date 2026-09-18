@@ -38,7 +38,6 @@ const state = {
   batch: { start: 0, size: 0, done: 0 },
   counts: { true: 0, false: 0, unverified: 0 },
   unread: 0,
-  tokens: 0,
   cost: 0,
   unpriced: false,
   abort: null,
@@ -65,7 +64,7 @@ function cacheElements() {
     step1: $('#step-extract'), step1Status: $('#step1-status'), bar1: $('#bar-extract'),
     step1Thinking: $('#step1-thinking'), step1ThinkingSummary: $('#step1-thinking-summary'), step1ThinkingBody: $('#step1-thinking-body'),
     step2: $('#step-eval'), step2Title: $('#step2-title'), step2Status: $('#step2-status'), step2Gate: $('#step2-gate'), bar2: $('#bar-eval'),
-    echo: $('#echo'), echoImg: $('#echo-img'), echoShimmer: $('#echo-shimmer'), echoCap: $('#echo-cap'),
+    echo: $('#echo'), echoImg: $('#echo-img'), echoShimmer: $('#echo-shimmer'),
     intake: $('#intake'), intakeSummary: $('#intake-summary'), intakeSummaryText: $('#intake-summary-text'), showText: $('#btn-show-text'),
     scoreSourceTitle: $('#score-source-title'), scoreSourceSub: $('#score-source-sub'), scorePhase: $('#score-phase'), claimsFrom: $('#claims-from'),
     claims: $('#claims'), claimsSub: $('#claims-sub'), claimsList: $('#claims-list'),
@@ -73,7 +72,7 @@ function cacheElements() {
     selectAll: $('#btn-select-all'), testSelected: $('#btn-test-selected'),
     claimsRaw: $('#claims-raw'), claimsRawSummary: $('#claims-raw-summary'), claimsRawBody: $('#claims-raw-body'),
     scoreboard: $('#scoreboard'), scoreTrue: $('#score-true'), scoreFalse: $('#score-false'), scoreUnv: $('#score-unverified'),
-    scoreTested: $('#score-tested'), scoreTokens: $('#score-tokens'), scoreUnread: $('#score-unread'), scoreUnreadWrap: $('#score-unread-wrap'),
+    scoreUnread: $('#score-unread'), scoreUnreadWrap: $('#score-unread-wrap'),
     scoreInternal: $('#score-internal'), scoreCost: $('#score-cost'), report: $('#btn-report'),
     buildStamp: $('#build-stamp'),
     results: $('#results'), resetTop: $('#btn-reset-top'), reset: $('#btn-reset'),
@@ -381,7 +380,7 @@ function resetRunState() {
   Object.assign(state, {
     phase: 'idle', warnings: [], claims: [], claimsRaw: '', beyond: [], cards: [], results: [], extraction: null, echo: null,
     batch: { start: 0, size: 0, done: 0 }, counts: { true: 0, false: 0, unverified: 0 }, unread: 0,
-    tokens: 0, cost: 0, unpriced: false,
+    cost: 0, unpriced: false,
     extractStartedAt: 0, extractChars: 0, found: 0, extractWait: null, extractCut: false, runId: '', extractJob: '', evalStartedAt: 0, gate: null, status: { step1: null, step2: null },
   });
   ui.runWarnings.replaceChildren();
@@ -398,7 +397,6 @@ function resetRunState() {
   ui.echoImg.hidden = true;
   ui.echoImg.removeAttribute('src');
   ui.echoShimmer.hidden = false;
-  ui.echoCap.hidden = true;
   setStep(ui.step1, 'idle'); setBar(ui.bar1, 0);
   setStep(ui.step2, 'idle'); setBar(ui.bar2, 0);
   setStatus('step1', null); setStatus('step2', null);
@@ -1100,7 +1098,6 @@ function finalizeCard(i, ev) {
 
   if (r.verdict) state.counts[r.verdict] = (state.counts[r.verdict] || 0) + 1;
   else state.unread++;
-  if (r.usage) state.tokens += (r.usage.input || 0) + (r.usage.output || 0);
   addCost(r.cost);
   renderScoreboard(r.verdict);
 }
@@ -1253,11 +1250,8 @@ function renderScoreboard(bumped) {
   ui.scoreTrue.textContent = fmtNumber(state.counts.true);
   ui.scoreFalse.textContent = fmtNumber(state.counts.false);
   ui.scoreUnv.textContent = fmtNumber(state.counts.unverified);
-  const done = state.results.filter((r) => r.status === 'done').length;
-  ui.scoreTested.textContent = `${done}/${state.cards.length || Math.min(MAX_CLAIMS, state.claims.length || MAX_CLAIMS)}`;
   ui.scoreUnreadWrap.hidden = state.unread === 0;
   ui.scoreUnread.textContent = fmtNumber(state.unread);
-  ui.scoreTokens.textContent = fmtCompact(state.tokens);
   ui.scoreInternal.hidden = !state.accounting;
   ui.scoreCost.textContent = fmtUsd(state.cost) + (state.unpriced ? '+' : '');
   if (bumped) bump({ true: ui.scoreTrue, false: ui.scoreFalse, unverified: ui.scoreUnv }[bumped]);
@@ -1341,7 +1335,6 @@ async function startEcho(text) {
   ui.echo.hidden = false;
   ui.echoShimmer.hidden = false;
   ui.echoImg.hidden = true;
-  ui.echoCap.hidden = true;
   const signal = state.abort.signal;
   try {
     const r = await api.illustrate({ text, signal });
@@ -1354,10 +1347,6 @@ async function startEcho(text) {
     ui.echoImg.onload = () => {
       ui.echoShimmer.hidden = true;
       ui.echoImg.hidden = false;
-      if (state.accounting) {
-        ui.echoCap.textContent = r.model || '';
-        ui.echoCap.hidden = false;
-      }
     };
     ui.echoImg.src = src;
   } catch {

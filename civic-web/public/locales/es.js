@@ -75,7 +75,7 @@ export default {
     waiting: 'Esperando las afirmaciones',
     stopped: 'Detenido',
   },
-  score: { true: 'Verdadero', false: 'Falso', unverified: 'Sin verificar', tested: 'Probadas', tokens: 'Tokens', cost: 'Coste est.', internal: 'Interno', unread: 'Veredicto sin leer', extracting: 'Extrayendo afirmaciones…' },
+  score: { true: 'Verdadero', false: 'Falso', unverified: 'Sin verificar', cost: 'Coste est.', internal: 'Interno', unread: 'Veredicto sin leer', extracting: 'Extrayendo afirmaciones…' },
   card: {
     pending: 'En cola',
     starting: 'Asignando un inspector…',
@@ -182,5 +182,5 @@ export default {
   },
   echo: { alt: 'Ilustración simbólica del documento', making: 'Componiendo el encuadre…' },
   time: { seconds_one: '{n} segundo', seconds_other: '{n} segundos', minutes: '{m} min {s} s' },
-  footer: { service: 'Un servicio de', privacy: 'Tu clave se guarda solo en este navegador y se usa solo para ejecutar tus pruebas.' },
+  footer: { service: 'Un servicio de' },
 };

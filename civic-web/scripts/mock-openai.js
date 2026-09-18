@@ -9,6 +9,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import express from 'express';
+import multer from 'multer';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.MOCK_PORT || 3999);
@@ -18,10 +19,12 @@ app.use(express.json({ limit: '256mb' }));
 
 // When MOCK_RECORD is set, every request body is appended there so a verifier can inspect what
 // the server actually sent (scripts/verify-ceiling.mjs).
+const recordRequest = (req, body) => {
+  if (process.env.MOCK_RECORD) fs.appendFileSync(process.env.MOCK_RECORD, JSON.stringify({ ts: Date.now(), path: req.path, auth: req.get('authorization') || '', body }) + '\n');
+};
 app.use((req, res, next) => {
-  if (process.env.MOCK_RECORD && req.method === 'POST') {
-    fs.appendFileSync(process.env.MOCK_RECORD, JSON.stringify({ ts: Date.now(), path: req.path, auth: req.get('authorization') || '', body: req.body }) + '\n');
-  }
+  // A multipart body (the image edit) is recorded by its own route, once parsed.
+  if (req.method === 'POST' && !req.is('multipart/form-data')) recordRequest(req, req.body);
   next();
 });
 
@@ -225,11 +228,23 @@ app.post('/v1/responses', async (req, res) => {
 
 const imageB64 = fs.existsSync(path.join(here, 'mock-image.b64')) ? fs.readFileSync(path.join(here, 'mock-image.b64'), 'utf8').trim() : null;
 
-app.post('/v1/images/generations', async (req, res) => {
-  const body = req.body || {};
-  if (!KNOWN_MODELS.has(body.model)) return modelError(res, body.model);
+// The edit endpoint, as the server uses it: the CIVIC photograph goes with every request as the
+// style reference, so the body is multipart. Recorded here (the image as its name, type and byte
+// count, never its bytes) for the guard. MOCK_IMAGE_REJECT_KNOBS=1 refuses the newer knobs the way
+// an older image model does, so the server's minimal retry can be watched.
+const form = multer({ storage: multer.memoryStorage(), limits: { fileSize: 64 * 1024 * 1024 } });
+const badRequest = (res, message, param, code = null) => res.status(400).json({ error: { message, type: 'invalid_request_error', param, code } });
+app.post('/v1/images/edits', form.any(), async (req, res) => {
+  const fields = req.body || {};
+  const part = (req.files || []).find((f) => f.fieldname === 'image' || f.fieldname === 'image[]');
+  recordRequest(req, { ...fields, image: part ? { name: part.originalname, type: part.mimetype, bytes: part.size } : null });
+  if (!part) return badRequest(res, "Missing required parameter: 'image'.", 'image');
+  if (!fields.prompt) return badRequest(res, "Missing required parameter: 'prompt'.", 'prompt');
+  if (!KNOWN_MODELS.has(fields.model)) return modelError(res, fields.model);
+  if (process.env.MOCK_IMAGE_REJECT_KNOBS === '1' && 'output_compression' in fields) return badRequest(res, "Unknown parameter: 'output_compression'.", 'output_compression', 'unknown_parameter');
   await sleep(2500 + Math.random() * 2500);
-  res.json({ created: Math.floor(Date.now() / 1000), model: body.model, output_format: 'jpeg', data: [{ b64_json: imageB64 }] });
+  // Shaped like the real reply: no model field; usage figures are the stand-in's, image tokens for the reference.
+  res.json({ created: Math.floor(Date.now() / 1000), output_format: 'jpeg', quality: fields.quality || 'auto', size: fields.size || '1024x1024', usage: { input_tokens: 1100, input_tokens_details: { image_tokens: 1000, text_tokens: 100 }, output_tokens: 4160, total_tokens: 5260 }, data: [{ b64_json: imageB64 }] });
 });
 
 app.get('/v1/mock/stats', (req, res) => res.json({ ...stats, tokens: { limit: TOKENS.limit, level: Math.floor(levelOf(TOKENS)) }, requests: REQUESTS ? { limit: REQUESTS.limit, level: Math.floor(levelOf(REQUESTS)) } : null, windowMs: WINDOW, costs: COSTS }));

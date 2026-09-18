@@ -76,7 +76,7 @@ export default {
     waiting: 'Waiting for the claims',
     stopped: 'Stopped',
   },
-  score: { true: 'True', false: 'False', unverified: 'Unverified', tested: 'Tested', tokens: 'Tokens', cost: 'Est. cost', internal: 'Internal', unread: 'Verdict unread', extracting: 'Extracting claims…' },
+  score: { true: 'True', false: 'False', unverified: 'Unverified', cost: 'Est. cost', internal: 'Internal', unread: 'Verdict unread', extracting: 'Extracting claims…' },
   card: {
     pending: 'Queued',
     starting: 'Assigning an inspector…',
@@ -184,5 +184,5 @@ export default {
   },
   echo: { alt: 'Symbolic illustration of the document', making: 'Composing the frame…' },
   time: { seconds_one: '{n} second', seconds_other: '{n} seconds', minutes: '{m} min {s} s' },
-  footer: { service: 'As a service of', privacy: 'Your key is stored only in this browser and used only to run your tests.' },
+  footer: { service: 'As a service of' },
 };
