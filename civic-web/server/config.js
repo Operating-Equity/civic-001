@@ -58,12 +58,15 @@ export const config = {
   evalEffort: env('CIVIC_EVAL_EFFORT', EFFORT),
   evalReasoningSummary: env('CIVIC_EVAL_REASONING_SUMMARY', 'auto'),
   webSearch: true, // both steps, always; not an environment setting
-  // Two claims at a time. One at a time was the operator's instruction of 17 September, after
-  // twenty at once had failed on the key's minute limit every time (a running response is charged
-  // again inside the minute at each of its own later calls, after a web search, by amounts far
-  // above what its admission showed, so many parallel claims starve one another); once one at a
-  // time had run whole, he asked for the pace doubled. Twenty remains the size of a run.
-  evalConcurrency: int('CIVIC_EVAL_CONCURRENCY', 2),
+  // Three claims at a time (the page sends one claim per request and keeps three in flight; this
+  // figure governs a request that carries several claims, as the guard's does). One at a time was
+  // the operator's instruction of 17 September, after twenty at once had failed on the key's
+  // minute limit every time (a running response is charged again inside the minute at each of its
+  // own later calls, after a web search, by 67,000 to 89,000, far above what its admission showed,
+  // so many parallel claims starve one another); two ran whole on the address; on 18 September the
+  // operator chose three against the key's 500,000-a-minute limit (about 450,000 in a typical
+  // minute; four would need about 600,000). Ten remains the size of a run.
+  evalConcurrency: int('CIVIC_EVAL_CONCURRENCY', 3),
   evalRetries: int('CIVIC_EVAL_RETRIES', 8),           // rate limits and 5xx only; never on a model or parameter error
 
   // Source documents. No limit of ours. If a document exceeds the model's context window the API

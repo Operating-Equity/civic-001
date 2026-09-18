@@ -7,11 +7,12 @@
 //      and the reasoning summary, the search trail, the cited sources and the raw text are all
 //      on the card. When the verdict cannot be read from the model's own Conclusion, the card
 //      says so instead of guessing.
-import { t, setLocale, initLocale, LOCALES, currentLocale, fmtNumber, fmtCompact, fmtSeconds, fmtUsd } from './i18n.js';
+import { t, setLocale, initLocale, LOCALES, currentLocale, fmtNumber, fmtSeconds, fmtUsd } from './i18n.js';
 import * as api from './api.js';
 import { $, $$, el, renderMarkdown, setBar, toast, easeChars, easeTime, bump, copyText } from './render.js';
 
 const MAX_CLAIMS = 10; // the automatic run (the operator's number); anything beyond is the reader's explicit choice
+const IN_FLIGHT = 3; // claims in flight at once: the operator's choice of 18 September (the arithmetic is in server/config.js)
 const GLYPH = { true: '✓', false: '✕', unverified: '?', unread: '–' };
 
 /** A connection failure in the reader's language, from the operating system's code; the server's own words otherwise. */
@@ -25,7 +26,7 @@ const state = {
   phase: 'idle',
   server: null,        // /api/health payload, or null when no server answers
   session: null,       // { email } once a code has been accepted, when a sign-in is required
-  accounting: true,    // operator view: tokens and estimated cost per claim
+  accounting: true,    // operator view: the estimated cost per claim
   source: '',
   warnings: [],   // anything that could have cost a claim, shown at the top of the run
   claims: [],
@@ -207,11 +208,9 @@ function renderNav() {
   ui.who.textContent = signedIn ? (state.session.email || t('signin.signedIn')) : '';
 }
 
-// ---------- key strip -----------------------------------------------------------------------
+// ---------- access -------------------------------------------------------------------------
 
-// There is no key strip, no key form and no stored key. CIVIC runs on the operator's key, held by
-// the server. A reader's key is never accepted, because a prompt run on someone else's key is a
-// prompt handed to them, and that is the one thing this product must never do.
+// A reader signs in with a code and is asked for nothing else.
 
 // ---------- intake --------------------------------------------------------------------------
 
@@ -794,9 +793,9 @@ async function runBatch(claims, nodes) {
 
   const tick = setInterval(updateEvalBars, 250);
   state.timers.push(tick);
-  // One request per claim, two in flight (the operator's rule; the server's gate goes on pacing
-  // OpenAI across requests). A response then lasts one claim, never a batch, well inside what a
-  // host allows, and a cut costs one claim's attempt, which is requested again.
+  // One request per claim, IN_FLIGHT of them at once (the operator's rule; the server's gate goes
+  // on pacing OpenAI across requests). A response then lasts one claim, never a batch, well inside
+  // what a host allows, and a cut costs one claim's attempt, which is requested again.
   const signal = state.abort.signal;
   const queue = claims.map((_, k) => start + k);
   const settled = () => { state.batch.done++; updateEvalStatus(); renderScoreboard(); };
@@ -806,7 +805,7 @@ async function runBatch(claims, nodes) {
     }
   };
   try {
-    await Promise.all([worker(), worker()]);
+    await Promise.all(Array.from({ length: Math.min(IN_FLIGHT, claims.length) }, worker));
     if (state.phase === 'evaluating') finishBatch({ ms: Date.now() - state.evalStartedAt });
   } finally {
     clearInterval(tick);
@@ -1080,7 +1079,7 @@ function finalizeCard(i, ev) {
     reasoning: ev.reasoning || r.reasoning || '',
     verdict: ev.verdict || null, verdictSource: ev.verdictSource || 'none',
     confidence: ev.confidence ?? null, inspector: ev.inspector || null, conclusion: ev.conclusion || null,
-    usage: ev.usage || null, cost: ev.cost || null, ms: ev.ms ?? null,
+    cost: ev.cost || null, ms: ev.ms ?? null,
     model: ev.model || null, requested: ev.requested || null, fellBack: ev.fellBack || null, effort: ev.effort || null, mode: ev.mode || null,
     trail: ev.trail?.length ? ev.trail : r.trail, sources: ev.sources?.length ? ev.sources : r.sources,
     incomplete: ev.incomplete || r.incomplete || null,
@@ -1181,8 +1180,6 @@ function renderCardFoot(i) {
     modelNode.classList.toggle('is-fallback', Boolean(r.fellBack));
     modelNode.title = r.fellBack ? t('warn.modelFallback', { used: r.fellBack.used, requested: r.fellBack.requested }) : '';
   } else modelNode.textContent = '';
-  const tokens = r.usage ? (r.usage.input || 0) + (r.usage.output || 0) : 0;
-  $('.card-tokens', card).textContent = r.usage ? t('card.tokens', { n: fmtCompact(tokens) }) : '';
   const costNode = $('.card-cost', card);
   if (state.accounting && r.status === 'done') {
     const parts = [];

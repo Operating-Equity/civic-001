@@ -175,7 +175,8 @@ export async function runExtraction({ apiKey, text, meta, send, signal, sourceWa
   const cost = estimateTextCost({ model: modelUsed, usage });
   record({ kind: 'extract', model: modelUsed, effort: config.extractEffort, chars: text.length, claims: claims.length, usage, ms, usd: cost.usd, priced: cost.priced });
   // `raw` is the model's complete extraction output, exactly as returned, so it can be inspected.
-  const result = { t: 'done', total: claims.length, limit: config.maxClaims, claims, raw: full, reasoning: reasoning.trim() || null, trail, model: modelUsed, requested: config.extractModels[0], fellBack, effort: config.extractEffort, usage, ms, cost, incomplete };
+  // No token figures go to the page (the operator's rule of 18 September); the ledger line above keeps them.
+  const result = { t: 'done', total: claims.length, limit: config.maxClaims, claims, raw: full, reasoning: reasoning.trim() || null, trail, model: modelUsed, requested: config.extractModels[0], fellBack, effort: config.extractEffort, ms, cost, incomplete };
   send(result);
   return result;
 }

@@ -69,7 +69,7 @@ await stream('/api/extract', { text }, (ev) => {
   if (ev.t === 'done') extraction = ev;
   if (ev.t === 'error') throw new Error(`extraction failed: ${ev.code} ${ev.message}`);
 });
-console.log(`\nextraction: ${extraction.total} claims in ${secs(extraction.ms)} · ${extraction.model} · tokens in/out ${extraction.usage?.input}/${extraction.usage?.output} · est ${usd(extraction.cost?.usd)}`);
+console.log(`\nextraction: ${extraction.total} claims in ${secs(extraction.ms)} · ${extraction.model} · est ${usd(extraction.cost?.usd)} (token figures are in the ledger, never in the stream)`);
 
 const claims = extraction.claims.slice(0, Math.min(limit, 20)).map((c) => c.text);
 console.log(`\ntesting ${claims.length} of ${extraction.total} claims in parallel…\n`);
@@ -81,9 +81,8 @@ await stream('/api/evaluate', { claims }, (ev) => {
   if (ev.t === 'note') console.log(`  [${ev.i + 1}] note: ${ev.code}`);
   if (ev.t === 'done') {
     rows.push(ev);
-    const u = ev.usage || {};
     const verdict = (ev.verdict || 'UNREAD').toUpperCase();
-    console.log(`  [${ev.i + 1}] ${verdict.padEnd(10)} conf ${String(ev.confidence ?? '?').padStart(3)}%  ${secs(ev.ms).padStart(7)}  in ${u.input} / out ${u.output} (reasoning ${u.reasoning})  searches ${ev.searches}  sources ${ev.sources?.length || 0}  est ${usd(ev.cost?.usd)}${ev.incomplete ? '  ENDED EARLY: ' + ev.incomplete : ''}  · ${ev.inspector || ''}`);
+    console.log(`  [${ev.i + 1}] ${verdict.padEnd(10)} conf ${String(ev.confidence ?? '?').padStart(3)}%  ${secs(ev.ms).padStart(7)}  searches ${ev.searches}  sources ${ev.sources?.length || 0}  est ${usd(ev.cost?.usd)}${ev.incomplete ? '  ENDED EARLY: ' + ev.incomplete : ''}  · ${ev.inspector || ''}`);
   }
   if (ev.t === 'error') console.log(`  [${(ev.i ?? -1) + 1}] ERROR ${ev.code}: ${ev.message}`);
   if (ev.t === 'complete') console.log(`\nall ${ev.completed}/${ev.total} finished in ${secs(ev.ms)}`);
@@ -109,11 +108,9 @@ if (!quiet) {
 }
 
 const totalUsd = rows.reduce((s, r) => s + (r.cost?.usd || 0), 0) + (extraction.cost?.usd || 0) + (echoResult?.cost?.usd || 0);
-const totalOut = rows.reduce((s, r) => s + (r.usage?.output || 0), 0);
-const totalIn = rows.reduce((s, r) => s + (r.usage?.input || 0), 0);
 const perClaim = rows.length ? rows.reduce((s, r) => s + (r.cost?.usd || 0), 0) / rows.length : 0;
 console.log(rule('RUN TOTAL'));
-console.log(`${rows.length} determinations · tokens in ${totalIn} / out ${totalOut} · est ${usd(totalUsd)} · per determination ${usd(perClaim)} · wall ${secs(Date.now() - t0)}`);
+console.log(`${rows.length} determinations · est ${usd(totalUsd)} · per determination ${usd(perClaim)} · wall ${secs(Date.now() - t0)} · token figures: data/ledger.jsonl`);
 const byVerdict = rows.reduce((m, r) => { const k = r.verdict || 'unread'; m[k] = (m[k] || 0) + 1; return m; }, {});
 console.log(`verdicts: ${JSON.stringify(byVerdict)}`);
 const unread = rows.filter((r) => !r.verdict);
@@ -139,7 +136,7 @@ const md = [
     ...(r.reasoning ? ['#### Reasoning summary', '', r.reasoning, ''] : []),
     ...(r.trail?.length ? ['#### Searches', '', ...r.trail.map((s) => `- ${s.kind}: ${s.query || s.url || ''}`), ''] : []),
     ...(r.sources?.length ? ['#### Sources cited', '', ...r.sources.map((s) => `- [${s.title}](${s.url})`), ''] : []),
-    `_tokens in ${r.usage?.input} / out ${r.usage?.output} (reasoning ${r.usage?.reasoning}) · ${usd(r.cost?.usd)} · ${secs(r.ms)}_`, '', '---', '',
+    `_${usd(r.cost?.usd)} · ${secs(r.ms)}_`, '', '---', '',
   ]),
 ].join('\n');
 fs.writeFileSync(`${base}.md`, md);
