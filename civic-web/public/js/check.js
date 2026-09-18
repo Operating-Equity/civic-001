@@ -97,6 +97,16 @@ function renderSignins(data) {
     ul.append(li);
   }
   box.append(ul);
+  renderCodes(data, box);
+}
+
+/** Each listed code, by its last two characters: the runs it has started and the runs it allows. */
+function renderCodes(data, after) {
+  if (!data.codes?.length) return;
+  after.append(el('h2', null, 'Runs per code'));
+  const ul = el('ul');
+  for (const c of data.codes) ul.append(el('li', null, `code ending ${c.ending} · ${c.used} of ${c.allowed} runs used`));
+  after.append(ul);
 }
 
 function asText(data) {
@@ -118,6 +128,8 @@ function asText(data) {
   if (data.access?.required) {
     lines.push('', 'Recent sign-ins');
     for (const s of data.signins || []) lines.push(`  ${s.at} ${s.email || 'no email given'} code ending ${s.code}`);
+    lines.push('', 'Runs per code');
+    for (const c of data.codes || []) lines.push(`  code ending ${c.ending}: ${c.used} of ${c.allowed} runs used`);
   }
   return lines.join('\n');
 }

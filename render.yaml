@@ -15,6 +15,13 @@ services:
     startCommand: npm start
     healthCheckPath: /api/health
     autoDeploy: true         # every merge to main deploys itself; a merge waits until /api/health reports no run in flight
+    # The one thing that outlives a deploy: the internal ledger, the sign-in log, the error log and
+    # the record of runs per code (server/uses.js) live here. A service with a disk is stopped
+    # before its next version starts, so a deploy is a minute of "cut · going again" on the page.
+    disk:
+      name: civic-data
+      mountPath: /var/data
+      sizeGB: 1
     envVars:
       - key: NODE_VERSION
         value: "22"
@@ -23,14 +30,21 @@ services:
       - key: CIVIC_PROMPT_EVALUATE_FILE
         value: /etc/secrets/evaluate.txt
       - key: CIVIC_LEDGER_FILE
-        value: /tmp/civic-ledger.jsonl
+        value: /var/data/civic-ledger.jsonl
       - key: CIVIC_SIGNIN_LOG
-        value: /tmp/civic-signins.jsonl
+        value: /var/data/civic-signins.jsonl
+      - key: CIVIC_ERROR_LOG
+        value: /var/data/civic-errors.log
+      - key: CIVIC_USES_FILE
+        value: /var/data/civic-uses.jsonl
+      - key: CIVIC_CODE_USES
+        value: "5"           # runs a code allows unless its entry says otherwise (ABCD234:150), the operator's rule
       - key: CIVIC_MAX_UPLOAD_BYTES
         value: "67108864"    # 64 MB: an upload is held whole in memory and parsed there; Starter has 512 MB
       - key: CIVIC_ALLOW_PRIVATE_URLS
         value: "false"
-      # The operator's key and the access codes: set in Render, never here.
+      # The operator's key and the access codes (a code, or a code with its own allowance after a
+      # colon): set in Render, never here.
       - key: OPENAI_API_KEY
         sync: false
       - key: CIVIC_ACCESS_CODES

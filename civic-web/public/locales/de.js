@@ -2,8 +2,8 @@ export default {
   app: { tagline: 'Wahrheit, geprüft.' },
   nav: { language: 'Sprache', signin: 'Anmelden', signup: 'Registrieren', soon: 'Konten kommen mit der nächsten Version.' },
   intake: {
-    title: 'Prüfen Sie die Fakten.',
-    lede: 'Füge ein Transkript, einen Artikel, eine Rede, einen Beitrag oder eine Studie ein, oder einen Link darauf. CIVIC entnimmt jede empirische Aussage und prüft die ersten 20.',
+    title: 'Truth Engine prüft die Fakten.',
+    lede: 'Füge ein Transkript, einen Artikel, eine Rede, einen Beitrag oder eine Studie ein, oder einen Link darauf. CIVIC entnimmt jede empirische Aussage und prüft die ersten 10.',
     placeholder: 'Text einfügen, oder einen Link zu einem Artikel, PDF oder YouTube-Video…',
     readingUrl: '{host} wird gelesen…',
     readUrl: '{title} gelesen · {n} Zeichen',
@@ -19,7 +19,7 @@ export default {
     showText: 'Text anzeigen',
     hideText: 'Text ausblenden',
     testing: 'Wird geprüft',
-    slow: 'Der erste Schritt dauert bei einem langen Dokument Minuten, weil das Modell alles liest, bevor es etwas schreibt. Die 20 Bestimmungen laufen dann gleichzeitig, dieser Schritt dauert also etwa so lange wie eine einzelne, nicht zwanzigmal so lange.',
+    slow: 'Der erste Schritt dauert bei einem langen Dokument Minuten, weil das Modell alles liest, bevor es etwas schreibt. Die zehn Bestimmungen laufen dann zu zweit, jede dauert einige Minuten.',
     empty: 'Fügen Sie etwas ein oder laden Sie etwas hoch.',
     truncated: 'Das Dokument wurde auf {n} Zeichen gekürzt, das Maximum pro Lauf.',
   },
@@ -62,6 +62,7 @@ export default {
     avgCost: 'Etwa {usd} pro Behauptung in diesem Lauf.',
     confirm_one: 'Diese Behauptung prüfen',
     confirm_other: 'Diese {n} Behauptungen prüfen',
+    later: 'Weitere Behauptungen zu prüfen kommt mit der nächsten Version.',
   },
   step2: {
     title: '{n} Behauptungen werden geprüft',
@@ -165,7 +166,7 @@ export default {
     sourceTruncated: '{n} Zeichen am Ende des Dokuments wurden nicht gelesen, daher wurde keine darin enthaltene Behauptung extrahiert. Geprüft wurden nur die ersten {read} Zeichen.',
     modelFallback: 'Mit {used} geprüft, nicht mit {requested}: Dieser Schlüssel kann das bevorzugte Modell nicht verwenden. Behandeln Sie diese Feststellungen als vorläufig.',
   },
-  run: { export: 'Gesamten Lauf herunterladen', exported: 'Heruntergeladen.' },
+  report: { create: 'Bericht erstellen', soon: 'Berichte kommen mit der nächsten Version.' },
   errors: {
     server: 'Der CIVIC-Server ist nicht erreichbar.',
     prompt: 'Dieser Server ist noch nicht vollständig konfiguriert.',

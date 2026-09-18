@@ -33,6 +33,16 @@ const EFFORT = env('CIVIC_EFFORT', 'xhigh');
 const chosenKey = resolveKey({ settingsFile: new URL('../.env', import.meta.url).pathname });
 
 
+/** "ABCD234" or "ABCD234:150": the code as typed made canonical, and its own allowance of runs if given. */
+function parseCodes(entries) {
+  return entries.map((entry) => {
+    const [raw, uses] = String(entry).split(':');
+    const code = String(raw || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+    const n = uses === undefined ? null : Number.parseInt(uses, 10);
+    return { code, allowance: Number.isFinite(n) && n >= 0 ? n : null };
+  }).filter((c) => c.code);
+}
+
 export const config = {
   port: int('PORT', 3000),
 
@@ -99,8 +109,14 @@ export const config = {
 
   // Sign-in by code (server/access.js). Empty: the door is open, as on the operator's Mac. Set:
   // every API route but the health line needs a cookie issued for one of these codes.
-  accessCodes: list('CIVIC_ACCESS_CODES', '').map((c) => c.toUpperCase().replace(/[^A-Z0-9]/g, '')).filter(Boolean),
+  // An entry is a code, or a code with its own allowance of runs after a colon (ABCD234:150).
+  accessCodes: parseCodes(list('CIVIC_ACCESS_CODES', '')).map((c) => c.code),
+  accessAllowances: Object.fromEntries(parseCodes(list('CIVIC_ACCESS_CODES', '')).filter((c) => c.allowance !== null).map((c) => [c.code, c.allowance])),
+  // Runs a code allows unless its entry says otherwise: five, the operator's rule of 18 September.
+  codeUses: int('CIVIC_CODE_USES', 5),
   signinLog: env('CIVIC_SIGNIN_LOG', new URL('../data/signins.jsonl', import.meta.url).pathname),
+  // One line per run started under a code (server/uses.js); on a persistent disk in the cloud.
+  usesFile: env('CIVIC_USES_FILE', new URL('../data/uses.jsonl', import.meta.url).pathname),
 };
 
 /** Exactly what each request will carry. Printed at startup and reported by /api/health. */

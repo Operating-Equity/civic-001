@@ -65,14 +65,14 @@
   <!-- Intake: the functional heart of the page, framed by the brackets from the mark. -->
   <section class="intake glass frame" id="intake" aria-labelledby="intake-title">
     <i class="bk bk-tl" aria-hidden="true"></i><i class="bk bk-tr" aria-hidden="true"></i><i class="bk bk-bl" aria-hidden="true"></i><i class="bk bk-br" aria-hidden="true"></i>
-    <h1 class="intake-title" id="intake-title" data-i18n="intake.title">Test the facts.</h1>
+    <h1 class="intake-title" id="intake-title" data-i18n="intake.title">Truth Engine tests the facts.</h1>
     <!-- While a test runs the box closes to this line, so the results are not pushed down the page. -->
     <div class="intake-summary" id="intake-summary" hidden>
       <span class="intake-summary-text" id="intake-summary-text"></span>
       <button type="button" class="btn btn-text btn-small" id="btn-show-text"></button>
     </div>
-    <p class="intake-lede" data-i18n="intake.lede">Paste a transcript, article, speech, post or study, or a link to one. CIVIC extracts every empirical claim it contains and tests the first 20.</p>
-    <label class="visually-hidden" for="source-text" data-i18n="intake.title">Test the facts.</label>
+    <p class="intake-lede" data-i18n="intake.lede">Paste a transcript, article, speech, post or study, or a link to one. CIVIC extracts every empirical claim it contains and tests the first 10.</p>
+    <label class="visually-hidden" for="source-text" data-i18n="intake.title">Truth Engine tests the facts.</label>
     <textarea id="source-text" class="source" rows="9" placeholder="Paste text, or a link to an article, a PDF or a YouTube video…" data-i18n-placeholder="intake.placeholder" spellcheck="false"></textarea>
     <div class="intake-tools">
       <div class="intake-left">
@@ -109,13 +109,12 @@
       <div class="score score-unverified"><span class="score-n" id="score-unverified">0</span><span class="score-l"><svg class="icon" viewBox="0 0 20 20" aria-hidden="true"><path d="M7.5 7.5a2.5 2.5 0 1 1 3.6 2.2c-.7.4-1.1.9-1.1 1.8M10 15h.01" stroke="currentColor" stroke-width="2.2" fill="none" stroke-linecap="round"/></svg><span data-i18n="score.unverified">Unverified</span></span></div>
       <div class="score-meta">
         <span id="score-phase" hidden></span>
-        <span><span data-i18n="score.tested">Tested</span> <b class="mono" id="score-tested">0/20</b></span>
+        <span><span data-i18n="score.tested">Tested</span> <b class="mono" id="score-tested">0/10</b></span>
         <span id="score-unread-wrap" hidden><span data-i18n="score.unread">Verdict unread</span> <b class="mono" id="score-unread">0</b></span>
         <span><span data-i18n="score.tokens">Tokens</span> <b class="mono" id="score-tokens">0</b></span>
         <span class="score-internal" id="score-internal" hidden><span class="chip chip-internal" data-i18n="score.internal">Internal</span> <span data-i18n="score.cost">Est. cost</span> <b class="mono" id="score-cost">$0.00</b></span>
       </div>
       <div class="scoreboard-actions">
-        <button type="button" class="btn btn-text btn-small" id="btn-export" hidden></button>
         <button type="button" class="btn btn-outline btn-small" id="btn-reset-top" data-i18n="reset">Start a new test</button>
       </div>
     </div>
@@ -141,7 +140,7 @@
         <div class="step" id="step-eval" data-state="idle">
           <div class="step-head">
             <span class="step-n" aria-hidden="true">2</span>
-            <h2 class="step-title" id="step2-title" data-i18n="step2.title" data-i18n-params='{"n":20}'>Testing 20 claims</h2>
+            <h2 class="step-title" id="step2-title" data-i18n="step2.title" data-i18n-params='{"n":10}'>Testing 10 claims</h2>
             <span class="step-status" id="step2-status"></span>
           </div>
           <div class="bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="bar-eval"><i></i></div>
@@ -185,6 +184,7 @@
 
     <div class="run-end">
       <button type="button" class="btn btn-outline btn-large" id="btn-reset" data-i18n="reset">Start a new test</button>
+      <button type="button" class="btn btn-outline btn-large" id="btn-report" data-i18n="report.create" hidden>Create report</button>
     </div>
   </section>
 </main>

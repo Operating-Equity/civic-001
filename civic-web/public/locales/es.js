@@ -2,8 +2,8 @@ export default {
   app: { tagline: 'La verdad, verificada.' },
   nav: { language: 'Idioma', signin: 'Iniciar sesión', signup: 'Crear cuenta', soon: 'Las cuentas llegan con la próxima versión.' },
   intake: {
-    title: 'Pon a prueba los hechos.',
-    lede: 'Pega una transcripción, un artículo, un discurso, una publicación o un estudio, o un enlace a uno. CIVIC extrae cada afirmación empírica que contiene y comprueba las primeras 20.',
+    title: 'Truth Engine pone a prueba los hechos.',
+    lede: 'Pega una transcripción, un artículo, un discurso, una publicación o un estudio, o un enlace a uno. CIVIC extrae cada afirmación empírica que contiene y comprueba las primeras 10.',
     placeholder: 'Pega texto, o un enlace a un artículo, un PDF o un vídeo de YouTube…',
     readingUrl: 'Leyendo {host}…',
     readUrl: 'Leído {title} · {n} caracteres',
@@ -19,7 +19,7 @@ export default {
     showText: 'Mostrar el texto',
     hideText: 'Ocultar el texto',
     testing: 'Probando ahora',
-    slow: 'El primer paso tarda minutos en un documento largo, porque el modelo lo lee entero antes de escribir nada. Las 20 determinaciones se ejecutan a la vez, así que ese paso dura más o menos lo que una sola, no veinte veces más.',
+    slow: 'El primer paso tarda minutos en un documento largo, porque el modelo lo lee entero antes de escribir nada. Las diez determinaciones se ejecutan después de dos en dos, y cada una tarda unos minutos.',
     empty: 'Pega o sube algo para probar.',
     truncated: 'El documento se recortó a {n} caracteres, el máximo por ejecución.',
   },
@@ -62,6 +62,7 @@ export default {
     avgCost: 'Unos {usd} por afirmación en esta ejecución.',
     confirm_one: 'Probar esta afirmación',
     confirm_other: 'Probar estas {n} afirmaciones',
+    later: 'Probar más afirmaciones llega con la próxima versión.',
   },
   step2: {
     title: 'Probando {n} afirmaciones',
@@ -165,7 +166,7 @@ export default {
     sourceTruncated: 'No se leyeron {n} caracteres del final del documento, así que ninguna afirmación contenida en ellos se extrajo. Solo se probaron los primeros {read} caracteres.',
     modelFallback: 'Probado con {used}, no con {requested}: esta clave no puede usar el modelo preferido. Trata estas determinaciones como provisionales.',
   },
-  run: { export: 'Descargar la ejecución completa', exported: 'Descargado.' },
+  report: { create: 'Crear informe', soon: 'Los informes llegan con la próxima versión.' },
   errors: {
     server: 'No se puede conectar con el servidor de CIVIC.',
     prompt: 'Este servidor aún no está completamente configurado.',
