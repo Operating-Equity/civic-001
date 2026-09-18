@@ -12,7 +12,7 @@ import * as api from './api.js';
 import { $, $$, el, renderMarkdown, setBar, toast, easeChars, easeTime, bump, copyText } from './render.js';
 
 const MAX_CLAIMS = 10; // the automatic run (the operator's number); anything beyond is the reader's explicit choice
-const IN_FLIGHT = 3; // claims in flight at once: the operator's choice of 18 September (the arithmetic is in server/config.js)
+const IN_FLIGHT = 4; // claims in flight at once: the operator's choice of 18 September (the arithmetic is in server/config.js)
 const GLYPH = { true: '✓', false: '✕', unverified: '?', unread: '–' };
 
 /** A connection failure in the reader's language, from the operating system's code; the server's own words otherwise. */
