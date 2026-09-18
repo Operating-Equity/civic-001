@@ -263,15 +263,20 @@ fidelity at the cost of time, put `gpt-image-2.5-sunburst` first in `CIVIC_IMAGE
 The repository root carries `render.yaml`, which lets [Render](https://render.com) build and
 run the server straight from GitHub, and `docs/cloud.md` holds the whole plan and its state.
 
-1. Install Render's GitHub app on the organisation with access to `Operating-Equity/civic-001`.
+The `civic` service exists and runs at `https://civic-c64i.onrender.com`; it was created through
+Render's API with the settings below, and it redeploys from `main`. To create it again elsewhere:
+
+1. Render must be able to fetch the repository: either the repository is public, or the Render
+   account's Git Deployment Credential (Account Settings → Account Security) is a GitHub account
+   that can see it. Installing Render's GitHub app on the organisation is not enough on its own.
 2. New → Blueprint → choose the repository and `main`. Render reads `render.yaml` and creates the
    `civic` service. (The same service can be created through Render's API with the same settings.)
 3. Open the service → Environment. Under Secret Files add `extract.txt` (the extraction prompt)
    and `evaluate.txt` (the evaluation prompt, which must contain the token `{{CLAIM}}`). Under
    Environment Variables set `OPENAI_API_KEY` (the operator's key, the only one the service will
    ever use) and `CIVIC_ACCESS_CODES` (the codes that open the door, comma-separated). Save.
-4. Deploy. The service gets an address like `https://civic.onrender.com`. Open it, press Sign in,
-   enter a code, paste a document, press Test the facts.
+4. Deploy. The service gets an address like `https://civic-xxxx.onrender.com`. Open it, press
+   Sign in, enter a code, paste a document, press Test the facts.
 
 The prompts live only in Render's secret store and the server's memory; they are never in the
 repository. The internal ledger and the sign-in log are written to a temporary disk and do not

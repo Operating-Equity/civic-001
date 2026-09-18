@@ -7,42 +7,61 @@ evaluate.txt) when a session needs to upload them to Render as secret files. The
 non-developer: no GitHub mechanics for them, no tasks pushed onto them that can be automated,
 nothing of the model's output withheld, no arbitrary limits, prompts sent byte for byte. -->
 
-# Handoff: where the move to Render stands (18 September 2026)
+# Handoff: where the move to Render stands (18 September 2026, 02:30 UTC)
+
+- **CIVIC runs in the cloud.** Service `civic` (id `srv-dam9vlrm8hqs73d28tk0`) in the Render
+  workspace `tea-dak7rhnqj5pc73a4dj50`, Starter, Ohio, at `https://civic-c64i.onrender.com`,
+  created through Render's API on 18 September at 02:20 UTC with the blueprint's settings, the two
+  prompts as secret files, the operator's key and the five access codes as variables. The first
+  deploy went live in thirty seconds on main's commit 701825f. Verified from the session: the page
+  and /check answer; /api/extract without a cookie is refused (401 signin_required); an unlisted
+  code is refused (401 code_not_listed) and sets no cookie; a listed code signs in (cookie HttpOnly,
+  SameSite=Lax, Secure, 400 days); /api/selftest signed in reports ready, both prompts (extract
+  f798309e, evaluate c52121a0), the key accepted by OpenAI, the ledger writable; build stamp
+  318a32fe7492, which is the stamp of main's code (docs are not part of it). The codes were sent to
+  the operator as a private file.
+- **How it was unblocked.** Render's account deploys as the GitHub user halseyminor500-creator,
+  which cannot see the private repository (see Stage 1 below). Rather than re-point Render, the
+  operator made the repository public on 18 September at 02:15 UTC; Render's API then created the
+  service without any credential. Consequence: the repository must stay public unless Render's
+  credential is changed to a GitHub account that can see it privately (the four steps in Stage 1).
+- **Still to prove (stage 2).** A real run on the URL; a deploy while idle (the merge of this
+  note is the first test of whether a push to main deploys by itself through the app installation
+  on the organisation; if it does not, `POST /v1/services/{id}/deploys` after each merge is the
+  rhythm); one deliberate redeploy during a run, to see the cut claim requested again.
+- **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
+  minute budget, so they never run at once.
 
 - Stage 0 (code) is done and merged: sign-in by code (server/access.js, the dialog on the page,
   CIVIC_ACCESS_CODES), one request per claim with a cut stream requested again, /api/health
   reporting `active` and `access`, SIGTERM closing the listener, the upload cap, render.yaml.
   The guard has 85 checks; the door and the per-claim run are proved in the browser.
-- Stage 1: the Render GitHub app is installed on the Operating-Equity organisation with access
-  to civic-001 and on the personal account Halseyminor500 (both confirmed by screenshot on 18
-  September); the claude.ai environment has network reach to api.render.com and *.onrender.com
-  and carries RENDER_API_KEY and OPENAI_API_KEY. The card under Billing is the operator's.
-  Blocked on one thing: Render's `POST /v1/services` answers 400 "repository URL is invalid or
-  unfetchable" for https://github.com/Operating-Equity/civic-001 (and for private personal
-  repositories), while a public repository creates fine. Cause, found on 18 September from the
-  operator's Account Settings screenshots: the Render account logs in with, and deploys as, the
-  GitHub user **halseyminor500-creator**, a second GitHub account of the operator's that is not a
-  collaborator on civic-001 (the collaborators are Halseyminor500 and five others). Render
-  fetches as a user who cannot see the repository; the app installations on Halseyminor500 and
-  Operating-Equity cannot change that. Render allows one connected GitHub account per Render
-  account, and login and deployment must be the same GitHub account when both use GitHub
-  (render.com/docs/login-settings). The fix is the operator's, on Render's Account Settings
-  page, Account Security section, in this order: Create Password; disconnect the GitHub login
-  method halseyminor500-creator; disconnect the Git Deployment Credential
-  halseyminor500-creator; Add credential → GitHub, authorising as Halseyminor500. (Fallback:
-  as Halseyminor500, add halseyminor500-creator as a collaborator on civic-001 and accept as
-  that account; then nothing changes in Render.) The public API has no endpoint for any of
-  this. A session check-in every thirty minutes retries the creation; once it succeeds, stage
-  1's remaining items (secret files, variables, codes, deploy) follow through the API, then
-  stage 2.
-- The Render workspace id (the API's ownerId) is tea-dak7rhnqj5pc73a4dj50. No service exists yet.
+- Stage 1 is done. The Render GitHub app is installed on the Operating-Equity organisation with
+  access to civic-001 and on the personal account Halseyminor500; the claude.ai environment has
+  network reach to api.render.com and *.onrender.com and carries RENDER_API_KEY and
+  OPENAI_API_KEY. What blocked it for three hours, for the record: Render's `POST /v1/services`
+  answered 400 "repository URL is invalid or unfetchable" for the private repository because the
+  Render account logs in with, and deploys as, the GitHub user **halseyminor500-creator**, a second
+  GitHub account of the operator's that is not a collaborator on civic-001; the app installations
+  cannot change that. Render allows one connected GitHub account per Render account, and login and
+  deployment must be the same GitHub account when both use GitHub (render.com/docs/login-settings).
+  The private-repository fix, should it ever be wanted, is the operator's, on Render's Account
+  Settings page, Account Security section, in this order: Create Password; disconnect the GitHub
+  login method halseyminor500-creator; disconnect the Git Deployment Credential
+  halseyminor500-creator; Add credential → GitHub, authorising as Halseyminor500. The public API
+  has no endpoint for any of this.
+- The Render workspace id (the API's ownerId) is tea-dak7rhnqj5pc73a4dj50; the service id is
+  srv-dam9vlrm8hqs73d28tk0. The API reads its deploys (`GET /v1/services/{id}/deploys`), its logs
+  (`GET /v1/logs?ownerId=…&resource={id}`), its variables and secret files, and triggers a deploy
+  (`POST /v1/services/{id}/deploys`).
 - The repository root's render.yaml is the blueprint to follow when creating the service through
   the API (rootDir civic-web, Node 22, npm install / npm start, health check /api/health).
 - Work on the branch the session is given; changes reach main by pull request, squash-merged
   after the verify workflow is green, as every earlier change did.
 - First actions for the session that picks this up: `curl -sS -o /dev/null -w '%{http_code}'
   https://api.render.com/v1/services -H "Authorization: Bearer $RENDER_API_KEY"` must answer 200;
-  then stage 0 below, then stage 1's remaining items through the API.
+  `https://civic-c64i.onrender.com/api/health` must answer with `active` and `access`; then the
+  stage 2 items above that are still open.
 
 # CIVIC to the cloud: from the Mac to a Render URL, with sign-in by code
 
