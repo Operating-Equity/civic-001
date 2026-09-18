@@ -14,10 +14,18 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
   reporting `active` and `access`, SIGTERM closing the listener, the upload cap, render.yaml.
   The guard has 85 checks; the door and the per-claim run are proved in the browser.
 - Stage 1: the Render GitHub app is installed on the Operating-Equity organisation with access
-  to civic-001; the operator's Render account is connected to GitHub; the claude.ai environment
-  has network reach to api.render.com and *.onrender.com and carries RENDER_API_KEY and
-  OPENAI_API_KEY. The card under Billing is the operator's. The service is created through the
-  API from the session that continues this (see the status section of the plan below).
+  to civic-001 and on the personal account Halseyminor500 (both confirmed by screenshot on 18
+  September); the claude.ai environment has network reach to api.render.com and *.onrender.com
+  and carries RENDER_API_KEY and OPENAI_API_KEY. The card under Billing is the operator's.
+  Blocked on one thing: Render's `POST /v1/services` answers 400 "repository URL is invalid or
+  unfetchable" for https://github.com/Operating-Equity/civic-001 (and for private personal
+  repositories), while a public repository creates fine. Render's own documentation
+  (render.com/docs/git-provider) names the missing half: the GitHub credential on the Render
+  account, added from **Account Settings → Account Security → Git Deployment Credentials →
+  Add credential → GitHub**. Installing the app on GitHub does not create it, and the public
+  API has no endpoint for it, so only the operator can add it. A session check-in every thirty
+  minutes retries the creation; once it succeeds, stage 1's remaining items (secret files,
+  variables, codes, deploy) follow through the API, then stage 2.
 - The Render workspace id (the API's ownerId) is tea-dak7rhnqj5pc73a4dj50. No service exists yet.
 - The repository root's render.yaml is the blueprint to follow when creating the service through
   the API (rootDir civic-web, Node 22, npm install / npm start, health check /api/health).
@@ -148,10 +156,13 @@ operator's screenshot (left pane: Billing; top bar: "+ New").
    Halseyminor500. Choose the account **Operating-Equity** (not the personal account). Choose
    **Only select repositories** → **Select repositories** → `civic-001` → **Install** (or
    **Install & Authorize**; if the button reads **Request**, an organisation owner must approve).
-   Check in Render: **+ New** (top bar) → **Web Service**: the page lists the connected Git
-   accounts and their repositories; `Operating-Equity/civic-001` must appear. If instead it
-   offers to connect or configure GitHub, click that and authorise; then close the page without
-   creating anything (the service is created by me, through the API).
+   Then, in Render, the credential that lets the account act as that GitHub user (installing
+   the app on GitHub does not create it; Render's page render.com/docs/git-provider): open
+   **Account Settings** (`https://dashboard.render.com/u/settings`, the page where the API key
+   was created), scroll to **Account Security**, and under **Git Deployment Credentials** click
+   **Add credential** → **GitHub**; GitHub asks to authorise Render as Halseyminor500; confirm.
+   Check: **+ New** (top bar) → **Web Service** lists `Operating-Equity/civic-001`. Close the
+   page without creating anything (the service is created by me, through the API).
 2. **A card.** Render, left pane, under WORKSPACE → **Billing** → the payment-method section →
    add the card. Starter is $7 a month; OpenAI usage is unchanged.
 3. **Give me reach and the key, at claude.ai/code, in one dialog.**
