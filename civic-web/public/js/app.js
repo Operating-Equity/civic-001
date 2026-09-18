@@ -12,12 +12,7 @@ import * as api from './api.js';
 import { $, $$, el, renderMarkdown, setBar, toast, easeChars, easeTime, bump, copyText } from './render.js';
 
 const MAX_CLAIMS = 10; // the automatic run (the operator's number); anything beyond is the reader's explicit choice
-// Claims in flight at once: three, the operator's choice of 18 September. The arithmetic behind it:
-// the key's minute budget is 500,000 tokens; a running claim is charged again at each of its own
-// calls after a web search, 67,000 to 89,000 each, so three claims need about 450,000 in a
-// typical minute and four about 600,000. Two never waited; twenty failed on 16 September. The
-// server's gate paces OpenAI across requests, and a refusal is a wait, never a failure.
-const IN_FLIGHT = 3;
+const IN_FLIGHT = 3; // claims in flight at once: the operator's choice of 18 September (the arithmetic is in server/config.js)
 const GLYPH = { true: '✓', false: '✕', unverified: '?', unread: '–' };
 
 /** A connection failure in the reader's language, from the operating system's code; the server's own words otherwise. */
@@ -213,11 +208,9 @@ function renderNav() {
   ui.who.textContent = signedIn ? (state.session.email || t('signin.signedIn')) : '';
 }
 
-// ---------- key strip -----------------------------------------------------------------------
+// ---------- access -------------------------------------------------------------------------
 
-// There is no key strip, no key form and no stored key. CIVIC runs on the operator's key, held by
-// the server. A reader's key is never accepted, because a prompt run on someone else's key is a
-// prompt handed to them, and that is the one thing this product must never do.
+// A reader signs in with a code and is asked for nothing else.
 
 // ---------- intake --------------------------------------------------------------------------
 

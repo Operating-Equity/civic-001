@@ -95,6 +95,13 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
   Same evening, the operator's rule that no token figure appears anywhere a reader can see: the
   per-card token line is gone, and the extraction and determination events sent to the page no
   longer carry `usage` (the ledger keeps it); the guard checks both.
+  And no mention of a key on the consumer page: the tooltip, the waiting lines ("Waiting its
+  turn"), the failure sentences (which no longer name the provider or the check page either) and
+  the served page's comments; the connection-wait lines drop the provider's name too. Still
+  showing the process to a reader, flagged for the operator's word: the per-card model line, "What
+  the model says it is doing", the searches count, the Internal cost chip
+  (`CIVIC_INTERNAL_ACCOUNTING`), the raw extraction view, the check page for any code holder, the
+  served scripts' comments, and the public repository itself.
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 
