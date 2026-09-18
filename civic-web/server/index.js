@@ -10,7 +10,8 @@ import multer from 'multer';
 import { config, publicConfig, requestShape } from './config.js';
 import { promptStatus, hasPrompt, promptVersions } from './prompts.js';
 import { ApiError, operatorKey, describeError } from './openai.js';
-import { openStream, activeStreams } from './stream.js';
+import { openStream } from './stream.js';
+import * as jobs from './jobs.js';
 import { fileToText, normalise, ACCEPTED_SOURCE_EXT } from './documents.js';
 import { readUrl, UrlError } from './fetchurl.js';
 import { sourceMeta, sourceBlock } from './source.js';
@@ -94,7 +95,7 @@ app.get('/api/health', (req, res) => {
   const session = sessionOf(req);
   res.json({
     ok: true, build: BUILD, ...publicConfig(promptStatus()), readUrl: true, acceptedSourceExt: ACCEPTED_SOURCE_EXT, acceptedChallengeExt: ACCEPTED_CHALLENGE_EXT,
-    active: activeStreams(),                                            // runs in flight right now; an update waits for zero
+    active: jobs.active(),                                              // runs in flight right now, whatever their connections are doing; an update waits for zero
     access: { required: signinRequired(), session: session ? { email: session.email } : null },
   });
 });
@@ -157,7 +158,15 @@ app.post('/api/read-url', wrap(async (req, res) => {
   }
 }));
 
+// Extraction and determination are jobs (server/jobs.js): the request names one, and the reply is
+// a stream of its events. A request for a job already running or finished attaches to it from the
+// event the page says it has, so a cut connection costs nothing but the wait to open a new one.
+// Only a request the server refuses (no key, no prompt, nothing to test) answers with an error.
 app.post('/api/extract', wrap(async (req, res) => {
+  const id = jobs.idFrom(req.body?.jobId);
+  const known = jobs.get(id);
+  if (known) { known.attach(openStream(req, res), req.body?.cursor); return; }
+
   const apiKey = operatorKey();
   if (!hasPrompt('extract')) throw new ApiError(503, 'prompt_missing', 'The extraction prompt is not installed on this server.');
   const source = normalise(req.body?.text);
@@ -175,18 +184,23 @@ app.post('/api/extract', wrap(async (req, res) => {
     ? { code: 'source_truncated', omitted: source.omitted, read: source.chars, original: source.originalChars }
     : null;
 
-  const stream = openStream(req, res);
-  try {
-    await runExtraction({ apiKey, text: source.text, meta: sourceMeta(req.body?.source), send: stream.send, signal: stream.signal, sourceWarning });
-  } catch (err) {
-    const safe = describeError(err);
-    stream.send({ t: 'error', code: safe.code, message: safe.message, status: safe.status });
-  } finally {
-    stream.close();
-  }
+  const meta = sourceMeta(req.body?.source);
+  const text = source.text;
+  jobs.start(id, 'extraction', async ({ send, signal }) => {
+    try {
+      await runExtraction({ apiKey, text, meta, send, signal, sourceWarning });
+    } catch (err) {
+      const safe = describeError(err);
+      send({ t: 'error', code: safe.code, message: safe.message, status: safe.status });
+    }
+  }).attach(openStream(req, res), 0);
 }));
 
 app.post('/api/evaluate', wrap(async (req, res) => {
+  const id = jobs.idFrom(req.body?.jobId);
+  const known = jobs.get(id);
+  if (known) { known.attach(openStream(req, res), req.body?.cursor); return; }
+
   const apiKey = operatorKey();
   if (!hasPrompt('evaluate')) throw new ApiError(503, 'prompt_missing', 'The evaluation prompt is not installed on this server.');
   const claims = Array.isArray(req.body?.claims) ? req.body.claims.map((c) => String(c || '').trim()).filter(Boolean) : [];
@@ -197,16 +211,21 @@ app.post('/api/evaluate', wrap(async (req, res) => {
   const source = req.body?.text ? normalise(req.body.text) : null;
   const document = source && source.chars >= 20 ? sourceBlock(source.text, sourceMeta(req.body?.source)) : '';
 
-  const stream = openStream(req, res);
-  try {
-    await runEvaluation({ apiKey, claims, document, send: stream.send, signal: stream.signal });
-  } catch (err) {
-    const safe = describeError(err);
-    stream.send({ t: 'error', code: safe.code, message: safe.message, status: safe.status });
-  } finally {
-    stream.close();
-  }
+  jobs.start(id, 'determination', async ({ send, signal }) => {
+    try {
+      await runEvaluation({ apiKey, claims, document, send, signal });
+    } catch (err) {
+      const safe = describeError(err);
+      send({ t: 'error', code: safe.code, message: safe.message, status: safe.status });
+    }
+  }).attach(openStream(req, res), 0);
 }));
+
+// The page says stop (Start a new test, leaving the page): the jobs' model calls are aborted and the
+// jobs forgotten. A closed connection never means this; only this route does.
+app.post('/api/cancel', (req, res) => { res.json({ cancelled: jobs.cancel(jobs.idList(req.body?.jobIds)) }); });
+// The page says it has all of a finished job: the job is forgotten. One still working is kept.
+app.post('/api/release', (req, res) => { res.json({ released: jobs.release(jobs.idList(req.body?.jobIds)) }); });
 
 app.post('/api/illustrate', wrap(async (req, res) => {
   const apiKey = operatorKey();
@@ -362,10 +381,12 @@ server.requestTimeout = 0;
 server.headersTimeout = 60 * 1000;
 server.keepAliveTimeout = 75 * 1000;
 
-// A deploy, or the launcher closing an older copy, ends this process with SIGTERM. The listener
-// closes at once, so the port is free for the next CIVIC; a stream still open finishes what it can
-// within whatever grace the host gives; the process ends when the last connection closes.
+// A deploy, or the launcher closing an older copy, ends this process with SIGTERM. Its jobs can no
+// longer reach anyone (the host has already moved the traffic to the next CIVIC, whose page will
+// start them over), so their model calls are stopped rather than paid for to no end; the listener
+// closes, so the port is free for the next CIVIC; the process ends when the last connection closes.
 process.on('SIGTERM', () => {
+  jobs.cancel(jobs.ids());
   server.close(() => process.exit(0));
   if (typeof server.closeIdleConnections === 'function') server.closeIdleConnections();
 });

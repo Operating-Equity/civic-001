@@ -25,10 +25,23 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
   operator made the repository public on 18 September at 02:15 UTC; Render's API then created the
   service without any credential. Consequence: the repository must stay public unless Render's
   credential is changed to a GitHub account that can see it privately (the four steps in Stage 1).
-- **Still to prove (stage 2).** A real run on the URL; a deploy while idle (the merge of this
-  note is the first test of whether a push to main deploys by itself through the app installation
-  on the organisation; if it does not, `POST /v1/services/{id}/deploys` after each merge is the
-  rhythm); one deliberate redeploy during a run, to see the cut claim requested again.
+- **The first real run on the URL (18 September, 02:29 UTC) found the cloud's own failure.** The
+  server finished the extraction (4 min 12 s, 284 KB streamed, status 200) and the operator's
+  Safari never received the end of it: the request came through a relay (Cloudflare's proxy
+  network, which is how iCloud Private Relay exits), and fourteen minutes later Safari gave up
+  with "Load failed", which the page showed as "CIVIC's server is not reachable". Two gaps: a cut
+  during extraction was a failure (a cut during a claim was requested again), and the server took
+  a closed connection for a reader who had left and threw the finished work away, so any
+  re-request paid again. Fixed by making the run the server's (`server/jobs.js`): every
+  extraction and determination is a job under an id the page made; a cut connection is opened
+  again a second later with the number of events already received and gets the rest; only the
+  page's cancel (Start a new test, leaving the page) stops a job; a finished job is kept until the
+  page says it has it; `/api/health` `active` counts jobs, not sockets. Proved by the guard (a cut
+  three events into an extraction and into a determination, one model call each; cancel aborts;
+  release lets go) and in a browser taken offline during both steps.
+- **Deploy while idle: proved** (the merge of PR #30 deployed by itself in 24 seconds through the
+  app installation on the organisation). **Still to prove:** a complete real run on the URL, and
+  one deliberate redeploy during a run, to see the cut claim start over on the new process.
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 

@@ -6,6 +6,7 @@
 // Run before every deploy: `npm run verify`. A non-zero exit is a defect.
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
+import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -393,6 +394,102 @@ async function outageChecks() {
     outage.length === 2 && outage[1].code === 'ECONNREFUSED' && /addresses: /.test(outage[1].message) && outage[0].code === 'reachable' && /reachable again after \d+\.\d s and \d+ goes/.test(outage[0].message), JSON.stringify(outage));
 }
 await outageChecks();
+
+// The run belongs to the server. A connection cut in the middle of an extraction or a determination
+// stops nothing: the job goes on, and a page that attaches again, saying how many events it already
+// has, receives the rest; one model call, paid once. A job is stopped by the page's cancel and
+// nothing else; a finished job is kept until the page says it has it. (18 September: a relay on the
+// reader's side cut a four-minute extraction that the server had finished, and it was lost.)
+async function continuationChecks() {
+  const MOCK2 = MOCK_PORT + 17, PORT2 = PORT + 17;
+  const mock = start([path.join(root, 'scripts', 'mock-openai.js')], { MOCK_PORT: String(MOCK2), MOCK_SPEED: '0.2', MOCK_EXTRACT_THINK_MS: '2500', MOCK_EVAL_HOLD_MS: '1500', MOCK_EVAL_MARK: process.env.MOCK_EVAL_MARK_FOR_GATE || '' });
+  await wait(`http://localhost:${MOCK2}/v1/mock/stats`, 15000, { anyResponse: true });
+  const server = start([path.join(root, 'server', 'index.js')], { PORT: String(PORT2), OPENAI_BASE_URL: `http://localhost:${MOCK2}/v1`, OPENAI_API_KEY: KEY, CIVIC_IMAGE_ENABLED: 'false', CIVIC_LEDGER_FILE: path.join(os.tmpdir(), 'civic-verify-ledger.jsonl') });
+  await wait(`http://localhost:${PORT2}/api/health`);
+  const base = `http://localhost:${PORT2}`;
+  const text = 'The Eiffel Tower stands about 330 metres tall. Water boils at 100 degrees Celsius at sea level. Mount Everest is 8,849 metres above sea level.';
+  const stats = async () => (await (await fetch(`http://localhost:${MOCK2}/v1/mock/stats`, { headers: { authorization: `Bearer ${KEY}` } })).json());
+  const health = async () => (await (await fetch(`${base}/api/health`)).json());
+  const post = async (url, body) => (await (await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })).json());
+  const calls = (st, kind) => (st.timeline || []).filter((e) => e.kind === kind).length;
+  const counted = (events) => events.filter((e) => e.t !== 'ping' && e.t !== 'attached');
+  // A page whose connection is cut: it reads `n` of the job's events and destroys its own socket.
+  const cut = (url, body, n) => new Promise((resolve) => {
+    const events = [];
+    let buf = '';
+    const req = http.request(url, { method: 'POST', headers: { 'content-type': 'application/json' } }, (res) => {
+      res.on('data', (chunk) => {
+        buf += chunk;
+        let nl;
+        while ((nl = buf.indexOf('\n')) >= 0) {
+          const line = buf.slice(0, nl).trim(); buf = buf.slice(nl + 1);
+          if (!line) continue;
+          const ev = JSON.parse(line);
+          if (ev.t === 'ping') continue;
+          events.push(ev);
+          if (counted(events).length >= n) { req.destroy(); resolve({ events, status: res.statusCode }); return; }
+        }
+      });
+      res.on('end', () => resolve({ events, status: res.statusCode, ended: true }));
+      res.on('error', () => resolve({ events, status: res.statusCode }));
+    });
+    req.on('error', () => resolve({ events }));
+    req.end(JSON.stringify(body));
+  });
+  const settle = (ms) => new Promise((r) => setTimeout(r, ms));
+  let failure = '';
+  try {
+    // 1. An extraction cut three events in, attached again with the count: the rest arrives, once.
+    const xid = `verify-extract-${Date.now()}`;
+    const first = await cut(`${base}/api/extract`, { jobId: xid, text }, 3);
+    const during = await health();
+    const rest = await stream(`${base}/api/extract`, { jobId: xid, text: 'not read: the job is known by its id', cursor: counted(first.events).length });
+    const joined = rest.find((e) => e.t === 'attached');
+    const all = [...counted(first.events), ...counted(rest)];
+    const done = all.find((e) => e.t === 'done');
+    const claimNs = all.filter((e) => e.t === 'claim').map((e) => e.n);
+    const s1 = await stats();
+    check('an extraction whose connection is cut goes on at the server: the health line counts it in flight with nobody connected',
+      first.events[0]?.t === 'attached' && first.events[0].from === 0 && counted(first.events).length === 3 && during.active === 1, `first=${JSON.stringify(first.events.map((e) => e.t))} active=${during.active}`);
+    check('the page attaches again with the number of events it has and receives exactly the rest, through to the result',
+      joined && joined.from === 3 && Boolean(done) && done.total === 3 && JSON.stringify(claimNs) === '[1,2,3]', `joined=${JSON.stringify(joined)} done=${done?.total} claims=${JSON.stringify(claimNs)}`);
+    check('one model call for the whole extraction: nothing run twice, nothing paid twice', calls(s1, 'extraction') === 1, `extractions=${calls(s1, 'extraction')}`);
+    // 2. A finished job is kept until the page lets go of it: attaching with everything replays nothing and runs nothing.
+    const again = await stream(`${base}/api/extract`, { jobId: xid, text, cursor: all.length });
+    const s2 = await stats();
+    const released = await post(`${base}/api/release`, { jobIds: [xid] });
+    check('a finished job is kept until the page says it has it: attaching again with everything replays nothing, starts nothing, and the release lets it go',
+      again.length >= 1 && again[0].t === 'attached' && again[0].finished === true && again[0].from === all.length && counted(again).length === 0 && calls(s2, 'extraction') === 1 && released.released === 1 && (await health()).active === 0,
+      `again=${JSON.stringify(again.map((e) => e.t))} extractions=${calls(s2, 'extraction')} released=${JSON.stringify(released)}`);
+    // 3. A determination, cut and attached again the same way: the verdict arrives, one model call.
+    const cid = `verify-claim-${Date.now()}`;
+    const c1 = await cut(`${base}/api/evaluate`, { jobId: cid, claims: [SIX[0]] }, 3);
+    const c2 = await stream(`${base}/api/evaluate`, { jobId: cid, claims: [SIX[0]], cursor: counted(c1.events).length });
+    const cAll = [...counted(c1.events), ...counted(c2)];
+    const cDone = cAll.find((e) => e.t === 'done');
+    const cJoined = c2.find((e) => e.t === 'attached');
+    const s3 = await stats();
+    await post(`${base}/api/release`, { jobIds: [cid] });
+    check('a determination whose connection is cut is completed at the server and its verdict reaches the page that attaches again; one model call',
+      cJoined?.from === 3 && Boolean(cDone?.verdict) && cAll.filter((e) => e.t === 'start').length === 1 && cAll.filter((e) => e.t === 'done').length === 1 && calls(s3, 'determination') === 1,
+      `joined=${JSON.stringify(cJoined)} verdict=${cDone?.verdict} starts=${cAll.filter((e) => e.t === 'start').length} determinations=${calls(s3, 'determination')}`);
+    // 4. Cancel is what stops a job: the model call is aborted and the run is no longer in flight.
+    const kid = `verify-cancel-${Date.now()}`;
+    await cut(`${base}/api/extract`, { jobId: kid, text }, 1);
+    const before = await health();
+    const cancelled = await post(`${base}/api/cancel`, { jobIds: [kid] });
+    let inFlight = null;
+    for (let k = 0; k < 20; k++) { inFlight = (await stats()).inFlight; if (inFlight === 0) break; await settle(100); }
+    check('only the page\'s cancel stops a job: the extraction was in flight with its connection gone, and the cancel aborted the model call and cleared the run',
+      before.active === 1 && cancelled.cancelled === 1 && (await health()).active === 0 && inFlight === 0, `before=${before.active} cancelled=${JSON.stringify(cancelled)} after=${(await health()).active} mockInFlight=${inFlight}`);
+  } catch (err) {
+    failure = err.message;
+    check('continuation checks ran', false, failure);
+  }
+  try { server.kill('SIGTERM'); } catch {}
+  try { mock.kill('SIGTERM'); } catch {}
+}
+await continuationChecks();
 
 // The door. With codes set, the API needs the cookie a listed code earns; the page, the health line
 // and the sign-in itself stay open. A cookie is bound to the code it was issued under: taking that

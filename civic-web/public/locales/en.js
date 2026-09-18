@@ -36,6 +36,7 @@ export default {
     incomplete: 'Extraction ended early at the model output limit. Some claims may be missing.',
     retry: 'Retrying…',
     unreachable: 'Waiting for the connection to OpenAI · {why} · {time}',
+    reconnecting: 'The connection to CIVIC was cut · going again',
     thinking: 'The model is reading. Nothing is written until it has finished thinking · {time}',
     thinkingSearched: 'The model is reading and has run {n} searches · {time}',
     foundTimed: '{n} claims found so far · {time}',

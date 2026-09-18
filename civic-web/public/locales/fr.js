@@ -35,6 +35,7 @@ export default {
     incomplete: 'L\'extraction s\'est arrêtée à la limite de sortie du modèle. Des affirmations peuvent manquer.',
     retry: 'Nouvelle tentative…',
     unreachable: 'En attente de la connexion à OpenAI · {why} · {time}',
+    reconnecting: 'La connexion à CIVIC a été coupée · nouvelle tentative',
     thinking: 'Le modèle lit. Il n\'écrit rien avant d\'avoir fini de raisonner · {time}',
     thinkingSearched: 'Le modèle lit et a lancé {n} recherches · {time}',
     foundTimed: '{n} affirmations trouvées · {time}',
