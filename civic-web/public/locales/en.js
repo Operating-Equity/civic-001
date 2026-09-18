@@ -20,7 +20,7 @@ export default {
     showText: 'Show the text',
     hideText: 'Hide the text',
     testing: 'Now testing',
-    slow: 'The first step takes minutes on a long document to find all asserted claims to test, because the model reads and examines all statements before writing anything. The ten determinations then run three at a time, each taking a few minutes.',
+    slow: 'The first step takes minutes on a long document to find all asserted claims to test, because the model reads and examines all statements before writing anything. The ten determinations then run four at a time, each taking a few minutes.',
     empty: 'Paste or upload something to test.',
     truncated: 'The document was cut to {n} characters, the maximum for one run.',
   },

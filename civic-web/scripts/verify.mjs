@@ -326,11 +326,11 @@ async function gateChecks() {
   const starts = (r) => { const d = (r.stats?.timeline || []).filter((e) => e.kind === 'determination'); return d.map((e) => e.at - d[0].at); };
   const twenty = { CIVIC_EVAL_CONCURRENCY: '20' };   // the gate's pacing is proved with claims allowed to run together
 
-  // 0. The rule that runs: three claims at a time, never more, and none refused at the door or in its stream.
+  // 0. The rule that runs: four claims at a time, never more, and none refused at the door or in its stream.
   {
     const r = await gateRun(3, { MOCK_TPM: '5000000', MOCK_RESERVE: String(reserve), MOCK_CONTINUATION: '90000' }, { claims: SIX });
-    check('claims run three at a time: three determinations run together and never a fourth, and none is refused at the door or in its stream',
-      !r.failure && r.stats?.maxInFlight === 3 && r.stats?.refused === 0 && r.stats?.refusedInStream === 0 && done(r) === 6, `${r.failure} maxInFlight=${r.stats?.maxInFlight} refused=${r.stats?.refused} inStream=${r.stats?.refusedInStream} done=${done(r)}`);
+    check('claims run four at a time: four determinations run together and never a fifth, and none is refused at the door or in its stream',
+      !r.failure && r.stats?.maxInFlight === 4 && r.stats?.refused === 0 && r.stats?.refusedInStream === 0 && done(r) === 6, `${r.failure} maxInFlight=${r.stats?.maxInFlight} refused=${r.stats?.refused} inStream=${r.stats?.refusedInStream} done=${done(r)}`);
   }
 
   // 1. Steady costs. The budget holds three; one more fits each second as the bucket refills.
@@ -505,7 +505,10 @@ async function accessChecks() {
   const MOCK2 = MOCK_PORT + 15, PORT2 = PORT + 15, PORT3 = PORT + 16;
   const mock = start([path.join(root, 'scripts', 'mock-openai.js')], { MOCK_PORT: String(MOCK2), MOCK_SPEED: '0.2', MOCK_EVAL_MARK: process.env.MOCK_EVAL_MARK_FOR_GATE || '' });
   await wait(`http://localhost:${MOCK2}/v1/mock/stats`, 15000, { anyResponse: true });
-  const env = { OPENAI_BASE_URL: `http://localhost:${MOCK2}/v1`, OPENAI_API_KEY: KEY, CIVIC_IMAGE_ENABLED: 'false', CIVIC_LEDGER_FILE: path.join(os.tmpdir(), 'civic-verify-ledger.jsonl'), CIVIC_SIGNIN_LOG: path.join(os.tmpdir(), 'civic-verify-signins.jsonl') };
+  // Its own uses file: the run counted here must not accumulate across guard runs (the default file
+  // under data/ did, and the sixth run of a day was refused as a code used up).
+  const usesFile = path.join(os.tmpdir(), `civic-verify-access-uses-${Date.now()}.jsonl`);
+  const env = { OPENAI_BASE_URL: `http://localhost:${MOCK2}/v1`, OPENAI_API_KEY: KEY, CIVIC_IMAGE_ENABLED: 'false', CIVIC_LEDGER_FILE: path.join(os.tmpdir(), 'civic-verify-ledger.jsonl'), CIVIC_SIGNIN_LOG: path.join(os.tmpdir(), 'civic-verify-signins.jsonl'), CIVIC_USES_FILE: usesFile };
   const server = start([path.join(root, 'server', 'index.js')], { ...env, PORT: String(PORT2), CIVIC_ACCESS_CODES: 'ABCD234,EFGH567' });
   const other = start([path.join(root, 'server', 'index.js')], { ...env, PORT: String(PORT3), CIVIC_ACCESS_CODES: 'EFGH567' });
   await wait(`http://localhost:${PORT2}/api/health`);
@@ -550,6 +553,7 @@ async function accessChecks() {
   try { server.kill('SIGTERM'); } catch {}
   try { other.kill('SIGTERM'); } catch {}
   try { mock.kill('SIGTERM'); } catch {}
+  try { fs.unlinkSync(usesFile); } catch {}
 }
 await accessChecks();
 
