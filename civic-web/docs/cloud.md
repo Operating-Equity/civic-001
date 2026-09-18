@@ -64,7 +64,15 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
   system declined creating the disk through the API; it is the operator's, in Render's dashboard:
   the service → Disks → Add Disk, name civic-data, mount path /var/data, size 1 GB (Render
   deploys on its own). Once it exists, the four file variables move to /var/data through the API
-  and the next merge applies them.
+  and the next merge applies them. State on 18 September, 16:20 UTC: PR #33 merged at 16:12 with
+  active 0 and Render deployed it by itself (same build, docs only); /api/selftest lists the
+  operator's code allowed 150 and the other four 5, with every count at 0 because the uses file
+  restarted with the instance (it stays under /tmp until the disk exists). The operator's second
+  run on the address (15:51–16:11 UTC: one extraction of 227 s, ten determinations of 152–244 s two
+  at a time, every job released, no reconnection, no error) was made on the change set's build.
+  The extraction prompt's cutoff (a maximum of forty claims, named in nine places) was put to the
+  operator, who chose to leave the prompt as it is; nothing on Render changed and the prompt hash
+  stays f798309e. Open: the disk, then the file variables.
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 
