@@ -88,15 +88,16 @@ node scripts/ledger-summary.mjs                      # cost of goods sold so far
 
 `trial-run.mjs` streams a document through both steps exactly as the page does and prints
 everything that comes back: the complete entry for every claim, the reasoning summary, every search
-performed, every source cited, plus tokens (input / output / reasoning), duration and estimated
-cost, then the run totals. It also writes the whole run to a `.md` and a `.json` file. Start with
+performed, every source cited, plus duration and estimated cost, then the run totals (token
+figures are in the ledger, never in the stream). It also writes the whole run to a `.md` and a `.json` file. Start with
 `--limit 3` to see timing and cost before spending on 20; add `--quiet` for the table only.
 
 Every call is also appended to `data/ledger.jsonl` (gitignored): kind, model, effort, token
 usage, searches, duration, verdict and a short hash of the claim — never the claim text or a key.
-The page shows the same figures per card and a run total behind an **Internal** chip while
-`CIVIC_INTERNAL_ACCOUNTING=true`; set it to `false` for customers. Dollar figures come from the
-table in `server/pricing.js`; token counts come from the API and are exact.
+The page shows the estimated cost per card and per run behind an **Internal** chip while
+`CIVIC_INTERNAL_ACCOUNTING=true`; set it to `false` for customers. Token figures never reach the
+page. Dollar figures come from the table in `server/pricing.js`; token counts come from the API
+and are exact, in the ledger.
 
 The first ten claims always run. Claims beyond ten are listed with checkboxes, and the reader
 can choose among them; the button that would test the chosen ones is parked for now (the
@@ -252,8 +253,9 @@ When accounts arrive, the prompts should move to a secrets manager rather than f
 One model id per step means no fallback. Only if the operator lists several ids in
 `CIVIC_EXTRACT_MODELS` or `CIVIC_EVAL_MODELS` does the server move down the list, and only when the
 key cannot use the earlier id; when that happens the page shows a warning naming both models.
-The scoreboard shows the three counts and, with internal accounting on, the run's estimated cost;
-each card shows its own tokens.
+The scoreboard shows the three counts and, with internal accounting on, the run's estimated cost.
+No token figure appears anywhere on the page or in what the page receives (the operator's rule of
+18 September); the ledger keeps OpenAI's usage per request.
 
 ### Why the echo looks the way it does
 

@@ -93,7 +93,6 @@ export default {
     retryBtn: 'Réessayer',
     confidence: '{n} % de confiance',
     inspector: 'Inspecteur',
-    tokens: '{n} jetons',
     cost: 'est. {usd}',
     costUnknown: 'prix inconnu',
     searches_one: '{n} recherche',

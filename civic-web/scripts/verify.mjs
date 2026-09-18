@@ -141,6 +141,9 @@ try {
       && ev.some((e) => e.t === 'done') && !ev.some((e) => e.t === 'error'),
     JSON.stringify(held.concat(retries, ev.filter((e) => e.t === 'error'))));
   const doneEv = ev.find((e) => e.t === 'done');
+  check('no token figures reach the page: neither the extraction\'s nor the determination\'s done event carries usage (the ledger keeps it)',
+    !('usage' in (ex.find((e) => e.t === 'done') || {})) && !('usage' in (doneEv || {})) && !ev.some((e) => JSON.stringify(e).includes('"usage"')) && !ex.some((e) => JSON.stringify(e).includes('"usage"')),
+    JSON.stringify(Object.keys(doneEv || {})));
   check('the Conclusion section is read out of the entry for the closed row, and it names the verdict',
     Boolean(doneEv?.conclusion) && new RegExp(`^${doneEv?.verdict === 'unverified' ? '(uncertain|unverified)' : doneEv?.verdict}`, 'i').test(doneEv?.conclusion || ''),
     JSON.stringify(doneEv?.conclusion));

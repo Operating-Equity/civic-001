@@ -92,6 +92,9 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
   Release B (three at once) is the page's `IN_FLIGHT` constant (public/js/app.js), the server's
   `evalConcurrency` default (for a request carrying several claims), the guard's "three at a time,
   never a fourth" check, the lede's sentence in four languages, and these notes.
+  Same evening, the operator's rule that no token figure appears anywhere a reader can see: the
+  per-card token line is gone, and the extraction and determination events sent to the page no
+  longer carry `usage` (the ledger keeps it); the guard checks both.
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 

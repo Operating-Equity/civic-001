@@ -94,7 +94,6 @@ export default {
     retryBtn: 'Try again',
     confidence: '{n}% confidence',
     inspector: 'Inspector',
-    tokens: '{n} tokens',
     cost: 'est. {usd}',
     costUnknown: 'price unknown',
     searches_one: '{n} search',

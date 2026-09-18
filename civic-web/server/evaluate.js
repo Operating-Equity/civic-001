@@ -225,7 +225,7 @@ export async function runEvaluation({ apiKey, claims, document = '', send, signa
       text: parsed.text,            // complete, unmodified
       reasoning: reasoning.trim() || null,
       trail, sources,
-      usage, model: modelUsed, requested: config.evalModels[0], fellBack, effort: config.evalEffort,
+      model: modelUsed, requested: config.evalModels[0], fellBack, effort: config.evalEffort, // no token figures go to the page; the ledger keeps them
       searches: trail.length, ms, cost, incomplete,
     });
     send({ t: 'batch-progress', completed, total });

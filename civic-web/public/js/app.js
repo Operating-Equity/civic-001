@@ -7,7 +7,7 @@
 //      and the reasoning summary, the search trail, the cited sources and the raw text are all
 //      on the card. When the verdict cannot be read from the model's own Conclusion, the card
 //      says so instead of guessing.
-import { t, setLocale, initLocale, LOCALES, currentLocale, fmtNumber, fmtCompact, fmtSeconds, fmtUsd } from './i18n.js';
+import { t, setLocale, initLocale, LOCALES, currentLocale, fmtNumber, fmtSeconds, fmtUsd } from './i18n.js';
 import * as api from './api.js';
 import { $, $$, el, renderMarkdown, setBar, toast, easeChars, easeTime, bump, copyText } from './render.js';
 
@@ -31,7 +31,7 @@ const state = {
   phase: 'idle',
   server: null,        // /api/health payload, or null when no server answers
   session: null,       // { email } once a code has been accepted, when a sign-in is required
-  accounting: true,    // operator view: tokens and estimated cost per claim
+  accounting: true,    // operator view: the estimated cost per claim
   source: '',
   warnings: [],   // anything that could have cost a claim, shown at the top of the run
   claims: [],
@@ -1086,7 +1086,7 @@ function finalizeCard(i, ev) {
     reasoning: ev.reasoning || r.reasoning || '',
     verdict: ev.verdict || null, verdictSource: ev.verdictSource || 'none',
     confidence: ev.confidence ?? null, inspector: ev.inspector || null, conclusion: ev.conclusion || null,
-    usage: ev.usage || null, cost: ev.cost || null, ms: ev.ms ?? null,
+    cost: ev.cost || null, ms: ev.ms ?? null,
     model: ev.model || null, requested: ev.requested || null, fellBack: ev.fellBack || null, effort: ev.effort || null, mode: ev.mode || null,
     trail: ev.trail?.length ? ev.trail : r.trail, sources: ev.sources?.length ? ev.sources : r.sources,
     incomplete: ev.incomplete || r.incomplete || null,
@@ -1187,8 +1187,6 @@ function renderCardFoot(i) {
     modelNode.classList.toggle('is-fallback', Boolean(r.fellBack));
     modelNode.title = r.fellBack ? t('warn.modelFallback', { used: r.fellBack.used, requested: r.fellBack.requested }) : '';
   } else modelNode.textContent = '';
-  const tokens = r.usage ? (r.usage.input || 0) + (r.usage.output || 0) : 0;
-  $('.card-tokens', card).textContent = r.usage ? t('card.tokens', { n: fmtCompact(tokens) }) : '';
   const costNode = $('.card-cost', card);
   if (state.accounting && r.status === 'done') {
     const parts = [];
