@@ -47,6 +47,10 @@ const state = {
   extractChars: 0,
   found: 0,
   extractWait: null,   // while the extraction waits for the connection to OpenAI: { code, why, since }
+  extractCut: false,   // the connection carrying the extraction was cut; it is being opened again
+  runId: '',           // this run's name; every job of the run is named after it
+  extractJob: '',      // the extraction's job at the server (server/jobs.js)
+  jobs: new Set(),     // every job of this run the server may still hold: cancelled on reset, on leaving
   evalStartedAt: 0,
   gate: null,          // the key's minute figures, from the server, once OpenAI has given them
   status: { step1: null, step2: null },
@@ -98,6 +102,9 @@ async function boot() {
   ui.selectAll.addEventListener('click', toggleSelectAll);
   ui.testSelected.addEventListener('click', testSelected);
   ui.export.addEventListener('click', exportRun);
+  // Leaving the page is the one way, besides Start a new test, that a run is stopped: the server
+  // keeps working through a cut connection, so it has to be told when nobody will come back.
+  window.addEventListener('pagehide', () => { if (state.jobs.size) api.cancel([...state.jobs], { beacon: true }); });
 
   // The launcher opens the page at a one-off address so a browser holding an older copy of the page
   // cannot serve it back instead of asking the server. Tidy that marker out of the address bar.
@@ -330,6 +337,9 @@ async function startRun() {
   state.source = text;
   state.phase = 'extracting';
   state.abort = new AbortController();
+  state.runId = api.newJobId('run');
+  state.extractJob = `${state.runId}-x`;
+  state.jobs.add(state.extractJob);
 
   // The page becomes the run: the intake closes to a line, and the run header, with what is being
   // tested and the way out, is on screen from the first second.
@@ -351,6 +361,7 @@ function newResult() {
     status: 'pending', phase: 'pending', text: '', reasoning: '', chars: 0, startedAt: 0,
     verdict: null, verdictSource: 'none', confidence: null, inspector: null,
     usage: null, cost: null, ms: null, trail: [], sources: [], incomplete: null, renderAt: 0,
+    jobId: null, cutFrom: null,   // the claim's job at the server, and what the row said before its connection was cut
   };
 }
 
@@ -360,6 +371,7 @@ function resetRunState() {
   state.extractSearches = 0;
   if (ui.step1Thinking) { ui.step1Thinking.hidden = true; ui.step1ThinkingBody.textContent = ''; ui.step1Thinking.open = false; }
   ui.bar1.classList.remove('is-waiting');
+  cancelJobs();
   state.abort?.abort();
   for (const id of state.timers) clearInterval(id);
   state.timers = [];
@@ -367,7 +379,7 @@ function resetRunState() {
     phase: 'idle', warnings: [], claims: [], claimsRaw: '', beyond: [], cards: [], results: [], extraction: null, echo: null,
     batch: { start: 0, size: 0, done: 0 }, counts: { true: 0, false: 0, unverified: 0 }, unread: 0,
     tokens: 0, cost: 0, unpriced: false,
-    extractStartedAt: 0, extractChars: 0, found: 0, extractWait: null, evalStartedAt: 0, gate: null, status: { step1: null, step2: null },
+    extractStartedAt: 0, extractChars: 0, found: 0, extractWait: null, extractCut: false, runId: '', extractJob: '', evalStartedAt: 0, gate: null, status: { step1: null, step2: null },
   });
   ui.runWarnings.replaceChildren();
   ui.runWarnings.hidden = true;
@@ -494,6 +506,21 @@ function addCost(cost) {
   if (cost.priced === false) state.unpriced = true;
 }
 
+// ---------- the run's jobs at the server ------------------------------------------------------
+
+// The work is the server's (server/jobs.js). A cut connection is opened again by api.js and the
+// job goes on meanwhile; these two are the only ways a job ends before its time or is let go of.
+function cancelJobs() {
+  if (!state.jobs.size) return;
+  api.cancel([...state.jobs]);
+  state.jobs.clear();
+}
+function releaseJob(id) {
+  if (!id || !state.jobs.has(id)) return;
+  state.jobs.delete(id);
+  api.release([id]);
+}
+
 // ---------- step 1: extraction ----------------------------------------------------------------
 
 async function runExtraction(text) {
@@ -532,13 +559,19 @@ async function runExtraction(text) {
       default: break;
     }
   };
+  const job = state.extractJob;
   try {
-    await api.extract({ text, source: state.sourceMeta, signal: state.abort.signal, onEvent });
+    await api.extract({
+      jobId: job, text, source: state.sourceMeta, signal: state.abort.signal, onEvent,
+      onCut: () => { state.extractCut = true; },
+      onAttached: () => { state.extractCut = false; },
+    });
     if (!finished && state.phase === 'extracting') failRun({ code: 'stream_ended', message: 'The connection closed before extraction finished.' });
   } catch (err) {
     if (err?.name !== 'AbortError') failRun(err);
   } finally {
     clearInterval(tick);
+    releaseJob(job);   // the job is over, whatever ended it; the server can let go of its record
   }
 }
 
@@ -546,6 +579,13 @@ function updateExtractBar() {
   if (state.phase !== 'extracting') return;
   const elapsed = Date.now() - state.extractStartedAt;
 
+  // The connection to CIVIC was cut: the extraction goes on at the server, and the page is opening
+  // a new connection to it; the line says so until it has.
+  if (state.extractCut) {
+    ui.bar1.classList.add('is-waiting');
+    setStatus('step1', 'step1.reconnecting');
+    return;
+  }
   // The connection to OpenAI cannot be made: the line says so, why, and for how long, until it can.
   if (state.extractWait) {
     ui.bar1.classList.add('is-waiting');
@@ -773,15 +813,20 @@ async function runBatch(claims, nodes) {
 }
 
 /**
- * One claim, on its own stream. The stream ends with the claim's result (`done`, or an error of
- * its own), or it is cut: the browser's network, or a deploy ending the server it was on. A cut
- * stream is opened again a second later and the claim starts over; only its attempt is lost.
+ * One claim, as one job at the server, on its own stream. The stream ends with the claim's result
+ * (`done`, or an error of its own). A cut connection (the browser's network, a relay on the way)
+ * is opened again by api.js against the same job, which went on meanwhile, and only what the row
+ * has not yet received arrives; the row says it is going again until it has. A deploy ends the
+ * server the job was on: the next connection finds no such job and the claim starts over there.
  * A refusal of the request itself (no key, no prompt) ends the run, as it always did.
  */
 async function runClaim(i, signal, { keepGoing = () => true, onSettled = () => {} } = {}) {
   const claim = state.cards[i];
   const r = state.results[i];
   for (;;) {
+    r.jobId = api.newJobId(`${state.runId || 'run'}-c${i}`);
+    state.jobs.add(r.jobId);
+    const job = r.jobId;
     let settled = false;
     let runFailure = null;
     const onEvent = (ev) => {
@@ -791,15 +836,24 @@ async function runClaim(i, signal, { keepGoing = () => true, onSettled = () => {
       handleEvalEvent(ev, () => i);
     };
     try {
-      await api.evaluate({ claims: [claim.entry || claim.text], text: state.source, source: state.sourceMeta, signal, onEvent });
+      await api.evaluate({
+        jobId: job, claims: [claim.entry || claim.text], text: state.source, source: state.sourceMeta, signal, onEvent,
+        // Whatever the row was saying (queued at the gate, inspecting, writing), it says the connection
+        // was cut until a new one is open, then goes back to what it was saying.
+        onCut: () => { if (!settled && r.phase !== 'reconnecting') { r.cutFrom = r.phase; r.phase = 'reconnecting'; renderCardStatus(i); } },
+        onAttached: () => { if (r.phase === 'reconnecting') { r.phase = r.cutFrom || 'pending'; r.cutFrom = null; renderCardStatus(i); } },
+      });
     } catch (err) {
       if (err?.name === 'AbortError' || signal.aborted) return;
       if (err instanceof api.ApiError) { failRun(err); return; }   // the server refused the request itself
-      // Anything else is the connection to CIVIC failing or being cut: it is opened again below.
+    } finally {
+      releaseJob(job);
     }
     if (signal.aborted || !keepGoing()) return;
     if (runFailure) { failRun(runFailure); return; }
     if (settled) { onSettled(); return; }
+    // The job ended without a result for the claim (the server it was on went away): the claim
+    // goes again as a new job, a second on, and only its attempt is lost.
     r.phase = 'reconnecting';
     renderCardStatus(i);
     await new Promise((resolve) => setTimeout(resolve, 1000));
@@ -1157,7 +1211,7 @@ async function retryClaim(i) {
   $('.btn-retry', card).hidden = true;
   $('.btn-challenge', card).hidden = false;
   $('.card-foot', card).hidden = true;
-  Object.assign(r, { status: 'running', phase: 'starting', startedAt: Date.now(), text: '', reasoning: '', chars: 0, error: null, trail: [], sources: [] });
+  Object.assign(r, { status: 'running', phase: 'starting', startedAt: Date.now(), text: '', reasoning: '', chars: 0, error: null, trail: [], sources: [], jobId: null, cutFrom: null });
   setCardState(i, 'running');
   renderCardStatus(i);
   const tick = setInterval(() => {

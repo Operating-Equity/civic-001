@@ -93,44 +93,116 @@ export async function parseFile(file, { signal } = {}) {
   return res.json();
 }
 
-/** POSTs JSON and reads back newline-delimited JSON events until the stream ends. */
-export async function streamNdjson(url, body, { signal, onEvent }) {
-  const res = await call(url, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(body),
-    signal,
-  });
-  if (!res.ok) await throwFromResponse(res);
-  const reader = res.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = '';
-  for (;;) {
-    const { value, done } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    let nl;
-    while ((nl = buffer.indexOf('\n')) >= 0) {
-      const line = buffer.slice(0, nl).trim();
-      buffer = buffer.slice(nl + 1);
-      if (!line) continue;
+/** A job id for a run's work, made here so the server keeps the work under it and a cut connection can come back to it. */
+export function newJobId(prefix = 'job') {
+  const c = globalThis.crypto;
+  const rnd = c?.randomUUID ? c.randomUUID() : Array.from(c.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, '0')).join('');
+  return `${prefix}-${rnd}`;
+}
+
+const abortError = () => { const e = new Error('aborted'); e.name = 'AbortError'; return e; };
+const pause = (ms, signal) => new Promise((resolve, reject) => {
+  if (signal?.aborted) return reject(abortError());
+  const id = setTimeout(() => { signal?.removeEventListener('abort', stop); resolve(); }, ms);
+  const stop = () => { clearTimeout(id); reject(abortError()); };
+  signal?.addEventListener('abort', stop, { once: true });
+});
+
+/**
+ * POSTs JSON and reads back newline-delimited JSON events until the job's end.
+ *
+ * The work is the server's (server/jobs.js): the request names a job (`body.jobId`) and how many
+ * of its events this page already holds. A connection that cannot be opened, or is cut before the
+ * end, is opened again a second later against the same job, and only the events not yet received
+ * are sent, so a cut costs the wait and nothing else: nothing is run twice, nothing is paid twice.
+ * Only the server's own refusal of the request (no sign-in, no key, nothing to test) ends it.
+ * `isEnd` names the event that closes the job's story; `onCut` and `onAttached` let the page say
+ * what is happening.
+ */
+export async function streamNdjson(url, body, { signal, onEvent, isEnd = () => false, onCut, onAttached }) {
+  let cursor = 0;
+  for (let attempt = 0; ; attempt++) {
+    if (signal?.aborted) throw abortError();
+    if (attempt > 0) { onCut?.(); await pause(1000, signal); }
+    let res;
+    try {
+      res = await call(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ...body, cursor }), signal });
+    } catch (err) {
+      if (err?.name === 'AbortError' || signal?.aborted) throw err;
+      continue;   // CIVIC could not be reached at all; the job may well be running there: go again
+    }
+    if (!res.ok) {
+      // CIVIC's own refusal (it says so, in its own words) ends the run. A bare 5xx with no word from
+      // CIVIC is the way to it (a proxy, a deploy switching over), not CIVIC: the job may well be
+      // running, so this is a cut like any other, and the connection is opened again.
+      const body = await res.json().catch(() => null);
+      if (body?.error || res.status < 500) throw new ApiError(res.status, body?.error?.code || `http_${res.status}`, body?.error?.message || `The server answered ${res.status}.`);
+      continue;
+    }
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let ended = false;
+    let finished = false;   // the server said the job is already over when this connection joined
+    const take = (line) => {
       let event;
-      try { event = JSON.parse(line); } catch { continue; }
-      if (event.t === 'ping') continue;
+      try { event = JSON.parse(line); } catch { return; }
+      if (event.t === 'ping') return;
+      if (event.t === 'attached') { cursor = event.from; finished = Boolean(event.finished); onAttached?.(event); return; }
+      cursor++;
+      if (isEnd(event)) ended = true;
       onEvent(event);
+    };
+    try {
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        let nl;
+        while ((nl = buffer.indexOf('\n')) >= 0) {
+          const line = buffer.slice(0, nl).trim();
+          buffer = buffer.slice(nl + 1);
+          if (line) take(line);
+        }
+      }
+      if (buffer.trim()) take(buffer.trim());
+      if (ended || finished) return;   // the job's story is told, or the job is over with no more to tell
+    } catch (err) {
+      if (err?.name === 'AbortError' || signal?.aborted) throw err;
+      if (ended) return;
+      // Cut in the middle of the reply (Safari says "Load failed", Chrome "network error"): the
+      // job goes on at the server; this connection is opened again above.
     }
   }
-  if (buffer.trim()) {
-    try { onEvent(JSON.parse(buffer)); } catch { /* trailing partial line */ }
+}
+
+/** The page says stop: the jobs' model calls are aborted at the server. `beacon` is for leaving the page. */
+export function cancel(jobIds, { beacon = false } = {}) {
+  const ids = (jobIds || []).filter(Boolean);
+  if (!ids.length) return Promise.resolve();
+  const payload = JSON.stringify({ jobIds: ids });
+  if (beacon && navigator.sendBeacon) {
+    navigator.sendBeacon('api/cancel', new Blob([payload], { type: 'application/json' }));
+    return Promise.resolve();
   }
+  return fetch('api/cancel', { method: 'POST', headers: { 'content-type': 'application/json' }, body: payload, keepalive: true }).catch(() => {});
 }
 
-export function extract({ text, source, signal, onEvent }) {
-  return streamNdjson('api/extract', { text, source }, { signal, onEvent });
+/** The page says it has all of a finished job, so the server can forget it. */
+export function release(jobIds) {
+  const ids = (jobIds || []).filter(Boolean);
+  if (!ids.length) return Promise.resolve();
+  return fetch('api/release', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jobIds: ids }), keepalive: true }).catch(() => {});
 }
 
-export function evaluate({ claims, text, source, signal, onEvent }) {
-  return streamNdjson('api/evaluate', { claims, text, source }, { signal, onEvent });
+export function extract({ jobId, text, source, signal, onEvent, onCut, onAttached }) {
+  // The extraction's story ends with its result, or with the server's own error for the run.
+  return streamNdjson('api/extract', { jobId, text, source }, { signal, onEvent, onCut, onAttached, isEnd: (ev) => ev.t === 'done' || ev.t === 'error' });
+}
+
+export function evaluate({ jobId, claims, text, source, signal, onEvent, onCut, onAttached }) {
+  // A determination's story ends when the server closes the batch, or with an error for the run itself.
+  return streamNdjson('api/evaluate', { jobId, claims, text, source }, { signal, onEvent, onCut, onAttached, isEnd: (ev) => ev.t === 'complete' || (ev.t === 'error' && ev.i === undefined) });
 }
 
 export async function illustrate({ text, signal }) {

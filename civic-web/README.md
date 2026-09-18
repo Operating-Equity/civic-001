@@ -283,9 +283,17 @@ repository. The internal ledger and the sign-in log are written to a temporary d
 persist between deploys; Render's own log stream keeps the sign-in lines.
 
 Each claim is tested on its own request, so no response outlasts one claim (Render allows a
-response 100 minutes). A deploy ends the process that was running, and with it any claim it was
-still streaming: `/api/health` reports `active`, the runs in flight, and an update is merged only
-when that is zero; a claim whose stream is cut anyway is requested again by the page.
+response 100 minutes). The work itself belongs to the server, not to the connection
+(`server/jobs.js`): every extraction and every determination is a job under an id the page made,
+and the reply is a stream of the job's events. A connection that is cut on the way (a browser's
+network, a relay such as iCloud Private Relay, which cut a finished four-minute extraction on
+18 September) stops nothing: the page opens a new connection a second later, says how many events
+it already has, and receives the rest; the step line or the row reads "The connection to CIVIC
+was cut · going again" meanwhile. Nothing is run twice and nothing is paid for twice. Only the
+page stops a job: Start a new test and leaving the page send a cancel. A deploy ends the process
+that was running, and with it its jobs: `/api/health` reports `active`, the runs in flight
+whatever their connections are doing, an update is merged only when that is zero, and a claim
+cut by a deploy anyway starts over on the new process.
 
 ## Deploy anywhere else
 

@@ -35,6 +35,7 @@ export default {
     incomplete: 'Die Extraktion endete früh am Ausgabelimit des Modells. Es können Behauptungen fehlen.',
     retry: 'Erneuter Versuch…',
     unreachable: 'Warten auf die Verbindung zu OpenAI · {why} · {time}',
+    reconnecting: 'Die Verbindung zu CIVIC brach ab · neuer Versuch',
     thinking: 'Das Modell liest. Es schreibt nichts, bevor es zu Ende gedacht hat · {time}',
     thinkingSearched: 'Das Modell liest und hat {n} Suchen ausgeführt · {time}',
     foundTimed: '{n} Aussagen gefunden · {time}',
