@@ -323,11 +323,11 @@ async function gateChecks() {
   const starts = (r) => { const d = (r.stats?.timeline || []).filter((e) => e.kind === 'determination'); return d.map((e) => e.at - d[0].at); };
   const twenty = { CIVIC_EVAL_CONCURRENCY: '20' };   // the gate's pacing is proved with claims allowed to run together
 
-  // 0. The rule that runs: two claims at a time, never more, and none refused at the door or in its stream.
+  // 0. The rule that runs: three claims at a time, never more, and none refused at the door or in its stream.
   {
-    const r = await gateRun(3, { MOCK_TPM: '5000000', MOCK_RESERVE: String(reserve), MOCK_CONTINUATION: '90000' }, { claims: SIX.slice(0, 4) });
-    check('claims run two at a time: two determinations run together and never a third, and none is refused at the door or in its stream',
-      !r.failure && r.stats?.maxInFlight === 2 && r.stats?.refused === 0 && r.stats?.refusedInStream === 0 && done(r) === 4, `${r.failure} maxInFlight=${r.stats?.maxInFlight} refused=${r.stats?.refused} inStream=${r.stats?.refusedInStream} done=${done(r)}`);
+    const r = await gateRun(3, { MOCK_TPM: '5000000', MOCK_RESERVE: String(reserve), MOCK_CONTINUATION: '90000' }, { claims: SIX });
+    check('claims run three at a time: three determinations run together and never a fourth, and none is refused at the door or in its stream',
+      !r.failure && r.stats?.maxInFlight === 3 && r.stats?.refused === 0 && r.stats?.refusedInStream === 0 && done(r) === 6, `${r.failure} maxInFlight=${r.stats?.maxInFlight} refused=${r.stats?.refused} inStream=${r.stats?.refusedInStream} done=${done(r)}`);
   }
 
   // 1. Steady costs. The budget holds three; one more fits each second as the bucket refills.

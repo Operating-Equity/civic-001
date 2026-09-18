@@ -1,5 +1,5 @@
 // Step 2 — each claim is tested by the protected evaluation prompt, sent verbatim.
-// Two claims at a time (config.evalConcurrency). What is tested is the claim's whole entry as the
+// Three claims at a time (config.evalConcurrency). What is tested is the claim's whole entry as the
 // extractor wrote it (Claim, Attribution, what the source leaves unspecified), and the source goes
 // ahead of the prompt as its own message, as the conversation carried it in the workflow the
 // prompts were tested in. A claim tested bare, with "the speech" and no speaker or date, was

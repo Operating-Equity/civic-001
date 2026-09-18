@@ -89,6 +89,9 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
   limit; each running claim charged 67,000–89,000 at each call after a search; four ≈ 600,000,
   three ≈ 450,000) was put to the operator, who chose three, as a second release after this one
   is live and the check page's pacing row has been read from a run on it.
+  Release B (three at once) is the page's `IN_FLIGHT` constant (public/js/app.js), the server's
+  `evalConcurrency` default (for a request carrying several claims), the guard's "three at a time,
+  never a fourth" check, the lede's sentence in four languages, and these notes.
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 
@@ -208,12 +211,12 @@ the code gates; the email is recorded, not checked; no database.
    the action that was refused (Test the facts, reading a link, testing selected claims) proceeds
    on its own once the code is accepted. After sign-in the nav shows the email and **Sign out**;
    **Sign up** stays as it is until accounts exist. Strings in en, es, fr, de.
-3. **One request per claim** (`public/js/app.js` `runBatch`). The page keeps two claims in flight,
+3. **One request per claim** (`public/js/app.js` `runBatch`). The page keeps three claims in flight (two until 18 September),
    each its own `/api/evaluate` stream with one claim, the source and its attribution as now;
    the server's gate goes on pacing OpenAI across requests. A stream that ends without the
    claim's `done` is requested again a second later ("The connection to CIVIC was cut · going
    again"); only that claim's attempt is lost. `retryClaim` already does this for one claim;
-   `runBatch` becomes a loop over it with two workers.
+   `runBatch` becomes a loop over it with three workers.
 4. **Deploy awareness.** `/api/health` reports `active` (streams open now). On SIGTERM the server
    stops accepting new connections and lets open streams finish within Render's grace.
 5. **Fit the instance.** `CIVIC_MAX_UPLOAD_BYTES` 64 MB on Starter (an upload is held whole in
@@ -229,7 +232,7 @@ the code gates; the email is recorded, not checked; no database.
 9. **The guard**: with codes set, `/api/extract` without the cookie is refused; `/api/signin`
    with a listed code sets the cookie and with an unlisted one does not; `/api/health` stays
    open; removing a code from the list signs out its holder and no one else; the per-claim run
-   completes with two in flight and never three; a browser run with the stand-in killed
+   completes with three in flight and never four; a browser run with the stand-in killed
    mid-claim: that claim is requested again and every claim completes; the sign-in dialog opens
    from the button and from a refused action, and the action proceeds after the code.
 

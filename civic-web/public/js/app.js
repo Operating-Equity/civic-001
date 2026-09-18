@@ -12,6 +12,12 @@ import * as api from './api.js';
 import { $, $$, el, renderMarkdown, setBar, toast, easeChars, easeTime, bump, copyText } from './render.js';
 
 const MAX_CLAIMS = 10; // the automatic run (the operator's number); anything beyond is the reader's explicit choice
+// Claims in flight at once: three, the operator's choice of 18 September. The arithmetic behind it:
+// the key's minute budget is 500,000 tokens; a running claim is charged again at each of its own
+// calls after a web search, 67,000 to 89,000 each, so three claims need about 450,000 in a
+// typical minute and four about 600,000. Two never waited; twenty failed on 16 September. The
+// server's gate paces OpenAI across requests, and a refusal is a wait, never a failure.
+const IN_FLIGHT = 3;
 const GLYPH = { true: '✓', false: '✕', unverified: '?', unread: '–' };
 
 /** A connection failure in the reader's language, from the operating system's code; the server's own words otherwise. */
@@ -794,9 +800,9 @@ async function runBatch(claims, nodes) {
 
   const tick = setInterval(updateEvalBars, 250);
   state.timers.push(tick);
-  // One request per claim, two in flight (the operator's rule; the server's gate goes on pacing
-  // OpenAI across requests). A response then lasts one claim, never a batch, well inside what a
-  // host allows, and a cut costs one claim's attempt, which is requested again.
+  // One request per claim, IN_FLIGHT of them at once (the operator's rule; the server's gate goes
+  // on pacing OpenAI across requests). A response then lasts one claim, never a batch, well inside
+  // what a host allows, and a cut costs one claim's attempt, which is requested again.
   const signal = state.abort.signal;
   const queue = claims.map((_, k) => start + k);
   const settled = () => { state.batch.done++; updateEvalStatus(); renderScoreboard(); };
@@ -806,7 +812,7 @@ async function runBatch(claims, nodes) {
     }
   };
   try {
-    await Promise.all([worker(), worker()]);
+    await Promise.all(Array.from({ length: Math.min(IN_FLIGHT, claims.length) }, worker));
     if (state.phase === 'evaluating') finishBatch({ ms: Date.now() - state.evalStartedAt });
   } finally {
     clearInterval(tick);
