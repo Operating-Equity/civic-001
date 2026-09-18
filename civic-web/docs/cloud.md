@@ -19,13 +19,22 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
   and carries RENDER_API_KEY and OPENAI_API_KEY. The card under Billing is the operator's.
   Blocked on one thing: Render's `POST /v1/services` answers 400 "repository URL is invalid or
   unfetchable" for https://github.com/Operating-Equity/civic-001 (and for private personal
-  repositories), while a public repository creates fine. Render's own documentation
-  (render.com/docs/git-provider) names the missing half: the GitHub credential on the Render
-  account, added from **Account Settings → Account Security → Git Deployment Credentials →
-  Add credential → GitHub**. Installing the app on GitHub does not create it, and the public
-  API has no endpoint for it, so only the operator can add it. A session check-in every thirty
-  minutes retries the creation; once it succeeds, stage 1's remaining items (secret files,
-  variables, codes, deploy) follow through the API, then stage 2.
+  repositories), while a public repository creates fine. Cause, found on 18 September from the
+  operator's Account Settings screenshots: the Render account logs in with, and deploys as, the
+  GitHub user **halseyminor500-creator**, a second GitHub account of the operator's that is not a
+  collaborator on civic-001 (the collaborators are Halseyminor500 and five others). Render
+  fetches as a user who cannot see the repository; the app installations on Halseyminor500 and
+  Operating-Equity cannot change that. Render allows one connected GitHub account per Render
+  account, and login and deployment must be the same GitHub account when both use GitHub
+  (render.com/docs/login-settings). The fix is the operator's, on Render's Account Settings
+  page, Account Security section, in this order: Create Password; disconnect the GitHub login
+  method halseyminor500-creator; disconnect the Git Deployment Credential
+  halseyminor500-creator; Add credential → GitHub, authorising as Halseyminor500. (Fallback:
+  as Halseyminor500, add halseyminor500-creator as a collaborator on civic-001 and accept as
+  that account; then nothing changes in Render.) The public API has no endpoint for any of
+  this. A session check-in every thirty minutes retries the creation; once it succeeds, stage
+  1's remaining items (secret files, variables, codes, deploy) follow through the API, then
+  stage 2.
 - The Render workspace id (the API's ownerId) is tea-dak7rhnqj5pc73a4dj50. No service exists yet.
 - The repository root's render.yaml is the blueprint to follow when creating the service through
   the API (rootDir civic-web, Node 22, npm install / npm start, health check /api/health).
@@ -159,10 +168,14 @@ operator's screenshot (left pane: Billing; top bar: "+ New").
    Then, in Render, the credential that lets the account act as that GitHub user (installing
    the app on GitHub does not create it; Render's page render.com/docs/git-provider): open
    **Account Settings** (`https://dashboard.render.com/u/settings`, the page where the API key
-   was created), scroll to **Account Security**, and under **Git Deployment Credentials** click
-   **Add credential** → **GitHub**; GitHub asks to authorise Render as Halseyminor500; confirm.
-   Check: **+ New** (top bar) → **Web Service** lists `Operating-Equity/civic-001`. Close the
-   page without creating anything (the service is created by me, through the API).
+   was created), scroll to **Account Security**, and under **Git Deployment Credentials** the
+   GitHub row must read **Halseyminor500**. If it reads another GitHub account (it read
+   halseyminor500-creator on 18 September), first **Create Password**, then disconnect that
+   account under **Login Methods** and under **Git Deployment Credentials**, then **Add
+   credential** → **GitHub** in a browser whose GitHub session is Halseyminor500; GitHub's page
+   names the account it authorises; confirm. Check: **+ New** (top bar) → **Web Service** lists
+   `Operating-Equity/civic-001`. Close the page without creating anything (the service is
+   created by me, through the API).
 2. **A card.** Render, left pane, under WORKSPACE → **Billing** → the payment-method section →
    add the card. Starter is $7 a month; OpenAI usage is unchanged.
 3. **Give me reach and the key, at claude.ai/code, in one dialog.**
