@@ -71,7 +71,11 @@ async function get(urlString, { accept, signal } = {}) {
       });
     } catch (err) {
       if (signal?.aborted) throw err;
-      throw new UrlError('url_unreachable', `That address could not be reached: ${err?.message || 'no answer'}`);
+      // Plain words for the reader; the cause (a code such as ECONNREFUSED or UND_ERR_CONNECT_TIMEOUT)
+      // goes to the failure record for the operator.
+      const e = new UrlError('url_unreachable', 'That address could not be reached.');
+      e.detail = err?.cause?.code || err?.cause?.message || err?.message || 'no answer';
+      throw e;
     }
     if (res.status >= 300 && res.status < 400 && res.headers.get('location')) {
       url = await assertPublic(new URL(res.headers.get('location'), url).toString()); // every hop is checked
@@ -265,8 +269,27 @@ export function normalizeUrl(rawUrl) {
   try { return new URL(withScheme); } catch { throw new UrlError('url_not_web', 'That is not a web address.'); }
 }
 
+/** A link from a Google app is a token, not the article's address: only Google can resolve it, and
+ *  it answers no server (the operator's link of 18 September: 71 s, then nothing). The reader is
+ *  told at once. `google.com/url?q=…` carries its destination in the open and is unwrapped instead. */
+export const APP_LINK_MESSAGE = 'This is a Google app link, and it does not carry the article\'s own address. Open the article, copy the address from the address bar and paste it here, or paste the article\'s text.';
+export function unwrapRedirect(url) {
+  const host = url.hostname.replace(/^www\./, '').toLowerCase();
+  if (host !== 'google.com' || url.pathname !== '/url') return null;
+  const target = url.searchParams.get('q') || url.searchParams.get('url') || '';
+  if (!/^https?:\/\//i.test(target)) return null;
+  try { return new URL(target); } catch { return null; }
+}
+export function appLink(url) {
+  const host = url.hostname.replace(/^www\./, '').toLowerCase();
+  if (host === 'google.com' && (url.pathname === '/goto' || (url.pathname === '/url' && !unwrapRedirect(url)))) return true;
+  return host === 'news.google.com' && /^\/(articles|read|rss\/articles)\//.test(url.pathname);
+}
+
 export async function readUrl(rawUrl, { signal } = {}) {
-  const url = normalizeUrl(rawUrl);
+  let url = normalizeUrl(rawUrl);
+  if (appLink(url)) throw new UrlError('url_app_link', APP_LINK_MESSAGE);
+  url = unwrapRedirect(url) || url;
 
   if (youtubeId(url.toString())) {
     const t = await youtubeTranscript(url.toString(), { signal });

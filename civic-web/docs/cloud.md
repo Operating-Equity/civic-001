@@ -109,6 +109,15 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
   typical minute fits with a wide margin, so the operator's original ask, four, is the pace:
   `IN_FLIGHT` 4, `evalConcurrency` 4, the guard's "four at a time, never a fifth", the lede in four
   languages.
+- **18 September, 22:30 UTC: a link that cannot be read.** The operator pasted a Google app link
+  (`google.com/goto?url=<token>`) and saw nothing happen: the token is opaque (binary, no address
+  inside), only Google can resolve it, and Google gives Render's servers no answer (71 s, then
+  "fetch failed"; a Wikipedia control reads in 0.5 s). Now a Google app link is refused at once, on
+  the page and on the server, with the sentence that tells the reader to paste the article's own
+  address or its text; `google.com/url?q=…` is unwrapped to its destination; a read shows its host
+  and seconds ticking under the box and a failed read keeps its sentence there; "could not be
+  reached" carries no jargon to the reader while the cause (a code) goes to /check's failure record;
+  a read the page abandons is recorded as nothing. Guard: a link section of five checks.
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 

@@ -291,8 +291,19 @@ function expandIntake() {
 /** Fetches a web address through the server and puts its own words in the box. */
 async function readLinkIntoBox(url) {
   const host = (() => { try { return new URL(/^https?:\/\//i.test(url) ? url : `https://${url}`).hostname.replace(/^www\./, ''); } catch { return url; } })();
+  // A link from a Google app is a token, not the article's address: the reader is told at once.
+  if (api.appLink(url)) {
+    ui.sourceMeta.textContent = t('errors.appLink');
+    toast(t('errors.appLink'), { error: true, ms: 9000 });
+    return false;
+  }
   ui.run.disabled = true;
-  ui.sourceMeta.textContent = t('intake.readingUrl', { host });
+  // The reading is visible while it lasts: the host and the seconds, ticking under the box.
+  const started = Date.now();
+  const showReading = () => { ui.sourceMeta.textContent = t('intake.readingUrlTime', { host, time: fmtSeconds(Date.now() - started) }); };
+  showReading();
+  const tick = setInterval(showReading, 1000);
+  state.timers.push(tick);
   const controller = new AbortController();
   state.urlAbort = controller;
   try {
@@ -305,13 +316,15 @@ async function readLinkIntoBox(url) {
     if (got.note === 'automatic_captions') toast(t('intake.autoCaptions'), { ms: 7000 });
     return true;
   } catch (err) {
-    ui.sourceMeta.textContent = '';
     const code = err?.code || '';
     const known = ['url_no_transcript', 'url_forbidden', 'url_private', 'url_timeout', 'url_unreachable',
       'url_not_web', 'url_too_big', 'url_no_text', 'url_not_text', 'url_status', 'url_redirects', 'url_empty'];
-    toast(known.includes(code) ? err.message : t('errors.url', { message: err?.message || code }), { error: true, ms: 9000 });
+    const sentence = code === 'url_app_link' ? t('errors.appLink') : known.includes(code) ? err.message : t('errors.url', { message: err?.message || code });
+    ui.sourceMeta.textContent = sentence; // stays under the box until the box changes; the toast passes
+    toast(sentence, { error: true, ms: 9000 });
     return false;
   } finally {
+    clearInterval(tick);
     state.urlAbort = null;
     ui.run.disabled = false;
   }
