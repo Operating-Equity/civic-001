@@ -155,7 +155,7 @@ app.post('/api/read-url', wrap(async (req, res) => {
     res.json({ ...out, chars: out.text.length });
   } catch (err) {
     if (ac.signal.aborted) return; // the page has gone (reloaded, or stopped): nothing failed
-    if (err instanceof UrlError) { const e = new ApiError(err.status || 400, err.code, err.message); e.detail = err.detail || null; throw e; }
+    if (err instanceof UrlError) { const e = new ApiError(err.status || 400, err.code, err.message); e.detail = err.detail || null; e.site = err.site || null; throw e; }
     throw err;
   }
 }));
@@ -302,7 +302,7 @@ app.use((err, req, res, next) => {
   const safe = err instanceof ApiError ? err : describeError(err);
   recordFailure({ where: `server:${req.method} ${req.path}`, code: safe.code, message: safe.message, status: safe.status, detail: safe.detail || null });
   if (!(err instanceof ApiError)) console.error('[civic]', safe.status, safe.code);
-  res.status(safe.status || 500).json({ error: { code: safe.code, message: safe.message } });
+  res.status(safe.status || 500).json({ error: { code: safe.code, message: safe.message, ...(safe.site ? { site: safe.site } : {}) } });
 });
 
 const server = http.createServer(app);

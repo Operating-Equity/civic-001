@@ -17,7 +17,9 @@ async function throwFromResponse(res) {
   let body = null;
   try { body = await res.json(); } catch { /* not JSON */ }
   const e = body?.error || {};
-  throw new ApiError(res.status, e.code || `http_${res.status}`, e.message || `The server answered ${res.status}.`);
+  const err = new ApiError(res.status, e.code || `http_${res.status}`, e.message || `The server answered ${res.status}.`);
+  if (e.site) err.site = e.site; // the site a link led to, for the page's own sentence about it
+  throw err;
 }
 
 // Sign-in. When the server refuses a request for want of a sign-in (401, signin_required), the

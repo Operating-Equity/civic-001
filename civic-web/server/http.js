@@ -20,5 +20,12 @@ export const openaiAgent = new Agent({
 /** fetch bound to that connection. The SDK is given this, so every request to OpenAI uses it. */
 export const openaiFetch = (url, init = {}) => undiciFetch(url, { ...init, dispatcher: openaiAgent });
 
+/** The connection to other people's sites, for the link reader. undici's own connect timeout, ten
+ *  seconds, made effective here: through the global fetch a site that drops the connection attempt
+ *  (the Washington Post does, for cloud servers) was found only at the operating system's own limit,
+ *  about 71 seconds. Nothing else is limited: a slow page still takes as long as it takes. */
+export const siteAgent = new Agent({ connect: { timeout: 10 * 1000 } });
+export const siteFetch = (url, init = {}) => undiciFetch(url, { ...init, dispatcher: siteAgent });
+
 /** The largest delay a timer accepts (about 24.8 days), for a library that insists on one. */
 export const NO_LIMIT_MS = 2147483647;

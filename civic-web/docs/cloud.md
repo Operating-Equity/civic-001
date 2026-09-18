@@ -118,6 +118,17 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
   and seconds ticking under the box and a failed read keeps its sentence there; "could not be
   reached" carries no jargon to the reader while the cause (a code) goes to /check's failure record;
   a read the page abandons is recorded as nothing. Guard: a link section of five checks.
+- **18 September, 23:40 UTC: sites that keep their text.** The operator's link led to a Washington
+  Post article behind a paywall. Probing twelve major sites through the service: seven refuse a
+  server within a second (NYT, Reuters, AP, WSJ, Bloomberg, Politico, Economist), the Post never
+  answers (the connection attempt times out at the operating system's ~71 s, cause ETIMEDOUT),
+  the Atlantic answers with a shell, four give their text (BBC, CNN, CNBC, Guardian). Now each
+  case is named to the reader by the site, in four languages, with what to do: refused, silent
+  (found in ten seconds through a dedicated undici agent whose connect timeout is effective;
+  remembered until restart with a background re-check; listed on /check), paywall (the schema.org
+  flag Google News reads, a wall phrase in the prose, or 402; nothing tested whatever the site
+  sent, the operator's rule), shell (no paragraph of prose, under 200 characters). Guard: six more
+  checks in the link section, the silent site simulated with a listener whose queue is full.
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 

@@ -12,6 +12,7 @@ import { clientFor, describeError } from './openai.js';
 import { recent } from './diagnostics.js';
 import { whereTheShellSetsIt } from './key.js';
 import { gateStates } from './gate.js';
+import { silentSites } from './fetchurl.js';
 
 const ok = (title, detail = '') => ({ state: 'ok', title, detail });
 const bad = (title, detail = '', fix = '') => ({ state: 'bad', title, detail, fix });
@@ -134,6 +135,7 @@ export async function selftest({ apiKey, build }) {
     // The gate's figures for each model: the key's minute limit, what OpenAI counts for each kind
     // of request, what is available now, what is in flight and waiting, and what OpenAI last said.
     pacing: gateStates(),
+    silentSites: silentSites(),
     recentFailures: recent(10),
   };
 }
