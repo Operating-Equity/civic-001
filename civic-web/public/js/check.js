@@ -46,7 +46,7 @@ function pacingRows(pacing) {
   return rows;
 }
 
-function renderSettings(s, build, pacing) {
+function renderSettings(s, build, pacing, silent) {
   const rows = [
     ['Model', s.model],
     ['Reasoning effort', s.effort],
@@ -56,6 +56,7 @@ function renderSettings(s, build, pacing) {
     ['Prompt versions', s.prompts || 'none installed'],
     ['Version', build],
     ...pacingRows(pacing),
+    ...(silent && silent.length ? [['Sites that stayed silent', silent.map((x) => `${x.host} (${x.cause}, since ${x.at.slice(11, 19)} UTC)`).join(' · ') + ' — a site that never answers the connection is remembered until CIVIC restarts, and re-checked whenever it is asked for again']] : []),
   ];
   const table = $('#settings');
   table.textContent = '';
@@ -162,7 +163,7 @@ async function run() {
     verdict.className = `check-verdict ${data.ready ? 'is-ready' : 'is-blocked'}`;
     verdict.textContent = data.summary;
     renderChecks(data.checks);
-    renderSettings(data.settings, data.build, data.pacing);
+    renderSettings(data.settings, data.build, data.pacing, data.silentSites);
     renderFailures(data.recentFailures);
     renderSignins(data);
     $('#report').value = asText(data);

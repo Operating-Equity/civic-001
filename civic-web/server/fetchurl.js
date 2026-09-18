@@ -10,6 +10,7 @@ import dns from 'node:dns/promises';
 import net from 'node:net';
 import { PDFParse } from 'pdf-parse';
 import { config } from './config.js';
+import { siteFetch } from './http.js';
 
 const MAX_BYTES = 12 * 1024 * 1024;
 const UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125 Safari/537.36';
@@ -17,6 +18,37 @@ const UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (
 export class UrlError extends Error {
   constructor(code, message) { super(message); this.code = code; this.status = 400; }
 }
+
+// ---- A site that keeps its text from CIVIC ---------------------------------------------------
+// The reader is told which site, and what to do: paste the article's text. The page has these
+// sentences in its own languages; the server's are the English ones, with the site's name.
+export const siteName = (url) => url.hostname.replace(/^www\./, '');
+export const SITE_SENTENCES = {
+  url_refused: (site) => `${site} does not let CIVIC read its pages from here. If you can open the article, copy its text and paste it here.`,
+  url_silent: (site) => `${site} does not let CIVIC read its pages from here. If you can open the article, copy its text and paste it here.`,
+  url_paywall: (site) => `${site} keeps this article behind its paywall, so CIVIC cannot read it here. If you subscribe, copy the article's text and paste it here.`,
+  url_shell: (site) => `${site} builds this page in the browser, so no readable text reached CIVIC. Copy the article's text and paste it here.`,
+};
+const siteError = (code, site) => { const e = new UrlError(code, SITE_SENTENCES[code](site)); e.site = site; return e; };
+
+// A site that never answers the connection attempt is remembered until the service restarts, so
+// the next reader gets the sentence at once instead of the connect timeout; each such answer
+// re-checks the site in the background with one attempt, and a site that answers is forgotten.
+const silentHosts = new Map(); // host → { at, cause, rechecking }
+const SILENT_CAUSES = /ETIMEDOUT|UND_ERR_CONNECT_TIMEOUT|EHOSTUNREACH|ENETUNREACH/;
+export function silentSites() { return [...silentHosts.entries()].map(([host, v]) => ({ host, at: v.at, cause: v.cause })); }
+export function forgetSilent(host) { silentHosts.delete(host); }
+function rememberSilent(host, cause) { silentHosts.set(host, { at: new Date().toISOString(), cause, rechecking: false }); }
+function recheckSilent(host) {
+  const entry = silentHosts.get(host);
+  if (!entry || entry.rechecking) return;
+  entry.rechecking = true;
+  siteFetch(`https://${host}/`, { method: 'HEAD', redirect: 'manual', headers: { 'user-agent': UA } })
+    .then(() => silentHosts.delete(host), () => { entry.rechecking = false; });
+}
+
+/** The prose a site shows at its wall. Ordinary article prose does not say these things. */
+const WALL_PHRASES = /\b(to continue reading|already a subscriber|subscribers only|for subscribers only|unlock this article|sign in to (?:read|continue)|log in to (?:read|continue))\b/i;
 
 /** True when the whole of `s` is one http(s) address and nothing else. */
 export function isSingleUrl(s) {
@@ -64,7 +96,7 @@ async function get(urlString, { accept, signal } = {}) {
   for (let hop = 0; ; hop++) {
     if (hop > 5) throw new UrlError('url_redirects', 'That address redirects too many times.');
     try {
-      res = await fetch(url, {
+      res = await siteFetch(url, {
         redirect: 'manual',
         signal: composite,
         headers: { 'user-agent': UA, accept: accept || 'text/html,application/xhtml+xml,application/pdf,text/plain;q=0.9,*/*;q=0.8', 'accept-language': 'en,*;q=0.5' },
@@ -72,9 +104,13 @@ async function get(urlString, { accept, signal } = {}) {
     } catch (err) {
       if (signal?.aborted) throw err;
       // Plain words for the reader; the cause (a code such as ECONNREFUSED or UND_ERR_CONNECT_TIMEOUT)
-      // goes to the failure record for the operator.
+      // goes to the failure record for the operator. A site that never answered the connection is
+      // remembered as silent.
+      const cause = err?.cause?.code || err?.cause?.message || err?.message || 'no answer';
+      const site = siteName(url);
+      if (SILENT_CAUSES.test(String(cause))) { rememberSilent(url.hostname, String(cause)); const e = siteError('url_silent', site); e.detail = String(cause); throw e; }
       const e = new UrlError('url_unreachable', 'That address could not be reached.');
-      e.detail = err?.cause?.code || err?.cause?.message || err?.message || 'no answer';
+      e.detail = cause;
       throw e;
     }
     if (res.status >= 300 && res.status < 400 && res.headers.get('location')) {
@@ -83,9 +119,8 @@ async function get(urlString, { accept, signal } = {}) {
     }
     break;
   }
-  if (res.status === 401 || res.status === 403) {
-    throw new UrlError('url_forbidden', `That page refused the request (${res.status}). It may require a sign-in.`);
-  }
+  if (res.status === 401 || res.status === 403 || res.status === 429) { const e = siteError('url_refused', siteName(url)); e.detail = `status ${res.status}`; throw e; }
+  if (res.status === 402) { const e = siteError('url_paywall', siteName(url)); e.detail = 'status 402'; throw e; }
   if (!res.ok) throw new UrlError('url_status', `That page answered ${res.status}.`);
 
   const declared = Number(res.headers.get('content-length') || 0);
@@ -137,10 +172,16 @@ export function pageIdentity(html) {
     }
     return '';
   };
+  const isFalse = (v) => v === false || /^false$/i.test(String(v ?? ''));
+  const notFree = ld.some((node) => {
+    const items = Array.isArray(node?.['@graph']) ? node['@graph'] : [node];
+    return items.some((it) => isFalse(it?.isAccessibleForFree) || [].concat(it?.hasPart || []).some((part) => isFalse(part?.isAccessibleForFree)));
+  }) || /^locked$/i.test(meta(['article:content_tier']));
   return {
     author: meta(['author', 'article:author', 'parsely-author', 'dc.creator', 'byl']) || fromLd('author'),
     published: (meta(['article:published_time', 'datePublished', 'date', 'pubdate', 'parsely-pub-date', 'dc.date']) || fromLd('datePublished')).slice(0, 60),
     site: meta(['og:site_name', 'application-name']),
+    notFree,
   };
 }
 
@@ -290,6 +331,7 @@ export async function readUrl(rawUrl, { signal } = {}) {
   let url = normalizeUrl(rawUrl);
   if (appLink(url)) throw new UrlError('url_app_link', APP_LINK_MESSAGE);
   url = unwrapRedirect(url) || url;
+  if (silentHosts.has(url.hostname)) { recheckSilent(url.hostname); throw siteError('url_silent', siteName(url)); }
 
   if (youtubeId(url.toString())) {
     const t = await youtubeTranscript(url.toString(), { signal });
@@ -308,9 +350,16 @@ export async function readUrl(rawUrl, { signal } = {}) {
   }
 
   if (type.includes('html') || type.includes('xml') || !type) {
-    const { title, text, author, published, site } = htmlToText(buf.toString('utf8'));
-    if (!text) throw new UrlError('url_no_text', 'That page has no readable text. It may be built entirely by scripts.');
-    return { kind: 'page', title: title || finalUrl.hostname, author, published, site: site || finalUrl.hostname, text, url: finalUrl.toString(), note: null };
+    const { title, text, author, published, site, notFree } = htmlToText(buf.toString('utf8'));
+    const name = site || siteName(finalUrl);
+    if (!text) throw siteError('url_shell', name);
+    // The site says the article is not free (the schema.org flag Google News reads), or its prose
+    // says so at the wall: nothing is tested, whatever the site sent (the operator's rule).
+    if (notFree || WALL_PHRASES.test(text)) throw siteError('url_paywall', name);
+    // A page with no paragraph of prose is a shell built by scripts, not an article.
+    const longest = Math.max(0, ...text.split(/\n\n+/).map((p) => p.trim().length));
+    if (longest < 200) throw siteError('url_shell', name);
+    return { kind: 'page', title: title || finalUrl.hostname, author, published, site: name, text, url: finalUrl.toString(), note: null };
   }
 
   if (type.startsWith('text/') || type.includes('json')) {

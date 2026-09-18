@@ -131,6 +131,18 @@ read, its host and the seconds tick under the box, and a read that fails keeps i
 "That address could not be reached." reaches the reader without jargon; the cause (a code such as
 `ECONNREFUSED`) goes to /check's recent failures. A read the page abandons is recorded as nothing.
 
+Many news sites keep their text from a server. Probed from the service on 18 September: seven of
+twelve major sites refuse a server within a second (NYT, Reuters, AP, WSJ, Bloomberg, Politico, the
+Economist), the Washington Post never answers the connection, the Atlantic answers with an empty
+shell, and four give their text (BBC, CNN, CNBC, the Guardian). Each case is named to the reader by
+the site, with what to do (copy the article's text and paste it): a refusal at the door (401, 403,
+429); silence (the connection attempt gets no answer: found in ten seconds through the connector's
+own timeout, remembered until the service restarts so the next reader is told at once, re-checked
+in the background whenever it is asked for again, and listed on /check); a paywall (the page marks
+the article as not free with the schema.org flag Google News reads, or its prose says so at the
+wall, or it answers 402): nothing is tested, whatever the site sent, the operator's rule; a shell
+(no paragraph of prose, under 200 characters at most). The page's sentences are in four languages.
+
 Nothing is summarised, shortened or rewritten. When a video has no written transcript, YouTube's
 automatic captions are used and the page says so, because they contain transcription errors.
 Captions carry no speaker labels, so a multi-speaker transcript arrives as continuous text.

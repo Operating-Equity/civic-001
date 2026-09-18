@@ -319,7 +319,16 @@ async function readLinkIntoBox(url) {
     const code = err?.code || '';
     const known = ['url_no_transcript', 'url_forbidden', 'url_private', 'url_timeout', 'url_unreachable',
       'url_not_web', 'url_too_big', 'url_no_text', 'url_not_text', 'url_status', 'url_redirects', 'url_empty'];
-    const sentence = code === 'url_app_link' ? t('errors.appLink') : known.includes(code) ? err.message : t('errors.url', { message: err?.message || code });
+    // A site that keeps its text from CIVIC is named, in the reader's language, with what to do.
+    const site = err?.site || host;
+    const own = {
+      url_app_link: () => t('errors.appLink'),
+      url_refused: () => t('errors.siteRefused', { site }),
+      url_silent: () => t('errors.siteRefused', { site }),
+      url_paywall: () => t('errors.sitePaywall', { site }),
+      url_shell: () => t('errors.siteShell', { site }),
+    }[code];
+    const sentence = own ? own() : known.includes(code) ? err.message : t('errors.url', { message: err?.message || code });
     ui.sourceMeta.textContent = sentence; // stays under the box until the box changes; the toast passes
     toast(sentence, { error: true, ms: 9000 });
     return false;
