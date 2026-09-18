@@ -84,7 +84,30 @@ async function assertPublic(urlString) {
   if (!config.allowPrivateUrls && addresses.some((a) => isPrivateAddress(a.address))) {
     throw new UrlError('url_private', 'That address points inside a private network, so it is not read.');
   }
+  resolved.set(url.hostname, addresses);
   return url;
+}
+
+// The addresses each host resolved to, for the connection attempt below.
+const resolved = new Map();
+const CONNECT_MS = 10 * 1000; // undici's own connect timeout, the platform's figure, made effective
+
+/** One connection attempt to each of the site's addresses at once. A site that answers none of them
+ *  in the platform's own connect time is silent (the Washington Post's servers are, for a cloud
+ *  address). A refusal or any other answer is left to the fetch itself. On Render the kernel's own
+ *  connect timeout, about 71 seconds, came before the client's ten; this makes the ten count. */
+async function silentAt(url) {
+  const addresses = resolved.get(url.hostname) || (net.isIP(url.hostname) ? [{ address: url.hostname }] : []);
+  if (!addresses.length) return false;
+  const port = Number(url.port) || (url.protocol === 'https:' ? 443 : 80);
+  const outcomes = await Promise.all(addresses.map((a) => new Promise((resolve) => {
+    const socket = net.connect({ host: a.address, port });
+    const done = (outcome) => { socket.destroy(); resolve(outcome); };
+    socket.once('connect', () => done('answered'));
+    socket.once('error', () => done('answered')); // a refusal is an answer
+    socket.setTimeout(CONNECT_MS, () => done('silent'));
+  })));
+  return outcomes.every((o) => o === 'silent');
 }
 
 async function get(urlString, { accept, signal } = {}) {
@@ -95,6 +118,8 @@ async function get(urlString, { accept, signal } = {}) {
   let res;
   for (let hop = 0; ; hop++) {
     if (hop > 5) throw new UrlError('url_redirects', 'That address redirects too many times.');
+    if (await silentAt(url)) { rememberSilent(url.hostname, 'no answer to the connection'); const e = siteError('url_silent', siteName(url)); e.detail = `silent for ${CONNECT_MS} ms at every address`; throw e; }
+    if (signal?.aborted) throw new Error('aborted');
     try {
       res = await siteFetch(url, {
         redirect: 'manual',
@@ -106,7 +131,7 @@ async function get(urlString, { accept, signal } = {}) {
       // Plain words for the reader; the cause (a code such as ECONNREFUSED or UND_ERR_CONNECT_TIMEOUT)
       // goes to the failure record for the operator. A site that never answered the connection is
       // remembered as silent.
-      const cause = err?.cause?.code || err?.cause?.message || err?.message || 'no answer';
+      const cause = [err?.cause?.code || err?.cause?.message || err?.message || 'no answer', err?.cause?.syscall, err?.cause?.address].filter(Boolean).join(' ');
       const site = siteName(url);
       if (SILENT_CAUSES.test(String(cause))) { rememberSilent(url.hostname, String(cause)); const e = siteError('url_silent', site); e.detail = String(cause); throw e; }
       const e = new UrlError('url_unreachable', 'That address could not be reached.');
