@@ -53,10 +53,18 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
   the next row scrolls into view; each code allows a number of runs (`CIVIC_CODE_USES`, five,
   or `CODE:150` in its own entry), counted at the start of an extraction in `CIVIC_USES_FILE`
   (server/uses.js), refused past the allowance with the figures on the page, listed on /check.
-  For the count to outlive a deploy the service gets a 1 GB disk at /var/data, with the ledger,
-  the sign-in log, the error log and the uses file on it (render.yaml); a deploy with a disk
-  stops the service for about a minute, which the page rides out. The operator's own code (the
-  one ending JT, the only such one of the five, named by the 02:27 sign-in line) allows 150.
+  For the count to outlive a deploy the service needs a 1 GB disk at /var/data, with the ledger,
+  the sign-in log, the error log and the uses file on it (render.yaml describes it); a deploy
+  with a disk stops the service for about a minute, which the page rides out. The operator's own
+  code (the one ending JT, the only such one of the five, named by the 02:27 sign-in line) allows
+  150. State on 18 September, 15:55 UTC: PR #32 is live; the variables are set on the service
+  (the code list with `:150` on the operator's code, `CIVIC_CODE_USES=5`, the uses file and the
+  logs under /tmp until the disk exists), and a variable change through the API starts no deploy,
+  so the merge of this note carries them into the running process. The session's permission
+  system declined creating the disk through the API; it is the operator's, in Render's dashboard:
+  the service → Disks → Add Disk, name civic-data, mount path /var/data, size 1 GB (Render
+  deploys on its own). Once it exists, the four file variables move to /var/data through the API
+  and the next merge applies them.
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 
