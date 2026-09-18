@@ -2,8 +2,8 @@ export default {
   app: { tagline: 'La vérité, vérifiée.' },
   nav: { language: 'Langue', signin: 'Se connecter', signup: 'Créer un compte', soon: 'Les comptes arrivent avec la prochaine version.' },
   intake: {
-    title: 'Testez les faits.',
-    lede: 'Collez une transcription, un article, un discours, une publication ou une étude, ou un lien vers l\'un d\'eux. CIVIC extrait chaque affirmation empirique qu\'il contient et teste les 20 premières.',
+    title: 'Truth Engine teste les faits.',
+    lede: 'Collez une transcription, un article, un discours, une publication ou une étude, ou un lien vers l\'un d\'eux. CIVIC extrait chaque affirmation empirique qu\'il contient et teste les 10 premières.',
     placeholder: 'Collez un texte, ou un lien vers un article, un PDF ou une vidéo YouTube…',
     readingUrl: 'Lecture de {host}…',
     readUrl: 'Lu {title} · {n} caractères',
@@ -19,7 +19,7 @@ export default {
     showText: 'Afficher le texte',
     hideText: 'Masquer le texte',
     testing: 'Test en cours',
-    slow: 'La première étape prend des minutes sur un long document, car le modèle le lit en entier avant d\'écrire quoi que ce soit. Les 20 déterminations s\'exécutent ensuite en même temps : cette étape dure à peu près le temps d\'une seule, pas vingt fois plus.',
+    slow: 'La première étape prend des minutes sur un long document, car le modèle le lit en entier avant d\'écrire quoi que ce soit. Les dix déterminations s\'exécutent ensuite deux par deux, chacune en quelques minutes.',
     empty: 'Collez ou téléversez quelque chose à tester.',
     truncated: 'Le document a été tronqué à {n} caractères, le maximum par test.',
   },
@@ -62,6 +62,7 @@ export default {
     avgCost: 'Environ {usd} par affirmation dans ce test.',
     confirm_one: 'Tester cette affirmation',
     confirm_other: 'Tester ces {n} affirmations',
+    later: 'Tester d\'autres affirmations arrive avec la prochaine version.',
   },
   step2: {
     title: 'Test de {n} affirmations',
@@ -165,7 +166,7 @@ export default {
     sourceTruncated: '{n} caractères à la fin du document n\'ont pas été lus ; aucune affirmation qu\'ils contiennent n\'a été extraite. Seuls les {read} premiers caractères ont été testés.',
     modelFallback: 'Testé avec {used}, et non {requested} : cette clé ne peut pas utiliser le modèle de premier choix. Considérez ces déterminations comme provisoires.',
   },
-  run: { export: 'Télécharger le test complet', exported: 'Téléchargé.' },
+  report: { create: 'Créer un rapport', soon: 'Les rapports arrivent avec la prochaine version.' },
   errors: {
     server: 'Le serveur de CIVIC est injoignable.',
     prompt: 'Ce serveur n\'est pas encore entièrement configuré.',

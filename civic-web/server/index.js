@@ -25,6 +25,7 @@ import { record as recordFailure } from './diagnostics.js';
 import { buildStamp } from './build.js';
 import { takeOverPort } from './port.js';
 import { gate, sessionOf, required as signinRequired, codes as accessCodes, normalise as normaliseCode, issue, setCookie, clearCookie, recordSignin, recentSignins } from './access.js';
+import { allowance as codeAllowance, used as codeUsed, recordUse, summary as codesSummary } from './uses.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const publicDir = path.join(here, '..', 'public');
@@ -116,7 +117,7 @@ app.post('/api/signout', (req, res) => { clearCookie(req, res); res.json({ ok: t
 // something a reader has to catch as a message disappears.
 app.get('/api/selftest', wrap(async (req, res) => {
   res.setHeader('Cache-Control', 'no-store');
-  res.json({ ...await selftest({ apiKey: operatorKey({ optional: true }), build: BUILD }), signins: recentSignins(10), access: { required: signinRequired() } });
+  res.json({ ...await selftest({ apiKey: operatorKey({ optional: true }), build: BUILD }), signins: recentSignins(10), codes: signinRequired() ? codesSummary() : [], access: { required: signinRequired() } });
 }));
 
 // The page reports its own failures here, so /check can show them afterwards.
@@ -183,6 +184,16 @@ app.post('/api/extract', wrap(async (req, res) => {
   const sourceWarning = source.truncated
     ? { code: 'source_truncated', omitted: source.omitted, read: source.chars, original: source.originalChars }
     : null;
+
+  // A run started is a use of the code that opened the door (server/uses.js): counted here, at the
+  // one request that starts the extraction, and refused when the code has used what it allows.
+  const session = sessionOf(req);
+  if (session) {
+    const used = codeUsed(session.code);
+    const allowed = codeAllowance(session.code);
+    if (used >= allowed) throw new ApiError(403, 'code_used_up', `This code has been used ${used} ${used === 1 ? 'time' : 'times'}; it allows ${allowed}.`);
+    recordUse(session.code, session.email, id);
+  }
 
   const meta = sourceMeta(req.body?.source);
   const text = source.text;

@@ -9,7 +9,7 @@
 //      says so instead of guessing.
 import { t, setLocale, initLocale, LOCALES, currentLocale, fmtNumber, fmtCompact, fmtSeconds, fmtUsd } from './i18n.js';
 import * as api from './api.js';
-import { $, $$, el, renderMarkdown, setBar, toast, easeChars, easeTime, bump, download, copyText } from './render.js';
+import { $, $$, el, renderMarkdown, setBar, toast, easeChars, easeTime, bump, copyText } from './render.js';
 
 const MAX_CLAIMS = 10; // the automatic run (the operator's number); anything beyond is the reader's explicit choice
 const GLYPH = { true: '✓', false: '✕', unverified: '?', unread: '–' };
@@ -74,7 +74,7 @@ function cacheElements() {
     claimsRaw: $('#claims-raw'), claimsRawSummary: $('#claims-raw-summary'), claimsRawBody: $('#claims-raw-body'),
     scoreboard: $('#scoreboard'), scoreTrue: $('#score-true'), scoreFalse: $('#score-false'), scoreUnv: $('#score-unverified'),
     scoreTested: $('#score-tested'), scoreTokens: $('#score-tokens'), scoreUnread: $('#score-unread'), scoreUnreadWrap: $('#score-unread-wrap'),
-    scoreInternal: $('#score-internal'), scoreCost: $('#score-cost'), export: $('#btn-export'),
+    scoreInternal: $('#score-internal'), scoreCost: $('#score-cost'), report: $('#btn-report'),
     buildStamp: $('#build-stamp'),
     results: $('#results'), resetTop: $('#btn-reset-top'), reset: $('#btn-reset'),
     langSelect: $('#lang-select'), signin: $('#btn-signin'), signup: $('#btn-signup'), signout: $('#btn-signout'), who: $('#nav-who'),
@@ -100,8 +100,11 @@ async function boot() {
   ui.resetTop.addEventListener('click', resetAll);
   ui.reset.addEventListener('click', resetAll);
   ui.selectAll.addEventListener('click', toggleSelectAll);
-  ui.testSelected.addEventListener('click', testSelected);
-  ui.export.addEventListener('click', exportRun);
+  // Parked for now (the operator's rule of 18 September, cost control until there is revenue
+  // against it): choosing claims beyond the first ten works as before, and the button that would
+  // test them says so instead; the report button appears after the first batch and says so too.
+  ui.testSelected.addEventListener('click', () => toast(t('claims.later')));
+  ui.report.addEventListener('click', () => toast(t('report.soon')));
   // Leaving the page is the one way, besides Start a new test, that a run is stopped: the server
   // keeps working through a cut connection, so it has to be told when nobody will come back.
   window.addEventListener('pagehide', () => { if (state.jobs.size) api.cancel([...state.jobs], { beacon: true }); });
@@ -390,7 +393,7 @@ function resetRunState() {
   ui.claimsRaw.hidden = true;
   ui.claimsRaw.open = false;
   ui.scoreboard.hidden = true;
-  ui.export.hidden = true;
+  ui.report.hidden = true;
   ui.echo.hidden = true;
   ui.echoImg.hidden = true;
   ui.echoImg.removeAttribute('src');
@@ -480,12 +483,12 @@ function renderWarnings() {
   ui.runWarnings.hidden = state.warnings.length === 0 && !state.failure;
   const rows = [];
   if (state.failure) {
-    const li = el('li', { className: 'run-failure' });
+    const li = el('li', { class: 'run-failure' });
     li.append(el('strong', { text: state.failure.message }));
     if (state.failure.detail && state.failure.detail !== state.failure.message) {
-      li.append(el('span', { className: 'run-failure-detail', text: ` ${state.failure.detail}` }));
+      li.append(el('span', { class: 'run-failure-detail', text: ` ${state.failure.detail}` }));
     }
-    const link = el('a', { text: t('errors.checkLink'), className: 'run-failure-link' });
+    const link = el('a', { text: t('errors.checkLink'), class: 'run-failure-link' });
     link.href = 'check';
     li.append(document.createTextNode(' '), link);
     rows.push(li);
@@ -732,7 +735,7 @@ function renderBeyondTools() {
   ui.selectAll.disabled = busy;
   ui.selectAll.textContent = t(allSelected ? 'claims.clearAll' : 'claims.selectAll');
   ui.testSelected.hidden = open.length === 0;
-  ui.testSelected.disabled = selected === 0 || busy;
+  ui.testSelected.disabled = selected === 0 || busy;   // it counts the choice; testing them is parked (see boot)
   ui.testSelected.textContent = t('claims.testSelected', { n: selected });
   let hint = '';
   if (busy) hint = t('claims.afterFirst');
@@ -753,7 +756,7 @@ async function testSelected() {
   if (!chosen.length) return;
   for (const b of chosen) { b.tested = true; b.selected = false; }
   syncBeyondRows();
-  // The server tests at most 20 per request; larger selections run in consecutive batches.
+  // The server tests at most ten per request; larger selections run in consecutive batches.
   for (let i = 0; i < chosen.length; i += MAX_CLAIMS) {
     const chunk = chosen.slice(i, i + MAX_CLAIMS);
     await runBatch(chunk.map(claimOf), chunk.map((b) => b.node));
@@ -916,6 +919,7 @@ function finishBatch(ev) {
   setBar(ui.bar2, 1, { done: true });
   setStatus('step2', 'step2.done', { total: state.batch.size, time: fmtSeconds(ev.ms || Date.now() - state.evalStartedAt) });
   ui.run.disabled = false;
+  if (state.batch.start === 0) ui.report.hidden = false;   // the first ten are tested: the report can be asked for
   renderScoreboard();
   syncBeyondRows();
 }
@@ -929,6 +933,7 @@ function failRun(err) {
   else if (code === 'no_operator_key') message = t('errors.noKey');
   else if (err?.status === 429) message = t('errors.rate');
   else if (code === 'prompt_missing') message = t('errors.prompt');
+  else if (code === 'code_used_up') message = err.message;   // the server's own sentence: how many runs the code had, how many it allows
   else if (err instanceof TypeError) message = t('errors.server');
   else message = t('errors.generic', { message: err?.message || code || '' });
   toast(message, { error: true, ms: 9000 });
@@ -998,6 +1003,20 @@ function buildCard(claim, n) {
   const toggle = (e) => { if (e.target.closest('button, a, input, label, textarea')) return; toggleCard(node); };
   head.addEventListener('click', toggle);
   $('.card-brief', node).addEventListener('click', toggle);
+  // An open row closes on a click or tap anywhere in its length (the operator's ask of 18
+  // September: at the end of a long entry the way back up is far), and the next row comes into
+  // view, since that is where the reader goes next. Controls, links, the fold-out summaries and
+  // a text selection in progress are left alone.
+  node.addEventListener('click', (e) => {
+    if (!node.classList.contains('is-open')) return;
+    if (e.target.closest('button, a, input, label, textarea, select, summary')) return;
+    if (head.contains(e.target) || $('.card-brief', node).contains(e.target)) return;   // the head has its own toggle
+    if (window.getSelection?.()?.toString()) return;
+    toggleCard(node);
+    const li = node.closest('li');
+    const next = li?.nextElementSibling?.querySelector('.card') || null;
+    (next || node).scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
   head.addEventListener('keydown', (e) => { if (e.target === head && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); toggleCard(node); } });
   wireChallengeForm(node, idx);
   return node;
@@ -1084,8 +1103,6 @@ function finalizeCard(i, ev) {
   if (r.usage) state.tokens += (r.usage.input || 0) + (r.usage.output || 0);
   addCost(r.cost);
   renderScoreboard(r.verdict);
-  ui.export.hidden = false;
-  ui.export.textContent = t('run.export');
 }
 
 function renderBadge(i) {
@@ -1246,46 +1263,6 @@ function renderScoreboard(bumped) {
   if (bumped) bump({ true: ui.scoreTrue, false: ui.scoreFalse, unverified: ui.scoreUnv }[bumped]);
 }
 
-/** The whole run, in full, as one Markdown file: every entry, every source, every number. */
-function exportRun() {
-  const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-  const lines = [
-    `# CIVIC run — ${new Date().toLocaleString()}`,
-    '',
-    ...(state.warnings.length ? ['> **Warnings:** ' + state.warnings.map((w) => w.code === 'source_truncated' ? `${w.omitted} characters of the source were not read` : `model fell back to ${w.used} from ${w.requested}`).join('; '), ''] : []),
-    `Source: ${describeSource().title}${describeSource().sub ? ` · ${describeSource().sub}` : ''}`,
-    `Claims extracted: ${state.claims.length}. Tested: ${state.results.filter((r) => r.status === 'done').length}.`,
-    `True ${state.counts.true} · False ${state.counts.false} · Unverified ${state.counts.unverified}` + (state.unread ? ` · verdict unread ${state.unread}` : ''),
-    state.accounting ? `Tokens ${state.tokens}. Estimated cost ${fmtUsd(state.cost)}${state.unpriced ? '+' : ''}.` : '',
-    '',
-    '## Source',
-    '',
-    '```', state.source, '```',
-    '',
-    '## Extraction output (verbatim)',
-    '',
-    '```', state.claimsRaw || '(not captured)', '```',
-    '',
-    '## Determinations',
-    '',
-  ];
-  state.results.forEach((r, i) => {
-    lines.push(`### ${i + 1}. ${state.cards[i].text}`, '');
-    if (state.cards[i].more) lines.push(state.cards[i].more, '');
-    lines.push(`**Verdict:** ${r.verdict ? t(`score.${r.verdict}`) : t('card.verdictUnread')}` + (r.confidence != null ? ` · ${r.confidence}%` : '') + (r.inspector ? ` · ${r.inspector}` : ''), '');
-    if (r.model) lines.push(`_Model: ${r.model}${r.effort ? ` (effort ${r.effort})` : ''}${r.fellBack ? ` — FELL BACK from ${r.fellBack.requested}` : ''}_`, '');
-    if (r.incomplete) lines.push(`> Output ended early: ${r.incomplete}`, '');
-    lines.push(r.text || `(${r.error || 'no output'})`, '');
-    if (r.reasoning) lines.push('#### Reasoning summary', '', r.reasoning, '');
-    if (r.trail?.length) lines.push('#### Search trail', '', ...r.trail.map((s) => `- ${s.kind}: ${s.query || s.url || s.pattern || ''}`), '');
-    if (r.sources?.length) lines.push('#### Sources cited', '', ...r.sources.map((s) => `- [${s.title}](${s.url})`), '');
-    if (state.accounting && r.usage) lines.push(`_tokens in ${r.usage.input} / out ${r.usage.output} (reasoning ${r.usage.reasoning}) · ${r.cost?.priced ? fmtUsd(r.cost.usd) : 'price unknown'} · ${fmtSeconds(r.ms || 0)}_`, '');
-    lines.push('---', '');
-  });
-  download(`civic-run-${stamp}.md`, lines.join('\n'), 'text/markdown');
-  toast(t('run.exported'));
-}
-
 // ---------- challenge -------------------------------------------------------------------------
 
 const MAX_CHALLENGE_FILES = 5;
@@ -1402,7 +1379,6 @@ function refreshDynamicText() {
   syncBeyondRows();
   renderClaimsRaw();
   renderScoreboard();
-  if (!ui.export.hidden) ui.export.textContent = t('run.export');
   state.results.forEach((r, i) => {
     if (r.status === 'done') { renderBadge(i); renderCardDetail(i); renderCardNote(i); renderCardFoot(i); }
     else renderCardStatus(i);

@@ -3,8 +3,8 @@ export default {
   app: { tagline: 'Truth, verified.' },
   nav: { language: 'Language', signin: 'Sign in', signup: 'Sign up', soon: 'Accounts arrive with the next release.' },
   intake: {
-    title: 'Test the facts.',
-    lede: 'Paste a transcript, article, speech, post or study, or a link to one. CIVIC extracts every empirical claim it contains and tests the first 20.',
+    title: 'Truth Engine tests the facts.',
+    lede: 'Paste a transcript, article, speech, post or study, or a link to one. CIVIC extracts every empirical claim it contains and tests the first 10.',
     placeholder: 'Paste text, or a link to an article, a PDF or a YouTube video…',
     readingUrl: 'Reading {host}…',
     readUrl: 'Read {title} · {n} characters',
@@ -20,7 +20,7 @@ export default {
     showText: 'Show the text',
     hideText: 'Hide the text',
     testing: 'Now testing',
-    slow: 'The first step takes minutes on a long document, because the model reads it all before writing anything. The 20 determinations then run at the same time, so that step takes about as long as one claim, not twenty times as long.',
+    slow: 'The first step takes minutes on a long document, because the model reads it all before writing anything. The ten determinations then run two at a time, each taking a few minutes.',
     empty: 'Paste or upload something to test.',
     truncated: 'The document was cut to {n} characters, the maximum for one run.',
   },
@@ -63,6 +63,7 @@ export default {
     avgCost: 'About {usd} per claim in this run.',
     confirm_one: 'Test this claim',
     confirm_other: 'Test these {n} claims',
+    later: 'Testing more claims arrives with the next release.',
   },
   step2: {
     title: 'Testing {n} claims',
@@ -167,7 +168,7 @@ export default {
     sourceTruncated: '{n} characters at the end of the document were not read, so any claim in them was never extracted. Only the first {read} characters were tested.',
     modelFallback: 'Tested with {used}, not {requested}: this key cannot use the first-choice model. Treat these determinations as provisional.',
   },
-  run: { export: 'Download full run', exported: 'Downloaded.' },
+  report: { create: 'Create report', soon: 'Reports arrive with the next release.' },
   errors: {
     server: 'CIVIC\'s server is not reachable.',
     prompt: 'This server is not fully configured yet.',

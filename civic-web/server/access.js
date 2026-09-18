@@ -39,6 +39,8 @@ export function required() { return codes().length > 0; }
 // The server's key enters every derivation, so a stolen cookie cannot be worked back to its code.
 const secret = () => crypto.createHash('sha256').update(`civic-access:${config.serverKey || ''}`).digest();
 const fingerprint = (code) => crypto.createHmac('sha256', secret()).update(`fp:${code}`).digest('hex').slice(0, 16);
+/** A code's fingerprint: what a record may hold in place of the code itself. */
+export function fingerprintOf(code) { return fingerprint(code); }
 const sign = (code, email) => crypto.createHmac('sha256', secret()).update(`mac:${code}\n${email}`).digest('base64url');
 const b64 = (s) => Buffer.from(s, 'utf8').toString('base64url');
 const unb64 = (s) => Buffer.from(s, 'base64url').toString('utf8');

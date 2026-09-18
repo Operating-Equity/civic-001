@@ -1,7 +1,7 @@
 # CIVIC — main page prototype
 
 The functional main page: paste or upload text, CIVIC extracts every empirical claim, tests the
-first 20 in parallel, and shows each determination (True / False / Unverified) with the full
+first ten, two at a time, and shows each determination (True / False / Unverified) with the full
 encyclopedia-style entry, a live scoreboard, a challenge panel per result, and a reset.
 
 Two rules the code exists to keep:
@@ -21,7 +21,7 @@ civic-web/
 │   ├── prompts/       The vault. Real prompts live here (gitignored) or in env vars. See its README.
 │   ├── config.js      Models, efforts, limits, feature flags (all overridable by env vars).
 │   ├── extract.js     Step 1: streaming claim extraction, claims parsed as they arrive.
-│   ├── evaluate.js    Step 2: 20 claims in parallel, verdict read from the Conclusion, streaming.
+│   ├── evaluate.js    Step 2: ten claims, two at a time, verdict read from the Conclusion, streaming.
 │   ├── illustrate.js  Visual echo: art direction, then the fast image model.
 │   ├── challenge.js   Challenge mechanics; the OpenAI call is withheld until certified.
 │   └── documents.js   .pdf / .docx / text parsing for uploads.
@@ -98,11 +98,17 @@ The page shows the same figures per card and a run total behind an **Internal** 
 `CIVIC_INTERNAL_ACCOUNTING=true`; set it to `false` for customers. Dollar figures come from the
 table in `server/pricing.js`; token counts come from the API and are exact.
 
-The first 20 claims always run. Claims beyond 20 are listed with checkboxes; the reader picks
-all or some and runs them as an extra batch once the first batch has finished.
+The first ten claims always run. Claims beyond ten are listed with checkboxes, and the reader
+can choose among them; the button that would test the chosen ones is parked for now (the
+operator's rule of 18 September, cost control until there is revenue against it) and says so.
+Once the first ten are tested, **Create report** appears beside **Start a new test**; it is
+parked the same way until the report is designed.
 
-**Download full run** on the scoreboard writes one Markdown file containing the source, the
-verbatim extraction output, and every entry with its reasoning, searches, sources and costs.
+Each sign-in code allows a number of runs: `CIVIC_CODE_USES` (five) unless the code's own entry
+in `CIVIC_ACCESS_CODES` names one (`ABCD234:150`). A run is counted when its extraction starts;
+past the allowance the run is refused with the figures, in a sentence on the page. The count is
+a file (`CIVIC_USES_FILE`), read at start, so a restart or a deploy forgets nothing when the file
+is on a persistent disk; /check lists each code's runs used and allowed.
 
 ## Reading a link
 

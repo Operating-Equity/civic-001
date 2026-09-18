@@ -402,7 +402,7 @@ body {
 .challenge-list button { border: 0; background: transparent; color: inherit; cursor: pointer; font-size: 15px; line-height: 1; padding: 2px 4px; border-radius: 50%; }
 .challenge-list button:hover { background: rgba(47, 86, 196, .15); }
 
-.run-end { display: flex; justify-content: center; padding: 12px 0 8px; }
+.run-end { display: flex; justify-content: center; gap: 12px; flex-wrap: wrap; padding: 12px 0 8px; }
 
 /* ---------- footer ---------- */
 .footer { max-width: var(--page); margin: 0 auto; padding: 26px var(--gutter) 40px; display: flex; align-items: center; justify-content: space-between; gap: 12px 24px; flex-wrap: wrap; border-block-start: 1px solid var(--line-soft); }

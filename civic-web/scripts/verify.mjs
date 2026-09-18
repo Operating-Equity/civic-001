@@ -550,6 +550,64 @@ async function accessChecks() {
 }
 await accessChecks();
 
+// Runs per code (server/uses.js). A use is a run started; a connection that joins a run already
+// started is not one; a code's own entry may carry its allowance (ABCD234:2); the general
+// allowance is CIVIC_CODE_USES; the count is a file, so a restart forgets nothing.
+async function usesChecks() {
+  const MOCK2 = MOCK_PORT + 18, PORT2 = PORT + 18;
+  const usesFile = path.join(os.tmpdir(), `civic-verify-uses-${Date.now()}.jsonl`);
+  const mock = start([path.join(root, 'scripts', 'mock-openai.js')], { MOCK_PORT: String(MOCK2), MOCK_SPEED: '0.2', MOCK_EVAL_MARK: process.env.MOCK_EVAL_MARK_FOR_GATE || '' });
+  await wait(`http://localhost:${MOCK2}/v1/mock/stats`, 15000, { anyResponse: true });
+  const env = { OPENAI_BASE_URL: `http://localhost:${MOCK2}/v1`, OPENAI_API_KEY: KEY, CIVIC_IMAGE_ENABLED: 'false', CIVIC_LEDGER_FILE: path.join(os.tmpdir(), 'civic-verify-ledger.jsonl'), CIVIC_SIGNIN_LOG: path.join(os.tmpdir(), 'civic-verify-signins.jsonl'), CIVIC_USES_FILE: usesFile, CIVIC_ACCESS_CODES: 'ABCD234:2,EFGH567', CIVIC_CODE_USES: '1', PORT: String(PORT2) };
+  let server = start([path.join(root, 'server', 'index.js')], env);
+  await wait(`http://localhost:${PORT2}/api/health`);
+  const base = `http://localhost:${PORT2}`;
+  const text = 'The Eiffel Tower stands about 330 metres tall. Water boils at 100 degrees Celsius at sea level.';
+  const signin = async (code) => { const r = await fetch(`${base}/api/signin`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: `${code.toLowerCase()}@verify`, code }) }); return (r.headers.get('set-cookie') || '').split(';')[0]; };
+  const run = async (cookie, jobId) => {
+    const res = await fetch(`${base}/api/extract`, { method: 'POST', headers: { 'content-type': 'application/json', cookie }, body: JSON.stringify({ text, jobId }) });
+    if (!res.ok) return { status: res.status, body: await res.json().catch(() => null) };
+    const body = await res.text();
+    return { status: res.status, done: /"t":"done"/.test(body) };
+  };
+  const codesOn = async (cookie) => ((await (await fetch(`${base}/api/selftest`, { headers: { cookie } })).json()).codes || []);
+  try {
+    const a = await signin('ABCD234');
+    const b = await signin('EFGH567');
+    const r1 = await run(a, 'verify-uses-a1');
+    const r1again = await run(a, 'verify-uses-a1');   // the same run joined again: not a use
+    const r2 = await run(a, 'verify-uses-a2');
+    const r3 = await run(a, 'verify-uses-a3');
+    check('a code with its own allowance (ABCD234:2) starts two runs, joining a run already started counts nothing, and the third run is refused with the figures',
+      r1.done && r1again.status === 200 && r2.done && r3.status === 403 && r3.body?.error?.code === 'code_used_up' && /used 2 times; it allows 2/.test(r3.body?.error?.message || ''), JSON.stringify({ r1: r1.status, again: r1again.status, r2: r2.status, r3 }));
+    const s1 = await run(b, 'verify-uses-b1');
+    const s2 = await run(b, 'verify-uses-b2');
+    check('a code without its own figure has the general allowance (CIVIC_CODE_USES, 1 here): one run, then refused',
+      s1.done && s2.status === 403 && s2.body?.error?.code === 'code_used_up', JSON.stringify({ s1: s1.status, s2 }));
+    const figures = await codesOn(a);
+    check('/check lists each code by its ending with the runs used and allowed',
+      JSON.stringify(figures) === JSON.stringify([{ ending: '34', used: 2, allowed: 2 }, { ending: '67', used: 1, allowed: 1 }]), JSON.stringify(figures));
+    // A restart in place (a deploy, with the file on the disk): the count is what it was.
+    try { server.kill('SIGTERM'); } catch {}
+    await new Promise((r) => setTimeout(r, 500));
+    server = start([path.join(root, 'server', 'index.js')], env);
+    await wait(`http://localhost:${PORT2}/api/health`);
+    const r4 = await run(a, 'verify-uses-a4');
+    const after = await codesOn(a);
+    check('the count survives a restart: the file is read at start and the refusal stands',
+      r4.status === 403 && JSON.stringify(after) === JSON.stringify(figures), JSON.stringify({ r4: r4.status, after }));
+    const lines = fs.readFileSync(usesFile, 'utf8').trim().split('\n').map((l) => JSON.parse(l));
+    check('the record holds a fingerprint of the code, its last two characters, the email and the job, and never the code itself',
+      lines.length === 3 && lines.every((l) => l.fp && l.fp.length === 16 && !/ABCD234|EFGH567/.test(JSON.stringify(l)) && /^[A-Z0-9]{2}$/.test(l.code) && l.email && l.job), JSON.stringify(lines[0]));
+  } catch (err) {
+    check('uses checks ran', false, err.message);
+  }
+  try { server.kill('SIGTERM'); } catch {}
+  try { mock.kill('SIGTERM'); } catch {}
+  try { fs.unlinkSync(usesFile); } catch {}
+}
+await usesChecks();
+
 // The port is CIVIC's. An older CIVIC still holding it is closed and the port taken over; anything
 // else on it is left alone and named. Both are proved here with stand-in processes: one that runs
 // from CIVIC's own directory, as an installed copy does, and one that does not.

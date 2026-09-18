@@ -40,8 +40,23 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
   three events into an extraction and into a determination, one model call each; cancel aborts;
   release lets go) and in a browser taken offline during both steps.
 - **Deploy while idle: proved** (the merge of PR #30 deployed by itself in 24 seconds through the
-  app installation on the organisation). **Still to prove:** a complete real run on the URL, and
-  one deliberate redeploy during a run, to see the cut claim start over on the new process.
+  app installation on the organisation). **The operator's real run (18 September, 14:16–14:38
+  UTC) completed**: the extraction in 4 min 20 s, ten claims two at a time, every result
+  delivered, no cut, no failure. **A deploy during a run** was proved on a local copy (the server
+  ended with SIGTERM and started again with two claims in flight: both rows said the connection
+  was cut and was going again, both claims started over on the new server and finished); the
+  session's permission system declined a deploy of the live service for that purpose.
+- **18 September, evening: the operator's change set.** The heading is "Truth Engine tests the
+  facts."; the page says ten claims everywhere; Download full run is gone; "Test {n} selected
+  claims" and the new "Create report" button (beside the bottom "Start a new test", after the
+  first ten) are parked and say so when pressed; an open row closes on a tap anywhere in it and
+  the next row scrolls into view; each code allows a number of runs (`CIVIC_CODE_USES`, five,
+  or `CODE:150` in its own entry), counted at the start of an extraction in `CIVIC_USES_FILE`
+  (server/uses.js), refused past the allowance with the figures on the page, listed on /check.
+  For the count to outlive a deploy the service gets a 1 GB disk at /var/data, with the ledger,
+  the sign-in log, the error log and the uses file on it (render.yaml); a deploy with a disk
+  stops the service for about a minute, which the page rides out. The operator's own code (the
+  one ending JT, the only such one of the five, named by the 02:27 sign-in line) allows 150.
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 
