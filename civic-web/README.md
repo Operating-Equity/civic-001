@@ -123,10 +123,13 @@ source's own words in the box, where they can be read before anything is tested:
 | A YouTube video | The video's caption track, cues rejoined into sentences |
 | A plain text or JSON file | The file |
 
-A link from a Google app (`google.com/goto?url=…`, `news.google.com/articles/…`) is a token, not
-the article's address: only Google can resolve it, and it answers no server. The page refuses it at
-once, with the sentence that tells the reader to paste the article's own address or its text;
-`google.com/url?q=…` carries its destination in the open and is unwrapped instead. While a link is
+No link is refused by its shape. A link from a Google app (`google.com/goto?url=…`) is a token that
+only Google can resolve, and Google resolves it for any client as it does for a browser, so it is
+tried like any other link and read where it leads; what a site then answers (its text, a refusal,
+silence, a paywall, a shell) gets the same treatment as any other link. `google.com/url?q=…` carries
+its destination in the open, and Google answers a plain client with a notice page rather than a
+redirect, so the destination is read directly. A page with no prose whose markup sends the browser
+elsewhere (a meta refresh) is followed like a redirect, within the same limit of hops. While a link is
 read, its host and the seconds tick under the box, and a read that fails keeps its sentence there.
 "That address could not be reached." reaches the reader without jargon; the cause (a code such as
 `ECONNREFUSED`) goes to /check's recent failures. A read the page abandons is recorded as nothing.

@@ -118,6 +118,7 @@ async function get(urlString, { accept, signal } = {}) {
     }
     if (res.status >= 300 && res.status < 400 && res.headers.get('location')) {
       url = await assertPublic(new URL(res.headers.get('location'), url).toString()); // every hop is checked
+      assertNotSilent(url);
       continue;
     }
     break;
@@ -313,10 +314,10 @@ export function normalizeUrl(rawUrl) {
   try { return new URL(withScheme); } catch { throw new UrlError('url_not_web', 'That is not a web address.'); }
 }
 
-/** A link from a Google app is a token, not the article's address: only Google can resolve it, and
- *  it answers no server (the operator's link of 18 September: 71 s, then nothing). The reader is
- *  told at once. `google.com/url?q=…` carries its destination in the open and is unwrapped instead. */
-export const APP_LINK_MESSAGE = 'This is a Google app link, and it does not carry the article\'s own address. Open the article, copy the address from the address bar and paste it here, or paste the article\'s text.';
+/** `google.com/url?q=…` carries its destination in the open, and Google answers a plain client with a
+ *  notice page rather than a redirect, so the destination is read directly. No link is refused by its
+ *  shape: every other link, a Google app link included, is tried like any other and read where it
+ *  leads (Google resolves its own links for any client, as it does for a browser). */
 export function unwrapRedirect(url) {
   const host = url.hostname.replace(/^www\./, '').toLowerCase();
   if (host !== 'google.com' || url.pathname !== '/url') return null;
@@ -324,50 +325,82 @@ export function unwrapRedirect(url) {
   if (!/^https?:\/\//i.test(target)) return null;
   try { return new URL(target); } catch { return null; }
 }
-export function appLink(url) {
-  const host = url.hostname.replace(/^www\./, '').toLowerCase();
-  if (host === 'google.com' && (url.pathname === '/goto' || (url.pathname === '/url' && !unwrapRedirect(url)))) return true;
-  return host === 'news.google.com' && /^\/(articles|read|rss\/articles)\//.test(url.pathname);
+
+/** The address a page's markup sends the browser to (`<meta http-equiv="refresh" content="N;url=…">`),
+ *  or null when the page has no such instruction. */
+export function metaRefresh(html) {
+  const head = String(html || '').slice(0, 64 * 1024);
+  const tags = head.match(/<meta\b[^>]*>/gi) || [];
+  for (const tag of tags) {
+    if (!/http-equiv\s*=\s*["']?\s*refresh\b/i.test(tag)) continue;
+    const content = tag.match(/\bcontent\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/i);
+    const value = content ? (content[1] ?? content[2] ?? content[3] ?? '') : '';
+    // The instruction is a number of seconds, then ";" or ",", then an optional "url=", then the address,
+    // quoted or not. A number alone (a page that reloads itself) is no address.
+    const target = value.match(/^\s*\d+\s*[;,]\s*(?:url\s*=\s*)?['"]?\s*([^'"]+?)\s*['"]?\s*$/i);
+    if (target && target[1].trim()) return decodeEntities(target[1].trim());
+  }
+  return null;
+}
+
+/** A site remembered as silent answers at once, and is re-checked in the background. */
+function assertNotSilent(url) {
+  if (silentHosts.has(url.hostname)) { recheckSilent(url.hostname); throw siteError('url_silent', siteName(url)); }
 }
 
 export async function readUrl(rawUrl, { signal } = {}) {
   let url = normalizeUrl(rawUrl);
-  if (appLink(url)) throw new UrlError('url_app_link', APP_LINK_MESSAGE);
   url = unwrapRedirect(url) || url;
-  if (silentHosts.has(url.hostname)) { recheckSilent(url.hostname); throw siteError('url_silent', siteName(url)); }
+  assertNotSilent(url);
 
   if (youtubeId(url.toString())) {
     const t = await youtubeTranscript(url.toString(), { signal });
     return { ...t, url: url.toString() };
   }
 
-  const { buf, res, url: finalUrl } = await get(url.toString(), { signal });
-  const type = (res.headers.get('content-type') || '').toLowerCase();
+  for (let hops = 0; ; hops++) {
+    const { buf, res, url: finalUrl } = await get(url.toString(), { signal });
+    const type = (res.headers.get('content-type') || '').toLowerCase();
 
-  if (type.includes('application/pdf') || finalUrl.pathname.toLowerCase().endsWith('.pdf')) {
-    const parser = new PDFParse({ data: new Uint8Array(buf) });
-    try {
-      const out = await parser.getText();
-      return { kind: 'pdf', title: finalUrl.pathname.split('/').pop() || finalUrl.hostname, text: String(out?.text || '').trim(), url: finalUrl.toString(), note: null };
-    } finally { await parser.destroy?.(); }
+    if (type.includes('application/pdf') || finalUrl.pathname.toLowerCase().endsWith('.pdf')) {
+      const parser = new PDFParse({ data: new Uint8Array(buf) });
+      try {
+        const out = await parser.getText();
+        return { kind: 'pdf', title: finalUrl.pathname.split('/').pop() || finalUrl.hostname, text: String(out?.text || '').trim(), url: finalUrl.toString(), note: null };
+      } finally { await parser.destroy?.(); }
+    }
+
+    if (type.includes('html') || type.includes('xml') || !type) {
+      const html = buf.toString('utf8');
+      const { title, text, author, published, site, notFree } = htmlToText(html);
+      const name = site || siteName(finalUrl);
+      const longest = Math.max(0, ...text.split(/\n\n+/).map((p) => p.trim().length));
+      // A page with no paragraph of prose whose markup sends the browser elsewhere is a redirect
+      // written in HTML, and is followed like one, within the same limit of hops.
+      const onward = longest < 200 ? metaRefresh(html) : null;
+      if (onward) {
+        let next = null;
+        try { next = new URL(onward, finalUrl); } catch { next = null; }
+        if (next && /^https?:$/.test(next.protocol)) {
+          if (hops >= 5) throw new UrlError('url_redirects', 'That address redirects too many times.');
+          url = next;
+          assertNotSilent(url);
+          continue;
+        }
+      }
+      if (!text) throw siteError('url_shell', name);
+      // The site says the article is not free (the schema.org flag Google News reads), or its prose
+      // says so at the wall: nothing is tested, whatever the site sent (the operator's rule).
+      if (notFree || WALL_PHRASES.test(text)) throw siteError('url_paywall', name);
+      // A page with no paragraph of prose is a shell built by scripts, not an article.
+      if (longest < 200) throw siteError('url_shell', name);
+      return { kind: 'page', title: title || finalUrl.hostname, author, published, site: name, text, url: finalUrl.toString(), note: null };
+    }
+
+    if (type.startsWith('text/') || type.includes('json')) {
+      return { kind: 'text', title: finalUrl.pathname.split('/').pop() || finalUrl.hostname, text: buf.toString('utf8').trim(), url: finalUrl.toString(), note: null };
+    }
+
+    throw new UrlError('url_not_text', `That address returned ${type || 'an unknown kind of file'}, which has no text to test.`);
   }
-
-  if (type.includes('html') || type.includes('xml') || !type) {
-    const { title, text, author, published, site, notFree } = htmlToText(buf.toString('utf8'));
-    const name = site || siteName(finalUrl);
-    if (!text) throw siteError('url_shell', name);
-    // The site says the article is not free (the schema.org flag Google News reads), or its prose
-    // says so at the wall: nothing is tested, whatever the site sent (the operator's rule).
-    if (notFree || WALL_PHRASES.test(text)) throw siteError('url_paywall', name);
-    // A page with no paragraph of prose is a shell built by scripts, not an article.
-    const longest = Math.max(0, ...text.split(/\n\n+/).map((p) => p.trim().length));
-    if (longest < 200) throw siteError('url_shell', name);
-    return { kind: 'page', title: title || finalUrl.hostname, author, published, site: name, text, url: finalUrl.toString(), note: null };
-  }
-
-  if (type.startsWith('text/') || type.includes('json')) {
-    return { kind: 'text', title: finalUrl.pathname.split('/').pop() || finalUrl.hostname, text: buf.toString('utf8').trim(), url: finalUrl.toString(), note: null };
-  }
-
-  throw new UrlError('url_not_text', `That address returned ${type || 'an unknown kind of file'}, which has no text to test.`);
 }

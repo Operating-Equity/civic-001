@@ -177,7 +177,6 @@ export default {
     rate: 'CIVIC is busy. Try again in a moment.',
     checkLink: 'Why did this happen?',
     url: 'That link could not be read: {message}',
-    appLink: 'This is a Google app link, and it does not carry the article\'s own address. Open the article, copy the address from the address bar and paste it here, or paste the article\'s text.',
     siteRefused: '{site} does not let CIVIC read its pages from here. If you can open the article, copy its text and paste it here.',
     sitePaywall: '{site} keeps this article behind its paywall, so CIVIC cannot read it here. If you subscribe, copy the article\'s text and paste it here.',
     siteShell: '{site} builds this page in the browser, so no readable text reached CIVIC. Copy the article\'s text and paste it here.',

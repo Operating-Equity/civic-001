@@ -675,13 +675,17 @@ async function illustrateChecks() {
 }
 await illustrateChecks();
 
-// A link the server cannot read tells the reader what to do, at once (18 September): a Google app
-// link is refused before any fetch, an open Google redirect is unwrapped, an unreachable address gets
+// A link the server cannot read tells the reader what to do, at once (18 September): no link is
+// refused by its shape (a Google app link is tried like any other and read where it leads, a page that
+// is only a meta refresh is followed like a redirect), an open Google redirect is unwrapped, an unreachable address gets
 // plain words with the cause recorded for the operator, and a read the page abandons is no failure.
 async function linkChecks() {
   const MOCK2 = MOCK_PORT + 20, PORT2 = PORT + 20, SITE = PORT + 21;
   const site = http.createServer((req, res) => {
     if (req.url.startsWith('/page')) { res.writeHead(200, { 'content-type': 'text/html' }); res.end(`<html><head><title>A page of facts</title></head><body><article><p>${'The Eiffel Tower stands about 330 metres tall. '.repeat(8)}</p></article></body></html>`); return; }
+    if (req.url.startsWith('/goto')) { res.writeHead(302, { location: '/page' }); res.end(); return; }
+    if (req.url.startsWith('/meta-loop')) { res.writeHead(200, { 'content-type': 'text/html' }); res.end('<html><head><meta http-equiv="refresh" content="0;url=/meta-loop"><title>Loop</title></head><body><a href="/meta-loop">Continue</a></body></html>'); return; }
+    if (req.url.startsWith('/meta')) { res.writeHead(200, { 'content-type': 'text/html' }); res.end('<html><head><meta http-equiv="refresh" content="0; URL=\'/page\'"><title>Go</title></head><body><a href="/page">Continue</a></body></html>'); return; }
     if (req.url.startsWith('/slow')) { setTimeout(() => { res.writeHead(200, { 'content-type': 'text/html' }); res.end(`<html><head><title>Slow</title></head><body><p>${'Water boils at 100 degrees Celsius at sea level. '.repeat(8)}</p></body></html>`); }, 2500); return; }
     // A site that keeps its text: a refusal at the door, a paywall marked the way Google News reads it
     // (with a teaser, or with the whole text), a wall said in prose, and a shell built by scripts.
@@ -704,11 +708,14 @@ async function linkChecks() {
   const read = async (url, { signal } = {}) => { const t0 = Date.now(); const r = await fetch(`${base}/api/read-url`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ url }), signal }); return { status: r.status, ms: Date.now() - t0, body: await r.json().catch(() => null) }; };
   const failures = async () => ((await (await fetch(`${base}/api/selftest`)).json()).recentFailures || []);
   try {
-    const goto = await read('https://www.google.com/goto?url=CAESvAEB6zswFZzRCvZZdw1C9iLOirg91vHQMHMiOh9q0dnQB9zlU50TGLQx6N8kjZtVpXTd3wGLsANsreI85');
-    check('a Google app link is refused at once, before any fetch, with the sentence that tells the reader what to do',
-      goto.status === 400 && goto.body?.error?.code === 'url_app_link' && /Google app link/.test(goto.body?.error?.message || '') && goto.ms < 1000, JSON.stringify(goto));
-    const news = await read('https://news.google.com/articles/CBMiabc123');
-    check('a Google News article link is refused the same way', news.status === 400 && news.body?.error?.code === 'url_app_link', JSON.stringify(news));
+    const goto = await read(`http://localhost:${SITE}/goto?url=CAESvAEB6zswFZzRCvZZdw1C9iLOirg91vHQMHMiOh9q0dnQB9zlU50TGLQx6N8kjZtVpXTd3wGLsANsreI85`);
+    check('a link shaped like a Google app link is refused by nothing: it is tried like any other and read where it leads',
+      goto.status === 200 && goto.body?.title === 'A page of facts' && goto.body?.chars > 100, JSON.stringify(goto).slice(0, 200));
+    const meta = await read(`http://localhost:${SITE}/meta`);
+    check('a page that only sends the browser elsewhere (a meta refresh) is followed like a redirect',
+      meta.status === 200 && meta.body?.title === 'A page of facts' && meta.body?.chars > 100, JSON.stringify(meta).slice(0, 200));
+    const loop = await read(`http://localhost:${SITE}/meta-loop`);
+    check('a meta refresh that goes round in circles ends at the same limit as redirects', loop.status === 400 && loop.body?.error?.code === 'url_redirects', JSON.stringify(loop.body));
     const open = await read(`https://www.google.com/url?q=http://localhost:${SITE}/page&sa=t`);
     check('an open Google redirect is unwrapped and its destination read', open.status === 200 && open.body?.title === 'A page of facts' && open.body?.chars > 100, JSON.stringify(open).slice(0, 200));
     const dead = await read(`http://localhost:${PORT + 30}/`); // nothing listens there (port 1 is refused by the client itself as a bad port)

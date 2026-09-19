@@ -175,7 +175,6 @@ export default {
     rate: 'CIVIC ist ausgelastet. Versuchen Sie es gleich noch einmal.',
     checkLink: 'Warum ist das passiert?',
     url: 'Dieser Link konnte nicht gelesen werden: {message}',
-    appLink: 'Dies ist ein Link aus einer Google-App, und er enthält nicht die eigene Adresse des Artikels. Öffnen Sie den Artikel, kopieren Sie die Adresse aus der Adressleiste und fügen Sie sie hier ein, oder fügen Sie den Text des Artikels ein.',
     siteRefused: '{site} lässt CIVIC seine Seiten von hier aus nicht lesen. Wenn Sie den Artikel öffnen können, kopieren Sie seinen Text und fügen Sie ihn hier ein.',
     sitePaywall: '{site} hält diesen Artikel hinter seiner Bezahlschranke, daher kann CIVIC ihn von hier aus nicht lesen. Wenn Sie Abonnent sind, kopieren Sie den Text des Artikels und fügen Sie ihn hier ein.',
     siteShell: '{site} baut diese Seite im Browser auf, daher hat CIVIC keinen lesbaren Text erreicht. Kopieren Sie den Text des Artikels und fügen Sie ihn hier ein.',

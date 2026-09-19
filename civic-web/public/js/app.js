@@ -291,12 +291,6 @@ function expandIntake() {
 /** Fetches a web address through the server and puts its own words in the box. */
 async function readLinkIntoBox(url) {
   const host = (() => { try { return new URL(/^https?:\/\//i.test(url) ? url : `https://${url}`).hostname.replace(/^www\./, ''); } catch { return url; } })();
-  // A link from a Google app is a token, not the article's address: the reader is told at once.
-  if (api.appLink(url)) {
-    ui.sourceMeta.textContent = t('errors.appLink');
-    toast(t('errors.appLink'), { error: true, ms: 9000 });
-    return false;
-  }
   ui.run.disabled = true;
   // The reading is visible while it lasts: the host and the seconds, ticking under the box.
   const started = Date.now();
@@ -322,7 +316,6 @@ async function readLinkIntoBox(url) {
     // A site that keeps its text from CIVIC is named, in the reader's language, with what to do.
     const site = err?.site || host;
     const own = {
-      url_app_link: () => t('errors.appLink'),
       url_refused: () => t('errors.siteRefused', { site }),
       url_silent: () => t('errors.siteRefused', { site }),
       url_paywall: () => t('errors.sitePaywall', { site }),
