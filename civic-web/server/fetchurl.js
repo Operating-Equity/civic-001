@@ -88,6 +88,31 @@ async function assertPublic(urlString) {
   return url;
 }
 
+/** One request to a site. Plain words for the reader when it fails; the cause (a code such as
+ *  ECONNREFUSED, UND_ERR_CONNECT_TIMEOUT or UND_ERR_HEADERS_TIMEOUT, with the syscall and address when
+ *  the operating system reported it) goes to the failure record for the operator. A site that stayed
+ *  silent, to the connection or to the request, is remembered as silent. */
+async function siteRequest(url, init, signal) {
+  try {
+    return await siteFetch(url, { ...init, signal });
+  } catch (err) {
+    if (signal?.aborted) throw err;
+    const cause = [err?.cause?.code || err?.cause?.message || err?.message || 'no answer', err?.cause?.syscall, err?.cause?.address].filter(Boolean).join(' ');
+    const site = siteName(url);
+    if (SILENT_CAUSES.test(String(cause))) { rememberSilent(url.hostname, String(cause)); const e = siteError('url_silent', site); e.detail = `${cause} (silence limit ${SITE_SILENCE_MS} ms)`; throw e; }
+    const e = new UrlError('url_unreachable', 'That address could not be reached.');
+    e.detail = cause;
+    throw e;
+  }
+}
+
+/** A JSON request to a site (the player API), under the same rules as a page read. */
+async function postJson(urlString, body, { headers = {}, signal } = {}) {
+  const url = await assertPublic(urlString);
+  assertNotSilent(url);
+  return siteRequest(url, { method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json', ...headers }, body: JSON.stringify(body) }, signal);
+}
+
 async function get(urlString, { accept, signal } = {}) {
   let url = await assertPublic(urlString);
   // No time limit of ours: a large document over a slow link takes as long as it takes. The reader
@@ -97,25 +122,10 @@ async function get(urlString, { accept, signal } = {}) {
   for (let hop = 0; ; hop++) {
     if (hop > 5) throw new UrlError('url_redirects', 'That address redirects too many times.');
     if (signal?.aborted) throw new Error('aborted');
-    try {
-      res = await siteFetch(url, {
-        redirect: 'manual',
-        signal: composite,
-        headers: { 'user-agent': UA, accept: accept || 'text/html,application/xhtml+xml,application/pdf,text/plain;q=0.9,*/*;q=0.8', 'accept-language': 'en,*;q=0.5' },
-      });
-    } catch (err) {
-      if (signal?.aborted) throw err;
-      // Plain words for the reader; the cause (a code such as ECONNREFUSED, UND_ERR_CONNECT_TIMEOUT or
-      // UND_ERR_HEADERS_TIMEOUT, with the syscall and address when the operating system reported it)
-      // goes to the failure record for the operator. A site that stayed silent, to the connection or
-      // to the request, is remembered as silent.
-      const cause = [err?.cause?.code || err?.cause?.message || err?.message || 'no answer', err?.cause?.syscall, err?.cause?.address].filter(Boolean).join(' ');
-      const site = siteName(url);
-      if (SILENT_CAUSES.test(String(cause))) { rememberSilent(url.hostname, String(cause)); const e = siteError('url_silent', site); e.detail = `${cause} (silence limit ${SITE_SILENCE_MS} ms)`; throw e; }
-      const e = new UrlError('url_unreachable', 'That address could not be reached.');
-      e.detail = cause;
-      throw e;
-    }
+    res = await siteRequest(url, {
+      redirect: 'manual',
+      headers: { 'user-agent': UA, accept: accept || 'text/html,application/xhtml+xml,application/pdf,text/plain;q=0.9,*/*;q=0.8', 'accept-language': 'en,*;q=0.5' },
+    }, composite);
     if (res.status >= 300 && res.status < 400 && res.headers.get('location')) {
       url = await assertPublic(new URL(res.headers.get('location'), url).toString()); // every hop is checked
       assertNotSilent(url);
@@ -265,11 +275,34 @@ export function joinCaptionLines(lines) {
   return out;
 }
 
+/** How the Android app asks YouTube's player API. Since 2026 the web player hands caption tracks only
+ *  to a client that presents a proof-of-origin token, which needs a real browser: the caption addresses
+ *  in a watch page's player data answer an empty body to a server. The Android client's do not. */
+const ANDROID_CLIENT = { name: 'ANDROID', version: '20.10.38', sdk: 34, ua: 'com.google.android.youtube/20.10.38 (Linux; U; Android 14) gzip' };
+const NO_TRANSCRIPT = 'YouTube did not let CIVIC read this video from here. Paste the transcript text instead.';
+
+/** The player API's answer for a video, asked as the Android app asks; `key` is the public web key the
+ *  watch page itself embeds (YouTube's, not the operator's). */
+async function playerResponse(base, id, key, signal) {
+  const url = `${base}/youtubei/v1/player?prettyPrint=false${key ? `&key=${encodeURIComponent(key)}` : ''}`;
+  const res = await postJson(url, {
+    context: { client: { clientName: ANDROID_CLIENT.name, clientVersion: ANDROID_CLIENT.version, androidSdkVersion: ANDROID_CLIENT.sdk, hl: 'en', gl: 'US' } },
+    videoId: id,
+    contentCheckOk: true,
+    racyCheckOk: true,
+  }, { headers: { 'user-agent': ANDROID_CLIENT.ua, 'x-youtube-client-name': '3', 'x-youtube-client-version': ANDROID_CLIENT.version }, signal });
+  const text = await res.text();
+  if (!res.ok) { const e = new UrlError('url_no_transcript', NO_TRANSCRIPT); e.detail = `player API ${res.status}`; throw e; }
+  try { return JSON.parse(text); } catch { const e = new UrlError('url_no_transcript', NO_TRANSCRIPT); e.detail = 'player API answered no JSON'; throw e; }
+}
+
 /** The video's own caption track, joined into readable lines. No summary, no invention. */
 export async function youtubeTranscript(url, { signal } = {}) {
   const id = youtubeId(url);
   if (!id) throw new UrlError('url_not_youtube', 'That is not a YouTube video address.');
-  const { buf } = await get(`https://www.youtube.com/watch?v=${encodeURIComponent(id)}&hl=en`, { signal });
+  const base = String(config.youtubeBase || 'https://www.youtube.com').replace(/\/$/, '');
+  // The watch page: the title, author and date, and the page's own key for the player API.
+  const { buf } = await get(`${base}/watch?v=${encodeURIComponent(id)}&hl=en`, { signal });
   const html = buf.toString('utf8');
   const title = decodeEntities(html.match(/<meta name="title" content="([^"]*)"/)?.[1] || html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1] || '')
     .replace(/ - YouTube$/, '').trim();
@@ -277,8 +310,17 @@ export async function youtubeTranscript(url, { signal } = {}) {
   const unjson = (v) => { try { return JSON.parse(`"${v}"`); } catch { return v; } };
   const author = unjson(html.match(/"author":"((?:[^"\\]|\\.)*)"/)?.[1] || '') || decodeEntities(html.match(/<link itemprop="name" content="([^"]*)"/)?.[1] || '');
   const published = html.match(/"publishDate":"([^"]+)"/)?.[1] || html.match(/"uploadDate":"([^"]+)"/)?.[1] || html.match(/<meta itemprop="datePublished" content="([^"]*)"/)?.[1] || '';
+  const key = html.match(/"INNERTUBE_API_KEY":"([^"]+)"/)?.[1] || '';
 
-  const tracks = captionTracksFrom(html);
+  const player = await playerResponse(base, id, key, signal);
+  const status = player?.playabilityStatus || {};
+  if (status.status && status.status !== 'OK') {
+    const e = new UrlError('url_no_transcript', NO_TRANSCRIPT);
+    e.detail = [status.status, status.reason].filter(Boolean).join(': ');
+    throw e;
+  }
+  const details = player?.videoDetails || {};
+  const tracks = player?.captions?.playerCaptionsTracklistRenderer?.captionTracks || captionTracksFrom(html);
   if (!tracks.length) {
     throw new UrlError('url_no_transcript',
       'That video has no caption track that YouTube will hand over, so there is no transcript to test. Paste the transcript text instead.');
@@ -287,20 +329,25 @@ export async function youtubeTranscript(url, { signal } = {}) {
     || tracks.find((tr) => /^en/i.test(tr.languageCode || ''))
     || tracks[0];
 
-  const { buf: capBuf } = await get(`${pick.baseUrl}&fmt=json3`, { accept: 'application/json', signal });
+  const trackUrl = new URL(pick.baseUrl, base);
+  trackUrl.searchParams.set('fmt', 'json3');
+  const { buf: capBuf } = await get(trackUrl.toString(), { accept: 'application/json', signal });
   const lines = captionLines(capBuf.toString('utf8'));
-  if (!lines.length) throw new UrlError('url_no_transcript', 'That video\'s caption track came back empty.');
+  if (!lines.length) { const e = new UrlError('url_no_transcript', NO_TRANSCRIPT); e.detail = 'the caption track came back empty'; throw e; }
   const out = joinCaptionLines(lines);
   const auto = pick.kind === 'asr';
+  const thumbnails = (details.thumbnail?.thumbnails || []).filter((t) => t && t.url).map((t) => ({ url: t.url, width: t.width || 0, height: t.height || 0 }));
   return {
     kind: 'youtube',
-    title: title || `YouTube video ${id}`,
-    author,
+    title: details.title || title || `YouTube video ${id}`,
+    author: details.author || author,
     published: published.slice(0, 60),
     site: 'YouTube',
     text: out.trim(),
     note: auto ? 'automatic_captions' : null,
     language: pick.languageCode || null,
+    // For the page: the player when the owner allows embedding, else a thumbnail, in the picture's box.
+    video: { id, embeddable: status.playableInEmbed !== false, lengthSeconds: Number(details.lengthSeconds) || null, thumbnails },
   };
 }
 
@@ -347,6 +394,7 @@ export function metaRefresh(html) {
 function assertNotSilent(url) {
   if (silentHosts.has(url.hostname)) { recheckSilent(url.hostname); throw siteError('url_silent', siteName(url)); }
 }
+
 
 export async function readUrl(rawUrl, { signal } = {}) {
   let url = normalizeUrl(rawUrl);

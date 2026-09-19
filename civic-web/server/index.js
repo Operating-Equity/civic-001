@@ -65,7 +65,8 @@ app.use((req, res, next) => {
   res.setHeader(
     'Content-Security-Policy',
     "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; " +
-      "img-src 'self' data: blob: https://oaidalleapiprodscus.blob.core.windows.net; " +
+      "img-src 'self' data: blob: https://oaidalleapiprodscus.blob.core.windows.net https://*.ytimg.com; " +
+      "frame-src https://www.youtube-nocookie.com; " + // the player of a video under test, and its thumbnail above
       "connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'",
   );
   next();

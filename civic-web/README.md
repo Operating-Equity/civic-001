@@ -120,7 +120,7 @@ source's own words in the box, where they can be read before anything is tested:
 |---|---|
 | An article or any web page | The page's prose, with scripts, styles, navigation, headers and footers removed |
 | A PDF | Its text, through the same parser used for uploads |
-| A YouTube video | The video's caption track, cues rejoined into sentences |
+| A YouTube video | The video's caption track, cues rejoined into sentences; the video itself, or its thumbnail, in the picture's box |
 | A plain text or JSON file | The file |
 
 No link is refused by its shape. A link from a Google app (`google.com/goto?url=…`) is a token that
@@ -154,6 +154,14 @@ subscribers, and the reader decides whether it is the whole article before press
 Nothing is summarised, shortened or rewritten. When a video has no written transcript, YouTube's
 automatic captions are used and the page says so, because they contain transcription errors.
 Captions carry no speaker labels, so a multi-speaker transcript arrives as continuous text.
+The track is read through YouTube's player API the way its Android app asks (since 2026 the web
+player's caption files answer empty to a server: they need a proof-of-origin token only a browser can
+make), with the public key the watch page itself embeds; nothing is configured. A video YouTube keeps
+from the server's address gets "YouTube did not let CIVIC read this video from here. Paste the
+transcript text instead." with the reason on /check. While a video's test runs, its player sits in
+the picture's box (320 by 180 beside the steps, full width on a phone), or its thumbnail with a link
+when the owner allows no embedding; no picture is generated for a video. `CIVIC_YOUTUBE_BASE` lets
+the guard stand in for YouTube.
 
 Addresses that resolve inside a private network are refused, so a public CIVIC server cannot be
 aimed at machines behind its own firewall. `CIVIC_ALLOW_PRIVATE_URLS=true` lifts that for local

@@ -36,6 +36,7 @@ const state = {
   results: [],
   extraction: null,
   echo: null,
+  video: null,         // a YouTube source: { id, embeddable, thumbnails } for the picture's box
   batch: { start: 0, size: 0, done: 0 },
   counts: { true: 0, false: 0, unverified: 0 },
   unread: 0,
@@ -65,7 +66,7 @@ function cacheElements() {
     step1: $('#step-extract'), step1Status: $('#step1-status'), bar1: $('#bar-extract'),
     step1Thinking: $('#step1-thinking'), step1ThinkingSummary: $('#step1-thinking-summary'), step1ThinkingBody: $('#step1-thinking-body'),
     step2: $('#step-eval'), step2Title: $('#step2-title'), step2Status: $('#step2-status'), step2Gate: $('#step2-gate'), bar2: $('#bar-eval'),
-    echo: $('#echo'), echoImg: $('#echo-img'), echoShimmer: $('#echo-shimmer'),
+    echo: $('#echo'), echoImg: $('#echo-img'), echoShimmer: $('#echo-shimmer'), echoFrame: $('#echo .echo-frame'), rail: $('.rail'),
     intake: $('#intake'), intakeSummary: $('#intake-summary'), intakeSummaryText: $('#intake-summary-text'), showText: $('#btn-show-text'),
     scoreSourceTitle: $('#score-source-title'), scoreSourceSub: $('#score-source-sub'), scorePhase: $('#score-phase'), claimsFrom: $('#claims-from'),
     claims: $('#claims'), claimsSub: $('#claims-sub'), claimsList: $('#claims-list'),
@@ -229,6 +230,7 @@ function wireIntake() {
       const parsed = await api.parseFile(file);
       ui.source.value = parsed.text;
       state.sourceMeta = { kind: 'file', name: parsed.name };
+      state.video = null;
       state.loadedText = parsed.text;
       ui.sourceMeta.textContent = t('intake.loaded', { name: parsed.name, chars: parsed.chars });
       if (parsed.truncated) toast(t('intake.truncated', { n: parsed.chars }), { ms: 7000 });
@@ -246,7 +248,7 @@ function updateSourceMeta() {
   const n = ui.source.value.trim().length;
   ui.sourceMeta.textContent = n ? t('intake.chars', { n }) : '';
   // Text typed or pasted over what a link or a file brought in is no longer that link or file.
-  if (state.loadedText && ui.source.value !== state.loadedText) { state.sourceMeta = { kind: 'text' }; state.loadedText = ''; }
+  if (state.loadedText && ui.source.value !== state.loadedText) { state.sourceMeta = { kind: 'text' }; state.loadedText = ''; state.video = null; }
 }
 
 // ---------- what the source is ---------------------------------------------------------------
@@ -304,6 +306,7 @@ async function readLinkIntoBox(url) {
     const got = await api.readUrl(url, { signal: controller.signal });
     ui.source.value = got.text;
     state.sourceLink = { url: got.url, title: got.title || host, kind: got.kind };
+    state.video = got.kind === 'youtube' && got.video ? got.video : null;
     state.sourceMeta = { kind: 'link', url: got.url, title: got.title || host, author: got.author || '', published: got.published || '', site: got.site || host };
     state.loadedText = got.text;
     if (got.wall) {
@@ -376,7 +379,9 @@ async function startRun() {
   ui.run.disabled = true;
   window.scrollTo({ top: 0, behavior: 'smooth' });
 
-  if (ui.optEcho.checked) startEcho(text);
+  // A video source takes the picture's place with its player; otherwise the picture, when asked for.
+  if (state.video) showVideo(state.video);
+  else if (ui.optEcho.checked) startEcho(text);
   await runExtraction(text);
 }
 
@@ -419,6 +424,8 @@ function resetRunState() {
   ui.echoImg.hidden = true;
   ui.echoImg.removeAttribute('src');
   ui.echoShimmer.hidden = false;
+  ui.rail.classList.remove('rail--video');
+  for (const n of ui.echoFrame.querySelectorAll('.echo-video')) n.remove();
   setStep(ui.step1, 'idle'); setBar(ui.bar1, 0);
   setStep(ui.step2, 'idle'); setBar(ui.bar2, 0);
   setStatus('step1', null); setStatus('step2', null);
@@ -429,6 +436,7 @@ function resetRunState() {
 
 function resetAll() {
   resetRunState();
+  state.video = null;
   ui.runSection.hidden = true;
   ui.run.disabled = false;
   expandIntake();
@@ -1350,6 +1358,45 @@ function closeChallenge(i, { clear }) {
 }
 
 // ---------- visual echo -----------------------------------------------------------------------
+
+/** The picture's box for a video source: the player, or the thumbnail with a link when the owner allows
+ *  no embedding. The box is 16:9, 320 by 180 beside the steps (the operator's choice). */
+function showVideo(video) {
+  ui.rail.classList.add('rail--video');
+  ui.echo.hidden = false;
+  ui.echoShimmer.hidden = true;
+  ui.echoImg.hidden = true;
+  for (const n of ui.echoFrame.querySelectorAll('.echo-video')) n.remove();
+  const label = t('echo.video');
+  if (video.embeddable !== false) {
+    const player = document.createElement('iframe');
+    player.className = 'echo-video';
+    player.src = `https://www.youtube-nocookie.com/embed/${encodeURIComponent(video.id)}?rel=0`;
+    player.title = label;
+    player.allow = 'accelerometer; encrypted-media; picture-in-picture; fullscreen';
+    player.allowFullscreen = true;
+    player.referrerPolicy = 'strict-origin-when-cross-origin';
+    ui.echoFrame.append(player);
+    return;
+  }
+  const link = document.createElement('a');
+  link.className = 'echo-video';
+  link.href = `https://www.youtube.com/watch?v=${encodeURIComponent(video.id)}`;
+  link.target = '_blank';
+  link.rel = 'noopener';
+  const img = document.createElement('img');
+  img.alt = label;
+  img.src = thumbnailFor(video);
+  link.append(img);
+  ui.echoFrame.append(link);
+}
+
+/** The smallest listed thumbnail at least as wide as the box, else the largest, else YouTube's own file. */
+function thumbnailFor(video) {
+  const list = (video.thumbnails || []).filter((x) => x && x.url).sort((a, b) => (a.width || 0) - (b.width || 0));
+  const fit = list.find((x) => (x.width || 0) >= 320) || list[list.length - 1];
+  return fit?.url || `https://i.ytimg.com/vi/${encodeURIComponent(video.id)}/mqdefault.jpg`;
+}
 
 async function startEcho(text) {
   ui.echo.hidden = false;

@@ -681,6 +681,7 @@ await illustrateChecks();
 // plain words with the cause recorded for the operator, and a read the page abandons is no failure.
 async function linkChecks() {
   const MOCK2 = MOCK_PORT + 20, PORT2 = PORT + 20, SITE = PORT + 21;
+  const ytCalls = [], capCalls = []; // what the stand-in YouTube was asked
   const site = http.createServer((req, res) => {
     if (req.url.startsWith('/page')) { res.writeHead(200, { 'content-type': 'text/html' }); res.end(`<html><head><title>A page of facts</title></head><body><article><p>${'The Eiffel Tower stands about 330 metres tall. '.repeat(8)}</p></article></body></html>`); return; }
     if (req.url.startsWith('/goto')) { res.writeHead(302, { location: '/page' }); res.end(); return; }
@@ -698,12 +699,44 @@ async function linkChecks() {
     if (req.url.startsWith('/paywalled')) { res.writeHead(200, { 'content-type': 'text/html' }); res.end(`<html>${head('Behind the wall')}${marker}</head><body><article>${prose(3)}<div class="paywall"><p>Subscribe to continue reading.</p></div></article></body></html>`); return; } // a paragraph of prose (three sentences, past the 200-character line) before the wall
     if (req.url.startsWith('/cues')) { res.writeHead(200, { 'content-type': 'text/html' }); res.end(`<html>${head('At the wall')}</head><body><article>${prose(3)}<p>To continue reading, subscribe today.</p></article></body></html>`); return; }
     if (req.url.startsWith('/shell')) { res.writeHead(200, { 'content-type': 'text/html' }); res.end(`<html>${head('A shell')}</head><body><nav><a href="/">Home</a></nav><div><span>Menu</span> <span>Search</span> <span>Sign in</span></div></body></html>`); return; }
+    // YouTube, stood in for: the watch page with its own key, the player API (the Android client's
+    // answer, recorded), the caption file in json3, and thumbnails.
+    if (req.url.startsWith('/watch')) { res.writeHead(200, { 'content-type': 'text/html' }); res.end('<html><head><title>A talk on water - YouTube</title><meta name="title" content="A talk on water"></head><body><script>ytcfg.set({"INNERTUBE_API_KEY":"standin-key"});</script><script>var ytInitialPlayerResponse = {"author":"The Stand-in Channel","publishDate":"2026-09-01"};</script></body></html>'); return; }
+    if (req.url.startsWith('/youtubei/v1/player')) {
+      let raw = '';
+      req.on('data', (c) => { raw += c; });
+      req.on('end', () => {
+        let body = {}; try { body = JSON.parse(raw); } catch {}
+        const id = body.videoId;
+        ytCalls.push({ videoId: id, key: new URL(req.url, 'http://x').searchParams.get('key'), client: body.context?.client, ua: req.headers['user-agent'] });
+        const track = (v, kind) => ({ baseUrl: `http://localhost:${SITE}/api/timedtext?v=${v}&lang=en${kind ? `&kind=${kind}` : ''}&fmt=srv3`, languageCode: 'en', ...(kind ? { kind } : {}) });
+        const details = (v) => ({ videoId: v, title: 'A talk on water', author: 'The Stand-in Channel', lengthSeconds: '61', thumbnail: { thumbnails: [{ url: `http://localhost:${SITE}/thumb-mq.png`, width: 320, height: 180 }, { url: `http://localhost:${SITE}/thumb-hq.png`, width: 480, height: 360 }] } });
+        const answers = {
+          vid1: { playabilityStatus: { status: 'OK', playableInEmbed: true }, videoDetails: details('vid1'), captions: { playerCaptionsTracklistRenderer: { captionTracks: [track('vid1', 'asr'), track('vid1')] } } },
+          vid2: { playabilityStatus: { status: 'LOGIN_REQUIRED', reason: 'Sign in to confirm you\u2019re not a bot' } },
+          vid3: { playabilityStatus: { status: 'OK', playableInEmbed: true }, videoDetails: details('vid3'), captions: { playerCaptionsTracklistRenderer: { captionTracks: [track('vid3')] } } },
+          vid4: { playabilityStatus: { status: 'OK', playableInEmbed: false }, videoDetails: details('vid4'), captions: { playerCaptionsTracklistRenderer: { captionTracks: [track('vid4')] } } },
+        };
+        if (!answers[id]) { res.writeHead(404); res.end(); return; }
+        res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify(answers[id]));
+      });
+      return;
+    }
+    if (req.url.startsWith('/api/timedtext')) {
+      const q = Object.fromEntries(new URL(req.url, 'http://x').searchParams);
+      capCalls.push(q);
+      res.writeHead(200, { 'content-type': 'application/json' });
+      if (q.v === 'vid3') { res.end(''); return; }
+      res.end(JSON.stringify({ events: [{ tStartMs: 0, segs: [{ utf8: 'Water boils at 100 degrees Celsius at sea level.' }] }, { tStartMs: 4000, segs: [{ utf8: 'The Eiffel Tower stands about' }, { utf8: ' 330 metres tall.' }] }] }));
+      return;
+    }
+    if (req.url.startsWith('/thumb-')) { res.writeHead(200, { 'content-type': 'image/png' }); res.end(Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=', 'base64')); return; }
     res.writeHead(404); res.end();
   });
   await new Promise((r) => site.listen(SITE, r));
   const mock = start([path.join(root, 'scripts', 'mock-openai.js')], { MOCK_PORT: String(MOCK2), MOCK_SPEED: '0.2' });
   await wait(`http://localhost:${MOCK2}/v1/mock/stats`, 15000, { anyResponse: true });
-  const server = start([path.join(root, 'server', 'index.js')], { PORT: String(PORT2), OPENAI_BASE_URL: `http://localhost:${MOCK2}/v1`, OPENAI_API_KEY: KEY, CIVIC_IMAGE_ENABLED: 'false', CIVIC_LEDGER_FILE: path.join(os.tmpdir(), 'civic-verify-ledger.jsonl'), CIVIC_ALLOW_PRIVATE_URLS: 'true', CIVIC_ERROR_LOG: path.join(os.tmpdir(), `civic-verify-link-errors-${Date.now()}.log`) });
+  const server = start([path.join(root, 'server', 'index.js')], { PORT: String(PORT2), OPENAI_BASE_URL: `http://localhost:${MOCK2}/v1`, OPENAI_API_KEY: KEY, CIVIC_IMAGE_ENABLED: 'false', CIVIC_LEDGER_FILE: path.join(os.tmpdir(), 'civic-verify-ledger.jsonl'), CIVIC_ALLOW_PRIVATE_URLS: 'true', CIVIC_YOUTUBE_BASE: `http://localhost:${SITE}`, CIVIC_ERROR_LOG: path.join(os.tmpdir(), `civic-verify-link-errors-${Date.now()}.log`) });
   await wait(`http://localhost:${PORT2}/api/health`);
   const base = `http://localhost:${PORT2}`;
   const read = async (url, { signal } = {}) => { const t0 = Date.now(); const r = await fetch(`${base}/api/read-url`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ url }), signal }); return { status: r.status, ms: Date.now() - t0, body: await r.json().catch(() => null) }; };
@@ -739,6 +772,23 @@ async function linkChecks() {
     check('a wall said in the prose ("to continue reading") marks the page the same way without any marker', cues.status === 200 && cues.body?.wall === true, JSON.stringify(cues.body).slice(0, 200));
     const plain = await read(`http://localhost:${SITE}/page`);
     check('a page without a wall is not marked', plain.status === 200 && plain.body?.wall === false, JSON.stringify(plain.body).slice(0, 120));
+    // A YouTube video: the transcript through the player API, asked as the Android app asks (the web
+    // player's caption addresses answer empty to a server since 2026), and the video for the page's box.
+    const yt = await read('https://www.youtube.com/watch?v=vid1');
+    const playerCall = ytCalls.find((c) => c.videoId === 'vid1');
+    const capCall = capCalls.find((c) => c.v === 'vid1');
+    check('a YouTube link reads its transcript through the player API, asked as the Android app asks with the page\'s own key, the manual English track in json3',
+      yt.status === 200 && yt.body?.kind === 'youtube' && yt.body?.title === 'A talk on water' && yt.body?.author === 'The Stand-in Channel' && /Water boils at 100 degrees Celsius at sea level\.\nThe Eiffel Tower stands about 330 metres tall\./.test(yt.body?.text || '') && playerCall?.client?.clientName === 'ANDROID' && playerCall?.key === 'standin-key' && /android/i.test(playerCall?.ua || '') && capCall?.fmt === 'json3' && capCall?.kind === undefined, JSON.stringify({ body: yt.body, playerCall, capCall }).slice(0, 500));
+    check('the answer carries the video for the page\'s box: embeddable, its length and its thumbnails',
+      yt.body?.video?.id === 'vid1' && yt.body?.video?.embeddable === true && yt.body?.video?.lengthSeconds === 61 && yt.body?.video?.thumbnails?.length === 2 && yt.body?.video?.thumbnails[0]?.width === 320, JSON.stringify(yt.body?.video));
+    const blocked = await read('https://youtu.be/vid2');
+    const blockedRec = (await failures()).find((f) => /LOGIN_REQUIRED/.test(f.detail || ''));
+    check('a video YouTube keeps from the address (sign in to confirm you are not a bot) gets the plain sentence, and the record says why',
+      blocked.status === 400 && blocked.body?.error?.code === 'url_no_transcript' && /^YouTube did not let CIVIC read this video from here\./.test(blocked.body?.error?.message || '') && Boolean(blockedRec), JSON.stringify({ body: blocked.body, blockedRec }));
+    const empty = await read('https://www.youtube.com/watch?v=vid3');
+    check('an empty caption track gets the same sentence', empty.status === 400 && empty.body?.error?.code === 'url_no_transcript' && /^YouTube did not let CIVIC read this video from here\./.test(empty.body?.error?.message || ''), JSON.stringify(empty.body));
+    const policy = (await fetch(`${base}/`)).headers.get('content-security-policy') || '';
+    check('the page\'s security policy admits the player and the thumbnails', /frame-src https:\/\/www\.youtube-nocookie\.com/.test(policy) && /img-src[^;]*https:\/\/\*\.ytimg\.com/.test(policy), policy);
     const shell = await read(`http://localhost:${SITE}/shell`);
     check('a page with no paragraph of prose is a shell: named, with what to do',
       shell.status === 400 && shell.body?.error?.code === 'url_shell' && /builds this page in the browser/.test(shell.body?.error?.message || ''), JSON.stringify(shell.body));

@@ -156,6 +156,19 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
   copy the article's text and paste it here.") and does not start the run by itself; the next press
   runs it. A marked page with no paragraph of prose keeps the paywall sentence; 402 too. Guard: the
   paywall checks updated plus a no-prose teaser check and an unmarked-page check.
+- **19 September, 21:30 UTC: YouTube again, and the video in the picture's box.** On the address a
+  YouTube link failed with "caption track came back empty" (the track found on the watch page answers
+  an empty body) or "no caption track": since 2026 the web player's caption files need a
+  proof-of-origin token only a browser can make. Now the transcript comes through the player API as
+  the Android app asks it (youtubei/v1/player, the watch page's own INNERTUBE_API_KEY, the caption
+  file in json3), with the playability status read (LOGIN_REQUIRED and the like → "YouTube did not
+  let CIVIC read this video from here. Paste the transcript text instead.", the reason on /check).
+  The answer carries the video (embeddable, length, thumbnails); the page shows the player in the
+  picture's box (an iframe on youtube-nocookie.com, 320 by 180 beside the steps, full width on a
+  phone) or the thumbnail with a link when embedding is not allowed; no picture is generated for a
+  video. The security policy admits frame-src youtube-nocookie.com and img-src *.ytimg.com. The
+  guard stands in for YouTube (CIVIC_YOUTUBE_BASE). Caveat: YouTube blocks some cloud addresses
+  outright; the live probe after the deploy is the proof.
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 

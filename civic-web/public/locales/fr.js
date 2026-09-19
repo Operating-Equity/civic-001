@@ -184,7 +184,7 @@ export default {
     generic: 'Une erreur est survenue : {message}',
     file: 'Ce fichier n\'a pas pu être lu : {message}',
   },
-  echo: { alt: 'Illustration symbolique du document', making: 'Composition du cadre…' },
+  echo: { alt: 'Illustration symbolique du document', making: 'Composition du cadre…', video: 'La vidéo à l\'épreuve' },
   time: { seconds_one: '{n} seconde', seconds_other: '{n} secondes', minutes: '{m} min {s} s' },
   footer: { service: 'Un service de' },
 };

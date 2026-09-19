@@ -184,7 +184,7 @@ export default {
     generic: 'Etwas ist schiefgelaufen: {message}',
     file: 'Diese Datei konnte nicht gelesen werden: {message}',
   },
-  echo: { alt: 'Symbolische Illustration des Dokuments', making: 'Der Bildausschnitt entsteht…' },
+  echo: { alt: 'Symbolische Illustration des Dokuments', making: 'Der Bildausschnitt entsteht…', video: 'Das geprüfte Video' },
   time: { seconds_one: '{n} Sekunde', seconds_other: '{n} Sekunden', minutes: '{m} Min {s} s' },
   footer: { service: 'Ein Dienst von' },
 };

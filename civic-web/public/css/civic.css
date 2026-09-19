@@ -245,6 +245,12 @@ body {
 @keyframes focus { from { filter: blur(18px); opacity: .2; transform: scale(1.04); } to { filter: blur(0); opacity: 1; transform: none; } }
 .echo-shimmer { position: absolute; inset: 0; display: grid; place-items: end start; padding: 12px; font-size: 12.5px; color: var(--ink-2); background: linear-gradient(120deg, rgba(255,255,255,.25) 30%, rgba(255,255,255,.75) 50%, rgba(255,255,255,.25) 70%); background-size: 220% 100%; animation: shimmer 1.8s linear infinite; }
 @keyframes shimmer { from { background-position: 120% 0; } to { background-position: -120% 0; } }
+/* A video source: its player, or its thumbnail, in a 16:9 box of 320 by 180 beside the steps (the
+   operator's choice of 19 September: the row keeps its depth; fullscreen is one press on the player). */
+.rail--video { grid-template-columns: 1fr 320px; }
+.rail--video .echo-frame { flex: none; aspect-ratio: 16 / 9; background: #000; }
+.echo-frame .echo-video { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; display: block; }
+.echo-frame a.echo-video img { width: 100%; height: 100%; object-fit: cover; display: block; }
 
 /* claims */
 .claims { padding: 18px 22px 20px; }
@@ -424,6 +430,8 @@ body {
   /* One column: nothing beside the picture sets its depth, so it keeps the frame's own proportion. */
   .echo { max-width: 220px; }
   .echo-frame { flex: none; aspect-ratio: 2 / 3; }
+  .rail--video .echo { max-width: 360px; }
+  .rail--video .echo-frame { aspect-ratio: 16 / 9; }
   .scoreboard { grid-template-columns: repeat(3, 1fr); gap: 8px 10px; padding: 10px 14px; }
   .score { flex-direction: column; align-items: flex-start; gap: 2px; }
   .score-l { font-size: 11px; letter-spacing: .04em; }
