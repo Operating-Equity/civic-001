@@ -133,12 +133,14 @@ read, its host and the seconds tick under the box, and a read that fails keeps i
 
 Many news sites keep their text from a server. Probed from the service on 18 September: seven of
 twelve major sites refuse a server within a second (NYT, Reuters, AP, WSJ, Bloomberg, Politico, the
-Economist), the Washington Post never answers the connection, the Atlantic answers with an empty
-shell, and four give their text (BBC, CNN, CNBC, the Guardian). Each case is named to the reader by
-the site, with what to do (copy the article's text and paste it): a refusal at the door (401, 403,
-429); silence (the connection attempt gets no answer: found in ten seconds through the connector's
-own timeout, remembered until the service restarts so the next reader is told at once, re-checked
-in the background whenever it is asked for again, and listed on /check); a paywall (the page marks
+Economist), the Washington Post takes the connection and never answers the request, the Atlantic
+answers with an empty shell, and four give their text (BBC, CNN, CNBC, the Guardian). Each case is
+named to the reader by the site, with what to do (copy the article's text and paste it): a refusal
+at the door (401, 403, 429); silence (no answer to the connection attempt, or none to the request
+once connected: either is found in the platform's own ten seconds, undici's connect timeout and its
+headers timeout set to the same figure in server/http.js, never the operating system's minute;
+remembered until the service restarts so the next reader is told at once, re-checked in the
+background whenever it is asked for again, and listed on /check); a paywall (the page marks
 the article as not free with the schema.org flag Google News reads, or its prose says so at the
 wall, or it answers 402): nothing is tested, whatever the site sent, the operator's rule; a shell
 (no paragraph of prose, under 200 characters at most). The page's sentences are in four languages.

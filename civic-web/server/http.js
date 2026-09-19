@@ -20,11 +20,16 @@ export const openaiAgent = new Agent({
 /** fetch bound to that connection. The SDK is given this, so every request to OpenAI uses it. */
 export const openaiFetch = (url, init = {}) => undiciFetch(url, { ...init, dispatcher: openaiAgent });
 
-/** The connection to other people's sites, for the link reader. undici's own connect timeout, ten
- *  seconds, made effective here: through the global fetch a site that drops the connection attempt
- *  (the Washington Post does, for cloud servers) was found only at the operating system's own limit,
- *  about 71 seconds. Nothing else is limited: a slow page still takes as long as it takes. */
-export const siteAgent = new Agent({ connect: { timeout: 10 * 1000 } });
+/** The connection to other people's sites, for the link reader. A site can keep two silences: it
+ *  can leave the connection attempt unanswered, and it can take the connection and the request and
+ *  send nothing back. The Washington Post's servers keep the second for a cloud address: the
+ *  connection and the handshake go through, then the request is never answered, and the operating
+ *  system reported that after about 71 seconds (ETIMEDOUT read). Both silences are found in the
+ *  platform's own ten seconds, the operator's figure: undici's connect timeout for the first and its
+ *  headers timeout, set to the same ten seconds, for the second. Nothing else is limited: a page
+ *  that has begun to answer takes as long as it takes. */
+export const SITE_SILENCE_MS = 10 * 1000;
+export const siteAgent = new Agent({ connect: { timeout: SITE_SILENCE_MS }, headersTimeout: SITE_SILENCE_MS });
 export const siteFetch = (url, init = {}) => undiciFetch(url, { ...init, dispatcher: siteAgent });
 
 /** The largest delay a timer accepts (about 24.8 days), for a library that insists on one. */

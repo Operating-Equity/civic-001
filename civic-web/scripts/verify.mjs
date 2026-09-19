@@ -734,10 +734,10 @@ async function linkChecks() {
     const page = await read(`http://localhost:${SITE}/page`);
     check('an ordinary page with prose and no wall still reads', page.status === 200 && page.body?.chars > 100, JSON.stringify(page.body?.chars));
 
-    // A silent site: a listener whose queue is full and whose process is blocked never completes
-    // the handshake, so the connection attempt gets no answer at all, as the Washington Post's
-    // servers give a cloud address. Found in about ten seconds (the connector's own timeout, made
-    // effective), remembered, and answered at once the second time.
+    // A silent site, first face: a listener whose queue is full and whose process is blocked never
+    // completes the handshake, so the connection attempt gets no answer at all. Found in about ten
+    // seconds (the connector's own timeout, made effective), remembered, and answered at once the
+    // second time.
     const SILENT = PORT + 22;
     const holder = spawn(process.execPath, ['-e', `const net = require('node:net'); const s = net.createServer(); s.listen(${SILENT}, '127.0.0.1', 1, () => { process.send('up'); Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 120000); });`], { stdio: ['ignore', 'ignore', 'ignore', 'ipc'] });
     await new Promise((r) => holder.on('message', r));
@@ -755,6 +755,23 @@ async function linkChecks() {
       silent2.status === 400 && silent2.body?.error?.code === 'url_silent' && silent2.ms < 1500 && listed.includes('127.0.0.1'), JSON.stringify({ ms: silent2.ms, code: silent2.body?.error?.code, listed }));
     for (const c of fillers) { try { c.destroy(); } catch {} }
     try { holder.kill('SIGKILL'); } catch {}
+
+    // Second face, the Washington Post's for a cloud address: the connection and the request go
+    // through and nothing ever comes back. Found in the same ten seconds (the headers timeout set
+    // to the platform's figure), not the operating system's minute; remembered the same way.
+    const MUTE = PORT + 23;
+    const mute = net.createServer(() => {}); // takes every connection and never writes a byte (its own host, so the first face's memory of 127.0.0.1 does not answer for it)
+    await new Promise((r) => mute.listen(MUTE, '127.0.0.2', r));
+    const muteAc = new AbortController();
+    const muteTimer = setTimeout(() => muteAc.abort(), 40000);
+    const mute1 = await read(`http://127.0.0.2:${MUTE}/`, { signal: muteAc.signal }).catch((e) => ({ status: 'aborted', ms: 40000, body: { error: { message: e.message } } }));
+    clearTimeout(muteTimer);
+    const muteRec = (await failures()).find((f) => f.where === 'server:POST /api/read-url' && /HEADERS_TIMEOUT/.test(f.detail || ''));
+    check('a site that takes the request and never answers it is found in about ten seconds too, named with what to do, and the record says which silence',
+      mute1.status === 400 && mute1.body?.error?.code === 'url_silent' && mute1.ms >= 9000 && mute1.ms < 30000 && /does not let CIVIC read its pages from here/.test(mute1.body?.error?.message || '') && Boolean(muteRec), JSON.stringify({ status: mute1.status, ms: mute1.ms, body: mute1.body, detail: muteRec?.detail }));
+    const mute2 = await read(`http://127.0.0.2:${MUTE}/`);
+    check('that site is remembered as well: the next read answers at once', mute2.status === 400 && mute2.body?.error?.code === 'url_silent' && mute2.ms < 1500, JSON.stringify({ ms: mute2.ms, code: mute2.body?.error?.code }));
+    mute.close();
 
     const before = (await failures()).length;
     const ac = new AbortController();

@@ -129,6 +129,15 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
   flag Google News reads, a wall phrase in the prose, or 402; nothing tested whatever the site
   sent, the operator's rule), shell (no paragraph of prose, under 200 characters). Guard: six more
   checks in the link section, the silent site simulated with a listener whose queue is full.
+- **19 September, 00:30 UTC: the second silence.** Live, the Post's first read still took 72 s
+  after PR #39 (a connection attempt before the fetch): the cause was `ETIMEDOUT read`, so the
+  connection and the handshake go through and it is the request that is never answered; the
+  client's connect timeout had nothing to catch. Now the site agent's headers timeout is the same
+  ten seconds (`SITE_SILENCE_MS` in server/http.js, the operator's figure), `UND_ERR_HEADERS_TIMEOUT`
+  counts as silence, and the pre-fetch connection attempt of #39 is gone (undici's own connect
+  timeout covers that face; the guard proves both faces: a listener whose queue is full, and one
+  that takes every connection and never writes). Expected live: the Post found silent in about
+  ten seconds on the first read, at once on the second.
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 
