@@ -87,17 +87,6 @@ export function looksLikeUrl(s) {
   return /^[a-z0-9-]+(\.[a-z0-9-]+)+(\/[^\s]*)?$/i.test(v) && /\.[a-z]{2,}/i.test(v);
 }
 
-/** A link from a Google app carries a token, not the article's address; the page says so at once. */
-export function appLink(s) {
-  const v = String(s || '').trim();
-  let u;
-  try { u = new URL(/^https?:\/\//i.test(v) ? v : `https://${v}`); } catch { return false; }
-  const host = u.hostname.replace(/^www\./, '').toLowerCase();
-  const open = /^https?:\/\//i.test(u.searchParams.get('q') || u.searchParams.get('url') || '');
-  if (host === 'google.com' && (u.pathname === '/goto' || (u.pathname === '/url' && !open))) return true;
-  return host === 'news.google.com' && /^\/(articles|read|rss\/articles)\//.test(u.pathname);
-}
-
 export async function parseFile(file, { signal } = {}) {
   const form = new FormData();
   form.append('file', file, file.name);
