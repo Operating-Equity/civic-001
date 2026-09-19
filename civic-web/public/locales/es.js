@@ -8,6 +8,7 @@ export default {
     readingUrl: 'Leyendo {host}…',
     readingUrlTime: 'Leyendo {host} · {time}',
     readUrl: 'Leído {title} · {n} caracteres',
+    markedWall: '{site} marca este artículo como para suscriptores; esto es lo que envió. Si es el artículo completo, pulsa {button}. Si no, copia el texto del artículo y pégalo aquí.',
     autoCaptions: 'Este vídeo no tenía transcripción escrita, así que se usaron los subtítulos automáticos de YouTube. Contienen errores de transcripción.',
     upload: 'Subir un documento',
     uploadHint: '.txt, .md, .pdf, .docx',

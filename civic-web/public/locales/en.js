@@ -9,6 +9,7 @@ export default {
     readingUrl: 'Reading {host}…',
     readingUrlTime: 'Reading {host} · {time}',
     readUrl: 'Read {title} · {n} characters',
+    markedWall: '{site} marks this article as for subscribers; this is what it sent. If it is the whole article, press {button}. If not, copy the article\'s text and paste it here.',
     autoCaptions: 'This video had no written transcript, so YouTube\'s automatic captions were used. They contain transcription errors.',
     upload: 'Upload a document',
     uploadHint: '.txt, .md, .pdf, .docx',

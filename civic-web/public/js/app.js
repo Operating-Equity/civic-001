@@ -306,6 +306,14 @@ async function readLinkIntoBox(url) {
     state.sourceLink = { url: got.url, title: got.title || host, kind: got.kind };
     state.sourceMeta = { kind: 'link', url: got.url, title: got.title || host, author: got.author || '', published: got.published || '', site: got.site || host };
     state.loadedText = got.text;
+    if (got.wall) {
+      // The site marks the article as for subscribers and sent this text: it is in the box, and the
+      // reader decides whether it is the whole article; the run waits for the next press.
+      const sentence = t('intake.markedWall', { site: got.site || host, button: t('intake.run') });
+      ui.sourceMeta.textContent = sentence;
+      toast(sentence, { ms: 12000 });
+      return false;
+    }
     ui.sourceMeta.textContent = t('intake.readUrl', { title: got.title || host, n: fmtNumber(got.chars) });
     if (got.note === 'automatic_captions') toast(t('intake.autoCaptions'), { ms: 7000 });
     return true;

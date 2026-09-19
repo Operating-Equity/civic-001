@@ -693,8 +693,9 @@ async function linkChecks() {
     const head = (title) => `<head><title>${title}</title><meta property="og:site_name" content="The Daily Stand-in">`;
     const prose = (n) => `<p>${'Water boils at 100 degrees Celsius at sea level, and the Eiffel Tower stands about 330 metres tall. '.repeat(n)}</p>`;
     if (req.url.startsWith('/refuse')) { res.writeHead(403, { 'content-type': 'text/html' }); res.end('<html><body>Forbidden</body></html>'); return; }
+    if (req.url.startsWith('/paywalled-teaser')) { res.writeHead(200, { 'content-type': 'text/html' }); res.end(`<html>${head('Behind the wall')}${marker}</head><body><article>${prose(1)}<div class="paywall"><p>Subscribe to continue reading.</p></div></article></body></html>`); return; }
     if (req.url.startsWith('/paywalled-full')) { res.writeHead(200, { 'content-type': 'text/html' }); res.end(`<html>${head('Behind the wall')}${marker}</head><body><article>${prose(3)}${prose(3)}${prose(3)}</article></body></html>`); return; }
-    if (req.url.startsWith('/paywalled')) { res.writeHead(200, { 'content-type': 'text/html' }); res.end(`<html>${head('Behind the wall')}${marker}</head><body><article>${prose(2)}<div class="paywall"><p>Subscribe to continue reading.</p></div></article></body></html>`); return; }
+    if (req.url.startsWith('/paywalled')) { res.writeHead(200, { 'content-type': 'text/html' }); res.end(`<html>${head('Behind the wall')}${marker}</head><body><article>${prose(3)}<div class="paywall"><p>Subscribe to continue reading.</p></div></article></body></html>`); return; } // a paragraph of prose (three sentences, past the 200-character line) before the wall
     if (req.url.startsWith('/cues')) { res.writeHead(200, { 'content-type': 'text/html' }); res.end(`<html>${head('At the wall')}</head><body><article>${prose(3)}<p>To continue reading, subscribe today.</p></article></body></html>`); return; }
     if (req.url.startsWith('/shell')) { res.writeHead(200, { 'content-type': 'text/html' }); res.end(`<html>${head('A shell')}</head><body><nav><a href="/">Home</a></nav><div><span>Menu</span> <span>Search</span> <span>Sign in</span></div></body></html>`); return; }
     res.writeHead(404); res.end();
@@ -726,15 +727,18 @@ async function linkChecks() {
     const refused = await read(`http://localhost:${SITE}/refuse`);
     check('a site that refuses the request is named, with what to do, and nothing of the status reaches the reader',
       refused.status === 400 && refused.body?.error?.code === 'url_refused' && refused.body?.error?.site === 'localhost' && /^localhost does not let CIVIC read its pages from here\./.test(refused.body?.error?.message || '') && !/40[13]/.test(refused.body?.error?.message || ''), JSON.stringify(refused.body));
-    const walled = await read(`http://localhost:${SITE}/paywalled`);
-    check('a page marked as not free (the flag Google News reads) is a paywall: the site is named by its own name, nothing is tested',
-      walled.status === 400 && walled.body?.error?.code === 'url_paywall' && walled.body?.error?.site === 'The Daily Stand-in' && /^The Daily Stand-in keeps this article behind its paywall/.test(walled.body?.error?.message || ''), JSON.stringify(walled.body));
+    const teaser = await read(`http://localhost:${SITE}/paywalled-teaser`);
+    check('a page marked as not free (the flag Google News reads) that sent no paragraph of prose is a paywall: the site is named by its own name, nothing is tested',
+      teaser.status === 400 && teaser.body?.error?.code === 'url_paywall' && teaser.body?.error?.site === 'The Daily Stand-in' && /^The Daily Stand-in keeps this article behind its paywall/.test(teaser.body?.error?.message || ''), JSON.stringify(teaser.body));
     const walledFull = await read(`http://localhost:${SITE}/paywalled-full`);
-    check('the same when the site sent the whole text anyway (the operator\'s rule: the reader is asked for the text)',
-      walledFull.status === 400 && walledFull.body?.error?.code === 'url_paywall', JSON.stringify(walledFull.body));
+    check('a marked page that sent its prose comes back marked, for the reader to decide (the operator\'s rule of 19 September)',
+      walledFull.status === 200 && walledFull.body?.wall === true && walledFull.body?.title === 'Behind the wall' && walledFull.body?.site === 'The Daily Stand-in' && walledFull.body?.chars > 100, JSON.stringify(walledFull.body).slice(0, 200));
+    const walled = await read(`http://localhost:${SITE}/paywalled`);
+    check('the same for a marked page with a paragraph of prose before its wall', walled.status === 200 && walled.body?.wall === true && walled.body?.chars > 100, JSON.stringify(walled.body).slice(0, 200));
     const cues = await read(`http://localhost:${SITE}/cues`);
-    check('a wall said in the prose ("to continue reading") counts as a paywall without any marker',
-      cues.status === 400 && cues.body?.error?.code === 'url_paywall', JSON.stringify(cues.body));
+    check('a wall said in the prose ("to continue reading") marks the page the same way without any marker', cues.status === 200 && cues.body?.wall === true, JSON.stringify(cues.body).slice(0, 200));
+    const plain = await read(`http://localhost:${SITE}/page`);
+    check('a page without a wall is not marked', plain.status === 200 && plain.body?.wall === false, JSON.stringify(plain.body).slice(0, 120));
     const shell = await read(`http://localhost:${SITE}/shell`);
     check('a page with no paragraph of prose is a shell: named, with what to do',
       shell.status === 400 && shell.body?.error?.code === 'url_shell' && /builds this page in the browser/.test(shell.body?.error?.message || ''), JSON.stringify(shell.body));
