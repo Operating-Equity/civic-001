@@ -145,7 +145,10 @@ headers timeout set to the same figure in server/http.js, never the operating sy
 remembered until the service restarts so the next reader is told at once, re-checked in the
 background whenever it is asked for again, and listed on /check); a paywall (the page marks
 the article as not free with the schema.org flag Google News reads, or its prose says so at the
-wall, or it answers 402): nothing is tested, whatever the site sent, the operator's rule; a shell
+wall, or it answers 402): when the page sent no paragraph of prose, the sentence; when it sent prose,
+the text goes into the box marked, with the sentence that the site marks the article as for
+subscribers, and the reader decides whether it is the whole article before pressing the button
+(the operator's rule of 19 September; the run does not start by itself in this one case); a shell
 (no paragraph of prose, under 200 characters at most). The page's sentences are in four languages.
 
 Nothing is summarised, shortened or rewritten. When a video has no written transcript, YouTube's

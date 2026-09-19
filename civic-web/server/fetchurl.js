@@ -388,13 +388,14 @@ export async function readUrl(rawUrl, { signal } = {}) {
           continue;
         }
       }
-      if (!text) throw siteError('url_shell', name);
-      // The site says the article is not free (the schema.org flag Google News reads), or its prose
-      // says so at the wall: nothing is tested, whatever the site sent (the operator's rule).
-      if (notFree || WALL_PHRASES.test(text)) throw siteError('url_paywall', name);
-      // A page with no paragraph of prose is a shell built by scripts, not an article.
-      if (longest < 200) throw siteError('url_shell', name);
-      return { kind: 'page', title: title || finalUrl.hostname, author, published, site: name, text, url: finalUrl.toString(), note: null };
+      // The site marks the article as not free (the schema.org flag Google News reads), or its prose
+      // says so at the wall. When no paragraph of prose came, the wall kept the text: the paywall
+      // sentence. When prose came, the text is returned marked (`wall`), and the reader decides whether
+      // it is the whole article (the operator's rule of 19 September). Without a wall, a page with no
+      // paragraph of prose is a shell built by scripts, not an article.
+      const wall = notFree || WALL_PHRASES.test(text);
+      if (!text || longest < 200) throw siteError(wall ? 'url_paywall' : 'url_shell', name);
+      return { kind: 'page', title: title || finalUrl.hostname, author, published, site: name, text, url: finalUrl.toString(), note: null, wall };
     }
 
     if (type.startsWith('text/') || type.includes('json')) {

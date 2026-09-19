@@ -147,6 +147,15 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
   prose that carries a meta refresh is followed like a redirect (the hop limit shared). Guard: the
   two refusal checks replaced by three (a goto-shaped link read where it leads, a meta refresh
   followed, a meta refresh loop ended).
+- **19 September, 20:30 UTC: a marked article whose text arrived is shown.** With the Google link
+  resolving (Google sent the server to the CNN article in 712 ms), the read stopped at CNN's subscriber
+  marker under release E's rule although CNN sent the whole text (a metered wall). The operator
+  chose: show the text and decide. A marked page with a paragraph of prose comes back with `wall:
+  true`; the page puts the text in the box with `intake.markedWall` ("{site} marks this article as
+  for subscribers; this is what it sent. If it is the whole article, press Test the facts. If not,
+  copy the article's text and paste it here.") and does not start the run by itself; the next press
+  runs it. A marked page with no paragraph of prose keeps the paywall sentence; 402 too. Guard: the
+  paywall checks updated plus a no-prose teaser check and an unmarked-page check.
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 
