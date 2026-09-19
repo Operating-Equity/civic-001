@@ -186,7 +186,7 @@ export default {
     generic: 'Something went wrong: {message}',
     file: 'That file could not be read: {message}',
   },
-  echo: { alt: 'Symbolic illustration of the document', making: 'Composing the frame…' },
+  echo: { alt: 'Symbolic illustration of the document', making: 'Composing the frame…', video: 'The video under test' },
   time: { seconds_one: '{n} second', seconds_other: '{n} seconds', minutes: '{m} min {s} s' },
   footer: { service: 'As a service of' },
 };

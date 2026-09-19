@@ -184,7 +184,7 @@ export default {
     generic: 'Algo salió mal: {message}',
     file: 'No se pudo leer ese archivo: {message}',
   },
-  echo: { alt: 'Ilustración simbólica del documento', making: 'Componiendo el encuadre…' },
+  echo: { alt: 'Ilustración simbólica del documento', making: 'Componiendo el encuadre…', video: 'El vídeo a prueba' },
   time: { seconds_one: '{n} segundo', seconds_other: '{n} segundos', minutes: '{m} min {s} s' },
   footer: { service: 'Un servicio de' },
 };
