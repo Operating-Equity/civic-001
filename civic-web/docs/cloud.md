@@ -138,6 +138,15 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
   timeout covers that face; the guard proves both faces: a listener whose queue is full, and one
   that takes every connection and never writes). Expected live: the Post found silent in about
   ten seconds on the first read, at once on the second.
+- **19 September, 01:40 UTC: no link is refused by its shape.** The operator's rule: apply the same
+  test to every link instead of assuming a Google app link cannot work (it can: Google resolves
+  `goto?url=<token>` for any client, as a fetch of the operator's second link from outside Render
+  showed, landing on a CNN article). The refusal of Google app links on the page and the server is
+  gone; a Google link is tried like any other and, if google.com stays silent for the address, gets
+  the same sentence as any other silent site in ten seconds and at once thereafter. A page with no
+  prose that carries a meta refresh is followed like a redirect (the hop limit shared). Guard: the
+  two refusal checks replaced by three (a goto-shaped link read where it leads, a meta refresh
+  followed, a meta refresh loop ended).
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 

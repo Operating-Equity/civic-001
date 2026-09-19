@@ -175,7 +175,6 @@ export default {
     rate: 'CIVIC está ocupado. Inténtalo de nuevo en un momento.',
     checkLink: '¿Por qué ha ocurrido?',
     url: 'No se pudo leer ese enlace: {message}',
-    appLink: 'Este es un enlace de una aplicación de Google y no lleva la dirección propia del artículo. Abre el artículo, copia la dirección de la barra de direcciones y pégala aquí, o pega el texto del artículo.',
     siteRefused: '{site} no permite que CIVIC lea sus páginas desde aquí. Si puedes abrir el artículo, copia su texto y pégalo aquí.',
     sitePaywall: '{site} mantiene este artículo tras su muro de pago, así que CIVIC no puede leerlo desde aquí. Si estás suscrito, copia el texto del artículo y pégalo aquí.',
     siteShell: '{site} construye esta página en el navegador, así que a CIVIC no le llegó texto legible. Copia el texto del artículo y pégalo aquí.',
