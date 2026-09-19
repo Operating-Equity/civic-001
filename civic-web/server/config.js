@@ -76,6 +76,7 @@ export const config = {
   // tested. Never enable on a public server; it would let a stranger aim the reader at your network.
   allowPrivateUrls: bool('CIVIC_ALLOW_PRIVATE_URLS', false),
   youtubeBase: env('CIVIC_YOUTUBE_BASE', 'https://www.youtube.com'), // the guard stands in for YouTube with this
+  youtubeClients: list('CIVIC_YOUTUBE_CLIENTS', 'ANDROID,TVHTML5,WEB_EMBEDDED_PLAYER,ANDROID_VR,IOS'), // the doors of YouTube's player, asked in this order
   maxSourceChars: int('CIVIC_MAX_SOURCE_CHARS', 0),
   allowSourceTruncation: bool('CIVIC_ALLOW_SOURCE_TRUNCATION', false),
   maxClaims: 10, // the automatic run; claims beyond wait for the reader's selection (operator's rule, ten since 17 September)

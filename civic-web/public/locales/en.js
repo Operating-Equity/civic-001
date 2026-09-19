@@ -181,6 +181,7 @@ export default {
     siteRefused: '{site} does not let CIVIC read its pages from here. If you can open the article, copy its text and paste it here.',
     sitePaywall: '{site} keeps this article behind its paywall, so CIVIC cannot read it here. If you subscribe, copy the article\'s text and paste it here.',
     siteShell: '{site} builds this page in the browser, so no readable text reached CIVIC. Copy the article\'s text and paste it here.',
+    videoWall: 'YouTube would not show this video\'s captions to CIVIC\'s server without a sign-in, as it does for some videos. Open the video on YouTube, choose Show transcript under the description, copy the text and paste it here.',
     keyUnusable: 'CIVIC cannot run right now. The operator needs to look at it.',
     sourceTooLong: 'This document is too long to test in one run.',
     generic: 'Something went wrong: {message}',

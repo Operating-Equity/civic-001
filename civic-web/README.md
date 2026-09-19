@@ -156,9 +156,13 @@ automatic captions are used and the page says so, because they contain transcrip
 Captions carry no speaker labels, so a multi-speaker transcript arrives as continuous text.
 The track is read through YouTube's player API the way its Android app asks (since 2026 the web
 player's caption files answer empty to a server: they need a proof-of-origin token only a browser can
-make), with the public key the watch page itself embeds; nothing is configured. A video YouTube keeps
-from the server's address gets "YouTube did not let CIVIC read this video from here. Paste the
-transcript text instead." with the reason on /check. While a video's test runs, its player sits in
+make), with the public key and the visitor id the watch page itself embeds; nothing is configured.
+YouTube's player has several doors (the Android app's, the TV app's, the embedded player's, the VR
+app's, the iPhone app's) and guards them unevenly, so they are asked in turn (`CIVIC_YOUTUBE_CLIENTS`)
+until one answers with captions. A video shut at every door gets "YouTube would not show this video's
+captions to CIVIC's server without a sign-in, as it does for some videos. Open the video on YouTube,
+choose Show transcript under the description, copy the text and paste it here.", with each door's
+answer on /check; a video with no captions at an open door says so. While a video's test runs, its player sits in
 the picture's box (320 by 180 beside the steps, full width on a phone), or its thumbnail with a link
 when the owner allows no embedding; no picture is generated for a video. `CIVIC_YOUTUBE_BASE` lets
 the guard stand in for YouTube.

@@ -179,6 +179,7 @@ export default {
     siteRefused: '{site} ne laisse pas CIVIC lire ses pages d\'ici. Si vous pouvez ouvrir l\'article, copiez son texte et collez-le ici.',
     sitePaywall: '{site} garde cet article derrière son mur payant, et CIVIC ne peut donc pas le lire d\'ici. Si vous êtes abonné, copiez le texte de l\'article et collez-le ici.',
     siteShell: '{site} construit cette page dans le navigateur, et aucun texte lisible n\'est parvenu à CIVIC. Copiez le texte de l\'article et collez-le ici.',
+    videoWall: 'YouTube n\'a pas voulu montrer les sous-titres de cette vidéo au serveur de CIVIC sans connexion, comme il le fait pour certaines vidéos. Ouvrez la vidéo sur YouTube, choisissez Afficher la transcription sous la description, copiez le texte et collez-le ici.',
     keyUnusable: 'CIVIC ne peut pas fonctionner pour le moment. L\'opérateur doit s\'en occuper.',
     sourceTooLong: 'Ce document est trop long pour être testé en une seule fois.',
     generic: 'Une erreur est survenue : {message}',

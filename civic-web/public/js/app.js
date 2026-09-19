@@ -331,6 +331,7 @@ async function readLinkIntoBox(url) {
       url_silent: () => t('errors.siteRefused', { site }),
       url_paywall: () => t('errors.sitePaywall', { site }),
       url_shell: () => t('errors.siteShell', { site }),
+      url_video_wall: () => t('errors.videoWall'),
     }[code];
     const sentence = own ? own() : known.includes(code) ? err.message : t('errors.url', { message: err?.message || code });
     ui.sourceMeta.textContent = sentence; // stays under the box until the box changes; the toast passes
