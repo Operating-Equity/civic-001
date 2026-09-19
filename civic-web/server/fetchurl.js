@@ -10,7 +10,7 @@ import dns from 'node:dns/promises';
 import net from 'node:net';
 import { PDFParse } from 'pdf-parse';
 import { config } from './config.js';
-import { siteFetch } from './http.js';
+import { siteFetch, SITE_SILENCE_MS } from './http.js';
 
 const MAX_BYTES = 12 * 1024 * 1024;
 const UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125 Safari/537.36';
@@ -31,11 +31,12 @@ export const SITE_SENTENCES = {
 };
 const siteError = (code, site) => { const e = new UrlError(code, SITE_SENTENCES[code](site)); e.site = site; return e; };
 
-// A site that never answers the connection attempt is remembered until the service restarts, so
-// the next reader gets the sentence at once instead of the connect timeout; each such answer
+// A site that stays silent (no answer to the connection attempt, or no answer to the request once
+// connected; both found in the platform's ten seconds, http.js) is remembered until the service
+// restarts, so the next reader gets the sentence at once instead of the wait; each such answer
 // re-checks the site in the background with one attempt, and a site that answers is forgotten.
 const silentHosts = new Map(); // host → { at, cause, rechecking }
-const SILENT_CAUSES = /ETIMEDOUT|UND_ERR_CONNECT_TIMEOUT|EHOSTUNREACH|ENETUNREACH/;
+const SILENT_CAUSES = /ETIMEDOUT|UND_ERR_CONNECT_TIMEOUT|UND_ERR_HEADERS_TIMEOUT|EHOSTUNREACH|ENETUNREACH/;
 export function silentSites() { return [...silentHosts.entries()].map(([host, v]) => ({ host, at: v.at, cause: v.cause })); }
 export function forgetSilent(host) { silentHosts.delete(host); }
 function rememberSilent(host, cause) { silentHosts.set(host, { at: new Date().toISOString(), cause, rechecking: false }); }
@@ -84,30 +85,7 @@ async function assertPublic(urlString) {
   if (!config.allowPrivateUrls && addresses.some((a) => isPrivateAddress(a.address))) {
     throw new UrlError('url_private', 'That address points inside a private network, so it is not read.');
   }
-  resolved.set(url.hostname, addresses);
   return url;
-}
-
-// The addresses each host resolved to, for the connection attempt below.
-const resolved = new Map();
-const CONNECT_MS = 10 * 1000; // undici's own connect timeout, the platform's figure, made effective
-
-/** One connection attempt to each of the site's addresses at once. A site that answers none of them
- *  in the platform's own connect time is silent (the Washington Post's servers are, for a cloud
- *  address). A refusal or any other answer is left to the fetch itself. On Render the kernel's own
- *  connect timeout, about 71 seconds, came before the client's ten; this makes the ten count. */
-async function silentAt(url) {
-  const addresses = resolved.get(url.hostname) || (net.isIP(url.hostname) ? [{ address: url.hostname }] : []);
-  if (!addresses.length) return false;
-  const port = Number(url.port) || (url.protocol === 'https:' ? 443 : 80);
-  const outcomes = await Promise.all(addresses.map((a) => new Promise((resolve) => {
-    const socket = net.connect({ host: a.address, port });
-    const done = (outcome) => { socket.destroy(); resolve(outcome); };
-    socket.once('connect', () => done('answered'));
-    socket.once('error', () => done('answered')); // a refusal is an answer
-    socket.setTimeout(CONNECT_MS, () => done('silent'));
-  })));
-  return outcomes.every((o) => o === 'silent');
 }
 
 async function get(urlString, { accept, signal } = {}) {
@@ -118,7 +96,6 @@ async function get(urlString, { accept, signal } = {}) {
   let res;
   for (let hop = 0; ; hop++) {
     if (hop > 5) throw new UrlError('url_redirects', 'That address redirects too many times.');
-    if (await silentAt(url)) { rememberSilent(url.hostname, 'no answer to the connection'); const e = siteError('url_silent', siteName(url)); e.detail = `silent for ${CONNECT_MS} ms at every address`; throw e; }
     if (signal?.aborted) throw new Error('aborted');
     try {
       res = await siteFetch(url, {
@@ -128,12 +105,13 @@ async function get(urlString, { accept, signal } = {}) {
       });
     } catch (err) {
       if (signal?.aborted) throw err;
-      // Plain words for the reader; the cause (a code such as ECONNREFUSED or UND_ERR_CONNECT_TIMEOUT)
-      // goes to the failure record for the operator. A site that never answered the connection is
-      // remembered as silent.
+      // Plain words for the reader; the cause (a code such as ECONNREFUSED, UND_ERR_CONNECT_TIMEOUT or
+      // UND_ERR_HEADERS_TIMEOUT, with the syscall and address when the operating system reported it)
+      // goes to the failure record for the operator. A site that stayed silent, to the connection or
+      // to the request, is remembered as silent.
       const cause = [err?.cause?.code || err?.cause?.message || err?.message || 'no answer', err?.cause?.syscall, err?.cause?.address].filter(Boolean).join(' ');
       const site = siteName(url);
-      if (SILENT_CAUSES.test(String(cause))) { rememberSilent(url.hostname, String(cause)); const e = siteError('url_silent', site); e.detail = String(cause); throw e; }
+      if (SILENT_CAUSES.test(String(cause))) { rememberSilent(url.hostname, String(cause)); const e = siteError('url_silent', site); e.detail = `${cause} (silence limit ${SITE_SILENCE_MS} ms)`; throw e; }
       const e = new UrlError('url_unreachable', 'That address could not be reached.');
       e.detail = cause;
       throw e;
