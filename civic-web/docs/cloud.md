@@ -169,6 +169,15 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
   video. The security policy admits frame-src youtube-nocookie.com and img-src *.ytimg.com. The
   guard stands in for YouTube (CIVIC_YOUTUBE_BASE). Caveat: YouTube blocks some cloud addresses
   outright; the live probe after the deploy is the proof.
+- **19 September, 23:00 UTC: every door.** The operator's video (18adH9sRDAI) answered LOGIN_REQUIRED
+  ("Sign in to confirm you're not a bot") to the Android door from the address, three times, while
+  another video read in the same minute; the operator suspected their VPN, which plays no part (the
+  server asks YouTube, not the reader's browser). Now the player is asked door by door in the
+  operator's order (ANDROID, TVHTML5, WEB_EMBEDDED_PLAYER, ANDROID_VR, IOS; `CIVIC_YOUTUBE_CLIENTS`)
+  with the watch page's visitor id, until one opens with captions. All shut → `url_video_wall` with the
+  sentence pointing to YouTube's Show transcript panel, the record naming each door's answer; an open
+  door on a video with no captions → the no-captions sentence. Guard: vid2 shut to ANDROID and open to
+  TVHTML5, vid5 shut everywhere, vid6 open without captions.
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 

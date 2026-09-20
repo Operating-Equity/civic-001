@@ -243,12 +243,6 @@ export function youtubeId(url) {
   return m ? m[1] : null;
 }
 
-function captionTracksFrom(html) {
-  const m = html.match(/"captionTracks":(\[.*?\])/s);
-  if (!m) return [];
-  try { return JSON.parse(m[1].replace(/\\u0026/g, '&')); } catch { return []; }
-}
-
 /** Caption cues, from YouTube's JSON or its older XML. */
 export function captionLines(payload) {
   try {
@@ -275,25 +269,42 @@ export function joinCaptionLines(lines) {
   return out;
 }
 
-/** How the Android app asks YouTube's player API. Since 2026 the web player hands caption tracks only
- *  to a client that presents a proof-of-origin token, which needs a real browser: the caption addresses
- *  in a watch page's player data answer an empty body to a server. The Android client's do not. */
-const ANDROID_CLIENT = { name: 'ANDROID', version: '20.10.38', sdk: 34, ua: 'com.google.android.youtube/20.10.38 (Linux; U; Android 14) gzip' };
-const NO_TRANSCRIPT = 'YouTube did not let CIVIC read this video from here. Paste the transcript text instead.';
+/** YouTube's player has several doors, one for each kind of client, and it guards them unevenly: since
+ *  2026 the web player hands caption tracks only to a client that presents a proof-of-origin token (a
+ *  real browser), and for some videos it asks a data-centre address to sign in at one door while another
+ *  door opens. These are the doors, asked in the operator's order until one answers with captions. None
+ *  involves a key of the operator's: the web key and the visitor id come from the watch page itself. */
+const YOUTUBE_CLIENTS = {
+  ANDROID: { id: '3', context: { clientName: 'ANDROID', clientVersion: '20.10.38', androidSdkVersion: 34 }, ua: 'com.google.android.youtube/20.10.38 (Linux; U; Android 14) gzip' },
+  TVHTML5: { id: '7', context: { clientName: 'TVHTML5', clientVersion: '7.20250312.16.00' }, ua: 'Mozilla/5.0 (ChromiumStylePlatform) Cobalt/Version' },
+  WEB_EMBEDDED_PLAYER: { id: '56', context: { clientName: 'WEB_EMBEDDED_PLAYER', clientVersion: '1.20250310.01.00' }, ua: UA, thirdParty: { embedUrl: 'https://www.youtube.com/' } },
+  ANDROID_VR: { id: '28', context: { clientName: 'ANDROID_VR', clientVersion: '1.62.27', deviceMake: 'Oculus', deviceModel: 'Quest 3', androidSdkVersion: 32, osName: 'Android', osVersion: '12L' }, ua: 'com.google.android.apps.youtube.vr.oculus/1.62.27 (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip' },
+  IOS: { id: '5', context: { clientName: 'IOS', clientVersion: '20.10.4', deviceMake: 'Apple', deviceModel: 'iPhone16,2', osName: 'iPhone', osVersion: '18.3.2.22D82' }, ua: 'com.google.ios.youtube/20.10.4 (iPhone16,2; U; CPU iOS 18_3_2 like Mac OS X;)' },
+};
+const VIDEO_WALL = 'YouTube would not show this video\'s captions to CIVIC\'s server without a sign-in, as it does for some videos. Open the video on YouTube, choose Show transcript under the description, copy the text and paste it here.';
+const NO_CAPTIONS = 'That video has no caption track that YouTube will hand over, so there is no transcript to test. Paste the transcript text instead.';
 
-/** The player API's answer for a video, asked as the Android app asks; `key` is the public web key the
- *  watch page itself embeds (YouTube's, not the operator's). */
-async function playerResponse(base, id, key, signal) {
+/** One door: the player API's answer for a video as that client asks it. `{ player }` when the door
+ *  opened with caption tracks; `{ player, note }` when it opened and the video has none; `{ note }`
+ *  when it stayed shut, the note saying how (for the failure record). */
+async function askDoor(base, id, key, visitor, name, signal) {
+  const door = YOUTUBE_CLIENTS[name];
+  if (!door) return { note: `${name} is not a door` };
   const url = `${base}/youtubei/v1/player?prettyPrint=false${key ? `&key=${encodeURIComponent(key)}` : ''}`;
-  const res = await postJson(url, {
-    context: { client: { clientName: ANDROID_CLIENT.name, clientVersion: ANDROID_CLIENT.version, androidSdkVersion: ANDROID_CLIENT.sdk, hl: 'en', gl: 'US' } },
-    videoId: id,
-    contentCheckOk: true,
-    racyCheckOk: true,
-  }, { headers: { 'user-agent': ANDROID_CLIENT.ua, 'x-youtube-client-name': '3', 'x-youtube-client-version': ANDROID_CLIENT.version }, signal });
+  const headers = { 'user-agent': door.ua, 'x-youtube-client-name': door.id, 'x-youtube-client-version': door.context.clientVersion };
+  if (visitor) headers['x-goog-visitor-id'] = visitor;
+  const body = { context: { client: { ...door.context, hl: 'en', gl: 'US', ...(visitor ? { visitorData: visitor } : {}) } }, videoId: id, contentCheckOk: true, racyCheckOk: true };
+  if (door.thirdParty) body.context.thirdParty = door.thirdParty;
+  const res = await postJson(url, body, { headers, signal });
   const text = await res.text();
-  if (!res.ok) { const e = new UrlError('url_no_transcript', NO_TRANSCRIPT); e.detail = `player API ${res.status}`; throw e; }
-  try { return JSON.parse(text); } catch { const e = new UrlError('url_no_transcript', NO_TRANSCRIPT); e.detail = 'player API answered no JSON'; throw e; }
+  if (!res.ok) return { note: `${name} answered ${res.status}` };
+  let player;
+  try { player = JSON.parse(text); } catch { return { note: `${name} answered no JSON` }; }
+  const status = player?.playabilityStatus || {};
+  if (status.status && status.status !== 'OK') return { note: `${name} ${[status.status, status.reason].filter(Boolean).join(': ')}` };
+  const tracks = player?.captions?.playerCaptionsTracklistRenderer?.captionTracks || [];
+  if (!tracks.length) return { player, note: `${name} opened, no captions` };
+  return { player };
 }
 
 /** The video's own caption track, joined into readable lines. No summary, no invention. */
@@ -311,20 +322,27 @@ export async function youtubeTranscript(url, { signal } = {}) {
   const author = unjson(html.match(/"author":"((?:[^"\\]|\\.)*)"/)?.[1] || '') || decodeEntities(html.match(/<link itemprop="name" content="([^"]*)"/)?.[1] || '');
   const published = html.match(/"publishDate":"([^"]+)"/)?.[1] || html.match(/"uploadDate":"([^"]+)"/)?.[1] || html.match(/<meta itemprop="datePublished" content="([^"]*)"/)?.[1] || '';
   const key = html.match(/"INNERTUBE_API_KEY":"([^"]+)"/)?.[1] || '';
+  const visitor = html.match(/"VISITOR_DATA":"([^"]+)"/)?.[1] || '';
 
-  const player = await playerResponse(base, id, key, signal);
-  const status = player?.playabilityStatus || {};
-  if (status.status && status.status !== 'OK') {
-    const e = new UrlError('url_no_transcript', NO_TRANSCRIPT);
-    e.detail = [status.status, status.reason].filter(Boolean).join(': ');
+  // Every door in turn, until one opens with captions. A door that opened on a video without captions
+  // settles that the video has none; doors that all stayed shut are YouTube's wall for this address.
+  const notes = [];
+  let player = null;
+  let opened = false;
+  for (const name of config.youtubeClients) {
+    const answer = await askDoor(base, id, key, visitor, name, signal);
+    if (answer.player && !answer.note) { player = answer.player; break; }
+    if (answer.player) opened = true;
+    notes.push(answer.note);
+  }
+  if (!player) {
+    const e = opened ? new UrlError('url_no_transcript', NO_CAPTIONS) : new UrlError('url_video_wall', VIDEO_WALL);
+    e.detail = notes.join(' · ');
     throw e;
   }
-  const details = player?.videoDetails || {};
-  const tracks = player?.captions?.playerCaptionsTracklistRenderer?.captionTracks || captionTracksFrom(html);
-  if (!tracks.length) {
-    throw new UrlError('url_no_transcript',
-      'That video has no caption track that YouTube will hand over, so there is no transcript to test. Paste the transcript text instead.');
-  }
+  const status = player.playabilityStatus || {};
+  const details = player.videoDetails || {};
+  const tracks = player.captions.playerCaptionsTracklistRenderer.captionTracks;
   const pick = tracks.find((tr) => /^en/i.test(tr.languageCode || '') && tr.kind !== 'asr')
     || tracks.find((tr) => /^en/i.test(tr.languageCode || ''))
     || tracks[0];
@@ -333,7 +351,7 @@ export async function youtubeTranscript(url, { signal } = {}) {
   trackUrl.searchParams.set('fmt', 'json3');
   const { buf: capBuf } = await get(trackUrl.toString(), { accept: 'application/json', signal });
   const lines = captionLines(capBuf.toString('utf8'));
-  if (!lines.length) { const e = new UrlError('url_no_transcript', NO_TRANSCRIPT); e.detail = 'the caption track came back empty'; throw e; }
+  if (!lines.length) { const e = new UrlError('url_video_wall', VIDEO_WALL); e.detail = 'the caption track came back empty'; throw e; }
   const out = joinCaptionLines(lines);
   const auto = pick.kind === 'asr';
   const thumbnails = (details.thumbnail?.thumbnails || []).filter((t) => t && t.url).map((t) => ({ url: t.url, width: t.width || 0, height: t.height || 0 }));

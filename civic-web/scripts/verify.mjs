@@ -701,21 +701,28 @@ async function linkChecks() {
     if (req.url.startsWith('/shell')) { res.writeHead(200, { 'content-type': 'text/html' }); res.end(`<html>${head('A shell')}</head><body><nav><a href="/">Home</a></nav><div><span>Menu</span> <span>Search</span> <span>Sign in</span></div></body></html>`); return; }
     // YouTube, stood in for: the watch page with its own key, the player API (the Android client's
     // answer, recorded), the caption file in json3, and thumbnails.
-    if (req.url.startsWith('/watch')) { res.writeHead(200, { 'content-type': 'text/html' }); res.end('<html><head><title>A talk on water - YouTube</title><meta name="title" content="A talk on water"></head><body><script>ytcfg.set({"INNERTUBE_API_KEY":"standin-key"});</script><script>var ytInitialPlayerResponse = {"author":"The Stand-in Channel","publishDate":"2026-09-01"};</script></body></html>'); return; }
+    if (req.url.startsWith('/watch')) { res.writeHead(200, { 'content-type': 'text/html' }); res.end('<html><head><title>A talk on water - YouTube</title><meta name="title" content="A talk on water"></head><body><script>ytcfg.set({"INNERTUBE_API_KEY":"standin-key","VISITOR_DATA":"standin-visitor"});</script><script>var ytInitialPlayerResponse = {"author":"The Stand-in Channel","publishDate":"2026-09-01"};</script></body></html>'); return; }
     if (req.url.startsWith('/youtubei/v1/player')) {
       let raw = '';
       req.on('data', (c) => { raw += c; });
       req.on('end', () => {
         let body = {}; try { body = JSON.parse(raw); } catch {}
         const id = body.videoId;
-        ytCalls.push({ videoId: id, key: new URL(req.url, 'http://x').searchParams.get('key'), client: body.context?.client, ua: req.headers['user-agent'] });
+        const client = body.context?.client?.clientName;
+        ytCalls.push({ videoId: id, key: new URL(req.url, 'http://x').searchParams.get('key'), client: body.context?.client, ua: req.headers['user-agent'], visitorHeader: req.headers['x-goog-visitor-id'] });
         const track = (v, kind) => ({ baseUrl: `http://localhost:${SITE}/api/timedtext?v=${v}&lang=en${kind ? `&kind=${kind}` : ''}&fmt=srv3`, languageCode: 'en', ...(kind ? { kind } : {}) });
         const details = (v) => ({ videoId: v, title: 'A talk on water', author: 'The Stand-in Channel', lengthSeconds: '61', thumbnail: { thumbnails: [{ url: `http://localhost:${SITE}/thumb-mq.png`, width: 320, height: 180 }, { url: `http://localhost:${SITE}/thumb-hq.png`, width: 480, height: 360 }] } });
+        const shut = { playabilityStatus: { status: 'LOGIN_REQUIRED', reason: 'Sign in to confirm you\u2019re not a bot' } };
+        const open = (v, extra = {}) => ({ playabilityStatus: { status: 'OK', playableInEmbed: true, ...extra }, videoDetails: details(v), captions: { playerCaptionsTracklistRenderer: { captionTracks: [track(v)] } } });
+        // The doors answer unevenly, as YouTube's do: vid2 is shut to the Android app and open to the TV app;
+        // vid5 is shut at every door; vid6 opens everywhere on a video with no captions.
         const answers = {
           vid1: { playabilityStatus: { status: 'OK', playableInEmbed: true }, videoDetails: details('vid1'), captions: { playerCaptionsTracklistRenderer: { captionTracks: [track('vid1', 'asr'), track('vid1')] } } },
-          vid2: { playabilityStatus: { status: 'LOGIN_REQUIRED', reason: 'Sign in to confirm you\u2019re not a bot' } },
-          vid3: { playabilityStatus: { status: 'OK', playableInEmbed: true }, videoDetails: details('vid3'), captions: { playerCaptionsTracklistRenderer: { captionTracks: [track('vid3')] } } },
-          vid4: { playabilityStatus: { status: 'OK', playableInEmbed: false }, videoDetails: details('vid4'), captions: { playerCaptionsTracklistRenderer: { captionTracks: [track('vid4')] } } },
+          vid2: client === 'ANDROID' ? shut : open('vid2'),
+          vid3: open('vid3'),
+          vid4: open('vid4', { playableInEmbed: false }),
+          vid5: shut,
+          vid6: { playabilityStatus: { status: 'OK', playableInEmbed: true }, videoDetails: details('vid6') },
         };
         if (!answers[id]) { res.writeHead(404); res.end(); return; }
         res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify(answers[id]));
@@ -781,12 +788,19 @@ async function linkChecks() {
       yt.status === 200 && yt.body?.kind === 'youtube' && yt.body?.title === 'A talk on water' && yt.body?.author === 'The Stand-in Channel' && /Water boils at 100 degrees Celsius at sea level\.\nThe Eiffel Tower stands about 330 metres tall\./.test(yt.body?.text || '') && playerCall?.client?.clientName === 'ANDROID' && playerCall?.key === 'standin-key' && /android/i.test(playerCall?.ua || '') && capCall?.fmt === 'json3' && capCall?.kind === undefined, JSON.stringify({ body: yt.body, playerCall, capCall }).slice(0, 500));
     check('the answer carries the video for the page\'s box: embeddable, its length and its thumbnails',
       yt.body?.video?.id === 'vid1' && yt.body?.video?.embeddable === true && yt.body?.video?.lengthSeconds === 61 && yt.body?.video?.thumbnails?.length === 2 && yt.body?.video?.thumbnails[0]?.width === 320, JSON.stringify(yt.body?.video));
-    const blocked = await read('https://youtu.be/vid2');
-    const blockedRec = (await failures()).find((f) => /LOGIN_REQUIRED/.test(f.detail || ''));
-    check('a video YouTube keeps from the address (sign in to confirm you are not a bot) gets the plain sentence, and the record says why',
-      blocked.status === 400 && blocked.body?.error?.code === 'url_no_transcript' && /^YouTube did not let CIVIC read this video from here\./.test(blocked.body?.error?.message || '') && Boolean(blockedRec), JSON.stringify({ body: blocked.body, blockedRec }));
+    const second = await read('https://youtu.be/vid2');
+    const doors2 = ytCalls.filter((c) => c.videoId === 'vid2').map((c) => c.client?.clientName);
+    check('a door YouTube keeps shut to the Android app is not the end: the next door is asked, with the page\'s visitor id, and the transcript is read',
+      second.status === 200 && second.body?.kind === 'youtube' && JSON.stringify(doors2) === JSON.stringify(['ANDROID', 'TVHTML5']) && ytCalls.filter((c) => c.videoId === 'vid2').every((c) => c.client?.visitorData === 'standin-visitor' && c.visitorHeader === 'standin-visitor'), JSON.stringify({ status: second.status, doors2, body: second.body }).slice(0, 300));
+    const shutVideo = await read('https://www.youtube.com/watch?v=vid5');
+    const shutRec = (await failures()).find((f) => f.code === 'url_video_wall');
+    const doors5 = ytCalls.filter((c) => c.videoId === 'vid5').map((c) => c.client?.clientName);
+    check('a video shut at every door gets the wall sentence that points to YouTube\'s own transcript panel, and the record names each door\'s answer',
+      shutVideo.status === 400 && shutVideo.body?.error?.code === 'url_video_wall' && /^YouTube would not show this video\'s captions to CIVIC\'s server without a sign-in/.test(shutVideo.body?.error?.message || '') && JSON.stringify(doors5) === JSON.stringify(['ANDROID', 'TVHTML5', 'WEB_EMBEDDED_PLAYER', 'ANDROID_VR', 'IOS']) && /ANDROID LOGIN_REQUIRED: Sign in.*IOS LOGIN_REQUIRED/.test(shutRec?.detail || ''), JSON.stringify({ body: shutVideo.body, doors5, detail: shutRec?.detail }));
+    const none = await read('https://www.youtube.com/watch?v=vid6');
+    check('a video with no captions at an open door gets the no-captions sentence, not the wall', none.status === 400 && none.body?.error?.code === 'url_no_transcript' && /has no caption track/.test(none.body?.error?.message || ''), JSON.stringify(none.body));
     const empty = await read('https://www.youtube.com/watch?v=vid3');
-    check('an empty caption track gets the same sentence', empty.status === 400 && empty.body?.error?.code === 'url_no_transcript' && /^YouTube did not let CIVIC read this video from here\./.test(empty.body?.error?.message || ''), JSON.stringify(empty.body));
+    check('an empty caption file gets the wall sentence', empty.status === 400 && empty.body?.error?.code === 'url_video_wall', JSON.stringify(empty.body));
     const policy = (await fetch(`${base}/`)).headers.get('content-security-policy') || '';
     check('the page\'s security policy admits the player and the thumbnails', /frame-src https:\/\/www\.youtube-nocookie\.com/.test(policy) && /img-src[^;]*https:\/\/\*\.ytimg\.com/.test(policy), policy);
     const shell = await read(`http://localhost:${SITE}/shell`);
