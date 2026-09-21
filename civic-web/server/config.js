@@ -22,10 +22,16 @@ const list = (name, fallback) => env(name, fallback).split(',').map((s) => s.tri
 const int = (name, fallback) => Number.parseInt(env(name, String(fallback)), 10);
 const bool = (name, fallback) => /^(1|true|yes|on)$/i.test(env(name, fallback ? 'true' : 'false'));
 
-// The one configuration the operator reported testing: gpt-5.6-sol at reasoning effort xhigh.
-// It is used for both steps unless the operator sets a step separately.
+// The operator's configuration: gpt-5.6-sol, OpenAI's flagship below GPT-6, at its maximum. Tested by the
+// operator at reasoning effort xhigh; on 21 September they asked for the model's maximum power short of
+// GPT-6, which OpenAI's pages put at effort `max` (the top of the ladder) in reasoning mode `pro` ("the
+// highest-intelligence API option": more model work per answer, billed at the ordinary per-token rates).
+// Used for both steps unless the operator sets a step separately. A mode of `standard` or empty sends
+// no mode key at all.
 const MODEL = env('CIVIC_MODEL', 'gpt-5.6-sol');
-const EFFORT = env('CIVIC_EFFORT', 'xhigh');
+const EFFORT = env('CIVIC_EFFORT', 'max');
+const MODE = env('CIVIC_REASONING_MODE', 'pro');
+const modeOrNone = (v) => (v && v !== 'standard' ? v : '');
 
 // CIVIC's own key. The rule lives in server/key.js and is the same whatever shape either key is in.
 // CIVIC runs on the operator's key and no other. There is no switch here, because there is no
@@ -49,6 +55,7 @@ export const config = {
   // Step 1 — empirical claim extraction.
   extractModels: list('CIVIC_EXTRACT_MODELS', MODEL), // one id = no fallback
   extractEffort: env('CIVIC_EXTRACT_EFFORT', EFFORT),
+  extractReasoningMode: modeOrNone(env('CIVIC_EXTRACT_REASONING_MODE', MODE)), // '' = no mode key in the request
   // Reasoning summaries are the model's own account of its reasoning, shown on the page. They do
   // not change the answer. 'auto' lets the API decide the form. Blank turns them off.
   extractSummary: env('CIVIC_EXTRACT_REASONING_SUMMARY', 'auto'),
@@ -56,6 +63,7 @@ export const config = {
   // Step 2 — determination.
   evalModels: list('CIVIC_EVAL_MODELS', MODEL), // one id = no fallback
   evalEffort: env('CIVIC_EVAL_EFFORT', EFFORT),
+  evalReasoningMode: modeOrNone(env('CIVIC_EVAL_REASONING_MODE', MODE)),
   evalReasoningSummary: env('CIVIC_EVAL_REASONING_SUMMARY', 'auto'),
   webSearch: true, // both steps, always; not an environment setting
   // Four claims at a time (the page sends one claim per request and keeps four in flight; this
@@ -147,8 +155,8 @@ export const config = {
 export function requestShape() {
   const source = extractionShape();
   return {
-    extract: { model: config.extractModels[0], effort: config.extractEffort, summary: config.extractSummary || null, webSearch: true, fallback: config.extractModels.length > 1, source },
-    evaluate: { model: config.evalModels[0], effort: config.evalEffort, summary: config.evalReasoningSummary || null, webSearch: true, fallback: config.evalModels.length > 1, source: 'ahead' },
+    extract: { model: config.extractModels[0], effort: config.extractEffort, mode: config.extractReasoningMode || null, summary: config.extractSummary || null, webSearch: true, fallback: config.extractModels.length > 1, source },
+    evaluate: { model: config.evalModels[0], effort: config.evalEffort, mode: config.evalReasoningMode || null, summary: config.evalReasoningSummary || null, webSearch: true, fallback: config.evalModels.length > 1, source: 'ahead' },
     // Present in every request; never anything else.
     keys: { extract: source === 'inserted' ? ['model', 'input', 'reasoning', 'tools', 'stream', 'store'] : ['model', 'instructions', 'input', 'reasoning', 'tools', 'stream', 'store'], evaluate: ['model', 'input', 'reasoning', 'tools', 'stream', 'store'] },
   };
@@ -171,8 +179,10 @@ export function publicConfig(promptStatus) {
     models: {
       extract: shape.extract.model,
       extractEffort: shape.extract.effort,
+      extractMode: shape.extract.mode,
       evaluate: shape.evaluate.model,
       evaluateEffort: shape.evaluate.effort,
+      evaluateMode: shape.evaluate.mode,
       illustrate: config.illustrateModels[0],
       illustrateQuality: config.illustrateQuality,
       webSearch: true,

@@ -19,6 +19,7 @@ import { parseEntry } from '../server/verdict.js';
 import { isConnectionDrop, connectionWait, describeError } from '../server/openai.js';
 import { generateCode, normalise, ALPHABET } from '../server/access.js';
 import { validateStandIn } from '../server/tools/contract.js';
+import { requestShape } from '../server/config.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.join(here, '..');
@@ -53,7 +54,7 @@ const slot = (() => {
 const ALLOWED = {
   extract: slot ? ['model', 'input', 'reasoning', 'tools', 'stream', 'store'] : ['model', 'instructions', 'input', 'reasoning', 'tools', 'stream', 'store'],
   evaluate: ['model', 'input', 'reasoning', 'tools', 'stream', 'store'],
-  reasoning: ['effort', 'summary'],
+  reasoning: ['effort', 'mode', 'summary'],
   webSearchTool: ['type'],
 };
 
@@ -156,10 +157,11 @@ try {
   if (exBody) {
     check('extraction: model is the configured model', exBody.model === shape.extract.model, exBody.model);
     check('extraction: reasoning.effort is the configured effort', exBody.reasoning?.effort === shape.extract.effort, JSON.stringify(exBody.reasoning));
+    check('extraction: reasoning.mode is the configured mode (pro), and the key is there only when a mode is set', (exBody.reasoning?.mode ?? null) === shape.extract.mode && ('mode' in (exBody.reasoning || {})) === Boolean(shape.extract.mode), JSON.stringify({ sent: exBody.reasoning, configured: shape.extract.mode }));
     check(`extraction: no keys beyond ${ALLOWED.extract.join(', ')}`, extraKeys(exBody, ALLOWED.extract).length === 0, extraKeys(exBody, ALLOWED.extract).join(', '));
     const exTools = exBody.tools || [];
     check('extraction: web search available (exactly one web_search, no options)', exTools.length === 1 && exTools[0].type === 'web_search' && extraKeys(exTools[0], ALLOWED.webSearchTool).length === 0, JSON.stringify(exTools));
-    check('extraction: no reasoning keys beyond effort, summary', extraKeys(exBody.reasoning, ALLOWED.reasoning).length === 0, extraKeys(exBody.reasoning, ALLOWED.reasoning).join(', '));
+    check('extraction: no reasoning keys beyond effort, mode, summary', extraKeys(exBody.reasoning, ALLOWED.reasoning).length === 0, extraKeys(exBody.reasoning, ALLOWED.reasoning).join(', '));
     const exText = exBody.input?.[0]?.content?.[0]?.text;
     if (slot) {
       check('extraction: no instructions field (the prompt is the message)', exBody.instructions === undefined);
@@ -182,8 +184,9 @@ try {
     const ahead = evBody.input?.length === 2 ? evBody.input[0]?.content?.[0]?.text : null;
     check('determination: model is the configured model', evBody.model === shape.evaluate.model, evBody.model);
     check('determination: reasoning.effort is the configured effort', evBody.reasoning?.effort === shape.evaluate.effort, JSON.stringify(evBody.reasoning));
+    check('determination: reasoning.mode is the configured mode (pro), and the key is there only when a mode is set', (evBody.reasoning?.mode ?? null) === shape.evaluate.mode && ('mode' in (evBody.reasoning || {})) === Boolean(shape.evaluate.mode), JSON.stringify({ sent: evBody.reasoning, configured: shape.evaluate.mode }));
     check('determination: no keys beyond model, input, reasoning, tools, stream, store', extraKeys(evBody, ALLOWED.evaluate).length === 0, extraKeys(evBody, ALLOWED.evaluate).join(', '));
-    check('determination: no reasoning keys beyond effort, summary', extraKeys(evBody.reasoning, ALLOWED.reasoning).length === 0, extraKeys(evBody.reasoning, ALLOWED.reasoning).join(', '));
+    check('determination: no reasoning keys beyond effort, mode, summary', extraKeys(evBody.reasoning, ALLOWED.reasoning).length === 0, extraKeys(evBody.reasoning, ALLOWED.reasoning).join(', '));
     check('determination: no instructions field (nothing added around the prompt)', evBody.instructions === undefined);
     check('determination: the prompt sent verbatim with the claim\'s whole entry (Claim, Attribution, what is unspecified) in place of {{CLAIM}}', userText === evaluatePrompt.split('{{CLAIM}}').join(entry) && /^Claim:/.test(entry) && /\nAttribution:/.test(entry), `${userText?.length} chars; entry: ${JSON.stringify(entry).slice(0, 120)}`);
     check('determination: exactly two messages, the source ahead of the prompt exactly as the extractor received it, then the prompt', Array.isArray(evBody.input) && evBody.input.length === 2 && ahead === sourceBlock(source, { kind: 'text' }), `${evBody.input?.length} messages`);
@@ -323,6 +326,16 @@ async function gateRun(n, env, { extraction = false, claims = SIX, serverEnv = {
   try { mock.kill('SIGTERM'); } catch {}
   return out;
 }
+// The mode is a setting: `standard` (or empty) sends today's reasoning object, with no mode key at all.
+async function modeChecks() {
+  const modeRecord = path.join(os.tmpdir(), `civic-verify-mode-${Date.now()}.jsonl`);
+  const r = await gateRun(9, { MOCK_RECORD: modeRecord }, { extraction: true, claims: [SIX[0]], serverEnv: { CIVIC_REASONING_MODE: 'standard' } });
+  const bodies = fs.existsSync(modeRecord) ? fs.readFileSync(modeRecord, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)).filter((x) => x.path === '/v1/responses').map((x) => x.body) : [];
+  check('with CIVIC_REASONING_MODE=standard no request carries a mode key: the reasoning object is effort and summary alone, the effort still the configured one',
+    bodies.length >= 2 && bodies.every((b) => !('mode' in (b.reasoning || {})) && b.reasoning?.effort === requestShape().evaluate.effort) && !r.failure, JSON.stringify({ reasoning: bodies.map((b) => b.reasoning), failure: r.failure }));
+}
+await modeChecks();
+
 async function gateChecks() {
   const reserve = 68147;
   const done = (r) => r.events.filter((e) => e.t === 'done').length;

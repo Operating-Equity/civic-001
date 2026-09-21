@@ -59,6 +59,7 @@ export async function runExtraction({ apiKey, text, meta, send, signal, sourceWa
   const attempt = (model) => {
     // The operator's configuration and nothing else. `npm run verify` fails if any other key appears.
     const r = { effort: config.extractEffort };
+    if (config.extractReasoningMode) r.mode = config.extractReasoningMode; // pro: more model work per answer, at the same rates
     if (wantSummary) r.summary = config.extractSummary;
     const body = {
       model,
@@ -178,10 +179,10 @@ export async function runExtraction({ apiKey, text, meta, send, signal, sourceWa
   const claims = items.map((c, i) => ({ n: i + 1, ...splitEntry(c.text), entry: c.text }));
   const ms = Date.now() - started;
   const cost = estimateTextCost({ model: modelUsed, usage });
-  record({ kind: 'extract', model: modelUsed, effort: config.extractEffort, chars: text.length, claims: claims.length, usage, ms, usd: cost.usd, priced: cost.priced });
+  record({ kind: 'extract', model: modelUsed, effort: config.extractEffort, mode: config.extractReasoningMode || null, chars: text.length, claims: claims.length, usage, ms, usd: cost.usd, priced: cost.priced });
   // `raw` is the model's complete extraction output, exactly as returned, so it can be inspected.
   // No token figures go to the page (the operator's rule of 18 September); the ledger line above keeps them.
-  const result = { t: 'done', total: claims.length, limit: config.maxClaims, claims, raw: full, reasoning: reasoning.trim() || null, trail, model: modelUsed, requested: config.extractModels[0], fellBack, effort: config.extractEffort, ms, cost, incomplete };
+  const result = { t: 'done', total: claims.length, limit: config.maxClaims, claims, raw: full, reasoning: reasoning.trim() || null, trail, model: modelUsed, requested: config.extractModels[0], fellBack, effort: config.extractEffort, mode: config.extractReasoningMode || null, ms, cost, incomplete };
   send(result);
   return result;
 }
