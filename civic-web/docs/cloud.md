@@ -200,6 +200,23 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
   than by a limit of ours. `.env.example` carries the four Supadata values; `mode=native` is the
   documented default, since it fetches captions a video already has for one credit while `mode=auto`
   also transcribes videos that have none, charged by the video's length.
+- **21 September, 16:30 UTC: sources as tools (release L).** The operator will add hundreds of sources
+  (LexisNexis, legal and financial databases) and wants each to be a tool the prompt can reach for
+  without debt piling up. The architecture, agreed with the operator: one gateway at `/mcp` (the open
+  standard, MCP) on CIVIC's own server, reached by the model through OpenAI's remote-tool door with one
+  entry in the requests' `tools` list beside web search and no new parameter (`CIVIC_TOOLS_URL`,
+  `CIVIC_TOOLS_PASS`; either unset, the requests are as before); few stable verbs
+  (`server/tools/verbs.js`) and many sources behind them as adapters (`server/tools/adapters/`, one
+  file each with a stand-in beside it, on when their settings are set, their keys never leaving the
+  server); one result shape; a ledger line per call; the model choosing the source through a `source`
+  parameter when a verb has several. The first source is the web through CIVIC's own reader
+  (`read_page`, `get_transcript`). The guard runs every adapter through the gateway against its
+  stand-in, and fails an adapter without one. The operator chose the wire (15:10 UTC): through
+  OpenAI's MCP door rather than CIVIC running the tool loop itself (which would need
+  `include: reasoning.encrypted_content`, a parameter never tested with, and several requests a
+  claim). Set on Render with the merge: the gateway's address and a pass. Next: law (`search_law`,
+  `get_case`; CourtListener first, LexisNexis as a second adapter behind the same verbs), then
+  filings and financials (SEC EDGAR first).
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 

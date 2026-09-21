@@ -83,6 +83,7 @@ export default {
     starting: 'Ein Prüfer wird zugewiesen…',
     reasoning: 'Prüfung läuft…',
     searching: 'Quellen werden geprüft…',
+    reading: 'Eine Quelle wird gelesen…',
     writing: 'Eintrag wird verfasst…',
     retry: 'Erneuter Versuch ({n})…',
     waitingLimit: 'Wartet, bis es an der Reihe ist · {s} s',

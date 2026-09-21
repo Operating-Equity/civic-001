@@ -29,6 +29,9 @@ app.use((req, res, next) => {
 });
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms * SPEED));
+// The calls the stand-in makes to CIVIC's gateway when a request names it (see the Responses route).
+const TOOL_CALLS = (() => { try { return JSON.parse(process.env.MOCK_TOOL_CALLS || '[]'); } catch { return []; } })();
+const recordMcp = (entry) => { if (process.env.MOCK_RECORD) fs.appendFileSync(process.env.MOCK_RECORD, JSON.stringify({ ts: Date.now(), path: '/mcp-client', ...entry }) + '\n'); };
 
 app.use((req, res, next) => {
   const auth = req.get('authorization') || '';
@@ -139,6 +142,41 @@ app.post('/v1/responses', async (req, res) => {
         await sleep(400 + Math.random() * 900);
         send({ type: 'response.web_search_call.completed', item_id: `ws_${k}` });
         send({ type: 'response.output_item.done', output_index: k, item: { id: `ws_${k}`, type: 'web_search_call', status: 'completed', action: { type: 'search', query: queries[k] } } });
+      }
+    }
+    // CIVIC's own tools: with an `mcp` entry in the request, the stand-in does what OpenAI's servers do,
+    // as a client of the gateway at the entry's address with the entry's headers: it lists the tools,
+    // makes the calls MOCK_TOOL_CALLS names (JSON: [{ name, arguments }]), and streams each as OpenAI
+    // does. What the gateway answered is recorded (MOCK_RECORD) for the guard.
+    const mcp = body.tools?.find((t) => t.type === 'mcp');
+    if (mcp && TOOL_CALLS.length) {
+      const rpc = async (method, params, rpcId) => {
+        const r = await fetch(mcp.server_url, { method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', ...(mcp.headers || {}) }, body: JSON.stringify({ jsonrpc: '2.0', id: rpcId, method, params }) });
+        const raw = await r.text();
+        let json = null; try { json = JSON.parse(raw); } catch {}
+        return { status: r.status, json };
+      };
+      const init = await rpc('initialize', { protocolVersion: '2025-11-25', capabilities: {}, clientInfo: { name: 'mock-openai', version: '1' } }, 1);
+      const list = await rpc('tools/list', {}, 2);
+      const tools = list.json?.result?.tools || [];
+      send({ type: 'response.output_item.added', output_index: 10, item: { id: 'mcpl_1', type: 'mcp_list_tools', server_label: mcp.server_label, tools: [] } });
+      send({ type: 'response.mcp_list_tools.in_progress', item_id: 'mcpl_1', output_index: 10 });
+      send({ type: 'response.mcp_list_tools.completed', item_id: 'mcpl_1', output_index: 10 });
+      send({ type: 'response.output_item.done', output_index: 10, item: { id: 'mcpl_1', type: 'mcp_list_tools', server_label: mcp.server_label, tools: tools.map((t) => ({ name: t.name, description: t.description, input_schema: t.inputSchema })) } });
+      recordMcp({ step: 'list', initialize: init.status, status: list.status, names: tools.map((t) => t.name), tools });
+      for (const [k, c] of TOOL_CALLS.entries()) {
+        const itemId = `mcp_${k}`, index = 20 + k, args = JSON.stringify(c.arguments || {});
+        send({ type: 'response.output_item.added', output_index: index, item: { id: itemId, type: 'mcp_call', name: c.name, arguments: '', server_label: mcp.server_label, status: 'in_progress' } });
+        send({ type: 'response.mcp_call.in_progress', item_id: itemId, output_index: index });
+        send({ type: 'response.mcp_call_arguments.delta', item_id: itemId, output_index: index, delta: args });
+        send({ type: 'response.mcp_call_arguments.done', item_id: itemId, output_index: index, arguments: args });
+        const r = await rpc('tools/call', { name: c.name, arguments: c.arguments || {} }, 3 + k);
+        const result = r.json?.result;
+        const failed = !result || Boolean(result.isError);
+        const outText = (result?.content || []).map((x) => x.text || '').join('');
+        send({ type: failed ? 'response.mcp_call.failed' : 'response.mcp_call.completed', item_id: itemId, output_index: index });
+        send({ type: 'response.output_item.done', output_index: index, item: { id: itemId, type: 'mcp_call', name: c.name, arguments: args, server_label: mcp.server_label, status: failed ? 'failed' : 'completed', output: failed ? null : outText, error: failed ? { type: 'mcp_tool_execution_error', message: outText || `the gateway answered ${r.status}` } : null } });
+        recordMcp({ step: 'call', call: c, status: r.status, failed, output: outText.slice(0, 6000) });
       }
     }
     // The response's own later call, after the search: its whole context is charged to the bucket

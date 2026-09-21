@@ -84,6 +84,7 @@ export default {
     starting: 'Assigning an inspector…',
     reasoning: 'Inspecting…',
     searching: 'Checking sources…',
+    reading: 'Reading a source…',
     writing: 'Writing the entry…',
     retry: 'Retrying (attempt {n})…',
     waitingLimit: 'Waiting its turn · {s} s',

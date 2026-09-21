@@ -198,6 +198,32 @@ Addresses that resolve inside a private network are refused, so a public CIVIC s
 aimed at machines behind its own firewall. `CIVIC_ALLOW_PRIVATE_URLS=true` lifts that for local
 development only.
 
+## Sources as tools
+
+The model can reach for CIVIC's own tools while it works, through the gateway at `/mcp` (the open
+standard, MCP, over HTTP). The gateway is CIVIC's server itself; OpenAI's servers call it during a
+response, with a pass CIVIC issues (`CIVIC_TOOLS_PASS`), and the model's call is answered at once.
+The requests name it with one entry in the existing `tools` list beside web search, and nothing
+else changes: the prompts go byte for byte, and whether the model calls a tool is the model's
+decision. With `CIVIC_TOOLS_URL` or the pass unset, the requests are exactly as before and the
+gateway answers no one.
+
+The tools are **verbs**, few and stable (`server/tools/verbs.js`): `read_page` and
+`get_transcript` today; `search_law`, `get_case`, `search_filings`, `get_financials`,
+`search_news` as those domains arrive. The **sources** behind them are adapters
+(`server/tools/adapters/`, one file each, with a stand-in beside it for the guard): the web, read by
+CIVIC's own link reader with all of its rules, is the first; a legal or financial database is one
+more file, its key and its address as settings, and nothing else in the program names it. A source
+is on when its settings are set; a verb is listed when a source answers it; a verb several sources
+answer gains a `source` parameter the model must fill, listing each source in its own words, so the
+model chooses the source and CIVIC's code never does. Every source answers in one shape (title,
+site, address, date, the text, and where it came from), whole, with the source's own next page as
+a cursor when it has one. What a source keeps back (a refusal, a paywall, a silence) reaches the
+model as the reader's own sentence, information for its analysis, never as the claim's failure.
+Each call is one line in the ledger, priced at the operator's figure for that source, and the row
+on the page shows it in the trail like a search. The words the model reads for every verb and
+source are printed by `npm run tools`; they are the operator's text, like the prompts.
+
 ## What is sent, exactly
 
 Every request to OpenAI carries the operator's tested configuration and nothing else. There is no
@@ -205,7 +231,7 @@ number in this program in the path of a determination that the operator did not 
 
 **Extraction request:** `model`, `input` (the extraction prompt, verbatim, with the source in
 place of its final bracketed line, as the only message), `reasoning.effort`, `reasoning.summary`,
-`tools` (one `web_search`, no options), `stream`, `store`. The source goes into that slot with
+`tools` (one `web_search`, no options; and, when the gateway is set, one `mcp` entry naming it, with `server_label`, `server_url`, `headers` carrying the pass and `require_approval: never`, nothing else), `stream`, `store`. The source goes into that slot with
 what CIVIC knows of its attribution, since the slot asks for it: for a link, the page's title,
 author, site, date and address and the day CIVIC read it; for a file, its name and the day; for
 pasted text, the day it was pasted and that nothing else was given. Nothing is guessed. A prompt
@@ -216,7 +242,7 @@ what is tested, and any further labelled lines are shown beside it, verbatim.
 **Determination request:** `model`, `input` (two messages: first the source exactly as the
 extractor received it, its attribution lines and its text; then the evaluation prompt, verbatim,
 with the claim's whole entry, Claim, Attribution and Unspecified lines, in place of `{{CLAIM}}`),
-`reasoning.effort`, `reasoning.summary`, `tools` (one `web_search`, no options), `stream`,
+`reasoning.effort`, `reasoning.summary`, `tools` (one `web_search`, no options; and, when the gateway is set, one `mcp` entry naming it, with `server_label`, `server_url`, `headers` carrying the pass and `require_approval: never`, nothing else), `stream`,
 `store`. The source goes ahead because the conversation carried it in the workflow the prompts
 were tested in; a claim tested bare, "the speech" with no speaker or date, was being tested
 without the context the extraction prompt had written for it.

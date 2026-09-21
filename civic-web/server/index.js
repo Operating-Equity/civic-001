@@ -26,6 +26,8 @@ import { buildStamp } from './build.js';
 import { takeOverPort } from './port.js';
 import { gate, sessionOf, required as signinRequired, codes as accessCodes, normalise as normaliseCode, issue, setCookie, clearCookie, recordSignin, recentSignins } from './access.js';
 import { allowance as codeAllowance, used as codeUsed, recordUse, summary as codesSummary } from './uses.js';
+import { registry } from './tools/index.js';
+import { mountGateway } from './tools/gateway.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const publicDir = path.join(here, '..', 'public');
@@ -90,6 +92,9 @@ const wrap = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).cat
 
 // The door (server/access.js): with CIVIC_ACCESS_CODES set, every API route but the health line
 // and the sign-in itself needs the cookie a listed code earns.
+// CIVIC's tools for the model (server/tools): the gateway answers OpenAI's servers with the pass, so it
+// sits outside the sign-in gate; without a pass set it answers no one.
+mountGateway(app, { registry, pass: config.toolsPass, version: BUILD });
 app.use(gate);
 
 // ---- API ---------------------------------------------------------------------------------
