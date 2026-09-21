@@ -167,6 +167,12 @@ body {
 @keyframes open { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
 @keyframes nudge { 0%, 100% { transform: translateX(0); } 25% { transform: translateX(-4px); } 75% { transform: translateX(4px); } }
 
+/* A formula the model wrote, typeset. A display formula stands on its own line and scrolls sideways
+   rather than widening the card; an inline one sits in the sentence. */
+.math[data-display="1"] { display: block; margin: 14px 0; overflow-x: auto; overflow-y: hidden; }
+.math .katex-display { margin: 0; }
+.math .katex { font-size: 1.05em; }
+
 /* ---------- brackets: the mark's viewfinder, around whatever is under inspection ---------- */
 .frame { position: relative; }
 .bk {

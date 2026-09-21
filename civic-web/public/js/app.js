@@ -9,7 +9,7 @@
 //      says so instead of guessing.
 import { t, setLocale, initLocale, LOCALES, currentLocale, fmtNumber, fmtSeconds, fmtUsd } from './i18n.js';
 import * as api from './api.js';
-import { $, $$, el, renderMarkdown, setBar, toast, easeChars, easeTime, bump, copyText } from './render.js';
+import { $, $$, el, renderMarkdown, renderMath, setBar, toast, easeChars, easeTime, bump, copyText } from './render.js';
 
 const MAX_CLAIMS = 10; // the automatic run (the operator's number); anything beyond is the reader's explicit choice
 const IN_FLIGHT = 4; // claims in flight at once: the operator's choice of 18 September (the arithmetic is in server/config.js)
@@ -1099,6 +1099,7 @@ function renderEntry(i) {
   r.renderAt = Date.now();
   const entry = $('.entry', cardOf(i));
   entry.innerHTML = renderMarkdown(r.text); // the complete text, never a slice of it
+  renderMath(entry);                          // and its formulas as mathematics, not as broken prose
   entry.hidden = false;
 }
 

@@ -178,6 +178,17 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
   sentence pointing to YouTube's Show transcript panel, the record naming each door's answer; an open
   door on a video with no captions → the no-captions sentence. Guard: vid2 shut to ANDROID and open to
   TVHTML5, vid5 shut everywhere, vid6 open without captions.
+- **21 September, 01:30 UTC: a formula is typeset, and a transcript service can be the last door.**
+  The operator's determination wrote a stock-flow identity as display mathematics and the page showed
+  giant bold fragments with no equals sign and no minus sign: Markdown reads a line holding only `=`
+  or only `-` as an underline, deleting the operator and making a heading of the term above, so words
+  the model wrote never reached the reader. Formulas are now parked under a name Markdown cannot touch
+  (`splitMath`), restored after the sanitiser and typeset with KaTeX, vendored from node_modules like
+  marked and DOMPurify; a lone dollar sign is never mathematics, because the model writes sums of
+  money. Separately, the last door for a walled video is a hosted transcript service the operator sets
+  (`CIVIC_TRANSCRIPT_URL`, `CIVIC_TRANSCRIPT_KEY`, and the header name and prefix): no vendor in the
+  code, nothing asked until both are set, the key never leaving the server. Established for the
+  record: no key exists for YouTube transcripts, from Google or anyone.
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 

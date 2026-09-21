@@ -20,11 +20,43 @@ export function el(tag, attrs = {}, children = []) {
   return node;
 }
 
+/** The name a formula is parked under while Markdown runs. Letters and digits only, so no part of
+ *  Markdown can act on it. */
+const mathToken = (i) => `civicformula${i}xq`;
+
+/** Pulls the model's mathematics out of the text before Markdown sees it.
+ *
+ *  Markdown reads a line holding only `=` or only `-` as an underline for the line above, which turns
+ *  the terms of a formula into headings and deletes the operators between them: words the model wrote
+ *  would never reach the reader. So each formula is parked under a name Markdown cannot touch and put
+ *  back afterwards, whole. Only `\[…\]`, `$$…$$` and `\(…\)` count as mathematics; a lone dollar
+ *  sign never does, because the model writes sums of money. Fenced code is left exactly as written.
+ *  Pure: it touches nothing in the browser, so the guard can drive it directly. */
+export function splitMath(text) {
+  const spans = [];
+  const codes = [];
+  let out = String(text || '')
+    .replace(/(^|\n)(```|~~~)[\s\S]*?(?:\n\2[^\n]*|$)/g, (m) => `\u0000c${codes.push(m) - 1}\u0000`);
+  const take = (re, display) => {
+    out = out.replace(re, (_m, body) => {
+      const tex = String(body).trim();
+      if (!tex) return _m;
+      spans.push({ tex, display });
+      return mathToken(spans.length - 1);
+    });
+  };
+  take(/\\\[([\s\S]*?)\\\]/g, true);
+  take(/\$\$([\s\S]*?)\$\$/g, true);
+  take(/\\\(([\s\S]*?)\\\)/g, false);
+  out = out.replace(/\u0000c(\d+)\u0000/g, (_m, i) => codes[Number(i)]);
+  return { text: out, spans };
+}
+
 /** Markdown → sanitised HTML. The entry the model writes is rendered as encyclopedia prose. */
 export function renderMarkdown(text) {
   const marked = window.marked;
   const purify = window.DOMPurify;
-  const raw = String(text || '');
+  const { text: raw, spans } = splitMath(text);
   let html;
   try {
     html = marked ? marked.parse(raw, { gfm: true, breaks: true }) : escapeHtml(raw).replace(/\n/g, '<br>');
@@ -34,7 +66,27 @@ export function renderMarkdown(text) {
   if (purify) {
     html = purify.sanitize(html, { USE_PROFILES: { html: true }, ADD_ATTR: ['target', 'rel'] });
   }
-  return html.replace(/<a /g, '<a target="_blank" rel="noopener" ');
+  html = html.replace(/<a /g, '<a target="_blank" rel="noopener" ');
+  // The formulas go back after the sanitiser, so none of them ever passes through it.
+  for (let i = 0; i < spans.length; i++) {
+    const { tex, display } = spans[i];
+    html = html.replace(mathToken(i), () => `<span class="math" data-display="${display ? '1' : '0'}">${escapeHtml(tex)}</span>`);
+  }
+  return html;
+}
+
+/** Typesets the formulas inside a rendered entry. A formula the typesetter cannot read is left exactly
+ *  as the model wrote it: nothing is dropped and nothing is marked as an error. */
+export function renderMath(root) {
+  const katex = window.katex;
+  if (!katex || !root) return;
+  for (const node of $$('.math', root)) {
+    const tex = node.textContent;
+    try {
+      const html = katex.renderToString(tex, { displayMode: node.dataset.display === '1', throwOnError: true, strict: false, trust: false });
+      node.innerHTML = html;
+    } catch { /* the formula stays as it was written */ }
+  }
 }
 
 export function escapeHtml(s) {

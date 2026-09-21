@@ -679,9 +679,44 @@ await illustrateChecks();
 // refused by its shape (a Google app link is tried like any other and read where it leads, a page that
 // is only a meta refresh is followed like a redirect), an open Google redirect is unwrapped, an unreachable address gets
 // plain words with the cause recorded for the operator, and a read the page abandons is no failure.
+/** The model writes a formula as mathematics. Markdown reads a line holding only "=" or only "-" as an
+ *  underline for the line above: it deletes the operator and makes a heading of the term. The page parks
+ *  each formula under a name Markdown cannot touch, and this proves nothing is lost on the way. */
+async function formulaChecks() {
+  const { splitMath } = await import(new URL('../public/js/render.js', import.meta.url));
+  const entry = [
+    '4. **Stock-flow accounting:**',
+    '   \\[',
+    '   \\text{Future inventory}',
+    '   =',
+    '   \\text{current unsold inventory}',
+    '   +',
+    '   \\text{completions}',
+    '   -',
+    '   \\text{net absorption}.',
+    '   \\]',
+    '',
+    'An entry plan costs $5 a month and $54 a year, and \\(x\\) is inline.',
+    '',
+    '```',
+    'a code block with \\[ not a formula \\]',
+    '```',
+  ].join('\n');
+  const out = splitMath(entry);
+  check('a formula the model wrote survives the text formatter whole: its equals sign and its minus sign are still there',
+    out.spans.length === 2 && out.spans[0].display === true && /=/.test(out.spans[0].tex) && /-/.test(out.spans[0].tex) && /Future inventory/.test(out.spans[0].tex), JSON.stringify(out.spans));
+  check('an inline formula is marked inline, and sums of money are never mistaken for mathematics',
+    out.spans[1]?.display === false && out.spans[1]?.tex === 'x' && /\$5 a month and \$54 a year/.test(out.text), JSON.stringify({ second: out.spans[1], text: out.text.slice(-120) }));
+  check('a formula shown inside a code block is left exactly as it was written',
+    /a code block with \\\[ not a formula \\\]/.test(out.text), JSON.stringify(out.text.slice(-80)));
+  check('nothing but the formulas is moved: the heading line and the list number are untouched',
+    /^4\. \*\*Stock-flow accounting:\*\*$/m.test(out.text), JSON.stringify(out.text.slice(0, 60)));
+}
+await formulaChecks();
+
 async function linkChecks() {
   const MOCK2 = MOCK_PORT + 20, PORT2 = PORT + 20, SITE = PORT + 21;
-  const ytCalls = [], capCalls = []; // what the stand-in YouTube was asked
+  const ytCalls = [], capCalls = [], transcriptCalls = []; // what the stand-in YouTube and transcript service were asked
   const site = http.createServer((req, res) => {
     if (req.url.startsWith('/page')) { res.writeHead(200, { 'content-type': 'text/html' }); res.end(`<html><head><title>A page of facts</title></head><body><article><p>${'The Eiffel Tower stands about 330 metres tall. '.repeat(8)}</p></article></body></html>`); return; }
     if (req.url.startsWith('/goto')) { res.writeHead(302, { location: '/page' }); res.end(); return; }
@@ -736,6 +771,17 @@ async function linkChecks() {
       if (q.v === 'vid3') { res.end(''); return; }
       res.end(JSON.stringify({ events: [{ tStartMs: 0, segs: [{ utf8: 'Water boils at 100 degrees Celsius at sea level.' }] }, { tStartMs: 4000, segs: [{ utf8: 'The Eiffel Tower stands about' }, { utf8: ' 330 metres tall.' }] }] }));
       return;
+    }
+    // A hosted transcript service, stood in for: it answers for one video and has nothing for the rest.
+    if (req.url.startsWith('/transcript')) {
+      const q = Object.fromEntries(new URL(req.url, 'http://x').searchParams);
+      transcriptCalls.push({ video: q.video, auth: req.headers['x-civic-transcript'] || req.headers.authorization || '' });
+      if (q.video === 'vid5') {
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ segments: [{ text: 'The Nile is about 6,650 kilometres long.' }, { text: 'Water boils at 100 degrees Celsius at sea level.' }] }));
+        return;
+      }
+      res.writeHead(404, { 'content-type': 'application/json' }); res.end(JSON.stringify({ error: 'no_captions' })); return;
     }
     if (req.url.startsWith('/thumb-')) { res.writeHead(200, { 'content-type': 'image/png' }); res.end(Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=', 'base64')); return; }
     res.writeHead(404); res.end();
@@ -801,6 +847,28 @@ async function linkChecks() {
     check('a video with no captions at an open door gets the no-captions sentence, not the wall', none.status === 400 && none.body?.error?.code === 'url_no_transcript' && /has no caption track/.test(none.body?.error?.message || ''), JSON.stringify(none.body));
     const empty = await read('https://www.youtube.com/watch?v=vid3');
     check('an empty caption file gets the wall sentence', empty.status === 400 && empty.body?.error?.code === 'url_video_wall', JSON.stringify(empty.body));
+    check('with no transcript service set, none is asked: the wall sentence stands on its own',
+      transcriptCalls.length === 0, JSON.stringify(transcriptCalls));
+
+    // The last door: a hosted transcript service the operator has set. A second server, because the
+    // setting is the whole difference; the same stand-in YouTube and the same stand-in service.
+    const PORT3 = PORT + 24;
+    const withService = start([path.join(root, 'server', 'index.js')], { PORT: String(PORT3), OPENAI_BASE_URL: `http://localhost:${MOCK2}/v1`, OPENAI_API_KEY: KEY, CIVIC_IMAGE_ENABLED: 'false', CIVIC_LEDGER_FILE: path.join(os.tmpdir(), 'civic-verify-ledger.jsonl'), CIVIC_ALLOW_PRIVATE_URLS: 'true', CIVIC_YOUTUBE_BASE: `http://localhost:${SITE}`, CIVIC_ERROR_LOG: path.join(os.tmpdir(), `civic-verify-service-errors-${Date.now()}.log`), CIVIC_TRANSCRIPT_URL: `http://localhost:${SITE}/transcript?video={id}`, CIVIC_TRANSCRIPT_KEY: 'standin-transcript-key', CIVIC_TRANSCRIPT_HEADER: 'X-Civic-Transcript', CIVIC_TRANSCRIPT_PREFIX: 'Token ' });
+    try {
+      await wait(`http://localhost:${PORT3}/api/health`);
+      const readVia = async (url) => { const r = await fetch(`http://localhost:${PORT3}/api/read-url`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ url }) }); return { status: r.status, body: await r.json().catch(() => null) }; };
+      const bought = await readVia('https://www.youtube.com/watch?v=vid5');
+      const call = transcriptCalls.find((c) => c.video === 'vid5');
+      check('a video shut at every door of YouTube is read through the transcript service the operator set, with the key in the header they named',
+        bought.status === 200 && bought.body?.kind === 'youtube' && /The Nile is about 6,650 kilometres long\./.test(bought.body?.text || '') && /Water boils/.test(bought.body?.text || '') && call?.auth === 'Token standin-transcript-key', JSON.stringify({ status: bought.status, text: (bought.body?.text || '').slice(0, 80), auth: call?.auth ? 'sent' : 'missing' }));
+      const nothing = await readVia('https://www.youtube.com/watch?v=vid7');
+      const serviceFail = ((await (await fetch(`http://localhost:${PORT3}/api/selftest`)).json()).recentFailures || []).find((f) => /transcript service/.test(f.detail || ''));
+      check('when the service has nothing either, the wall sentence stands and the record says so without ever naming the key',
+        nothing.status === 400 && nothing.body?.error?.code === 'url_video_wall' && /the transcript service answered 404/.test(serviceFail?.detail || '') && !/standin-transcript-key/.test(JSON.stringify(nothing.body) + (serviceFail?.detail || '')), JSON.stringify({ body: nothing.body, detail: serviceFail?.detail }));
+    } finally {
+      try { withService.kill('SIGTERM'); } catch {}
+    }
+
     const policy = (await fetch(`${base}/`)).headers.get('content-security-policy') || '';
     check('the page\'s security policy admits the player and the thumbnails', /frame-src https:\/\/www\.youtube-nocookie\.com/.test(policy) && /img-src[^;]*https:\/\/\*\.ytimg\.com/.test(policy), policy);
     const shell = await read(`http://localhost:${SITE}/shell`);
