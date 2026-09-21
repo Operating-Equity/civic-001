@@ -7,6 +7,7 @@ import { clientFor, withModelFallback, usageOf, isRetryable, isRateLimit, isConn
 import { noteFailure } from './reach.js';
 import { gateFor, parseRefusal } from './gate.js';
 import { estimateTextCost } from './pricing.js';
+import { requestTools, toolStep, searchCount } from './tools/request.js';
 import { record } from './ledger.js';
 
 /** Parses "1. claim\n2. claim" incrementally. Returns the claims completed so far. */
@@ -66,7 +67,7 @@ export async function runExtraction({ apiKey, text, meta, send, signal, sourceWa
       ...(request.instructions ? { instructions: request.instructions } : {}),
       input: [{ role: 'user', content: [{ type: 'input_text', text: request.message }] }],
       reasoning: r,
-      tools: [{ type: 'web_search' }], // available, as in the UI the prompt was tested in
+      tools: requestTools(), // web search, as in the UI the prompt was tested in; CIVIC's own tools when the gateway is set
       stream: true,
       store: false,
     };
@@ -109,7 +110,11 @@ export async function runExtraction({ apiKey, text, meta, send, signal, sourceWa
             const a = event.item.action || {};
             const step = { kind: a.type || 'search', query: a.query || null, url: a.url || null, pattern: a.pattern || null, status: event.item.status };
             trail.push(step);
-            send({ t: 'trail', step, searches: trail.length });
+            send({ t: 'trail', step, searches: searchCount(trail) });
+          } else if (event.type === 'response.output_item.done' && event.item?.type === 'mcp_call') {
+            const step = toolStep(event.item); // one of CIVIC's tools, called inside the response
+            trail.push(step);
+            send({ t: 'trail', step, searches: searchCount(trail) });
           } else if (event.type === 'response.completed') {
             usage = usageOf(event.response);
           } else if (event.type === 'response.incomplete') {

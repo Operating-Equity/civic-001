@@ -13,9 +13,11 @@
     "mock-openai": "node scripts/mock-openai.js",
     "verify": "node scripts/verify.mjs",
     "leak-check": "node scripts/leak-check.mjs",
+    "tools": "node --env-file-if-exists=.env scripts/tools.mjs",
     "check": "node --check server/index.js && node --check scripts/mock-openai.js"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0",
     "dompurify": "^3.4.15",
     "express": "^5.2.1",
     "katex": "^0.18.7",

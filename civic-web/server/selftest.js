@@ -13,6 +13,8 @@ import { recent } from './diagnostics.js';
 import { whereTheShellSetsIt } from './key.js';
 import { gateStates } from './gate.js';
 import { silentSites } from './fetchurl.js';
+import { registry } from './tools/index.js';
+import { toolsOn } from './tools/request.js';
 
 const ok = (title, detail = '') => ({ state: 'ok', title, detail });
 const bad = (title, detail = '', fix = '') => ({ state: 'bad', title, detail, fix });
@@ -136,6 +138,7 @@ export async function selftest({ apiKey, build }) {
     // of request, what is available now, what is in flight and waiting, and what OpenAI last said.
     pacing: gateStates(),
     silentSites: silentSites(),
+    tools: { reachable: toolsOn(), ...registry.summary() }, // the sources the model can reach for, and whether the requests name the gateway
     recentFailures: recent(10),
   };
 }

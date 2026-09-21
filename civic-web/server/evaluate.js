@@ -19,6 +19,7 @@ import { record as recordFailure } from './diagnostics.js';
 import { estimateTextCost } from './pricing.js';
 import { record, claimHash } from './ledger.js';
 import { parseEntry, conclusionExcerpt } from './verdict.js';
+import { requestTools, toolStep, searchCount } from './tools/request.js';
 export { parseEntry, VERDICTS } from './verdict.js';
 
 export async function runEvaluation({ apiKey, claims, document = '', send, signal }) {
@@ -28,7 +29,7 @@ export async function runEvaluation({ apiKey, claims, document = '', send, signa
   const started = Date.now();
   send({ t: 'batch-start', total, at: started, model: config.evalModels[0], effort: config.evalEffort });
 
-  const tools = [{ type: 'web_search' }]; // always; the prompts were tested with search available
+  const tools = requestTools(); // web search always (the prompts were tested with it); CIVIC's own tools when the gateway is set
 
   // The key's minute figures, once the gate has them from OpenAI: the page is told the limit, what
   // OpenAI counts for one determination, how many start at once and how often one more can. All
@@ -108,7 +109,11 @@ export async function runEvaluation({ apiKey, claims, document = '', send, signa
 
               case 'response.web_search_call.in_progress':
               case 'response.web_search_call.searching':
-                send({ t: 'phase', i, phase: 'searching', searches: trail.length + 1 });
+                send({ t: 'phase', i, phase: 'searching', searches: searchCount(trail) + 1 });
+                break;
+
+              case 'response.mcp_call.in_progress':
+                send({ t: 'phase', i, phase: 'reading' }); // the model is reaching for one of CIVIC's tools
                 break;
 
               case 'response.output_item.done': {
@@ -117,7 +122,12 @@ export async function runEvaluation({ apiKey, claims, document = '', send, signa
                   const a = item.action || {};
                   const step = { kind: a.type || 'search', query: a.query || null, url: a.url || null, pattern: a.pattern || null, status: item.status };
                   trail.push(step);
-                  send({ t: 'trail', i, step, searches: trail.length });
+                  send({ t: 'trail', i, step, searches: searchCount(trail) });
+                } else if (item?.type === 'mcp_call') {
+                  // One of CIVIC's tools, called and answered inside the response; its answer is the model's to use.
+                  const step = toolStep(item);
+                  trail.push(step);
+                  send({ t: 'trail', i, step, searches: searchCount(trail) });
                 }
                 break;
               }
@@ -210,11 +220,11 @@ export async function runEvaluation({ apiKey, claims, document = '', send, signa
     // Conclusion is kept for /check, so the reader can be corrected to the form the model wrote.
     if (parsed.verdictSource === 'unread') recordFailure({ where: 'server:verdict', code: 'verdict_unread', message: conclusionExcerpt(text) });
     const ms = Date.now() - startedAt;
-    const cost = estimateTextCost({ model: modelUsed, usage, searches: trail.length });
+    const cost = estimateTextCost({ model: modelUsed, usage, searches: searchCount(trail) });
     record({
       kind: 'evaluate', ok: true, model: modelUsed, effort: config.evalEffort, webSearch: true,
       claim: claimHash(claim), chars: claim.length, fellBack: fellBack?.used || null, verdict: parsed.verdict, verdictSource: parsed.verdictSource,
-      confidence: parsed.confidence, usage, searches: trail.length, sources: sources.length, incomplete, ms,
+      confidence: parsed.confidence, usage, searches: searchCount(trail), sources: sources.length, incomplete, ms,
       usd: cost.usd, priced: cost.priced,
     });
     completed++;
@@ -226,7 +236,7 @@ export async function runEvaluation({ apiKey, claims, document = '', send, signa
       reasoning: reasoning.trim() || null,
       trail, sources,
       model: modelUsed, requested: config.evalModels[0], fellBack, effort: config.evalEffort, // no token figures go to the page; the ledger keeps them
-      searches: trail.length, ms, cost, incomplete,
+      searches: searchCount(trail), ms, cost, incomplete,
     });
     send({ t: 'batch-progress', completed, total });
   };

@@ -83,6 +83,7 @@ export default {
     starting: 'Asignando un inspector…',
     reasoning: 'Inspeccionando…',
     searching: 'Consultando fuentes…',
+    reading: 'Leyendo una fuente…',
     writing: 'Redactando la entrada…',
     retry: 'Reintentando (intento {n})…',
     waitingLimit: 'Esperando su turno · {s} s',

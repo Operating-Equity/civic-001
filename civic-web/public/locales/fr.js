@@ -83,6 +83,7 @@ export default {
     starting: 'Désignation d\'un inspecteur…',
     reasoning: 'Inspection…',
     searching: 'Vérification des sources…',
+    reading: 'Lecture de la source…',
     writing: 'Rédaction de l\'entrée…',
     retry: 'Nouvelle tentative ({n})…',
     waitingLimit: 'En attente de son tour · {s} s',

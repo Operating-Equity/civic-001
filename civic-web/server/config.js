@@ -89,6 +89,12 @@ export const config = {
   // When a service answers with a job instead of the words (it is transcribing the video), this is
   // where its result is read, with {jobId} filled in. Without it, a job answer is the end.
   transcriptJobUrl: env('CIVIC_TRANSCRIPT_JOB_URL', ''),
+  // Sources as tools (server/tools): the gateway's public address, which the requests to OpenAI name so
+  // the model can reach CIVIC's tools, and the pass OpenAI carries to it. Both set: the tools are in
+  // both requests. Either empty: the requests are exactly as before, and the gateway answers no one.
+  // Every source's own key is that source's setting, named in its adapter, never here.
+  toolsUrl: env('CIVIC_TOOLS_URL', ''),
+  toolsPass: env('CIVIC_TOOLS_PASS', ''),
   maxSourceChars: int('CIVIC_MAX_SOURCE_CHARS', 0),
   allowSourceTruncation: bool('CIVIC_ALLOW_SOURCE_TRUNCATION', false),
   maxClaims: 10, // the automatic run; claims beyond wait for the reader's selection (operator's rule, ten since 17 September)

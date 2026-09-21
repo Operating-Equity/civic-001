@@ -13,6 +13,7 @@ import { $, $$, el, renderMarkdown, renderMath, setBar, toast, easeChars, easeTi
 
 const MAX_CLAIMS = 10; // the automatic run (the operator's number); anything beyond is the reader's explicit choice
 const IN_FLIGHT = 4; // claims in flight at once: the operator's choice of 18 September (the arithmetic is in server/config.js)
+const searchCount = (trail) => (trail || []).filter((s) => s.kind !== 'tool').length; // the web searches in a trail; a tool call is a step of its own
 const GLYPH = { true: '✓', false: '✕', unverified: '?', unread: '–' };
 
 /** A connection failure in the reader's language, from the operating system's code; the server's own words otherwise. */
@@ -718,7 +719,7 @@ function renderClaimsRaw() {
   const trail = state.extraction?.trail || [];
   const parts = [];
   if (reasoning) parts.push(`${t('card.details.reasoning')}\n\n${reasoning}`);
-  if (trail.length) parts.push(`${t('card.details.trail', { n: trail.length })}\n\n${trail.map((s) => `  ${s.kind}: ${s.query || s.url || s.pattern || ''}`).join('\n')}`);
+  if (trail.length) parts.push(`${t('card.details.trail', { n: trail.length })}\n\n${trail.map((s) => `  ${s.kind === 'tool' ? s.name : s.kind}: ${s.query || s.url || s.pattern || ''}${s.kind === 'tool' && s.error ? ` · ${s.error}` : ''}`).join('\n')}`);
   parts.push(state.claimsRaw);
   ui.claimsRawBody.textContent = parts.join(`\n\n${'─'.repeat(40)}\n\n`);
 }
@@ -1074,7 +1075,7 @@ function setCardState(i, stateName) {
 function renderCardStatus(i) {
   const r = state.results[i];
   const card = cardOf(i);
-  const map = { pending: 'card.pending', starting: 'card.starting', reasoning: 'card.reasoning', searching: 'card.searching', writing: 'card.writing', reconnecting: 'card.reconnecting', error: 'card.error' };
+  const map = { pending: 'card.pending', starting: 'card.starting', reasoning: 'card.reasoning', searching: 'card.searching', reading: 'card.reading', writing: 'card.writing', reconnecting: 'card.reconnecting', error: 'card.error' };
   let text;
   if (r.phase === 'queued') {
     const s = r.queuedUntil ? Math.max(0, Math.ceil((r.queuedUntil - Date.now()) / 1000)) : 0;
@@ -1082,7 +1083,7 @@ function renderCardStatus(i) {
   } else if (r.phase === 'retry' && r.retryReason === 'rate_limit') text = t('card.waitingLimit', { s: Math.max(0, Math.ceil(((r.retryUntil || 0) - Date.now()) / 1000)) });
   else if (r.phase === 'retry' && r.retryReason === 'connection') text = t('card.waitingConnection', { why: netWords(r.retryCode, r.retryWhy), time: fmtSeconds(Date.now() - (r.retrySince || Date.now())) });
   else if (r.phase === 'retry') text = t('card.retry', { n: r.retryAttempt || 1 });
-  else if (r.phase === 'searching' && r.trail.length) text = t('card.searchingN', { n: r.trail.length });
+  else if (r.phase === 'searching' && searchCount(r.trail)) text = t('card.searchingN', { n: searchCount(r.trail) });
   else text = t(map[r.phase] || 'card.pending');
   $('.card-status', card).textContent = text;
 }
@@ -1168,8 +1169,9 @@ function renderCardDetail(i) {
     trail.hidden = false;
     $('.raw-summary', trail).textContent = t('card.details.trail', { n: r.trail.length });
     $('.trail-list', trail).replaceChildren(...r.trail.map((s) => {
-      const what = s.query ? `“${s.query}”` : s.url || s.pattern || s.kind;
-      return el('li', {}, [el('span', { class: 'trail-kind mono', text: s.kind || 'search' }), el('span', { text: what })]);
+      // A search shows its query; one of CIVIC's tools shows its verb and what it was asked, and the source's answer if it kept the page.
+      const what = (s.query ? `“${s.query}”` : s.url || s.pattern || s.kind) + (s.kind === 'tool' && s.error ? ` · ${s.error}` : '');
+      return el('li', {}, [el('span', { class: 'trail-kind mono', text: s.kind === 'tool' ? s.name || 'tool' : s.kind || 'search' }), el('span', { text: what })]);
     }));
   } else trail.hidden = true;
 
@@ -1217,7 +1219,7 @@ function renderCardFoot(i) {
   if (state.accounting && r.status === 'done') {
     const parts = [];
     if (r.cost) parts.push(r.cost.priced ? t('card.cost', { usd: fmtUsd(r.cost.usd) }) : t('card.costUnknown'));
-    if (r.trail?.length) parts.push(t('card.searches', { n: r.trail.length }));
+    if (searchCount(r.trail || [])) parts.push(t('card.searches', { n: searchCount(r.trail) }));
     if (r.ms) parts.push(fmtSeconds(r.ms));
     costNode.textContent = parts.join(' · ');
     costNode.hidden = false;

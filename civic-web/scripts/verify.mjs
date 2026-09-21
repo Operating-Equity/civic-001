@@ -10,13 +10,15 @@ import http from 'node:http';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import express from 'express';
 import { leakChecks } from './leak-check.mjs';
 import { sourceBlock } from '../server/source.js';
 import { Bucket, parseRefusal } from '../server/gate.js';
 import { parseEntry } from '../server/verdict.js';
 import { isConnectionDrop, connectionWait, describeError } from '../server/openai.js';
 import { generateCode, normalise, ALPHABET } from '../server/access.js';
+import { validateStandIn } from '../server/tools/contract.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.join(here, '..');
@@ -638,7 +640,11 @@ async function illustrateChecks() {
       const res = await fetch(`http://localhost:${PORT2}/api/illustrate`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text }) });
       const reply = await res.json();
       const lines = fs.readFileSync(record2, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l));
-      const ledger = fs.existsSync(ledger2) ? fs.readFileSync(ledger2, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)) : [];
+      let ledger = [];
+      for (let i = 0; i < 20 && !ledger.some((l) => l.kind === 'illustrate'); i++) { // the ledger line is appended after the reply is sent; wait for it
+        if (i) await new Promise((r) => setTimeout(r, 100));
+        ledger = fs.existsSync(ledger2) ? fs.readFileSync(ledger2, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)) : [];
+      }
       return { status: res.status, reply, edits: lines.filter((l) => l.path === '/v1/images/edits'), generations: lines.filter((l) => l.path === '/v1/images/generations'), ledger: ledger.filter((l) => l.kind === 'illustrate') };
     } finally {
       try { server.kill('SIGTERM'); } catch {}
@@ -714,10 +720,11 @@ async function formulaChecks() {
 }
 await formulaChecks();
 
-async function linkChecks() {
-  const MOCK2 = MOCK_PORT + 20, PORT2 = PORT + 20, SITE = PORT + 21;
-  const ytCalls = [], capCalls = [], transcriptCalls = [], jobCalls = []; // what the stand-in YouTube and transcript service were asked
-  const site = http.createServer((req, res) => {
+/** The guard's stand-in site: pages that answer every way a site can, and a stand-in YouTube and
+ * transcript service; what the stand-in YouTube and the service were asked lands in `calls`. Shared by
+ * the link checks and the tool checks. */
+function standInSite(SITE, { ytCalls, capCalls, transcriptCalls, jobCalls }) {
+  return (req, res) => {
     if (req.url.startsWith('/page')) { res.writeHead(200, { 'content-type': 'text/html' }); res.end(`<html><head><title>A page of facts</title></head><body><article><p>${'The Eiffel Tower stands about 330 metres tall. '.repeat(8)}</p></article></body></html>`); return; }
     if (req.url.startsWith('/goto')) { res.writeHead(302, { location: '/page' }); res.end(); return; }
     if (req.url.startsWith('/meta-loop')) { res.writeHead(200, { 'content-type': 'text/html' }); res.end('<html><head><meta http-equiv="refresh" content="0;url=/meta-loop"><title>Loop</title></head><body><a href="/meta-loop">Continue</a></body></html>'); return; }
@@ -803,7 +810,13 @@ async function linkChecks() {
     }
     if (req.url.startsWith('/thumb-')) { res.writeHead(200, { 'content-type': 'image/png' }); res.end(Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=', 'base64')); return; }
     res.writeHead(404); res.end();
-  });
+  };
+}
+
+async function linkChecks() {
+  const MOCK2 = MOCK_PORT + 20, PORT2 = PORT + 20, SITE = PORT + 21;
+  const ytCalls = [], capCalls = [], transcriptCalls = [], jobCalls = []; // what the stand-in YouTube and transcript service were asked
+  const site = http.createServer(standInSite(SITE, { ytCalls, capCalls, transcriptCalls, jobCalls }));
   await new Promise((r) => site.listen(SITE, r));
   const mock = start([path.join(root, 'scripts', 'mock-openai.js')], { MOCK_PORT: String(MOCK2), MOCK_SPEED: '0.2' });
   await wait(`http://localhost:${MOCK2}/v1/mock/stats`, 15000, { anyResponse: true });
@@ -957,6 +970,111 @@ async function linkChecks() {
   }
 }
 await linkChecks();
+
+// Sources as tools (server/tools): the gateway answers only the pass; the tool table is the verbs the
+// sources on can answer; every adapter is driven through the gateway against its own stand-in; a
+// determination's request names the gateway beside web search and nothing else new; the stand-in
+// OpenAI calls the gateway as OpenAI's servers do and the page's stream shows each call; each call is
+// a ledger line; the pass appears nowhere.
+async function toolChecks() {
+  const MOCK4 = MOCK_PORT + 22, PORT4 = PORT + 25, SITE2 = PORT + 26;
+  const calls = { ytCalls: [], capCalls: [], transcriptCalls: [], jobCalls: [] };
+  const dir = path.join(root, 'server', 'tools', 'adapters');
+  const files = fs.readdirSync(dir).filter((f) => f.endsWith('.js'));
+  const adapters = files.filter((f) => !f.endsWith('.standin.js')).sort();
+  const missing = adapters.filter((f) => !files.includes(f.replace(/\.js$/, '.standin.js')));
+  check('every adapter in server/tools/adapters has a stand-in beside it (the contract the guard enforces on every source)', adapters.length > 0 && missing.length === 0, missing.length ? `missing: ${missing.join(', ')}` : `${adapters.length} adapter(s)`);
+  // The stand-ins, mounted on one site with the guard's own stand-in YouTube behind them.
+  const app = express();
+  const standIns = [];
+  for (const f of adapters) {
+    const standInFile = f.replace(/\.js$/, '.standin.js');
+    if (!files.includes(standInFile)) continue;
+    const s = (await import(pathToFileURL(path.join(dir, standInFile)).href)).default;
+    const problems = validateStandIn(s);
+    check(`the stand-in beside ${f} meets the contract`, problems.length === 0, problems.join('; '));
+    if (!problems.length) { s.mount(app); standIns.push({ file: f, standIn: s }); }
+  }
+  app.use(standInSite(SITE2, calls));
+  const site = http.createServer(app);
+  await new Promise((r) => site.listen(SITE2, r));
+  const siteBase = `http://localhost:${SITE2}`;
+  const env = Object.assign({}, ...standIns.map(({ standIn }) => standIn.settings(siteBase)));
+  const stamp = Date.now();
+  const mockRecord = path.join(os.tmpdir(), `civic-verify-tools-${stamp}.jsonl`);
+  const ledgerFile = path.join(os.tmpdir(), `civic-verify-tools-ledger-${stamp}.jsonl`);
+  const errorLog = path.join(os.tmpdir(), `civic-verify-tools-errors-${stamp}.log`);
+  const PASS = 'standin-pass-3f9c1e';
+  const toolCalls = [{ name: 'read_page', arguments: { url: `${siteBase}/tool-page` } }, { name: 'read_page', arguments: { url: `${siteBase}/refuse` } }];
+  const mock = start([path.join(root, 'scripts', 'mock-openai.js')], { MOCK_PORT: String(MOCK4), MOCK_SPEED: '0.2', MOCK_RECORD: mockRecord, MOCK_TOOL_CALLS: JSON.stringify(toolCalls), MOCK_EVAL_MARK: process.env.MOCK_EVAL_MARK_FOR_GATE || '' });
+  await wait(`http://localhost:${MOCK4}/v1/mock/stats`, 15000, { anyResponse: true });
+  const server = start([path.join(root, 'server', 'index.js')], { PORT: String(PORT4), OPENAI_BASE_URL: `http://localhost:${MOCK4}/v1`, OPENAI_API_KEY: KEY, CIVIC_IMAGE_ENABLED: 'false', CIVIC_LEDGER_FILE: ledgerFile, CIVIC_ERROR_LOG: errorLog, CIVIC_ALLOW_PRIVATE_URLS: 'true', CIVIC_TOOLS_URL: `http://localhost:${PORT4}/mcp`, CIVIC_TOOLS_PASS: PASS, ...env });
+  await wait(`http://localhost:${PORT4}/api/health`);
+  const base = `http://localhost:${PORT4}`;
+  const readIf = (f) => (fs.existsSync(f) ? fs.readFileSync(f, 'utf8') : '');
+  const rpc = async (method, params, id, pass = PASS) => {
+    const r = await fetch(`${base}/mcp`, { method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', ...(pass ? { authorization: `Bearer ${pass}` } : {}) }, body: JSON.stringify({ jsonrpc: '2.0', id, method, params }) });
+    let json = null; try { json = await r.json(); } catch {}
+    return { status: r.status, json };
+  };
+  try {
+    const shut = await rpc('tools/list', {}, 1, null);
+    const wrong = await rpc('tools/list', {}, 1, 'not-the-pass');
+    check('the gateway answers no one without the pass', shut.status === 401 && wrong.status === 401 && !shut.json?.result && !wrong.json?.result, JSON.stringify({ shut: shut.status, wrong: wrong.status }));
+    const init = await rpc('initialize', { protocolVersion: '2025-11-25', capabilities: {}, clientInfo: { name: 'guard', version: '1' } }, 2);
+    check('with the pass, the gateway speaks the standard: initialize answers with its name and that it has tools', init.status === 200 && init.json?.result?.serverInfo?.name === 'civic' && Boolean(init.json?.result?.capabilities?.tools), JSON.stringify(init.json).slice(0, 200));
+    const list = await rpc('tools/list', {}, 3);
+    const tools = list.json?.result?.tools || [];
+    check('the tool table lists the verbs the sources on can answer, read_page and get_transcript, nothing else, and with one source no source parameter', JSON.stringify(tools.map((t) => t.name)) === JSON.stringify(['read_page', 'get_transcript']) && tools.every((t) => !t.inputSchema.properties.source && t.inputSchema.required.includes('url') && t.description.length > 40), JSON.stringify(tools).slice(0, 300));
+    // Every adapter's probes, through the gateway, against its stand-in.
+    let n = 10;
+    for (const { file, standIn } of standIns) {
+      for (const probe of standIn.probes(siteBase)) {
+        const r = await rpc('tools/call', { name: probe.verb, arguments: probe.args }, n++);
+        const result = r.json?.result;
+        const text = (result?.content || []).map((x) => x.text || '').join('');
+        let ok = false, detail = '';
+        if (probe.refused) { ok = result?.isError === true && probe.expect(text); detail = text.slice(0, 200); }
+        else { let out = null; try { out = JSON.parse(text); } catch {} ok = r.status === 200 && !result?.isError && Boolean(out) && probe.expect(out); detail = JSON.stringify(out).slice(0, 300); }
+        check(`${file.replace(/\.js$/, '')} answers ${probe.verb} ${JSON.stringify(probe.args)} ${probe.refused ? 'with the source\'s own answer, as information for the model' : 'in the one shape every source shares'}`, ok, detail);
+      }
+    }
+    // A determination: the request names the gateway beside web search and nothing else new; the
+    // stand-in OpenAI calls the gateway as OpenAI's servers do; the page's stream shows each call.
+    const source = 'The Nile is about 6,650 kilometres long. Water boils at 100 degrees Celsius at sea level.';
+    const ex = await stream(`${base}/api/extract`, { text: source });
+    const entry = ex.find((e) => e.t === 'done')?.claims?.[0]?.entry || 'Claim: The Nile is about 6,650 kilometres long.';
+    const ev = await stream(`${base}/api/evaluate`, { claims: [entry], text: source, source: { kind: 'text' } });
+    await new Promise((r) => setTimeout(r, 500)); // the ledger is appended after the stream ends
+    const sent = readIf(mockRecord).split('\n').filter(Boolean).map((l) => JSON.parse(l));
+    const bodies = sent.filter((r) => r.path === '/v1/responses').map((r) => r.body);
+    const mcpEntry = (b) => (b.tools || []).find((t) => t.type === 'mcp');
+    const expectedMcp = { type: 'mcp', server_label: 'civic', server_url: `${base}/mcp`, headers: { authorization: `Bearer ${PASS}` }, require_approval: 'never' };
+    check('both requests carry web search and the gateway entry with exactly these keys (type, server_label, server_url, headers, require_approval) and no key beyond the six', bodies.length >= 2 && bodies.every((b) => b.tools.length === 2 && b.tools[0].type === 'web_search' && JSON.stringify(mcpEntry(b)) === JSON.stringify(expectedMcp) && extraKeys(b, ['model', 'instructions', 'input', 'reasoning', 'tools', 'stream', 'store']).length === 0), JSON.stringify(bodies.map((b) => b.tools)).slice(0, 400));
+    const client = sent.filter((r) => r.path === '/mcp-client');
+    const listed = client.find((r) => r.step === 'list');
+    const made = client.filter((r) => r.step === 'call');
+    check('the stand-in OpenAI, as a client of the gateway, listed the tools and made its calls: the page\'s text came back whole, the refused page as the site\'s answer', listed?.status === 200 && JSON.stringify(listed?.names) === JSON.stringify(['read_page', 'get_transcript']) && made.length === 2 && made[0].failed === false && /The Nile is about 6,650 kilometres long/.test(made[0].output) && made[1].failed === true && /does not let CIVIC read its pages from here/.test(made[1].output), JSON.stringify({ listed: listed?.names, made: made.map((m) => [m.status, m.failed, String(m.output).slice(0, 80)]) }));
+    const steps = ev.filter((e) => e.t === 'trail').map((e) => e.step);
+    const toolSteps = steps.filter((s) => s.kind === 'tool');
+    const done = ev.find((e) => e.t === 'done');
+    check('the page\'s stream shows each tool call as a step of the trail, by its verb and what it was asked, with the source\'s answer when it kept the page', toolSteps.length === 2 && toolSteps[0].name === 'read_page' && toolSteps[0].url === `${siteBase}/tool-page` && toolSteps[0].status === 'completed' && !toolSteps[0].error && toolSteps[1].status === 'failed' && /does not let CIVIC read its pages from here/.test(toolSteps[1].error || ''), JSON.stringify(toolSteps));
+    const webSteps = steps.filter((s) => s.kind !== 'tool').length;
+    check('the searches counted for the cost are the web searches alone; the tool calls sit in the trail and on their own ledger lines; the row said it was reading', Boolean(done) && done.searches === webSteps && done.trail.length === webSteps + 2 && ev.some((e) => e.t === 'phase' && e.phase === 'reading'), JSON.stringify({ searches: done?.searches, webSteps, trail: done?.trail?.length }));
+    const ledger = readIf(ledgerFile).split('\n').filter(Boolean).map((l) => JSON.parse(l));
+    const toolLines = ledger.filter((l) => l.kind === 'tool');
+    check('each call is one ledger line: the source, the verb, the time, the operator\'s price (zero for CIVIC\'s own reader), and how it ended', toolLines.length >= 2 && toolLines.every((l) => l.source === 'web' && ['read_page', 'get_transcript'].includes(l.verb) && l.usd === 0 && l.priced === true && typeof l.ms === 'number') && toolLines.some((l) => l.ok === true && l.chars > 100) && toolLines.some((l) => l.ok === false && l.code === 'url_refused'), JSON.stringify(toolLines.slice(-2)));
+    const st = await (await fetch(`${base}/api/selftest`)).json();
+    check('/check lists the sources the model can reach for, by name and verb, and that the requests name the gateway', st.tools?.reachable === true && st.tools?.on === true && st.tools?.sources?.[0]?.id === 'web' && JSON.stringify(st.tools.sources[0].verbs) === JSON.stringify(['read_page', 'get_transcript']), JSON.stringify(st.tools));
+    const everywhere = readIf(ledgerFile) + readIf(errorLog) + JSON.stringify(st) + JSON.stringify(ev) + JSON.stringify(ex) + await (await fetch(`${base}/`)).text() + await (await fetch(`${base}/api/health`)).text();
+    check('the pass appears in no record, no stream, no page and no health line', !everywhere.includes(PASS), '');
+  } finally {
+    try { server.kill('SIGTERM'); } catch {}
+    try { mock.kill('SIGTERM'); } catch {}
+    site.close();
+  }
+}
+await toolChecks();
 
 // The port is CIVIC's. An older CIVIC still holding it is closed and the port taken over; anything
 // else on it is left alone and named. Both are proved here with stand-in processes: one that runs

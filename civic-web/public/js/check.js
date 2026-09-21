@@ -46,7 +46,7 @@ function pacingRows(pacing) {
   return rows;
 }
 
-function renderSettings(s, build, pacing, silent) {
+function renderSettings(s, build, pacing, silent, tools) {
   const rows = [
     ['Model', s.model],
     ['Reasoning effort', s.effort],
@@ -57,6 +57,7 @@ function renderSettings(s, build, pacing, silent) {
     ['Version', build],
     ...pacingRows(pacing),
     ...(silent && silent.length ? [['Sites that stayed silent', silent.map((x) => `${x.host} (${x.cause}, since ${x.at.slice(11, 19)} UTC)`).join(' · ') + ' — a site that never answers the connection is remembered until CIVIC restarts, and re-checked whenever it is asked for again']] : []),
+    ...(tools ? [['Sources the model can reach for', (tools.sources || []).length ? (tools.sources.map((x) => `${x.name} (${x.verbs.join(', ')})`).join(' · ') + (tools.reachable ? '' : ' — not in the requests yet: the gateway\'s address and pass are not both set')) : 'none on']] : []),
   ];
   const table = $('#settings');
   table.textContent = '';
@@ -163,7 +164,7 @@ async function run() {
     verdict.className = `check-verdict ${data.ready ? 'is-ready' : 'is-blocked'}`;
     verdict.textContent = data.summary;
     renderChecks(data.checks);
-    renderSettings(data.settings, data.build, data.pacing, data.silentSites);
+    renderSettings(data.settings, data.build, data.pacing, data.silentSites, data.tools);
     renderFailures(data.recentFailures);
     renderSignins(data);
     $('#report').value = asText(data);
