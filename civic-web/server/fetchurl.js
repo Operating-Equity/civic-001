@@ -307,6 +307,45 @@ async function askDoor(base, id, key, visitor, name, signal) {
   return { player };
 }
 
+/** The shapes hosted transcript services answer in: one piece of text, or a list of pieces each
+ *  carrying its own. Nothing is summarised or invented; the words come back as they were sent. */
+export function transcriptLines(data) {
+  const pick = (v) => (typeof v === 'string' ? v : v && typeof v === 'object' ? (v.text ?? v.utf8 ?? v.snippet ?? v.content ?? '') : '');
+  const clean = (arr) => arr.map((x) => String(pick(x)).replace(/\s+/g, ' ').trim()).filter(Boolean);
+  if (typeof data === 'string') return clean([data]);
+  if (Array.isArray(data)) return clean(data);
+  if (!data || typeof data !== 'object') return [];
+  const body = data.data && typeof data.data === 'object' ? data.data : data;
+  for (const key of ['text', 'transcript', 'fullText', 'full_text', 'content']) {
+    const v = body[key];
+    if (typeof v === 'string' && v.trim()) return v.trim().split(/\n+/).map((x) => x.trim()).filter(Boolean);
+  }
+  for (const key of ['segments', 'transcript', 'content', 'snippets', 'lines', 'results', 'items', 'data']) {
+    const v = body[key];
+    if (Array.isArray(v)) { const lines = clean(v); if (lines.length) return lines; }
+  }
+  return [];
+}
+
+/** The last door: a transcript service the operator has set. Silent when none is set, and its answer
+ *  is either the video's words or a note for the failure record. The key is never in the note. */
+async function askTranscriptService(id, videoUrl, signal) {
+  const template = String(config.transcriptUrl || '').trim();
+  const key = String(config.transcriptKey || '').trim();
+  if (!template || !key) return { note: 'no transcript service is set' };
+  const address = template.replace(/\{id\}/g, encodeURIComponent(id)).replace(/\{url\}/g, encodeURIComponent(videoUrl));
+  const headers = { accept: 'application/json' };
+  headers[String(config.transcriptHeader || 'Authorization').toLowerCase()] = `${config.transcriptPrefix || ''}${key}`;
+  const res = await siteRequest(await assertPublic(address), { headers }, signal);
+  const body = await res.text();
+  if (!res.ok) return { note: `the transcript service answered ${res.status}` };
+  let data;
+  try { data = JSON.parse(body); } catch { return { note: 'the transcript service answered no JSON' } }
+  const lines = transcriptLines(data);
+  if (!lines.length) return { note: 'the transcript service returned no words' };
+  return { text: joinCaptionLines(lines) };
+}
+
 /** The video's own caption track, joined into readable lines. No summary, no invention. */
 export async function youtubeTranscript(url, { signal } = {}) {
   const id = youtubeId(url);
@@ -336,6 +375,31 @@ export async function youtubeTranscript(url, { signal } = {}) {
     notes.push(answer.note);
   }
   if (!player) {
+    // Every door of YouTube's own player is shut. The last door is a service the operator has set, if
+    // any; when YouTube itself said the video has no captions, there is nothing for it to fetch.
+    if (!opened) {
+      let bought;
+      try {
+        bought = await askTranscriptService(id, `https://www.youtube.com/watch?v=${encodeURIComponent(id)}`, signal);
+      } catch (err) {
+        if (signal?.aborted) throw err;
+        bought = { note: 'the transcript service could not be reached' };
+      }
+      if (bought.text) {
+        return {
+          kind: 'youtube',
+          title: title || `YouTube video ${id}`,
+          author,
+          published: published.slice(0, 60),
+          site: 'YouTube',
+          text: bought.text.trim(),
+          note: null,
+          language: null,
+          video: { id, embeddable: true, lengthSeconds: null, thumbnails: [] },
+        };
+      }
+      notes.push(bought.note);
+    }
     const e = opened ? new UrlError('url_no_transcript', NO_CAPTIONS) : new UrlError('url_video_wall', VIDEO_WALL);
     e.detail = notes.join(' · ');
     throw e;

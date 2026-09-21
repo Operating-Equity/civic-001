@@ -79,6 +79,7 @@ app.use(express.json({ limit: '64mb' }));
 const nodeModules = path.join(here, '..', 'node_modules');
 app.use('/vendor/marked', express.static(path.join(nodeModules, 'marked', 'lib'), { immutable: true, maxAge: '7d' }));
 app.use('/vendor/dompurify', express.static(path.join(nodeModules, 'dompurify', 'dist'), { immutable: true, maxAge: '7d' }));
+app.use('/vendor/katex', express.static(path.join(nodeModules, 'katex', 'dist'), { immutable: true, maxAge: '7d' })); // typesets the formulas the model writes; its fonts come from here too
 
 const upload = multer({
   storage: multer.memoryStorage(),

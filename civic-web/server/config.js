@@ -77,6 +77,13 @@ export const config = {
   allowPrivateUrls: bool('CIVIC_ALLOW_PRIVATE_URLS', false),
   youtubeBase: env('CIVIC_YOUTUBE_BASE', 'https://www.youtube.com'), // the guard stands in for YouTube with this
   youtubeClients: list('CIVIC_YOUTUBE_CLIENTS', 'ANDROID,TVHTML5,WEB_EMBEDDED_PLAYER,ANDROID_VR,IOS'), // the doors of YouTube's player, asked in this order
+  // A hosted transcript service, the last door, asked only when both of these are set. No vendor is
+  // named in the code: whichever one the operator signs up for is an address and a key. The key stays
+  // on the server, like the OpenAI key, and never reaches the browser or a failure record.
+  transcriptUrl: env('CIVIC_TRANSCRIPT_URL', ''),            // e.g. https://example.com/v1/transcript?video={id}
+  transcriptKey: env('CIVIC_TRANSCRIPT_KEY', ''),
+  transcriptHeader: env('CIVIC_TRANSCRIPT_HEADER', 'Authorization'),
+  transcriptPrefix: env('CIVIC_TRANSCRIPT_PREFIX', 'Bearer '),
   maxSourceChars: int('CIVIC_MAX_SOURCE_CHARS', 0),
   allowSourceTruncation: bool('CIVIC_ALLOW_SOURCE_TRUNCATION', false),
   maxClaims: 10, // the automatic run; claims beyond wait for the reader's selection (operator's rule, ten since 17 September)

@@ -151,6 +151,17 @@ subscribers, and the reader decides whether it is the whole article before press
 (the operator's rule of 19 September; the run does not start by itself in this one case); a shell
 (no paragraph of prose, under 200 characters at most). The page's sentences are in four languages.
 
+### Formulas in a determination
+
+The model sometimes writes a formula as mathematics. Markdown reads a line holding only `=` or only
+`-` as an underline for the line above, so a formula pasted straight into the page lost its operators
+and turned its terms into headings. Each formula (`\[…\]`, `$$…$$`, `\(…\)`) is therefore parked
+under a name Markdown cannot touch before the text is formatted (`splitMath` in `public/js/render.js`),
+put back after the sanitiser, and typeset by KaTeX, which is served from `node_modules` like the other
+two browser libraries. A lone dollar sign is never mathematics, because the model writes sums of
+money. A formula the typesetter cannot read stays exactly as the model wrote it: nothing is dropped
+and nothing is shown as an error.
+
 Nothing is summarised, shortened or rewritten. When a video has no written transcript, YouTube's
 automatic captions are used and the page says so, because they contain transcription errors.
 Captions carry no speaker labels, so a multi-speaker transcript arrives as continuous text.
@@ -162,7 +173,19 @@ app's, the iPhone app's) and guards them unevenly, so they are asked in turn (`C
 until one answers with captions. A video shut at every door gets "YouTube would not show this video's
 captions to CIVIC's server without a sign-in, as it does for some videos. Open the video on YouTube,
 choose Show transcript under the description, copy the text and paste it here.", with each door's
-answer on /check; a video with no captions at an open door says so. While a video's test runs, its player sits in
+answer on /check; a video with no captions at an open door says so.
+
+When every door is shut and the operator has set a hosted transcript service (`CIVIC_TRANSCRIPT_URL`
+and `CIVIC_TRANSCRIPT_KEY`, with `CIVIC_TRANSCRIPT_HEADER` and `CIVIC_TRANSCRIPT_PREFIX` for how the
+key is carried), CIVIC asks it once as the last door. No vendor is named in the code: the address
+takes `{id}` and `{url}`, and the answer is read for whichever shape it has, a single piece of text or
+a list of pieces. With nothing set, nothing is asked and the sentence above stands. The key is a
+server setting like the OpenAI key: it never reaches the browser and never appears in a failure
+record. There is no key for transcripts from Google — the YouTube Data API's caption download works
+only on videos the key holder owns, needs the owner's sign-in, and never covers automatic captions —
+which is why these services exist and charge per call.
+
+While a video's test runs, its player sits in
 the picture's box (320 by 180 beside the steps, full width on a phone), or its thumbnail with a link
 when the owner allows no embedding; no picture is generated for a video. `CIVIC_YOUTUBE_BASE` lets
 the guard stand in for YouTube.
