@@ -80,10 +80,15 @@ export const config = {
   // A hosted transcript service, the last door, asked only when both of these are set. No vendor is
   // named in the code: whichever one the operator signs up for is an address and a key. The key stays
   // on the server, like the OpenAI key, and never reaches the browser or a failure record.
-  transcriptUrl: env('CIVIC_TRANSCRIPT_URL', ''),            // e.g. https://example.com/v1/transcript?video={id}
+  transcriptUrl: env('CIVIC_TRANSCRIPT_URL', ''),            // {id} is the video's id, {url} its address
   transcriptKey: env('CIVIC_TRANSCRIPT_KEY', ''),
-  transcriptHeader: env('CIVIC_TRANSCRIPT_HEADER', 'Authorization'),
-  transcriptPrefix: env('CIVIC_TRANSCRIPT_PREFIX', 'Bearer '),
+  transcriptHeader: env('CIVIC_TRANSCRIPT_HEADER', 'x-api-key'),
+  // Most services carry the key raw in their own header, so the prefix is empty unless one is named;
+  // a service that wants `Authorization: Bearer <key>` sets the header and the prefix `Bearer`.
+  transcriptPrefix: env('CIVIC_TRANSCRIPT_PREFIX', ''),
+  // When a service answers with a job instead of the words (it is transcribing the video), this is
+  // where its result is read, with {jobId} filled in. Without it, a job answer is the end.
+  transcriptJobUrl: env('CIVIC_TRANSCRIPT_JOB_URL', ''),
   maxSourceChars: int('CIVIC_MAX_SOURCE_CHARS', 0),
   allowSourceTruncation: bool('CIVIC_ALLOW_SOURCE_TRUNCATION', false),
   maxClaims: 10, // the automatic run; claims beyond wait for the reader's selection (operator's rule, ten since 17 September)

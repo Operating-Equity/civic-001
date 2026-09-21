@@ -189,6 +189,17 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
   (`CIVIC_TRANSCRIPT_URL`, `CIVIC_TRANSCRIPT_KEY`, and the header name and prefix): no vendor in the
   code, nothing asked until both are set, the key never leaving the server. Established for the
   record: no key exists for YouTube transcripts, from Google or anyone.
+- **21 September, 09:40 UTC: the door fitted to a real service.** The operator signed up for Supadata
+  (free tier, a hundred videos). Reading its API found two mismatches with the door built the night
+  before. Its key rides raw in an `x-api-key` header, and the prefix setting could not be made empty,
+  because the settings reader treats an empty value as unset and fell back to `Bearer`, which would
+  have sent `Bearer sd_…` and been refused; the prefix now defaults to empty and the space before a
+  named prefix is added in code instead of hiding in a setting's trailing blank. And it answers HTTP
+  202 with a job id when it has to make a transcript itself, which the door read as no words; a job is
+  now followed to its end (`CIVIC_TRANSCRIPT_JOB_URL`), bounded by the reader stopping the run rather
+  than by a limit of ours. `.env.example` carries the four Supadata values; `mode=native` is the
+  documented default, since it fetches captions a video already has for one credit while `mode=auto`
+  also transcribes videos that have none, charged by the video's length.
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 

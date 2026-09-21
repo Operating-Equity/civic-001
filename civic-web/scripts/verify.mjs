@@ -716,7 +716,7 @@ await formulaChecks();
 
 async function linkChecks() {
   const MOCK2 = MOCK_PORT + 20, PORT2 = PORT + 20, SITE = PORT + 21;
-  const ytCalls = [], capCalls = [], transcriptCalls = []; // what the stand-in YouTube and transcript service were asked
+  const ytCalls = [], capCalls = [], transcriptCalls = [], jobCalls = []; // what the stand-in YouTube and transcript service were asked
   const site = http.createServer((req, res) => {
     if (req.url.startsWith('/page')) { res.writeHead(200, { 'content-type': 'text/html' }); res.end(`<html><head><title>A page of facts</title></head><body><article><p>${'The Eiffel Tower stands about 330 metres tall. '.repeat(8)}</p></article></body></html>`); return; }
     if (req.url.startsWith('/goto')) { res.writeHead(302, { location: '/page' }); res.end(); return; }
@@ -772,16 +772,34 @@ async function linkChecks() {
       res.end(JSON.stringify({ events: [{ tStartMs: 0, segs: [{ utf8: 'Water boils at 100 degrees Celsius at sea level.' }] }, { tStartMs: 4000, segs: [{ utf8: 'The Eiffel Tower stands about' }, { utf8: ' 330 metres tall.' }] }] }));
       return;
     }
-    // A hosted transcript service, stood in for: it answers for one video and has nothing for the rest.
+    // A hosted transcript service, stood in for, answering the shapes a real one does: the words, a
+    // job it is still making, or a reason it has none.
+    if (req.url.startsWith('/transcript-job/')) {
+      const jobId = req.url.split('/transcript-job/')[1].split('?')[0];
+      jobCalls.push(jobId);
+      res.writeHead(200, { 'content-type': 'application/json' });
+      if (jobId === 'job-bad') { res.end(JSON.stringify({ status: 'failed', error: { error: 'transcript-unavailable', message: 'No captions for this video' } })); return; }
+      const seen = jobCalls.filter((j) => j === jobId).length;
+      if (seen < 2) { res.end(JSON.stringify({ status: 'active' })); return; }
+      res.end(JSON.stringify({ status: 'completed', content: 'The Nile is about 6,650 kilometres long.', lang: 'en', availableLangs: ['en'] }));
+      return;
+    }
     if (req.url.startsWith('/transcript')) {
       const q = Object.fromEntries(new URL(req.url, 'http://x').searchParams);
-      transcriptCalls.push({ video: q.video, auth: req.headers['x-civic-transcript'] || req.headers.authorization || '' });
+      transcriptCalls.push({ video: q.video, auth: req.headers['x-api-key'] || req.headers['x-civic-transcript'] || req.headers.authorization || '' });
       if (q.video === 'vid5') {
         res.writeHead(200, { 'content-type': 'application/json' });
-        res.end(JSON.stringify({ segments: [{ text: 'The Nile is about 6,650 kilometres long.' }, { text: 'Water boils at 100 degrees Celsius at sea level.' }] }));
+        res.end(JSON.stringify({ content: 'The Nile is about 6,650 kilometres long.\nWater boils at 100 degrees Celsius at sea level.', lang: 'en', availableLangs: ['en'] }));
         return;
       }
-      res.writeHead(404, { 'content-type': 'application/json' }); res.end(JSON.stringify({ error: 'no_captions' })); return;
+      if (q.video === 'vid8' || q.video === 'vid9') {
+        res.writeHead(202, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ jobId: q.video === 'vid8' ? 'job-good' : 'job-bad' }));
+        return;
+      }
+      res.writeHead(404, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ error: 'transcript-unavailable', message: 'No transcript available', details: 'The video has no captions' }));
+      return;
     }
     if (req.url.startsWith('/thumb-')) { res.writeHead(200, { 'content-type': 'image/png' }); res.end(Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=', 'base64')); return; }
     res.writeHead(404); res.end();
@@ -853,18 +871,25 @@ async function linkChecks() {
     // The last door: a hosted transcript service the operator has set. A second server, because the
     // setting is the whole difference; the same stand-in YouTube and the same stand-in service.
     const PORT3 = PORT + 24;
-    const withService = start([path.join(root, 'server', 'index.js')], { PORT: String(PORT3), OPENAI_BASE_URL: `http://localhost:${MOCK2}/v1`, OPENAI_API_KEY: KEY, CIVIC_IMAGE_ENABLED: 'false', CIVIC_LEDGER_FILE: path.join(os.tmpdir(), 'civic-verify-ledger.jsonl'), CIVIC_ALLOW_PRIVATE_URLS: 'true', CIVIC_YOUTUBE_BASE: `http://localhost:${SITE}`, CIVIC_ERROR_LOG: path.join(os.tmpdir(), `civic-verify-service-errors-${Date.now()}.log`), CIVIC_TRANSCRIPT_URL: `http://localhost:${SITE}/transcript?video={id}`, CIVIC_TRANSCRIPT_KEY: 'standin-transcript-key', CIVIC_TRANSCRIPT_HEADER: 'X-Civic-Transcript', CIVIC_TRANSCRIPT_PREFIX: 'Token ' });
+    const withService = start([path.join(root, 'server', 'index.js')], { PORT: String(PORT3), OPENAI_BASE_URL: `http://localhost:${MOCK2}/v1`, OPENAI_API_KEY: KEY, CIVIC_IMAGE_ENABLED: 'false', CIVIC_LEDGER_FILE: path.join(os.tmpdir(), 'civic-verify-ledger.jsonl'), CIVIC_ALLOW_PRIVATE_URLS: 'true', CIVIC_YOUTUBE_BASE: `http://localhost:${SITE}`, CIVIC_ERROR_LOG: path.join(os.tmpdir(), `civic-verify-service-errors-${Date.now()}.log`), CIVIC_TRANSCRIPT_URL: `http://localhost:${SITE}/transcript?video={id}&text=true`, CIVIC_TRANSCRIPT_KEY: 'standin-transcript-key', CIVIC_TRANSCRIPT_HEADER: 'x-api-key', CIVIC_TRANSCRIPT_JOB_URL: `http://localhost:${SITE}/transcript-job/{jobId}` });
     try {
       await wait(`http://localhost:${PORT3}/api/health`);
       const readVia = async (url) => { const r = await fetch(`http://localhost:${PORT3}/api/read-url`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ url }) }); return { status: r.status, body: await r.json().catch(() => null) }; };
       const bought = await readVia('https://www.youtube.com/watch?v=vid5');
       const call = transcriptCalls.find((c) => c.video === 'vid5');
-      check('a video shut at every door of YouTube is read through the transcript service the operator set, with the key in the header they named',
-        bought.status === 200 && bought.body?.kind === 'youtube' && /The Nile is about 6,650 kilometres long\./.test(bought.body?.text || '') && /Water boils/.test(bought.body?.text || '') && call?.auth === 'Token standin-transcript-key', JSON.stringify({ status: bought.status, text: (bought.body?.text || '').slice(0, 80), auth: call?.auth ? 'sent' : 'missing' }));
+      check('a video shut at every door of YouTube is read through the transcript service the operator set, with the key carried raw in the header they named',
+        bought.status === 200 && bought.body?.kind === 'youtube' && /The Nile is about 6,650 kilometres long\./.test(bought.body?.text || '') && /Water boils/.test(bought.body?.text || '') && call?.auth === 'standin-transcript-key', JSON.stringify({ status: bought.status, text: (bought.body?.text || '').slice(0, 60), auth: call?.auth === 'standin-transcript-key' ? 'the key alone' : call?.auth }));
+      const made = await readVia('https://www.youtube.com/watch?v=vid8');
+      check('when the service answers with a job because it is still making the transcript, the job is followed to its end and the words arrive',
+        made.status === 200 && made.body?.kind === 'youtube' && /The Nile is about 6,650 kilometres long\./.test(made.body?.text || '') && jobCalls.filter((j) => j === 'job-good').length >= 2, JSON.stringify({ status: made.status, text: (made.body?.text || '').slice(0, 60), polls: jobCalls.filter((j) => j === 'job-good').length }));
+      const failed = await readVia('https://www.youtube.com/watch?v=vid9');
+      const failedRec = ((await (await fetch(`http://localhost:${PORT3}/api/selftest`)).json()).recentFailures || []).find((f) => /could not make the transcript/.test(f.detail || ''));
+      check('a job the service gives up on ends in the wall sentence, and the record says why without naming the key',
+        failed.status === 400 && failed.body?.error?.code === 'url_video_wall' && /No captions for this video/.test(failedRec?.detail || '') && !/standin-transcript-key/.test(JSON.stringify(failed.body) + (failedRec?.detail || '')), JSON.stringify({ code: failed.body?.error?.code, detail: failedRec?.detail }));
       const nothing = await readVia('https://www.youtube.com/watch?v=vid7');
-      const serviceFail = ((await (await fetch(`http://localhost:${PORT3}/api/selftest`)).json()).recentFailures || []).find((f) => /transcript service/.test(f.detail || ''));
-      check('when the service has nothing either, the wall sentence stands and the record says so without ever naming the key',
-        nothing.status === 400 && nothing.body?.error?.code === 'url_video_wall' && /the transcript service answered 404/.test(serviceFail?.detail || '') && !/standin-transcript-key/.test(JSON.stringify(nothing.body) + (serviceFail?.detail || '')), JSON.stringify({ body: nothing.body, detail: serviceFail?.detail }));
+      const serviceFail = ((await (await fetch(`http://localhost:${PORT3}/api/selftest`)).json()).recentFailures || []).find((f) => /the transcript service answered 404/.test(f.detail || ''));
+      check('when the service has nothing either, the wall sentence stands and the record carries the reason it gave, never the key',
+        nothing.status === 400 && nothing.body?.error?.code === 'url_video_wall' && /transcript-unavailable/.test(serviceFail?.detail || '') && !/standin-transcript-key/.test(JSON.stringify(nothing.body) + (serviceFail?.detail || '')), JSON.stringify({ body: nothing.body?.error?.code, detail: serviceFail?.detail }));
     } finally {
       try { withService.kill('SIGTERM'); } catch {}
     }
