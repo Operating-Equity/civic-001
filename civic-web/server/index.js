@@ -340,8 +340,8 @@ function banner() {
   console.log(`prompts installed: ${mark('extract')} · ${mark('evaluate')} · challenge=${status.challenge}` + (config.challengeEnabled ? '' : ' (challenge API step withheld)'));
   const shape = requestShape();
   const placing = shape.extract.source === 'inserted' ? 'the prompt verbatim with the source in place of its final bracketed line, as the only message' : 'the prompt verbatim as instructions · the document whole as the only message';
-  console.log(`extraction requests carry: model ${shape.extract.model} · reasoning.effort ${shape.extract.effort}${shape.extract.summary ? ` · reasoning.summary ${shape.extract.summary}` : ''} · web_search · ${placing} · nothing else${shape.extract.fallback ? '  (FALLBACK LIST SET)' : ''}`);
-  console.log(`determination requests carry: model ${shape.evaluate.model} · reasoning.effort ${shape.evaluate.effort}${shape.evaluate.summary ? ` · reasoning.summary ${shape.evaluate.summary}` : ''} · web_search · the source as a message ahead of the prompt · the prompt verbatim with the claim's whole entry in its slot · nothing else${shape.evaluate.fallback ? '  (FALLBACK LIST SET)' : ''}`);
+  console.log(`extraction requests carry: model ${shape.extract.model} · reasoning.effort ${shape.extract.effort}${shape.extract.mode ? ` · reasoning.mode ${shape.extract.mode}` : ''}${shape.extract.summary ? ` · reasoning.summary ${shape.extract.summary}` : ''} · web_search · ${placing} · nothing else${shape.extract.fallback ? '  (FALLBACK LIST SET)' : ''}`);
+  console.log(`determination requests carry: model ${shape.evaluate.model} · reasoning.effort ${shape.evaluate.effort}${shape.evaluate.mode ? ` · reasoning.mode ${shape.evaluate.mode}` : ''}${shape.evaluate.summary ? ` · reasoning.summary ${shape.evaluate.summary}` : ''} · web_search · the source as a message ahead of the prompt · the prompt verbatim with the claim's whole entry in its slot · nothing else${shape.evaluate.fallback ? '  (FALLBACK LIST SET)' : ''}`);
   if (config.openaiBaseUrl) console.log(`OpenAI base URL override: ${config.openaiBaseUrl}`);
 }
 

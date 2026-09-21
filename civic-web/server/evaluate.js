@@ -27,7 +27,7 @@ export async function runEvaluation({ apiKey, claims, document = '', send, signa
   const total = claims.length;
   let completed = 0;
   const started = Date.now();
-  send({ t: 'batch-start', total, at: started, model: config.evalModels[0], effort: config.evalEffort });
+  send({ t: 'batch-start', total, at: started, model: config.evalModels[0], effort: config.evalEffort, mode: config.evalReasoningMode || null });
 
   const tools = requestTools(); // web search always (the prompts were tested with it); CIVIC's own tools when the gateway is set
 
@@ -62,6 +62,7 @@ export async function runEvaluation({ apiKey, claims, document = '', send, signa
       // The operator's tested configuration and nothing else. No cap, no mode, no verbosity,
       // no context size. `npm run verify` fails if any other key ever appears here.
       const reasoning = { effort: config.evalEffort };
+      if (config.evalReasoningMode) reasoning.mode = config.evalReasoningMode; // pro: more model work per answer, at the same rates
       if (wantSummary) reasoning.summary = config.evalReasoningSummary;
       const body = {
         model,
@@ -222,7 +223,7 @@ export async function runEvaluation({ apiKey, claims, document = '', send, signa
     const ms = Date.now() - startedAt;
     const cost = estimateTextCost({ model: modelUsed, usage, searches: searchCount(trail) });
     record({
-      kind: 'evaluate', ok: true, model: modelUsed, effort: config.evalEffort, webSearch: true,
+      kind: 'evaluate', ok: true, model: modelUsed, effort: config.evalEffort, mode: config.evalReasoningMode || null, webSearch: true,
       claim: claimHash(claim), chars: claim.length, fellBack: fellBack?.used || null, verdict: parsed.verdict, verdictSource: parsed.verdictSource,
       confidence: parsed.confidence, usage, searches: searchCount(trail), sources: sources.length, incomplete, ms,
       usd: cost.usd, priced: cost.priced,
@@ -235,7 +236,7 @@ export async function runEvaluation({ apiKey, claims, document = '', send, signa
       text: parsed.text,            // complete, unmodified
       reasoning: reasoning.trim() || null,
       trail, sources,
-      model: modelUsed, requested: config.evalModels[0], fellBack, effort: config.evalEffort, // no token figures go to the page; the ledger keeps them
+      model: modelUsed, requested: config.evalModels[0], fellBack, effort: config.evalEffort, mode: config.evalReasoningMode || null, // no token figures go to the page; the ledger keeps them
       searches: searchCount(trail), ms, cost, incomplete,
     });
     send({ t: 'batch-progress', completed, total });

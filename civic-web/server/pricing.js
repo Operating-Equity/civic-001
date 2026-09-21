@@ -1,11 +1,12 @@
 // Internal accounting: estimated cost of goods sold per call. Token counts come from the API and
 // are exact; the dollar figures are estimates from this table (USD per million tokens) and should
 // be checked against the OpenAI pricing page before being relied on. Override with
-// CIVIC_PRICING_JSON='{"gpt-5.6-sol":{"input":5,"cached":0.5,"output":30}}'.
+// CIVIC_PRICING_JSON='{"gpt-5.6-sol":{"input":4,"cached":0.4,"output":20}}'.
+// Sol's row is OpenAI's pricing page of 21 September 2026 (promotional through 21 November 2026).
 import { config } from './config.js';
 
 const DEFAULT_PRICES = {
-  'gpt-5.6-sol': { input: 5, cached: 0.5, output: 30 },
+  'gpt-5.6-sol': { input: 4, cached: 0.4, output: 20 },
   'gpt-5.6-terra': { input: 2, cached: 0.2, output: 12 },
   'gpt-5.6-luna': { input: 0.2, cached: 0.02, output: 1.2 },
   'gpt-6-astra': { input: 10, cached: 1, output: 50 },

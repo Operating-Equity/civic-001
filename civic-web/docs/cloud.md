@@ -217,6 +217,18 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
   claim). Set on Render with the merge: the gateway's address and a pass. Next: law (`search_law`,
   `get_case`; CourtListener first, LexisNexis as a second adapter behind the same verbs), then
   filings and financials (SEC EDGAR first).
+- **21 September, 18:40 UTC: the model at its maximum power below GPT-6 (release M).** The operator
+  asked for maximum power but not 6. OpenAI's pages that day: GPT-6 Astra at the top; GPT-5.6 Sol, CIVIC's
+  model since the first build, the flagship below it, with two dials above CIVIC's `xhigh`: reasoning
+  effort `max` and reasoning mode `pro`, "the highest-intelligence API option" short of Astra (more
+  model work per answer, billed at Sol's ordinary rates, so more tokens and time per claim). Both are
+  request parameters; the model, the prompts and the sources are untouched. Now: effort `max` and
+  mode `pro` on both steps (`CIVIC_EFFORT`, `CIVIC_REASONING_MODE`; `standard` or empty sends no
+  mode key), the mode on the card's model line and in the ledger, the guard admitting and requiring
+  the key. Sol's estimate row corrected to OpenAI's price of that day ($4 in, $20 out, promotional
+  through 21 November 2026; it said 5 and 30). The operator's next run, with their own data attached,
+  is the proof; the YouTube test with their Supadata key follows it. The operator has integrated other
+  sources directly into OpenAI and wants no source-related change until the two are understood.
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 

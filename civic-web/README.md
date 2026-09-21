@@ -230,7 +230,7 @@ Every request to OpenAI carries the operator's tested configuration and nothing 
 number in this program in the path of a determination that the operator did not set.
 
 **Extraction request:** `model`, `input` (the extraction prompt, verbatim, with the source in
-place of its final bracketed line, as the only message), `reasoning.effort`, `reasoning.summary`,
+place of its final bracketed line, as the only message), `reasoning.effort`, `reasoning.mode`, `reasoning.summary`,
 `tools` (one `web_search`, no options; and, when the gateway is set, one `mcp` entry naming it, with `server_label`, `server_url`, `headers` carrying the pass and `require_approval: never`, nothing else), `stream`, `store`. The source goes into that slot with
 what CIVIC knows of its attribution, since the slot asks for it: for a link, the page's title,
 author, site, date and address and the day CIVIC read it; for a file, its name and the day; for
@@ -242,7 +242,7 @@ what is tested, and any further labelled lines are shown beside it, verbatim.
 **Determination request:** `model`, `input` (two messages: first the source exactly as the
 extractor received it, its attribution lines and its text; then the evaluation prompt, verbatim,
 with the claim's whole entry, Claim, Attribution and Unspecified lines, in place of `{{CLAIM}}`),
-`reasoning.effort`, `reasoning.summary`, `tools` (one `web_search`, no options; and, when the gateway is set, one `mcp` entry naming it, with `server_label`, `server_url`, `headers` carrying the pass and `require_approval: never`, nothing else), `stream`,
+`reasoning.effort`, `reasoning.mode`, `reasoning.summary`, `tools` (one `web_search`, no options; and, when the gateway is set, one `mcp` entry naming it, with `server_label`, `server_url`, `headers` carrying the pass and `require_approval: never`, nothing else), `stream`,
 `store`. The source goes ahead because the conversation carried it in the workflow the prompts
 were tested in; a claim tested bare, "the speech" with no speaker or date, was being tested
 without the context the extraction prompt had written for it.
@@ -253,7 +253,8 @@ truncation setting. No fallback model. No size limit of ours on the document.
 | Setting | Value | Set by |
 |---|---|---|
 | Model, both steps | `gpt-5.6-sol` | Operator, tested |
-| Reasoning effort, both steps | `xhigh` | Operator, tested |
+| Reasoning effort, both steps | `max` | Operator, 21 September: the model's maximum power below GPT-6 (tested at `xhigh` before that) |
+| Reasoning mode, both steps | `pro` | Operator, 21 September: GPT-5.6's pro mode, OpenAI's "highest-intelligence API option" short of GPT-6; more model work per answer at the same per-token rates. `standard` or blank sends no mode key. |
 | Web search | on, both steps, not configurable | The prompts were tested in a UI where search is available to every prompt. A request without it is not what was tested. |
 | Reasoning summary | `auto` | Display only: the model's own account of its reasoning, shown on the card. Does not change the answer. Blank to turn off. |
 | Claims run automatically | 10, four at a time, each on its own request; the rest wait for the reader's selection | Operator's rule |
@@ -338,8 +339,8 @@ When accounts arrive, the prompts should move to a secrets manager rather than f
 
 | Step | Default | Why |
 |---|---|---|
-| Extraction | `gpt-5.6-sol`, effort `xhigh`, web search on | The operator's tested configuration, the same as for determination. |
-| Determination | `gpt-5.6-sol`, effort `xhigh`, web search on | As requested. Web search lets the inspector reach primary sources, and every query and citation is shown. |
+| Extraction | `gpt-5.6-sol`, effort `max`, mode `pro`, web search on | The operator's configuration, the same as for determination. |
+| Determination | `gpt-5.6-sol`, effort `max`, mode `pro`, web search on | As requested. Web search lets the inspector reach primary sources, and every query and citation is shown. |
 | Art direction | `gpt-5.6-luna`, effort `low` | Reads the document and writes a concrete photographic brief for the echo. About two seconds. |
 | Visual echo | `gpt-image-2.5-flare`, quality `high` | OpenAI's fastest image model. Quality is `high`, not `low`: the speed comes from the model, not from starving it. |
 
