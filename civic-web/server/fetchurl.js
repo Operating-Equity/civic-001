@@ -327,23 +327,76 @@ export function transcriptLines(data) {
   return [];
 }
 
-/** The last door: a transcript service the operator has set. Silent when none is set, and its answer
- *  is either the video's words or a note for the failure record. The key is never in the note. */
+/** The key, carried the way the service asks for it. Most want it raw in a header of their own; one
+ *  that wants `Authorization: Bearer <key>` names the header and the prefix, and the space between
+ *  them is added here rather than hidden in a setting's trailing blank. */
+function transcriptHeaders() {
+  const prefix = String(config.transcriptPrefix || '').trim();
+  const key = String(config.transcriptKey || '').trim();
+  const headers = { accept: 'application/json' };
+  headers[String(config.transcriptHeader || 'x-api-key').toLowerCase()] = prefix ? `${prefix} ${key}` : key;
+  return headers;
+}
+
+/** What a service said went wrong, in its own words: its code and its sentence, whichever it gave.
+ *  This is for the operator's failure record, so it never carries the key. */
+function serviceReason(body) {
+  if (!body || typeof body !== 'object') return '';
+  const code = typeof body.error === 'string' ? body.error : (body.error?.error || '');
+  const said = typeof body.message === 'string' ? body.message : (body.error?.message || '');
+  return [code, said].filter(Boolean).join(': ').slice(0, 90);
+}
+
+/** One question to the service. Its answer is the words, a job, or a reason. */
+async function askOnce(address, signal) {
+  const res = await siteRequest(await assertPublic(address), { headers: transcriptHeaders() }, signal);
+  const body = await res.text();
+  let data = null;
+  try { data = JSON.parse(body); } catch { /* not JSON */ }
+  if (!res.ok) {
+    // Services name the reason in the body. The reason is the operator's to see; the key never is.
+    const reason = serviceReason(data);
+    return { note: `the transcript service answered ${res.status}${reason ? ` (${reason})` : ''}` };
+  }
+  if (!data) return { note: 'the transcript service answered no JSON' };
+  return { data };
+}
+
+/** The last door: a transcript service the operator has set. Silent when none is set. When the service
+ *  answers with a job instead of the words, because it is making the transcript itself, the job is
+ *  followed to its end; nothing here sets a time limit, and the reader stopping the run is what stops
+ *  it, as everywhere else in the reader. The key is never in a note. */
 async function askTranscriptService(id, videoUrl, signal) {
   const template = String(config.transcriptUrl || '').trim();
-  const key = String(config.transcriptKey || '').trim();
-  if (!template || !key) return { note: 'no transcript service is set' };
+  if (!template || !String(config.transcriptKey || '').trim()) return { note: 'no transcript service is set' };
   const address = template.replace(/\{id\}/g, encodeURIComponent(id)).replace(/\{url\}/g, encodeURIComponent(videoUrl));
-  const headers = { accept: 'application/json' };
-  headers[String(config.transcriptHeader || 'Authorization').toLowerCase()] = `${config.transcriptPrefix || ''}${key}`;
-  const res = await siteRequest(await assertPublic(address), { headers }, signal);
-  const body = await res.text();
-  if (!res.ok) return { note: `the transcript service answered ${res.status}` };
-  let data;
-  try { data = JSON.parse(body); } catch { return { note: 'the transcript service answered no JSON' } }
-  const lines = transcriptLines(data);
-  if (!lines.length) return { note: 'the transcript service returned no words' };
-  return { text: joinCaptionLines(lines) };
+
+  const answer = await askOnce(address, signal);
+  if (answer.note) return answer;
+
+  const first = transcriptLines(answer.data);
+  if (first.length) return { text: joinCaptionLines(first) };
+
+  // A job: the service is making the transcript. Its result is read where the operator said it is.
+  const jobId = answer.data?.jobId || answer.data?.job_id;
+  if (!jobId) return { note: 'the transcript service returned no words' };
+  const jobTemplate = String(config.transcriptJobUrl || '').trim();
+  if (!jobTemplate) return { note: 'the transcript service is making the transcript, and no address was set to read the result' };
+  const jobAddress = jobTemplate.replace(/\{jobId\}/g, encodeURIComponent(jobId));
+  for (;;) {
+    if (signal?.aborted) throw new Error('aborted');
+    await new Promise((r) => setTimeout(r, 2000));
+    const job = await askOnce(jobAddress, signal);
+    if (job.note) return job;
+    const status = String(job.data?.status || '').toLowerCase();
+    if (status === 'failed' || status === 'error') {
+      const said = serviceReason(job.data);
+      return { note: `the transcript service could not make the transcript${said ? ` (${said})` : ''}` };
+    }
+    const lines = transcriptLines(job.data);
+    if (lines.length) return { text: joinCaptionLines(lines) };
+    if (status === 'completed' || status === 'done') return { note: 'the transcript service finished with no words' };
+  }
 }
 
 /** The video's own caption track, joined into readable lines. No summary, no invention. */

@@ -177,9 +177,13 @@ answer on /check; a video with no captions at an open door says so.
 
 When every door is shut and the operator has set a hosted transcript service (`CIVIC_TRANSCRIPT_URL`
 and `CIVIC_TRANSCRIPT_KEY`, with `CIVIC_TRANSCRIPT_HEADER` and `CIVIC_TRANSCRIPT_PREFIX` for how the
-key is carried), CIVIC asks it once as the last door. No vendor is named in the code: the address
-takes `{id}` and `{url}`, and the answer is read for whichever shape it has, a single piece of text or
-a list of pieces. With nothing set, nothing is asked and the sentence above stands. The key is a
+key is carried and `CIVIC_TRANSCRIPT_JOB_URL` for where a job's result is read), CIVIC asks it as the
+last door. No vendor is named in the code: the address takes `{id}` and `{url}`, the answer is read
+for whichever shape it has, a single piece of text or a list of pieces, and a service that hands back
+a job while it makes the transcript is followed to the end of that job, with no time limit of CIVIC's
+own. Most services carry the key raw in a header of their own, so the prefix is empty unless one is
+named. `.env.example` holds the four values for Supadata, the service the operator uses. With nothing
+set, nothing is asked and the sentence above stands. The key is a
 server setting like the OpenAI key: it never reaches the browser and never appears in a failure
 record. There is no key for transcripts from Google — the YouTube Data API's caption download works
 only on videos the key holder owns, needs the owner's sign-in, and never covers automatic captions —
