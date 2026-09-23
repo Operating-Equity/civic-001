@@ -21,7 +21,7 @@ export default {
     showText: 'Afficher le texte',
     hideText: 'Masquer le texte',
     testing: 'Test en cours',
-    slow: 'La première étape prend des minutes sur un long document pour trouver toutes les affirmations à tester, car le modèle lit et examine toutes les déclarations avant d\'écrire quoi que ce soit. Les dix déterminations s\'exécutent ensuite quatre par quatre, chacune en quelques minutes.',
+    slow: 'La première étape prend des minutes sur un long document pour trouver toutes les affirmations à tester, car le modèle lit et examine toutes les déclarations avant d\'écrire quoi que ce soit. Les dix déterminations s\'exécutent ensuite {n} par {n}, chacune en quelques minutes.',
     empty: 'Collez ou téléversez quelque chose à tester.',
     truncated: 'Le document a été tronqué à {n} caractères, le maximum par test.',
   },
@@ -188,5 +188,6 @@ export default {
   },
   echo: { alt: 'Illustration symbolique du document', making: 'Composition du cadre…', video: 'La vidéo à l\'épreuve' },
   time: { seconds_one: '{n} seconde', seconds_other: '{n} secondes', minutes: '{m} min {s} s' },
+  numbers: { 1: 'un', 2: 'deux', 3: 'trois', 4: 'quatre', 5: 'cinq', 6: 'six', 7: 'sept', 8: 'huit', 9: 'neuf', 10: 'dix', 11: 'onze', 12: 'douze' },
   footer: { service: 'Un service de' },
 };

@@ -19,7 +19,7 @@ import { parseEntry } from '../server/verdict.js';
 import { isConnectionDrop, connectionWait, describeError } from '../server/openai.js';
 import { generateCode, normalise, ALPHABET } from '../server/access.js';
 import { validateStandIn } from '../server/tools/contract.js';
-import { requestShape } from '../server/config.js';
+import { config, requestShape } from '../server/config.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.join(here, '..');
@@ -322,6 +322,7 @@ async function gateRun(n, env, { extraction = false, claims = SIX, serverEnv = {
   }
   try { out.stats = await (await fetch(`http://localhost:${MOCK2}/v1/mock/stats`, { headers: { authorization: `Bearer ${KEY}` } })).json(); } catch (err) { out.failure += ` stats: ${err.message}`; }
   try { out.pacing = ((await (await fetch(`http://localhost:${PORT2}/api/selftest`)).json()).pacing || [])[0] || null; } catch {}
+  try { out.health = await (await fetch(`http://localhost:${PORT2}/api/health`)).json(); } catch {}
   try { server.kill('SIGTERM'); } catch {}
   try { mock.kill('SIGTERM'); } catch {}
   return out;
@@ -342,11 +343,21 @@ async function gateChecks() {
   const starts = (r) => { const d = (r.stats?.timeline || []).filter((e) => e.kind === 'determination'); return d.map((e) => e.at - d[0].at); };
   const twenty = { CIVIC_EVAL_CONCURRENCY: '20' };   // the gate's pacing is proved with claims allowed to run together
 
-  // 0. The rule that runs: four claims at a time, never more, and none refused at the door or in its stream.
+  // 0. The rule that runs: three claims at a time, never more, and none refused at the door or in its stream.
   {
     const r = await gateRun(3, { MOCK_TPM: '5000000', MOCK_RESERVE: String(reserve), MOCK_CONTINUATION: '90000' }, { claims: SIX });
-    check('claims run four at a time: four determinations run together and never a fifth, and none is refused at the door or in its stream',
-      !r.failure && r.stats?.maxInFlight === 4 && r.stats?.refused === 0 && r.stats?.refusedInStream === 0 && done(r) === 6, `${r.failure} maxInFlight=${r.stats?.maxInFlight} refused=${r.stats?.refused} inStream=${r.stats?.refusedInStream} done=${done(r)}`);
+    check('claims run three at a time: three determinations run together and never a fourth, and none is refused at the door or in its stream',
+      !r.failure && r.stats?.maxInFlight === 3 && r.stats?.refused === 0 && r.stats?.refusedInStream === 0 && done(r) === 6, `${r.failure} maxInFlight=${r.stats?.maxInFlight} refused=${r.stats?.refused} inStream=${r.stats?.refusedInStream} done=${done(r)}`);
+    check('the page is told the same figure it is paced by: /api/health carries inFlight equal to the configured concurrency',
+      r.health?.inFlight === config.evalConcurrency && r.health?.inFlight === r.stats?.maxInFlight, `inFlight=${r.health?.inFlight} configured=${config.evalConcurrency} maxInFlight=${r.stats?.maxInFlight}`);
+  }
+
+  // 0b. The pace is a setting, not a release: one value moves both the number the page reads and the
+  // claims that actually run together, so the operator changes it in Render and nothing is rebuilt.
+  {
+    const r = await gateRun(4, { MOCK_TPM: '5000000', MOCK_RESERVE: String(reserve), MOCK_CONTINUATION: '90000' }, { claims: SIX, serverEnv: { CIVIC_EVAL_CONCURRENCY: '2' } });
+    check('the pace follows the setting: with CIVIC_EVAL_CONCURRENCY=2 the page is told 2 and exactly two determinations run together, never a third, and all six finish',
+      !r.failure && r.health?.inFlight === 2 && r.stats?.maxInFlight === 2 && done(r) === 6, `${r.failure} inFlight=${r.health?.inFlight} maxInFlight=${r.stats?.maxInFlight} done=${done(r)}`);
   }
 
   // 1. Steady costs. The budget holds three; one more fits each second as the bucket refills.

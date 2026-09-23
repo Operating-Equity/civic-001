@@ -57,6 +57,17 @@ export function fmtNumber(n) {
   }
 }
 
+/**
+ * A small number as a word in the reader's language, so a sentence reads as a sentence: the pace in the
+ * lede is a setting, and "run 3 at a time" beside "the ten determinations" reads like a bug. Beyond the
+ * small numbers each locale lists, the numeral is used, which is what a large pace should look like
+ * anyway.
+ */
+export function numberWord(n) {
+  const words = lookup(current.bundle, 'numbers') || lookup(en, 'numbers');
+  return (words && words[n]) || fmtNumber(n);
+}
+
 export function fmtCompact(n) {
   try {
     return new Intl.NumberFormat(current.code, { notation: 'compact', maximumFractionDigits: 1 }).format(n);

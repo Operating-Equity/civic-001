@@ -22,7 +22,7 @@ export default {
     showText: 'Show the text',
     hideText: 'Hide the text',
     testing: 'Now testing',
-    slow: 'The first step takes minutes on a long document to find all asserted claims to test, because the model reads and examines all statements before writing anything. The ten determinations then run four at a time, each taking a few minutes.',
+    slow: 'The first step takes minutes on a long document to find all asserted claims to test, because the model reads and examines all statements before writing anything. The ten determinations then run {n} at a time, each taking a few minutes.',
     empty: 'Paste or upload something to test.',
     truncated: 'The document was cut to {n} characters, the maximum for one run.',
   },
@@ -190,5 +190,6 @@ export default {
   },
   echo: { alt: 'Symbolic illustration of the document', making: 'Composing the frame…', video: 'The video under test' },
   time: { seconds_one: '{n} second', seconds_other: '{n} seconds', minutes: '{m} min {s} s' },
+  numbers: { 1: 'one', 2: 'two', 3: 'three', 4: 'four', 5: 'five', 6: 'six', 7: 'seven', 8: 'eight', 9: 'nine', 10: 'ten', 11: 'eleven', 12: 'twelve' },
   footer: { service: 'As a service of' },
 };

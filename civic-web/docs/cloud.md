@@ -229,6 +229,30 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
   through 21 November 2026; it said 5 and 30). The operator's next run, with their own data attached,
   is the proof; the YouTube test with their Supadata key follows it. The operator has integrated other
   sources directly into OpenAI and wants no source-related change until the two are understood.
+- **22 September, 18:50 UTC: the transcript door opened and proven.** The door built in release K had
+  been dark since 21 September because its four settings were not on the service. Three of them are not
+  secrets, so `civic-web/scripts/render-env.mjs` now writes them from a session (PR #49: it refuses by
+  name anything carrying KEY, PASS, SECRET, TOKEN, PASSWORD or CODES, so a key stays the operator's to
+  paste, and `.claude/settings.json` allows exactly that command). `CIVIC_TRANSCRIPT_URL` carries
+  Supadata's address with `mode=auto`, so a video with no captions is transcribed from its audio and
+  comes back through a job with no limit of ours on the wait. The key was first saved under
+  `CIVIC_TRANSCRIPT_KEy` — a lowercase final letter, and variable names are case-sensitive, so the app
+  never saw it — and as a whole pasted line, key plus two trailing words; moved to the right name, the
+  key alone, at the operator's instruction. Proof on the address: the video YouTube shuts at all five
+  of its doors returns 26,618 characters of transcript in 10.7 s, a control still reads at YouTube's own
+  first door, no failure record. CIVIC's first reach to an API outside OpenAI's ecosystem.
+- **23 September, 13:10 UTC: back to three at a time, and the pace is a setting (release N).** The
+  operator is watching tokens rise and asked to go back to three from four. Two things read rather than
+  assumed: CIVIC's live request carries exactly one tool (six keys, web search alone; the evidence
+  gateway is built but off), and the operator's tools are attached in ChatGPT, a different surface from
+  the API key, so they cannot enter a CIVIC request or spend its minute. The likelier cause of the rise
+  is ours: release M's effort `max` in mode `pro` is more model work per claim. So three (≈ 450,000 in a
+  typical minute against 2,000,000) for a real reason. The pace also stops being a code change: the page
+  reads `inFlight` from `/api/health` (`publicConfig`, beside `maxClaims`) and `IN_FLIGHT` stands in only
+  when no server answers, so `CIVIC_EVAL_CONCURRENCY` moves both the number the page is told and the
+  claims that run together — one setting, no release. The lede takes the number as a parameter in all
+  four languages, so the page can never name a pace it is not running. The guard proves both: three
+  together and never a fourth at the default, and two together and never a third with the setting at 2.
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 
