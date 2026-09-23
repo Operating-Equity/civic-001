@@ -21,7 +21,7 @@ export default {
     showText: 'Text anzeigen',
     hideText: 'Text ausblenden',
     testing: 'Wird geprüft',
-    slow: 'Der erste Schritt dauert bei einem langen Dokument Minuten, um alle behaupteten Aussagen zu finden, die geprüft werden sollen, weil das Modell alle Aussagen liest und prüft, bevor es etwas schreibt. Die zehn Bestimmungen laufen dann zu viert, jede dauert einige Minuten.',
+    slow: 'Der erste Schritt dauert bei einem langen Dokument Minuten, um alle behaupteten Aussagen zu finden, die geprüft werden sollen, weil das Modell alle Aussagen liest und prüft, bevor es etwas schreibt. Die zehn Bestimmungen laufen dann {n} gleichzeitig, jede dauert einige Minuten.',
     empty: 'Fügen Sie etwas ein oder laden Sie etwas hoch.',
     truncated: 'Das Dokument wurde auf {n} Zeichen gekürzt, das Maximum pro Lauf.',
   },
@@ -188,5 +188,6 @@ export default {
   },
   echo: { alt: 'Symbolische Illustration des Dokuments', making: 'Der Bildausschnitt entsteht…', video: 'Das geprüfte Video' },
   time: { seconds_one: '{n} Sekunde', seconds_other: '{n} Sekunden', minutes: '{m} Min {s} s' },
+  numbers: { 1: 'eins', 2: 'zwei', 3: 'drei', 4: 'vier', 5: 'fünf', 6: 'sechs', 7: 'sieben', 8: 'acht', 9: 'neun', 10: 'zehn', 11: 'elf', 12: 'zwölf' },
   footer: { service: 'Ein Dienst von' },
 };

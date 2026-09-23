@@ -66,16 +66,20 @@ export const config = {
   evalReasoningMode: modeOrNone(env('CIVIC_EVAL_REASONING_MODE', MODE)),
   evalReasoningSummary: env('CIVIC_EVAL_REASONING_SUMMARY', 'auto'),
   webSearch: true, // both steps, always; not an environment setting
-  // Four claims at a time (the page sends one claim per request and keeps four in flight; this
-  // figure governs a request that carries several claims, as the guard's does). One at a time was
-  // the operator's instruction of 17 September, after twenty at once had failed on the key's
+  // Three claims at a time. This one figure paces both the page (which sends one claim per request
+  // and keeps this many in flight, reading it from publicConfig below) and a request that carries
+  // several claims, as the guard's does, so the pace is one setting and never a release. One at a
+  // time was the operator's instruction of 17 September, after twenty at once had failed on the key's
   // minute limit every time (a running response is charged again inside the minute at each of its
   // own later calls, after a web search, by 67,000 to 89,000, far above what its admission showed,
   // so many parallel claims starve one another); two ran whole on the address; on 18 September the
   // operator chose three on the 500,000-a-minute figure of 16 September, then four once the check
-  // page showed the key's current limit, 2,000,000 a minute (four ≈ 600,000 in a typical minute).
+  // page showed the key's current limit, 2,000,000 a minute. Back to three on 22 September: the
+  // operator is watching tokens rise, and release M's effort `max` in mode `pro` is more model work
+  // per claim, so three (≈ 450,000 in a typical minute) leaves the wider margin. The check page's
+  // pacing row, after a run, is the figure to set this by.
   // Ten remains the size of a run.
-  evalConcurrency: int('CIVIC_EVAL_CONCURRENCY', 4),
+  evalConcurrency: int('CIVIC_EVAL_CONCURRENCY', 3),
   evalRetries: int('CIVIC_EVAL_RETRIES', 8),           // rate limits and 5xx only; never on a model or parameter error
 
   // Source documents. No limit of ours. If a document exceeds the model's context window the API
@@ -167,6 +171,7 @@ export function publicConfig(promptStatus) {
   const shape = requestShape();
   return {
     maxClaims: config.maxClaims,
+    inFlight: config.evalConcurrency,   // the page paces itself by this, so the operator changes it with one setting
     maxSourceChars: config.maxSourceChars,
     maxUploadBytes: config.maxUploadBytes,
     challengeEnabled: config.challengeEnabled,

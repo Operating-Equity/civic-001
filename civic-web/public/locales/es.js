@@ -21,7 +21,7 @@ export default {
     showText: 'Mostrar el texto',
     hideText: 'Ocultar el texto',
     testing: 'Probando ahora',
-    slow: 'El primer paso tarda minutos en un documento largo para encontrar todas las afirmaciones que se van a probar, porque el modelo lee y examina todas las declaraciones antes de escribir nada. Las diez determinaciones se ejecutan después de cuatro en cuatro, y cada una tarda unos minutos.',
+    slow: 'El primer paso tarda minutos en un documento largo para encontrar todas las afirmaciones que se van a probar, porque el modelo lee y examina todas las declaraciones antes de escribir nada. Las diez determinaciones se ejecutan después de {n} en {n}, y cada una tarda unos minutos.',
     empty: 'Pega o sube algo para probar.',
     truncated: 'El documento se recortó a {n} caracteres, el máximo por ejecución.',
   },
@@ -188,5 +188,6 @@ export default {
   },
   echo: { alt: 'Ilustración simbólica del documento', making: 'Componiendo el encuadre…', video: 'El vídeo a prueba' },
   time: { seconds_one: '{n} segundo', seconds_other: '{n} segundos', minutes: '{m} min {s} s' },
+  numbers: { 1: 'uno', 2: 'dos', 3: 'tres', 4: 'cuatro', 5: 'cinco', 6: 'seis', 7: 'siete', 8: 'ocho', 9: 'nueve', 10: 'diez', 11: 'once', 12: 'doce' },
   footer: { service: 'Un servicio de' },
 };

@@ -7,12 +7,12 @@
 //      and the reasoning summary, the search trail, the cited sources and the raw text are all
 //      on the card. When the verdict cannot be read from the model's own Conclusion, the card
 //      says so instead of guessing.
-import { t, setLocale, initLocale, LOCALES, currentLocale, fmtNumber, fmtSeconds, fmtUsd } from './i18n.js';
+import { t, setLocale, initLocale, LOCALES, currentLocale, fmtNumber, fmtSeconds, fmtUsd, numberWord } from './i18n.js';
 import * as api from './api.js';
 import { $, $$, el, renderMarkdown, renderMath, setBar, toast, easeChars, easeTime, bump, copyText } from './render.js';
 
 const MAX_CLAIMS = 10; // the automatic run (the operator's number); anything beyond is the reader's explicit choice
-const IN_FLIGHT = 4; // claims in flight at once: the operator's choice of 18 September (the arithmetic is in server/config.js)
+const IN_FLIGHT = 3; // claims in flight at once when no server answers; the server's own figure wins (see inFlight below)
 const searchCount = (trail) => (trail || []).filter((s) => s.kind !== 'tool').length; // the web searches in a trail; a tool call is a step of its own
 const GLYPH = { true: '✓', false: '✕', unverified: '?', unread: '–' };
 
@@ -68,6 +68,7 @@ function cacheElements() {
     step1Thinking: $('#step1-thinking'), step1ThinkingSummary: $('#step1-thinking-summary'), step1ThinkingBody: $('#step1-thinking-body'),
     step2: $('#step-eval'), step2Title: $('#step2-title'), step2Status: $('#step2-status'), step2Gate: $('#step2-gate'), bar2: $('#bar-eval'),
     echo: $('#echo'), echoImg: $('#echo-img'), echoShimmer: $('#echo-shimmer'), echoFrame: $('#echo .echo-frame'), rail: $('.rail'),
+    intakeSlow: $('.intake-slow'),
     intake: $('#intake'), intakeSummary: $('#intake-summary'), intakeSummaryText: $('#intake-summary-text'), showText: $('#btn-show-text'),
     scoreSourceTitle: $('#score-source-title'), scoreSourceSub: $('#score-source-sub'), scorePhase: $('#score-phase'), claimsFrom: $('#claims-from'),
     claims: $('#claims'), claimsSub: $('#claims-sub'), claimsList: $('#claims-list'),
@@ -86,12 +87,31 @@ function cacheElements() {
   });
 }
 
+/** Claims at a time: the server's figure, or the constant when no server answered. */
+function paceNow() {
+  return Math.max(1, Number(state.server?.inFlight) || IN_FLIGHT);
+}
+
+/**
+ * The lede names the pace, so it says the server's figure and never a number baked into the page: one
+ * change to CIVIC_EVAL_CONCURRENCY moves the sentence and the run together. The attribute is set as
+ * well as the text so a change of language keeps the number (i18n.js reads data-i18n-params), and this
+ * runs again on that change because the word itself is language-dependent.
+ */
+function setPaceWording() {
+  if (!ui.intakeSlow) return;
+  const params = { n: numberWord(paceNow()) };
+  ui.intakeSlow.dataset.i18nParams = JSON.stringify(params);
+  ui.intakeSlow.textContent = t('intake.slow', params);
+}
+
 // ---------- boot ----------------------------------------------------------------------------
 
 async function boot() {
   cacheElements();
   for (const l of LOCALES) ui.langSelect.append(el('option', { value: l.code, text: l.name }));
   initLocale();
+  setPaceWording();          // before anything is painted, so the sentence never shows its own placeholder
   ui.langSelect.value = currentLocale();
   ui.langSelect.addEventListener('change', () => setLocale(ui.langSelect.value));
   document.addEventListener('civic:locale', refreshDynamicText);
@@ -125,6 +145,7 @@ async function boot() {
   } catch {
     state.server = null;
   }
+  setPaceWording();          // again, now with the server's own figure
   renderNav();
 }
 
@@ -826,9 +847,14 @@ async function runBatch(claims, nodes) {
 
   const tick = setInterval(updateEvalBars, 250);
   state.timers.push(tick);
-  // One request per claim, IN_FLIGHT of them at once (the operator's rule; the server's gate goes
-  // on pacing OpenAI across requests). A response then lasts one claim, never a batch, well inside
-  // what a host allows, and a cut costs one claim's attempt, which is requested again.
+  // One request per claim, and as many at once as the server says (the operator's rule; the server's
+  // gate goes on pacing OpenAI across requests). A response then lasts one claim, never a batch, well
+  // inside what a host allows, and a cut costs one claim's attempt, which is requested again.
+  // The figure is the server's `inFlight` (CIVIC_EVAL_CONCURRENCY), so the operator changes the pace
+  // with one setting and no release; IN_FLIGHT stands in only when no server answered. Math.max(1, …)
+  // stops a missing or zero value running nothing at all, and no ceiling is invented: a setting of
+  // twenty means twenty.
+  const inFlight = paceNow();
   const signal = state.abort.signal;
   const queue = claims.map((_, k) => start + k);
   const settled = () => { state.batch.done++; updateEvalStatus(); renderScoreboard(); };
@@ -838,7 +864,7 @@ async function runBatch(claims, nodes) {
     }
   };
   try {
-    await Promise.all(Array.from({ length: Math.min(IN_FLIGHT, claims.length) }, worker));
+    await Promise.all(Array.from({ length: Math.min(inFlight, claims.length) }, worker));
     if (state.phase === 'evaluating') finishBatch({ ms: Date.now() - state.evalStartedAt });
   } finally {
     clearInterval(tick);
@@ -1429,6 +1455,7 @@ async function startEcho(text) {
 
 function refreshDynamicText() {
   ui.langSelect.value = currentLocale();
+  setPaceWording();
   renderNav();
   updateSourceMeta();
   for (const which of ['step1', 'step2']) { const s = state.status[which]; if (s) setStatus(which, s.key, s.params); }
