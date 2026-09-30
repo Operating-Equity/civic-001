@@ -123,12 +123,15 @@ const pause = (ms, signal) => new Promise((resolve, reject) => {
  */
 export async function streamNdjson(url, body, { signal, onEvent, isEnd = () => false, onCut, onAttached }) {
   let cursor = 0;
+  // The id this page gave. The server keeps the work under it, or under one of its own when it
+  // would not keep this one; the server's is what every later connection, stop and let-go names.
+  let jobId = body?.jobId;
   for (let attempt = 0; ; attempt++) {
     if (signal?.aborted) throw abortError();
     if (attempt > 0) { onCut?.(); await pause(1000, signal); }
     let res;
     try {
-      res = await call(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ...body, cursor }), signal });
+      res = await call(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ...body, jobId, cursor }), signal });
     } catch (err) {
       if (err?.name === 'AbortError' || signal?.aborted) throw err;
       continue;   // CIVIC could not be reached at all; the job may well be running there: go again
@@ -150,7 +153,7 @@ export async function streamNdjson(url, body, { signal, onEvent, isEnd = () => f
       let event;
       try { event = JSON.parse(line); } catch { return; }
       if (event.t === 'ping') return;
-      if (event.t === 'attached') { cursor = event.from; finished = Boolean(event.finished); onAttached?.(event); return; }
+      if (event.t === 'attached') { cursor = event.from; finished = Boolean(event.finished); if (event.job && event.job !== jobId) jobId = event.job; onAttached?.(event); return; }
       cursor++;
       if (isEnd(event)) ended = true;
       onEvent(event);

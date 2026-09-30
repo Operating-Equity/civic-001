@@ -154,7 +154,7 @@ async function boot() {
 // No accounts yet: a code from the operator's list opens the door, and the email address typed
 // beside it is kept with the sign-in. The dialog opens from the Sign in button, and from any
 // action the server refuses for want of a sign-in; that action then proceeds on its own.
-let pendingSignIn = null;   // { resolve, reject } while a refused action waits on the dialog
+let pendingSignIn = null;   // { promise, resolve, reject } while refused actions wait on the dialog: one dialog, however many asked
 
 function wireSignIn() {
   api.onSignInRequired(requireSignIn);
@@ -184,12 +184,19 @@ function openSignIn() {
   (ui.signinEmail.value ? ui.signinCode : ui.signinEmail).focus();
 }
 
-/** Called by the API client on a refusal for want of a sign-in; resolves once the reader has one. */
+/**
+ * Called by the API client on a refusal for want of a sign-in; resolves once the reader has one.
+ * Two actions refused at once (the extraction and the picture start together) wait on the same
+ * promise and the same dialog, and both proceed on the one code; before 30 September the second
+ * replaced the first, which then waited for ever.
+ */
 function requireSignIn() {
-  return new Promise((resolve, reject) => {
-    pendingSignIn = { resolve, reject };
-    openSignIn();
-  });
+  if (pendingSignIn) return pendingSignIn.promise;
+  let resolve, reject;
+  const promise = new Promise((res, rej) => { resolve = res; reject = rej; });
+  pendingSignIn = { promise, resolve, reject };
+  openSignIn();
+  return promise;
 }
 
 async function submitSignIn(event) {
@@ -613,12 +620,17 @@ async function runExtraction(text) {
       default: break;
     }
   };
-  const job = state.extractJob;
+  let job = state.extractJob;
   try {
     await api.extract({
       jobId: job, text, source: state.sourceMeta, signal: state.abort.signal, onEvent,
       onCut: () => { state.extractCut = true; },
-      onAttached: () => { state.extractCut = false; },
+      onAttached: (ev) => {
+        // The server kept the work under an id of its own: from here the page names it by that
+        // one, so a later connection, a stop and the let-go all reach the real job.
+        if (ev?.job && ev.job !== job) { state.jobs.delete(job); job = ev.job; state.extractJob = job; state.jobs.add(job); }
+        state.extractCut = false;
+      },
     });
     if (!finished && state.phase === 'extracting') failRun({ code: 'stream_ended', message: 'The connection closed before extraction finished.' });
   } catch (err) {
@@ -885,7 +897,7 @@ async function runClaim(i, signal, { keepGoing = () => true, onSettled = () => {
   for (;;) {
     r.jobId = api.newJobId(`${state.runId || 'run'}-c${i}`);
     state.jobs.add(r.jobId);
-    const job = r.jobId;
+    let job = r.jobId;
     let settled = false;
     let runFailure = null;
     const onEvent = (ev) => {
@@ -900,7 +912,11 @@ async function runClaim(i, signal, { keepGoing = () => true, onSettled = () => {
         // Whatever the row was saying (queued at the gate, inspecting, writing), it says the connection
         // was cut until a new one is open, then goes back to what it was saying.
         onCut: () => { if (!settled && r.phase !== 'reconnecting') { r.cutFrom = r.phase; r.phase = 'reconnecting'; renderCardStatus(i); } },
-        onAttached: () => { if (r.phase === 'reconnecting') { r.phase = r.cutFrom || 'pending'; r.cutFrom = null; renderCardStatus(i); } },
+        onAttached: (ev) => {
+          // As for the extraction: the id the server kept is the one the page names from here.
+          if (ev?.job && ev.job !== job) { state.jobs.delete(job); job = ev.job; r.jobId = job; state.jobs.add(job); }
+          if (r.phase === 'reconnecting') { r.phase = r.cutFrom || 'pending'; r.cutFrom = null; renderCardStatus(i); }
+        },
       });
     } catch (err) {
       if (err?.name === 'AbortError' || signal.aborted) return;

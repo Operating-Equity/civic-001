@@ -253,6 +253,24 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
   claims that run together — one setting, no release. The lede takes the number as a parameter in all
   four languages, so the page can never name a pace it is not running. The guard proves both: three
   together and never a fourth at the default, and two together and never a third with the setting at 2.
+- **30 September: the door's locks, ahead of accounts (R0 of the commercial program).** Three
+  explorers mapped the code for the accounts, credit and payment program and found a sign-in bypass:
+  Express matches routes regardless of case while the gate compared the path in lower case, so
+  `POST /API/extract` ran on the operator's key with no code and no count. Now routes match their
+  case exactly and the gate is mounted on `/api` itself, so there is one reading of a path and
+  `/API/extract` is nobody's route. With it: a job belongs to the sign-in that started it (another
+  code cannot attach to, stop or let go of it: 403 `not_your_job`); an id of up to 128 characters is
+  kept as given (a claim beyond the tenth has 81, which the old limit of 80 turned away, so a cut
+  would have started a second paid determination) and a longer one is replaced by the server's,
+  which the page then names; the cookie is signed with `CIVIC_SESSION_SECRET` when set, so a change of
+  the OpenAI key no longer signs everyone out (/check flags it while unset); `CIVIC_OPERATOR_CODES`
+  keeps the sign-in list and the runs per code to the operator; a request the browser marks as
+  another site's is refused; and the page's one sign-in slot became a shared promise, so two actions
+  refused together (the extraction and the picture start together) both proceed on one code instead
+  of one waiting for ever. The program itself — accounts by email code, a Postgres ledger with holds,
+  a price that scales with the document, Stripe, history — is in the plan and comes release by
+  release; the operator's earliest own step is a domain, because sign-in codes cannot be mailed to
+  readers without one.
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 
