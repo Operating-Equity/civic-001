@@ -150,6 +150,13 @@ export const config = {
   accessAllowances: Object.fromEntries(parseCodes(list('CIVIC_ACCESS_CODES', '')).filter((c) => c.allowance !== null).map((c) => [c.code, c.allowance])),
   // Runs a code allows unless its entry says otherwise: five, the operator's rule of 18 September.
   codeUses: int('CIVIC_CODE_USES', 5),
+  // The sign-in cookie's own secret (server/access.js). Unset, the cookie is signed with a
+  // derivation from the OpenAI key, so a change of that key signs everyone out; set, the key plays
+  // no part. Setting it once signs everyone out once.
+  sessionSecret: env('CIVIC_SESSION_SECRET', ''),
+  // The codes whose holders are the operator: /check shows the sign-in list and the runs per code
+  // to them alone. Unset, every code holder sees both, as before 30 September.
+  operatorCodes: parseCodes(list('CIVIC_OPERATOR_CODES', '')).map((c) => c.code),
   signinLog: env('CIVIC_SIGNIN_LOG', new URL('../data/signins.jsonl', import.meta.url).pathname),
   // One line per run started under a code (server/uses.js); on a persistent disk in the cloud.
   usesFile: env('CIVIC_USES_FILE', new URL('../data/uses.jsonl', import.meta.url).pathname),

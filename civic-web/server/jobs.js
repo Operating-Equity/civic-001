@@ -14,7 +14,7 @@
 // it (the release route), because an end that was written may not have arrived. A deploy ends the
 // process and with it every job; the page starts those over on the new one, as before.
 import crypto from 'node:crypto';
-import { describeError } from './openai.js';
+import { describeError, ApiError } from './openai.js';
 
 const jobs = new Map();
 const listeners = new Set();
@@ -29,9 +29,10 @@ export function active() { let n = 0; for (const j of jobs.values()) if (!j.fini
 export function ids() { return [...jobs.keys()]; }
 
 class Job {
-  constructor(id, kind) {
+  constructor(id, kind, owner) {
     this.id = id;
     this.kind = kind;
+    this.owner = owner;           // the sign-in that started it (null on an open door): no one else may attach, stop or let go of it
     this.startedAt = Date.now();
     this.events = [];             // every event sent, in order; a subscriber's cursor indexes this
     this.finished = false;
@@ -76,8 +77,8 @@ class Job {
  * is expected to send its own error event when it fails; one that throws anyway is reported as
  * an error event, so no job ends in silence.
  */
-export function start(id, kind, work) {
-  const job = new Job(id, kind);
+export function start(id, kind, work, { owner = null } = {}) {
+  const job = new Job(id, kind, owner);
   jobs.set(id, job);
   changed();
   Promise.resolve()
@@ -87,14 +88,25 @@ export function start(id, kind, work) {
   return job;
 }
 
-export function get(id) { return jobs.get(id) || null; }
+const sameOwner = (a, b) => (a ?? null) === (b ?? null);
 
-/** The page says stop: the model calls are aborted and the jobs forgotten. Returns how many were. */
-export function cancel(list) {
+/**
+ * The job `id`, or null when there is none. Given an `owner`, a job that belongs to another
+ * sign-in is refused outright: a page can attach to, stop and let go of its own work and nobody
+ * else's, whatever id it has come to know.
+ */
+export function get(id, owner) {
+  const job = jobs.get(id) || null;
+  if (job && owner !== undefined && !sameOwner(job.owner, owner)) throw new ApiError(403, 'not_your_job', 'That run belongs to another sign-in.');
+  return job;
+}
+
+/** The page says stop: the model calls are aborted and the jobs forgotten. Returns how many were. Another sign-in's jobs count for nothing. */
+export function cancel(list, owner) {
   let n = 0;
   for (const id of list) {
     const job = jobs.get(id);
-    if (!job) continue;
+    if (!job || (owner !== undefined && !sameOwner(job.owner, owner))) continue;
     job.abort.abort();
     job.end();
     jobs.delete(id);
@@ -104,18 +116,20 @@ export function cancel(list) {
 }
 
 /** The page says it has everything: finished jobs are forgotten. A job still working is kept. */
-export function release(list) {
+export function release(list, owner) {
   let n = 0;
   for (const id of list) {
     const job = jobs.get(id);
-    if (!job || !job.finished) continue;
+    if (!job || !job.finished || (owner !== undefined && !sameOwner(job.owner, owner))) continue;
     jobs.delete(id);
     n++;
   }
   return n;
 }
 
-const ID = /^[A-Za-z0-9_.:-]{8,80}$/;
+// Up to 128: a claim's id is the run's, the claim's number and its own uuid, 80 characters for the
+// first ten claims and 81 from the eleventh, which the earlier limit of 80 turned away.
+const ID = /^[A-Za-z0-9_.:-]{8,128}$/;
 
 /** The id the page gave, or one made here for a request without one (no coming back to it then). */
 export function idFrom(value) {

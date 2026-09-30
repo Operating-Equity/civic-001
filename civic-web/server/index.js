@@ -24,7 +24,7 @@ import { whereTheShellSetsIt } from './key.js';
 import { record as recordFailure } from './diagnostics.js';
 import { buildStamp } from './build.js';
 import { takeOverPort } from './port.js';
-import { gate, sessionOf, required as signinRequired, codes as accessCodes, normalise as normaliseCode, issue, setCookie, clearCookie, recordSignin, recentSignins } from './access.js';
+import { gate, sessionOf, required as signinRequired, codes as accessCodes, normalise as normaliseCode, issue, setCookie, clearCookie, recordSignin, recentSignins, fingerprintOf, isOperator, operatorsConfigured } from './access.js';
 import { allowance as codeAllowance, used as codeUsed, recordUse, summary as codesSummary } from './uses.js';
 import { registry } from './tools/index.js';
 import { mountGateway } from './tools/gateway.js';
@@ -57,6 +57,10 @@ function sendIndex(req, res) {
 const app = express();
 app.disable('x-powered-by');
 app.set('trust proxy', 1);
+// Routes match their case exactly. Express matches them regardless of case unless told otherwise,
+// and the door (server/access.js) once compared the path in lower case: /API/extract reached the
+// handler and never met the gate. Now it is nobody's route.
+app.set('case sensitive routing', true);
 
 // Security headers. Scripts, styles and fonts are all our own files (fonts are self-hosted).
 app.use((req, res, next) => {
@@ -91,11 +95,16 @@ const upload = multer({
 const wrap = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 
 // The door (server/access.js): with CIVIC_ACCESS_CODES set, every API route but the health line
-// and the sign-in itself needs the cookie a listed code earns.
+// and the sign-in itself needs the cookie a listed code earns. It is mounted on /api itself, so
+// what is under /api is Express's decision and the gate's alike, never two readings of one path.
 // CIVIC's tools for the model (server/tools): the gateway answers OpenAI's servers with the pass, so it
 // sits outside the sign-in gate; without a pass set it answers no one.
 mountGateway(app, { registry, pass: config.toolsPass, version: BUILD });
-app.use(gate);
+app.use('/api', gate);
+
+// Whose work a job is: the sign-in that started it (its code's fingerprint and its email), or
+// nobody's on an open door. A page attaches to, stops and lets go of its own jobs and no others.
+const ownerOf = (req) => { const s = sessionOf(req); return s ? `${fingerprintOf(s.code)}:${s.email}` : null; };
 
 // ---- API ---------------------------------------------------------------------------------
 
@@ -104,7 +113,7 @@ app.get('/api/health', (req, res) => {
   res.json({
     ok: true, build: BUILD, ...publicConfig(promptStatus()), readUrl: true, acceptedSourceExt: ACCEPTED_SOURCE_EXT, acceptedChallengeExt: ACCEPTED_CHALLENGE_EXT,
     active: jobs.active(),                                              // runs in flight right now, whatever their connections are doing; an update waits for zero
-    access: { required: signinRequired(), session: session ? { email: session.email } : null },
+    access: { required: signinRequired(), session: session ? { email: session.email, operator: isOperator(session) } : null },
   });
 });
 
@@ -124,7 +133,10 @@ app.post('/api/signout', (req, res) => { clearCookie(req, res); res.json({ ok: t
 // something a reader has to catch as a message disappears.
 app.get('/api/selftest', wrap(async (req, res) => {
   res.setHeader('Cache-Control', 'no-store');
-  res.json({ ...await selftest({ apiKey: operatorKey({ optional: true }), build: BUILD }), signins: recentSignins(10), codes: signinRequired() ? codesSummary() : [], access: { required: signinRequired() } });
+  // Who signed in, and the runs per code, are the operator's to see: with CIVIC_OPERATOR_CODES set
+  // they go to those codes alone; unset, to every code holder, as before 30 September.
+  const operator = !operatorsConfigured() || isOperator(sessionOf(req));
+  res.json({ ...await selftest({ apiKey: operatorKey({ optional: true }), build: BUILD }), signins: operator ? recentSignins(10) : [], codes: operator && signinRequired() ? codesSummary() : [], access: { required: signinRequired(), operator } });
 }));
 
 // The page reports its own failures here, so /check can show them afterwards.
@@ -173,7 +185,8 @@ app.post('/api/read-url', wrap(async (req, res) => {
 // Only a request the server refuses (no key, no prompt, nothing to test) answers with an error.
 app.post('/api/extract', wrap(async (req, res) => {
   const id = jobs.idFrom(req.body?.jobId);
-  const known = jobs.get(id);
+  const owner = ownerOf(req);
+  const known = jobs.get(id, owner);
   if (known) { known.attach(openStream(req, res), req.body?.cursor); return; }
 
   const apiKey = operatorKey();
@@ -212,12 +225,13 @@ app.post('/api/extract', wrap(async (req, res) => {
       const safe = describeError(err);
       send({ t: 'error', code: safe.code, message: safe.message, status: safe.status });
     }
-  }).attach(openStream(req, res), 0);
+  }, { owner }).attach(openStream(req, res), 0);
 }));
 
 app.post('/api/evaluate', wrap(async (req, res) => {
   const id = jobs.idFrom(req.body?.jobId);
-  const known = jobs.get(id);
+  const owner = ownerOf(req);
+  const known = jobs.get(id, owner);
   if (known) { known.attach(openStream(req, res), req.body?.cursor); return; }
 
   const apiKey = operatorKey();
@@ -237,14 +251,14 @@ app.post('/api/evaluate', wrap(async (req, res) => {
       const safe = describeError(err);
       send({ t: 'error', code: safe.code, message: safe.message, status: safe.status });
     }
-  }).attach(openStream(req, res), 0);
+  }, { owner }).attach(openStream(req, res), 0);
 }));
 
 // The page says stop (Start a new test, leaving the page): the jobs' model calls are aborted and the
 // jobs forgotten. A closed connection never means this; only this route does.
-app.post('/api/cancel', (req, res) => { res.json({ cancelled: jobs.cancel(jobs.idList(req.body?.jobIds)) }); });
+app.post('/api/cancel', (req, res) => { res.json({ cancelled: jobs.cancel(jobs.idList(req.body?.jobIds), ownerOf(req)) }); });
 // The page says it has all of a finished job: the job is forgotten. One still working is kept.
-app.post('/api/release', (req, res) => { res.json({ released: jobs.release(jobs.idList(req.body?.jobIds)) }); });
+app.post('/api/release', (req, res) => { res.json({ released: jobs.release(jobs.idList(req.body?.jobIds), ownerOf(req)) }); });
 
 app.post('/api/illustrate', wrap(async (req, res) => {
   const apiKey = operatorKey();
@@ -297,7 +311,9 @@ app.use(express.static(publicDir, {
     else res.setHeader('Cache-Control', 'public, max-age=604800, immutable');
   },
 }));
-app.get(/^\/(?!api\/).*/, sendIndex);
+// The page for any address that is not the API's, in any spelling of "api": /API/anything is
+// nobody's route (routes match their case) and must not be the page either, so it is a 404.
+app.get(/^\/(?![aA][pP][iI]\/).*/, sendIndex);
 
 // ---- Errors --------------------------------------------------------------------------------
 

@@ -115,6 +115,18 @@ export async function selftest({ apiKey, build }) {
     }
   }
 
+  // The door's own settings, when the door is shut: said here so the operator sees them once.
+  if (config.accessCodes.length) {
+    if (!config.sessionSecret) {
+      checks.push(warn('The sign-in cookie is signed with a secret derived from the OpenAI key', 'A change of that key signs every reader out.',
+        'Set CIVIC_SESSION_SECRET to 32 random bytes so the two are independent. Setting it signs everyone out once.'));
+    }
+    if (!config.operatorCodes.length) {
+      checks.push(warn('Every code holder can see this page\'s sign-in list', 'The sign-ins and the runs per code are shown to anyone with a code.',
+        'Set CIVIC_OPERATOR_CODES to the codes that are yours; both are then shown to those alone.'));
+    }
+  }
+
   const failures = checks.filter((c) => c.state === 'bad');
   return {
     build,

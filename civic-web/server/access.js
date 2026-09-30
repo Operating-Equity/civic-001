@@ -35,9 +35,16 @@ export function normalise(code) { return String(code || '').toUpperCase().replac
 
 export function codes() { return config.accessCodes; }
 export function required() { return codes().length > 0; }
+/** Whether any code has been named the operator's (CIVIC_OPERATOR_CODES). */
+export function operatorsConfigured() { return config.operatorCodes.length > 0; }
+/** Whether this session's code is one of the operator's. */
+export function isOperator(session) { return Boolean(session) && config.operatorCodes.includes(session.code); }
 
-// The server's key enters every derivation, so a stolen cookie cannot be worked back to its code.
-const secret = () => crypto.createHash('sha256').update(`civic-access:${config.serverKey || ''}`).digest();
+// The cookie's secret: CIVIC_SESSION_SECRET when the operator has set one (a secret of its own, so
+// a change of the OpenAI key signs nobody out and the key plays no part in any cookie); until then,
+// as before, a derivation from the server's key. Either way a stolen cookie cannot be worked back
+// to its code. Setting the secret once signs everyone out once; /check says so while it is unset.
+const secret = () => crypto.createHash('sha256').update(`civic-access:${config.sessionSecret || config.serverKey || ''}`).digest();
 const fingerprint = (code) => crypto.createHmac('sha256', secret()).update(`fp:${code}`).digest('hex').slice(0, 16);
 /** A code's fingerprint: what a record may hold in place of the code itself. */
 export function fingerprintOf(code) { return fingerprint(code); }
@@ -109,13 +116,26 @@ export function recordSignin(email, code) {
 export function recentSignins(n = 10) { return signins.slice(0, n); }
 
 /**
- * The door. Open when no codes are set (the Mac, the guard, the stand-in). Otherwise every API
- * route but the health line, the sign-in itself and the sign-out needs the cookie. The page, its
- * files and the check page's HTML are public: what they cannot do without a code is work.
+ * The door. Mounted at /api (server/index.js), so the path it sees has that prefix taken off and
+ * Express's own matching decides what is under /api: the router is case-sensitive there, so
+ * /API/extract is nobody's route and reaches no handler (until 30 September it did, and the gate,
+ * which compared the path in lower case, let it through unchecked). Open when no codes are set
+ * (the Mac, the guard, the stand-in). Otherwise every route but the health line, the sign-in
+ * itself and the sign-out needs the cookie. The page, its files and the check page's HTML are
+ * public: what they cannot do without a code is work.
+ *
+ * A request that another site's page makes from this browser is refused whatever cookie it
+ * carries: the browser says where a request came from (Sec-Fetch-Site), and "cross-site" is never
+ * the page. The cookie is SameSite=Lax and every body is JSON, which already keeps such a request
+ * out in every current browser; this is the same rule said once more, in words the guard proves.
  */
-const OPEN = new Set(['/api/health', '/api/signin', '/api/signout']);
+const OPEN = new Set(['/health', '/signin', '/signout']);
+const SAFE = new Set(['GET', 'HEAD', 'OPTIONS']);
 export function gate(req, res, next) {
-  if (!req.path.startsWith('/api/') || !required() || OPEN.has(req.path)) return next();
+  if (!SAFE.has(req.method) && req.get('sec-fetch-site') === 'cross-site') {
+    return next(new ApiError(403, 'cross_site', 'That request came from another site, so CIVIC did not act on it.'));
+  }
+  if (!required() || OPEN.has(req.path)) return next();
   const session = verify(cookieOf(req));
   if (!session) return next(new ApiError(401, 'signin_required', 'Sign in with an access code first.'));
   req.session = session;

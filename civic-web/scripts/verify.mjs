@@ -584,6 +584,104 @@ async function accessChecks() {
 }
 await accessChecks();
 
+// The door's locks of 30 September (server/access.js, server/jobs.js, server/index.js). Routes
+// match their case exactly and the gate sits on /api itself, so /API/extract is nobody's route;
+// a job belongs to the sign-in that started it; an id of up to 128 characters is kept as given
+// and a longer one is replaced by the server's, which the first event names; the cookie's secret
+// is the operator's own when set; the sign-in list is the operator's to see; a request the
+// browser marks as another site's is refused.
+async function securityChecks() {
+  const MOCK2 = MOCK_PORT + 31, PORT2 = PORT + 31, PORT3 = PORT + 32, PORT4 = PORT + 33;
+  const mock = start([path.join(root, 'scripts', 'mock-openai.js')], { MOCK_PORT: String(MOCK2), MOCK_SPEED: '0.2', MOCK_EVAL_MARK: process.env.MOCK_EVAL_MARK_FOR_GATE || '' });
+  await wait(`http://localhost:${MOCK2}/v1/mock/stats`, 15000, { anyResponse: true });
+  const stamp = Date.now();
+  const files = (tag) => ({ CIVIC_LEDGER_FILE: path.join(os.tmpdir(), 'civic-verify-ledger.jsonl'), CIVIC_SIGNIN_LOG: path.join(os.tmpdir(), `civic-verify-sec-signins-${tag}-${stamp}.jsonl`), CIVIC_USES_FILE: path.join(os.tmpdir(), `civic-verify-sec-uses-${tag}-${stamp}.jsonl`) });
+  const env = { OPENAI_BASE_URL: `http://localhost:${MOCK2}/v1`, CIVIC_IMAGE_ENABLED: 'false', CIVIC_ACCESS_CODES: 'ABCD234,EFGH567', CIVIC_OPERATOR_CODES: 'ABCD234' };
+  const SECRET = 'verify-session-secret-of-thirty-two-bytes';
+  const a = start([path.join(root, 'server', 'index.js')], { ...env, ...files('a'), PORT: String(PORT2), OPENAI_API_KEY: KEY, CIVIC_SESSION_SECRET: SECRET });
+  const b = start([path.join(root, 'server', 'index.js')], { ...env, ...files('b'), PORT: String(PORT3), OPENAI_API_KEY: `${KEY}-other`, CIVIC_SESSION_SECRET: SECRET });   // another key, the same secret
+  const c = start([path.join(root, 'server', 'index.js')], { ...env, ...files('c'), PORT: String(PORT4), OPENAI_API_KEY: `${KEY}-other` });                                 // another key, no secret
+  await wait(`http://localhost:${PORT2}/api/health`);
+  await wait(`http://localhost:${PORT3}/api/health`);
+  await wait(`http://localhost:${PORT4}/api/health`);
+  const base = `http://localhost:${PORT2}`;
+  const json = async (url, init) => { const r = await fetch(url, init); let body = null; try { body = await r.json(); } catch {} return { status: r.status, body, cookie: (r.headers.get('set-cookie') || '').split(';')[0] }; };
+  const post = (url, body, headers = {}) => json(url, { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify(body) });
+  const streamWith = async (url, body, headers = {}) => {
+    const res = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify(body) });
+    if (!res.ok) return { status: res.status, body: await res.json().catch(() => null), events: [] };
+    const events = (await res.text()).split('\n').filter(Boolean).map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
+    return { status: res.status, events };
+  };
+  const att = (r) => r.events.find((e) => e.t === 'attached');
+  const done = (r) => r.events.some((e) => e.t === 'done');
+  const text = 'The Eiffel Tower stands about 330 metres tall. Water boils at 100 degrees Celsius at sea level.';
+  const signin = async (port, code, email) => (await post(`http://localhost:${port}/api/signin`, { email, code })).cookie;
+  try {
+    const op = await signin(PORT2, 'ABCD234', 'op@example.com');
+    const rd = await signin(PORT2, 'EFGH567', 'reader@example.com');
+
+    const upper = await post(`${base}/API/extract`, { text });
+    const mixed = await post(`${base}/Api/Extract`, { text });
+    const upperWith = await post(`${base}/API/extract`, { text }, { cookie: op });
+    const selfUpper = await json(`${base}/API/selftest`);
+    check('/API/extract, /Api/Extract and /API/selftest are nobody\'s route: none answers 200, with a cookie or without (routes match their case, and the gate sits on /api itself)',
+      upper.status !== 200 && mixed.status !== 200 && upperWith.status !== 200 && selfUpper.status !== 200, JSON.stringify({ upper: upper.status, mixed: mixed.status, upperWith: upperWith.status, selfUpper: selfUpper.status }));
+
+    const cross = await post(`${base}/api/extract`, { text }, { cookie: op, 'sec-fetch-site': 'cross-site' });
+    const same = await streamWith(`${base}/api/extract`, { text, jobId: 'verify-sec-same-origin-1' }, { cookie: op, 'sec-fetch-site': 'same-origin' });
+    check('a request the browser marks as another site\'s is refused (403 cross_site) whatever cookie it carries, and one marked same-origin runs to its end',
+      cross.status === 403 && cross.body?.error?.code === 'cross_site' && same.status === 200 && done(same), JSON.stringify({ cross: { status: cross.status, code: cross.body?.error?.code }, same: same.status }));
+
+    const own = await streamWith(`${base}/api/extract`, { text, jobId: 'verify-sec-owner-1' }, { cookie: op });
+    const foreign = await post(`${base}/api/extract`, { jobId: 'verify-sec-owner-1', cursor: 0 }, { cookie: rd });
+    const foreignCancel = await post(`${base}/api/cancel`, { jobIds: ['verify-sec-owner-1'] }, { cookie: rd });
+    const foreignRelease = await post(`${base}/api/release`, { jobIds: ['verify-sec-owner-1'] }, { cookie: rd });
+    const ownRelease = await post(`${base}/api/release`, { jobIds: ['verify-sec-owner-1'] }, { cookie: op });
+    check('a job belongs to the sign-in that started it: another code\'s cookie cannot attach to it (403 not_your_job), its cancel and release count nothing, and the owner\'s release lets it go',
+      own.status === 200 && done(own) && foreign.status === 403 && foreign.body?.error?.code === 'not_your_job' && foreignCancel.body?.cancelled === 0 && foreignRelease.body?.released === 0 && ownRelease.body?.released === 1,
+      JSON.stringify({ own: own.status, foreign: foreign.status, code: foreign.body?.error?.code, foreignCancel: foreignCancel.body, foreignRelease: foreignRelease.body, ownRelease: ownRelease.body }));
+
+    const id81 = `run-${'a'.repeat(36)}-c10-${'b'.repeat(36)}`;   // the page's shape for the eleventh claim: 81 characters
+    const first = await streamWith(`${base}/api/extract`, { text, jobId: id81 }, { cookie: op });
+    const again = await streamWith(`${base}/api/extract`, { jobId: id81, cursor: 0 }, { cookie: op });
+    check('an 81-character id (a claim beyond the tenth) is kept as given, and the job is found again under it after its end',
+      id81.length === 81 && first.status === 200 && att(first)?.job === id81 && again.status === 200 && att(again)?.job === id81 && att(again)?.finished === true, JSON.stringify({ length: id81.length, first: att(first)?.job, again: att(again) }));
+    const id200 = `x-${'z'.repeat(198)}`;
+    const long = await streamWith(`${base}/api/extract`, { text, jobId: id200 }, { cookie: op });
+    const kept = att(long)?.job;
+    const back = kept ? await streamWith(`${base}/api/extract`, { jobId: kept, cursor: 0 }, { cookie: op }) : { status: 0, events: [] };
+    check('a 200-character id is replaced by the server\'s own, named in the first event, and that id finds the job again',
+      long.status === 200 && Boolean(kept) && kept !== id200 && /^j-/.test(kept) && back.status === 200 && att(back)?.job === kept && att(back)?.finished === true, JSON.stringify({ kept, back: att(back) }));
+
+    const onB = await json(`http://localhost:${PORT3}/api/health`, { headers: { cookie: op } });
+    const onC = await json(`http://localhost:${PORT4}/api/health`, { headers: { cookie: op } });
+    check('with CIVIC_SESSION_SECRET set the cookie is the secret\'s and not the key\'s: a CIVIC on another OpenAI key and the same secret honours it; one on another key without the secret does not',
+      onB.body?.access?.session?.email === 'op@example.com' && onC.body?.access?.session === null, JSON.stringify({ onB: onB.body?.access, onC: onC.body?.access }));
+
+    const opHealth = await json(`${base}/api/health`, { headers: { cookie: op } });
+    const rdHealth = await json(`${base}/api/health`, { headers: { cookie: rd } });
+    const opSelf = await json(`${base}/api/selftest`, { headers: { cookie: op } });
+    const rdSelf = await json(`${base}/api/selftest`, { headers: { cookie: rd } });
+    check('with CIVIC_OPERATOR_CODES set, the sign-in list and the runs per code go to the operator\'s codes alone: the health line says who the operator is, and a reader\'s check page has neither',
+      opHealth.body?.access?.session?.operator === true && rdHealth.body?.access?.session?.operator === false
+        && opSelf.status === 200 && (opSelf.body?.signins || []).length >= 2 && (opSelf.body?.codes || []).length === 2 && opSelf.body?.access?.operator === true
+        && rdSelf.status === 200 && (rdSelf.body?.signins || []).length === 0 && (rdSelf.body?.codes || []).length === 0 && rdSelf.body?.access?.operator === false,
+      JSON.stringify({ op: opHealth.body?.access, rd: rdHealth.body?.access, opSelf: { signins: opSelf.body?.signins?.length, codes: opSelf.body?.codes?.length }, rdSelf: { signins: rdSelf.body?.signins?.length, codes: rdSelf.body?.codes?.length } }));
+
+    const cCookie = await signin(PORT4, 'ABCD234', 'op@example.com');
+    const cSelf = await json(`http://localhost:${PORT4}/api/selftest`, { headers: { cookie: cCookie } });
+    const warned = (cSelf.body?.checks || []).some((x) => x.state === 'warn' && /CIVIC_SESSION_SECRET/.test(x.fix || ''));
+    const quiet = !(opSelf.body?.checks || []).some((x) => /CIVIC_SESSION_SECRET|CIVIC_OPERATOR_CODES/.test(x.fix || ''));
+    check('/check warns while codes are set and the secret is not, and says nothing once the secret is set and the operator named', warned && quiet, JSON.stringify({ warned, quiet }));
+  } catch (err) {
+    check('the security checks completed', false, err.message);
+  }
+  for (const s of [a, b, c, mock]) { try { s.kill('SIGTERM'); } catch {} }
+  for (const tag of ['a', 'b', 'c']) for (const k of ['CIVIC_SIGNIN_LOG', 'CIVIC_USES_FILE']) { try { fs.unlinkSync(files(tag)[k]); } catch {} }
+}
+await securityChecks();
+
 // Runs per code (server/uses.js). A use is a run started; a connection that joins a run already
 // started is not one; a code's own entry may carry its allowance (ABCD234:2); the general
 // allowance is CIVIC_CODE_USES; the count is a file, so a restart forgets nothing.
