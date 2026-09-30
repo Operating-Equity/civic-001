@@ -311,7 +311,9 @@ app.use(express.static(publicDir, {
     else res.setHeader('Cache-Control', 'public, max-age=604800, immutable');
   },
 }));
-app.get(/^\/(?!api\/).*/, sendIndex);
+// The page for any address that is not the API's, in any spelling of "api": /API/anything is
+// nobody's route (routes match their case) and must not be the page either, so it is a 404.
+app.get(/^\/(?![aA][pP][iI]\/).*/, sendIndex);
 
 // ---- Errors --------------------------------------------------------------------------------
 
