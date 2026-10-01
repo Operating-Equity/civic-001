@@ -13,7 +13,8 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import express from 'express';
 import { leakChecks } from './leak-check.mjs';
-import { sourceBlock } from '../server/source.js';
+import { sourceBlock, attributionLines } from '../server/source.js';
+import { linkWords, publisherOf } from '../server/copies.js';
 import { Bucket, parseRefusal } from '../server/gate.js';
 import { parseEntry } from '../server/verdict.js';
 import { isConnectionDrop, connectionWait, describeError } from '../server/openai.js';
@@ -973,7 +974,7 @@ async function linkChecks() {
     // A site that keeps its text is named, with what to do.
     const refused = await read(`http://localhost:${SITE}/refuse`);
     check('a site that refuses the request is named, with what to do, and nothing of the status reaches the reader',
-      refused.status === 400 && refused.body?.error?.code === 'url_refused' && refused.body?.error?.site === 'localhost' && /^localhost does not let CIVIC read its pages from here\./.test(refused.body?.error?.message || '') && !/40[13]/.test(refused.body?.error?.message || ''), JSON.stringify(refused.body));
+      refused.status === 400 && refused.body?.error?.code === 'url_refused' && refused.body?.error?.site === 'localhost' && /^localhost turns CIVIC's server away, though people can often read it in a browser\./.test(refused.body?.error?.message || '') && !/40[13]/.test(refused.body?.error?.message || ''), JSON.stringify(refused.body));
     const teaser = await read(`http://localhost:${SITE}/paywalled-teaser`);
     check('a page marked as not free (the flag Google News reads) that sent no paragraph of prose is a paywall: the site is named by its own name, nothing is tested',
       teaser.status === 400 && teaser.body?.error?.code === 'url_paywall' && teaser.body?.error?.site === 'The Daily Stand-in' && /^The Daily Stand-in keeps this article behind its paywall/.test(teaser.body?.error?.message || ''), JSON.stringify(teaser.body));
@@ -1059,7 +1060,7 @@ async function linkChecks() {
     const silent1 = await read(`http://127.0.0.1:${SILENT}/`, { signal: firstAc.signal }).catch((e) => ({ status: 'aborted', ms: 40000, body: { error: { message: e.message } } }));
     clearTimeout(firstTimer);
     check('a site that never answers the connection is found in about ten seconds, not the operating system\'s minute, and named with what to do',
-      silent1.status === 400 && silent1.body?.error?.code === 'url_silent' && silent1.ms < 30000 && /does not let CIVIC read its pages from here/.test(silent1.body?.error?.message || ''), JSON.stringify({ status: silent1.status, ms: silent1.ms, body: silent1.body }));
+      silent1.status === 400 && silent1.body?.error?.code === 'url_silent' && silent1.ms < 30000 && /turns CIVIC's server away/.test(silent1.body?.error?.message || ''), JSON.stringify({ status: silent1.status, ms: silent1.ms, body: silent1.body }));
     const silent2 = await read(`http://127.0.0.1:${SILENT}/`);
     const listed = ((await (await fetch(`${base}/api/selftest`)).json()).silentSites || []).map((x) => x.host);
     check('the silent site is remembered: the next read answers at once, and /check lists the site',
@@ -1079,7 +1080,7 @@ async function linkChecks() {
     clearTimeout(muteTimer);
     const muteRec = (await failures()).find((f) => f.where === 'server:POST /api/read-url' && /HEADERS_TIMEOUT/.test(f.detail || ''));
     check('a site that takes the request and never answers it is found in about ten seconds too, named with what to do, and the record says which silence',
-      mute1.status === 400 && mute1.body?.error?.code === 'url_silent' && mute1.ms >= 9000 && mute1.ms < 30000 && /does not let CIVIC read its pages from here/.test(mute1.body?.error?.message || '') && Boolean(muteRec), JSON.stringify({ status: mute1.status, ms: mute1.ms, body: mute1.body, detail: muteRec?.detail }));
+      mute1.status === 400 && mute1.body?.error?.code === 'url_silent' && mute1.ms >= 9000 && mute1.ms < 30000 && /turns CIVIC's server away/.test(mute1.body?.error?.message || '') && Boolean(muteRec), JSON.stringify({ status: mute1.status, ms: mute1.ms, body: mute1.body, detail: muteRec?.detail }));
     const mute2 = await read(`http://127.0.0.2:${MUTE}/`);
     check('that site is remembered as well: the next read answers at once', mute2.status === 400 && mute2.body?.error?.code === 'url_silent' && mute2.ms < 1500, JSON.stringify({ ms: mute2.ms, code: mute2.body?.error?.code }));
     mute.close();
@@ -1100,6 +1101,140 @@ async function linkChecks() {
   }
 }
 await linkChecks();
+
+// A link a site refused, found elsewhere (server/copies.js): the search service is asked with only the
+// words of the link and its date, and the paper's name; copies that say they are the paper's article come
+// first; a copy dated far from the link, the refused site's own pages and repeats are left out; the key
+// travels in its header and nowhere else; each search's cost is the service's own figure on the ledger;
+// a rate limit is a wait; any other refusal is a note on /check and no copies; without the service set,
+// nothing is asked and the page is told so.
+async function copiesChecks() {
+  const MOCK5 = MOCK_PORT + 40, PORT5 = PORT + 40, PORT6 = PORT + 41, SITE3 = PORT + 42;
+  const SEARCH_KEY = 'search-key-standin-7f3a9c';
+  const REFUSED = `http://127.0.0.1:${SITE3}/2026/09/30/us/hegseth-troops-address.html`;
+  const searchCalls = [];
+  const forced = [];   // answers the stand-in gives before its ordinary ones: '429' or '402'
+  const prose = (n) => `<p>${'Defense Secretary Pete Hegseth spoke to 600 junior officers and enlisted leaders at Quantico on Sept. 30. '.repeat(n)}</p>`;
+  const plain = (n) => 'Defense Secretary Pete Hegseth spoke to 600 junior officers and enlisted leaders at Quantico on Sept. 30. '.repeat(n);
+  const site = http.createServer((req, res) => {
+    if (req.method === 'POST' && req.url.startsWith('/search')) {
+      let raw = '';
+      req.on('data', (c) => { raw += c; });
+      req.on('end', () => {
+        let body = {}; try { body = JSON.parse(raw); } catch {}
+        searchCalls.push({ key: req.headers['x-api-key'] || '', auth: req.headers.authorization || '', body, at: Date.now() });
+        const f = forced.shift();
+        if (f === '429') { res.writeHead(429, { 'content-type': 'application/json', 'retry-after': '1' }); res.end(JSON.stringify({ error: 'Too many requests' })); return; }
+        if (f === '402') { res.writeHead(402, { 'content-type': 'application/json' }); res.end(JSON.stringify({ error: `Insufficient credits for ${SEARCH_KEY}` })); return; }
+        const republished = /originally appeared in/i.test(String(body.query || ''));
+        const results = republished ? [
+          { url: `http://localhost:${SITE3}/copy-a`, title: 'Hegseth lays out his military vision', publishedDate: '2026-10-01T00:05:00.000Z', author: '', text: `${plain(4)}\n\nThis article originally appeared in 127.0.0.1.` },
+          { url: `http://localhost:${SITE3}/copy-old`, title: 'An older article from the same paper', publishedDate: '2025-09-30T00:00:00.000Z', text: `${plain(4)}\n\nThis article originally appeared in 127.0.0.1.` },
+          { url: `http://localhost:${SITE3}/copy-blocked`, title: 'The same article, on a site that turns CIVIC away', publishedDate: '2026-09-30T12:00:00.000Z', author: '127.0.0.1', text: plain(5) },
+        ] : [
+          { url: `http://localhost:${SITE3}/report-d`, title: 'Another outlet reports the speech', publishedDate: '2026-09-30T21:51:00.000Z', text: plain(3) },
+          { url: REFUSED, title: 'The refused page itself', publishedDate: '2026-09-30T00:00:00.000Z', text: plain(2) },
+          { url: `http://localhost:${SITE3}/copy-a/`, title: 'Hegseth lays out his military vision', publishedDate: '2026-10-01T00:05:00.000Z', text: plain(4) },
+          { url: `http://localhost:${SITE3}/undated`, title: 'An undated report', text: plain(3) },
+        ];
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ requestId: 'standin', results, costDollars: { total: 0.007 } }));
+      });
+      return;
+    }
+    if (req.url.startsWith('/2026/') || req.url.startsWith('/copy-blocked')) { res.writeHead(403, { 'content-type': 'text/html' }); res.end('<html><body>Forbidden</body></html>'); return; }
+    if (req.url.startsWith('/copy-a')) { res.writeHead(200, { 'content-type': 'text/html' }); res.end(`<html><head><title>Hegseth lays out his military vision</title><meta property="og:site_name" content="The Stand-in Times"></head><body><article>${prose(4)}<p>This article originally appeared in 127.0.0.1.</p></article></body></html>`); return; }
+    if (req.url.startsWith('/report-d')) { res.writeHead(200, { 'content-type': 'text/html' }); res.end(`<html><head><title>Another outlet reports the speech</title></head><body><article>${prose(3)}</article></body></html>`); return; }
+    res.writeHead(404); res.end();
+  });
+  await new Promise((r) => site.listen(SITE3, r));
+  const ledgerFile = path.join(os.tmpdir(), `civic-verify-copies-ledger-${Date.now()}.jsonl`);
+  const mock = start([path.join(root, 'scripts', 'mock-openai.js')], { MOCK_PORT: String(MOCK5), MOCK_SPEED: '0.2' });
+  await wait(`http://localhost:${MOCK5}/v1/mock/stats`, 15000, { anyResponse: true });
+  const common = { OPENAI_BASE_URL: `http://localhost:${MOCK5}/v1`, OPENAI_API_KEY: KEY, CIVIC_IMAGE_ENABLED: 'false', CIVIC_ALLOW_PRIVATE_URLS: 'true', CIVIC_LEDGER_FILE: ledgerFile, CIVIC_ERROR_LOG: path.join(os.tmpdir(), `civic-verify-copies-errors-${Date.now()}.log`) };
+  const on = start([path.join(root, 'server', 'index.js')], { ...common, PORT: String(PORT5), CIVIC_SEARCH_URL: `http://localhost:${SITE3}/search`, CIVIC_SEARCH_KEY: SEARCH_KEY });
+  const off = start([path.join(root, 'server', 'index.js')], { ...common, PORT: String(PORT6) });
+  await wait(`http://localhost:${PORT5}/api/health`);
+  await wait(`http://localhost:${PORT6}/api/health`);
+  const find = async (base, url) => { const t0 = Date.now(); const r = await fetch(`${base}/api/find-copies`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ url }) }); const text = await r.text(); let body = null; try { body = JSON.parse(text); } catch {} return { status: r.status, ms: Date.now() - t0, body, text }; };
+  const read = async (base, url) => { const r = await fetch(`${base}/api/read-url`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ url }) }); return { status: r.status, body: await r.json().catch(() => null) }; };
+  const baseOn = `http://localhost:${PORT5}`, baseOff = `http://localhost:${PORT6}`;
+  try {
+    // What a link says, read the same way for every paper: its words and its date, nothing guessed.
+    const w = [
+      linkWords('https://www.nytimes.com/2026/09/30/us/hegseth-troops-address.html'),
+      linkWords('https://www.npr.org/2026/09/30/nx-s1-5986304/hegseth-troops-address'),
+      linkWords('https://www.usatoday.com/story/news/politics/2026/09/30/pete-hegseth-state-of-force-transgender-troops-dei/92024167007/'),
+      linkWords('https://thehill.com/policy/defense/6121765-pete-hegseth-takeaways-command-warfare-base/'),
+      linkWords('https://www.inquirer.com/news/nation-world/hegseth-navy-promotions-list-pentagon-20260601.html'),
+    ];
+    check('a link\'s own words and date are read from its address, ids and section names left out, and nothing is guessed when it carries no date',
+      w[0].words === 'hegseth troops address' && w[0].date === 'September 30 2026' && w[1].words === 'hegseth troops address' && w[2].words === 'pete hegseth state of force transgender troops dei'
+      && w[3].words === 'pete hegseth takeaways command warfare base' && w[3].date === '' && w[4].date === 'June 1 2026'
+      && publisherOf('www.nytimes.com') === 'The New York Times' && publisherOf('example.org') === 'example.org', JSON.stringify(w.map((x) => [x.words, x.date])));
+    const lines = attributionLines({ kind: 'link', title: 'T', url: 'https://example.org/a', via: 'search' }, new Date('2026-10-01T12:00:00Z'));
+    const direct = attributionLines({ kind: 'link', title: 'T', url: 'https://example.org/a' }, new Date('2026-10-01T12:00:00Z'));
+    check('when a copy\'s text came from the search service, the source\'s attribution says so; otherwise it is as before',
+      lines.at(-1) === 'Read by CIVIC on 2026-10-01 through a search service\'s copy of that address.' && direct.at(-1) === 'Read by CIVIC from that address on 2026-10-01.', JSON.stringify([lines.at(-1), direct.at(-1)]));
+
+    // Without the service set: the page is told so, and nothing is asked.
+    const hOff = await (await fetch(`${baseOff}/api/health`)).json();
+    const fOff = await find(baseOff, REFUSED);
+    check('without a search service set, /api/health says so and a request to look elsewhere is refused without asking anyone',
+      hOff.findCopies === false && fOff.status === 409 && fOff.body?.error?.code === 'search_off' && searchCalls.length === 0, JSON.stringify({ findCopies: hOff.findCopies, status: fOff.status, calls: searchCalls.length }));
+
+    // With it set: the two searches, the copies in order, the key only in its header.
+    const hOn = await (await fetch(`${baseOn}/api/health`)).json();
+    const got = await find(baseOn, REFUSED);
+    const urls = (got.body?.copies || []).map((c) => c.url.replace(`http://localhost:${SITE3}`, ''));
+    check('a refused link is looked for elsewhere: copies that say they are the paper\'s article first, then other reports, each with its headline, site, date and text',
+      hOn.findCopies === true && got.status === 200 && JSON.stringify(urls) === JSON.stringify(['/copy-a', '/copy-blocked', '/report-d', '/undated'])
+      && JSON.stringify(got.body.copies.map((c) => c.credited)) === JSON.stringify([true, true, false, false]) && got.body.publisher === '127.0.0.1'
+      && got.body.copies[0].title === 'Hegseth lays out his military vision' && got.body.copies[0].site === 'localhost' && got.body.copies[0].published === '2026-10-01' && got.body.copies.every((c) => c.text.length > 100), JSON.stringify({ status: got.status, urls, credited: got.body?.copies?.map((c) => c.credited) }));
+    check('left out: a copy dated a year from the link, the refused site\'s own page, and a repeat of a copy already listed', !urls.includes('/copy-old') && !urls.some((u) => u.includes('/2026/')) && urls.filter((u) => u.startsWith('/copy-a')).length === 1, JSON.stringify(urls));
+    const qs = searchCalls.map((c) => String(c.body?.query || ''));
+    check('the search is asked twice, with only the link\'s words, its date and the paper\'s name: once for the line republishers print, once for reports, never on the refused site',
+      searchCalls.length === 2 && qs.some((q) => q === 'hegseth troops address September 30 2026 "This article originally appeared in 127.0.0.1"') && qs.some((q) => q === 'hegseth troops address September 30 2026 127.0.0.1')
+      && searchCalls.every((c) => JSON.stringify(c.body.excludeDomains) === '["127.0.0.1"]' && c.body.contents?.text === true && c.body.numResults === 10), JSON.stringify(searchCalls.map((c) => c.body)));
+    check('the key travels in the service\'s own header and nowhere else: not in the answer, the health line, the check page or the ledger',
+      searchCalls.every((c) => c.key === SEARCH_KEY && c.auth === '') && !got.text.includes(SEARCH_KEY) && !JSON.stringify(hOn).includes(SEARCH_KEY), JSON.stringify(searchCalls.map((c) => c.key === SEARCH_KEY)));
+    const st = await (await fetch(`${baseOn}/api/selftest`)).json();
+    check('/check says a refused link is looked for elsewhere, naming the service by its address and never its key',
+      (st.checks || []).some((c) => c.state === 'ok' && c.title === 'A link a site refuses is looked for elsewhere' && /localhost/.test(c.detail)) && !JSON.stringify(st).includes(SEARCH_KEY), JSON.stringify((st.checks || []).map((c) => c.title)));
+
+    // CIVIC's own reader reads the copy it can, and is turned away by the one whose site refuses it, which
+    // is when the page uses the search service's text of that page (proved in the browser check).
+    const a = await read(baseOn, `http://localhost:${SITE3}/copy-a`);
+    const b = await read(baseOn, `http://localhost:${SITE3}/copy-blocked`);
+    check('a picked copy is read by CIVIC\'s own reader like any link; a copy whose site turns CIVIC away answers the refusal, and the page then has the search\'s text of it',
+      a.status === 200 && /originally appeared in 127\.0\.0\.1/.test(a.body?.text || '') && b.status === 400 && b.body?.error?.code === 'url_refused' && got.body.copies[1].text.length > 100, JSON.stringify({ a: a.status, b: b.body?.error?.code }));
+
+    // A rate limit is a wait: the service's own Retry-After, then the same search again.
+    forced.push('429');
+    const before = searchCalls.length;
+    const slow = await find(baseOn, REFUSED);
+    check('a rate limit from the search service is a wait of the time it asks, then the same search again, never a failure',
+      slow.status === 200 && slow.body?.copies?.length === 4 && slow.ms >= 1000 && searchCalls.length - before === 3, JSON.stringify({ status: slow.status, n: slow.body?.copies?.length, ms: slow.ms, calls: searchCalls.length - before }));
+
+    // Any other refusal: no copies, and a note for the operator in the service's own words, without the key.
+    forced.push('402', '402');
+    const broke = await find(baseOn, REFUSED);
+    const recs = ((await (await fetch(`${baseOn}/api/selftest`)).json()).recentFailures || []).filter((f) => f.where === 'server:find-copies');
+    check('a refusal from the search service gives no copies and a note on /check in its own words, the key struck out',
+      broke.status === 200 && broke.body?.copies?.length === 0 && recs.length >= 1 && recs.every((f) => /answered 402 \(Insufficient credits for <key>\)/.test(f.detail || '') && !JSON.stringify(f).includes(SEARCH_KEY)), JSON.stringify(recs).slice(0, 400));
+
+    // Each search is one ledger line with the service's own cost.
+    await new Promise((r) => setTimeout(r, 300)); // the ledger is appended asynchronously
+    const ledger = fs.existsSync(ledgerFile) ? fs.readFileSync(ledgerFile, 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l)) : [];
+    const searches = ledger.filter((l) => l.kind === 'search');
+    check('each search is a ledger line with the service\'s own cost for it, and the key is in no line',
+      searches.length === 4 && searches.every((l) => l.step === 'find-copies' && l.usd === 0.007 && Number.isFinite(l.ms)) && !JSON.stringify(ledger).includes(SEARCH_KEY), JSON.stringify(searches).slice(0, 300));
+  } finally {
+    for (const p of [on, off, mock]) { try { p.kill('SIGTERM'); } catch {} }
+    site.close();
+  }
+}
+await copiesChecks();
 
 // Sources as tools (server/tools): the gateway answers only the pass; the tool table is the verbs the
 // sources on can answer; every adapter is driven through the gateway against its own stand-in; a
@@ -1184,11 +1319,11 @@ async function toolChecks() {
     const client = sent.filter((r) => r.path === '/mcp-client');
     const listed = client.find((r) => r.step === 'list');
     const made = client.filter((r) => r.step === 'call');
-    check('the stand-in OpenAI, as a client of the gateway, listed the tools and made its calls: the page\'s text came back whole, the refused page as the site\'s answer', listed?.status === 200 && JSON.stringify(listed?.names) === JSON.stringify(['read_page', 'get_transcript']) && made.length === 2 && made[0].failed === false && /The Nile is about 6,650 kilometres long/.test(made[0].output) && made[1].failed === true && /does not let CIVIC read its pages from here/.test(made[1].output), JSON.stringify({ listed: listed?.names, made: made.map((m) => [m.status, m.failed, String(m.output).slice(0, 80)]) }));
+    check('the stand-in OpenAI, as a client of the gateway, listed the tools and made its calls: the page\'s text came back whole, the refused page as the site\'s answer', listed?.status === 200 && JSON.stringify(listed?.names) === JSON.stringify(['read_page', 'get_transcript']) && made.length === 2 && made[0].failed === false && /The Nile is about 6,650 kilometres long/.test(made[0].output) && made[1].failed === true && /turns CIVIC's server away/.test(made[1].output), JSON.stringify({ listed: listed?.names, made: made.map((m) => [m.status, m.failed, String(m.output).slice(0, 80)]) }));
     const steps = ev.filter((e) => e.t === 'trail').map((e) => e.step);
     const toolSteps = steps.filter((s) => s.kind === 'tool');
     const done = ev.find((e) => e.t === 'done');
-    check('the page\'s stream shows each tool call as a step of the trail, by its verb and what it was asked, with the source\'s answer when it kept the page', toolSteps.length === 2 && toolSteps[0].name === 'read_page' && toolSteps[0].url === `${siteBase}/tool-page` && toolSteps[0].status === 'completed' && !toolSteps[0].error && toolSteps[1].status === 'failed' && /does not let CIVIC read its pages from here/.test(toolSteps[1].error || ''), JSON.stringify(toolSteps));
+    check('the page\'s stream shows each tool call as a step of the trail, by its verb and what it was asked, with the source\'s answer when it kept the page', toolSteps.length === 2 && toolSteps[0].name === 'read_page' && toolSteps[0].url === `${siteBase}/tool-page` && toolSteps[0].status === 'completed' && !toolSteps[0].error && toolSteps[1].status === 'failed' && /turns CIVIC's server away/.test(toolSteps[1].error || ''), JSON.stringify(toolSteps));
     const webSteps = steps.filter((s) => s.kind !== 'tool').length;
     check('the searches counted for the cost are the web searches alone; the tool calls sit in the trail and on their own ledger lines; the row said it was reading', Boolean(done) && done.searches === webSteps && done.trail.length === webSteps + 2 && ev.some((e) => e.t === 'phase' && e.phase === 'reading'), JSON.stringify({ searches: done?.searches, webSteps, trail: done?.trail?.length }));
     const ledger = readIf(ledgerFile).split('\n').filter(Boolean).map((l) => JSON.parse(l));

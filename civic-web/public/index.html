@@ -86,6 +86,11 @@
         <label class="check" title="A photograph of the document's subject, made while the test runs." data-i18n-title="intake.echoHint"><input type="checkbox" id="opt-echo" checked><span data-i18n="intake.echo">Visual echo</span></label>
       </div>
     </div>
+    <div class="copies" id="copies" hidden aria-live="polite">
+      <p class="copies-status hint mono" id="copies-status"></p>
+      <p class="copies-title" id="copies-title"></p>
+      <ol class="copies-list" id="copies-list"></ol>
+    </div>
     <div class="intake-go">
       <button type="button" class="btn btn-primary btn-large" id="btn-run" data-i18n="intake.run">Test the facts</button>
       <p class="intake-slow hint" data-i18n="intake.slow"></p>

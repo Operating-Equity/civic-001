@@ -101,6 +101,18 @@ export const config = {
   // When a service answers with a job instead of the words (it is transcribing the video), this is
   // where its result is read, with {jobId} filled in. Without it, a job answer is the end.
   transcriptJobUrl: env('CIVIC_TRANSCRIPT_JOB_URL', ''),
+  // A search service, asked only when a site turns CIVIC's server away and only when both of these are
+  // set: it finds the same article republished elsewhere (papers that republish with permission end it
+  // with "This article originally appeared in ...") and other reports of the same story, from the words
+  // the link itself carries, and the reader picks one (server/copies.js). The request is the shape of
+  // Exa's /search, the service tested on 1 October; its key stays on the server, like every key, and
+  // travels as the transcript door's does.
+  searchUrl: env('CIVIC_SEARCH_URL', ''),
+  searchKey: env('CIVIC_SEARCH_KEY', ''),
+  searchHeader: env('CIVIC_SEARCH_HEADER', 'x-api-key'),
+  searchPrefix: env('CIVIC_SEARCH_PREFIX', ''),
+  // Results asked of each search: the count the service's base price covers (Exa: up to 10).
+  searchResults: int('CIVIC_SEARCH_RESULTS', 10),
   // Sources as tools (server/tools): the gateway's public address, which the requests to OpenAI name so
   // the model can reach CIVIC's tools, and the pass OpenAI carries to it. Both set: the tools are in
   // both requests. Either empty: the requests are exactly as before, and the gateway answers no one.
@@ -184,6 +196,7 @@ export function publicConfig(promptStatus) {
   return {
     maxClaims: config.maxClaims,
     autoTestFirst: config.autoTestFirst,   // the page runs this many without a press; 0 = the reader chooses every one
+    findCopies: Boolean(String(config.searchUrl || '').trim() && String(config.searchKey || '').trim()),   // a refused link is looked for elsewhere; never the key itself
     inFlight: config.evalConcurrency,   // the page paces itself by this, so the operator changes it with one setting
     maxSourceChars: config.maxSourceChars,
     maxUploadBytes: config.maxUploadBytes,

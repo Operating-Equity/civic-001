@@ -19,6 +19,7 @@ Two rules the code exists to keep:
 civic-web/
 ├── server/            Node + Express. Holds the prompts and the operator's key. Nothing else has either.
 │   ├── fetchurl.js    Reading a link: article, PDF or YouTube caption track, into the source's own words.
+│   ├── copies.js      A link a site refused, found elsewhere by a search service, for the reader to pick from.
 │   ├── prompts/       The vault. Real prompts live here (gitignored) or in env vars. See its README.
 │   ├── config.js      Models, efforts, limits, feature flags (all overridable by env vars).
 │   ├── extract.js     Step 1: streaming claim extraction, claims parsed as they arrive.
@@ -149,6 +150,33 @@ the text goes into the box marked, with the sentence that the site marks the art
 subscribers, and the reader decides whether it is the whole article before pressing the button
 (the operator's rule of 19 September; the run does not start by itself in this one case); a shell
 (no paragraph of prose, under 200 characters at most). The page's sentences are in four languages.
+The refusal's sentence says it is CIVIC's server the site turned away, "though people can often read it
+in a browser" (the operator's question of 1 October: a reader who could open the article read the old
+sentence as saying they could not).
+
+**A refused article, found elsewhere.** The same article is often published at another address: papers
+that republish another paper's articles with permission end each one with "This article originally
+appeared in …", and other outlets report the same story. When a site turns CIVIC away (a refusal,
+silence, a paywall or a shell) and the operator has set a search service (`CIVIC_SEARCH_URL` and
+`CIVIC_SEARCH_KEY`; `server/copies.js`), the server asks it twice, at once, with only what the link
+itself carries: the words of its address (the segment with the most words; ids and section names carry
+none) and the date in it, plus the paper's name. One search adds the line republishers print, the
+other asks for reports; the refused site is left out of both. What comes back is listed under the box
+with each page's headline, site and date: pages that say they are the paper's own article first, then
+the reports, each group in the service's order; a page dated more than two days from the link's date
+(time zones, and next-day editions), the refused site's own pages and repeats are left out. Nothing decides which page is the article: a paper
+often runs more than one article on the same event the same day, so the reader picks by the headline,
+and "Test this one" reads that page through CIVIC's own reader and starts the run on it. When the
+copy's site turns CIVIC away too, the search service's text of that page is used instead, and the
+source's attribution in the prompt's slot says the text was read "through a search service's copy of
+that address". While the search runs, the seconds tick under the box; the refusal's pop-up waits, and
+appears only if nothing is found. Proved on the operator's Times link of 1 October: a search built from
+its words, its date and the republishers' line found The Straits Times' republication first, and
+CIVIC's server read it in half a second. The request is the shape of Exa's `/search` (the service
+tested), its key travels in `x-api-key` like the transcript service's, each search's cost is the
+service's own figure on the ledger (Exa: $7 for a thousand searches), a rate limit is a wait of the
+time the service asks, and any other refusal is a note on /check, the key struck out. With nothing
+set, nothing is asked and the sentence stands alone.
 
 ### Formulas in a determination
 

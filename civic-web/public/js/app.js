@@ -38,6 +38,8 @@ const state = {
   extraction: null,
   echo: null,
   video: null,         // a YouTube source: { id, embeddable, thumbnails } for the picture's box
+  copies: null,        // a refused link's copies found elsewhere: { list, publisher, site }, under the box
+  copiesAbort: null,   // the search for them while it runs
   batch: { start: 0, size: 0, done: 0 },
   counts: { true: 0, false: 0, unverified: 0 },
   unread: 0,
@@ -62,6 +64,7 @@ const ui = {};
 function cacheElements() {
   Object.assign(ui, {
     source: $('#source-text'), sourceFile: $('#source-file'), sourceMeta: $('#source-meta'),
+    copies: $('#copies'), copiesStatus: $('#copies-status'), copiesTitle: $('#copies-title'), copiesList: $('#copies-list'),
     optEcho: $('#opt-echo'), run: $('#btn-run'),
     runSection: $('#run'), runWarnings: $('#run-warnings'),
     step1: $('#step-extract'), step1Status: $('#step1-status'), bar1: $('#bar-extract'),
@@ -262,6 +265,7 @@ function renderNav() {
 
 function wireIntake() {
   ui.source.addEventListener('input', updateSourceMeta);
+  ui.source.addEventListener('input', hideCopies);   // a list found for a link no longer in the box is stale
   ui.showText.addEventListener('click', () => {
     const open = ui.intake.classList.toggle('is-open');
     ui.showText.textContent = t(open ? 'intake.hideText' : 'intake.showText');
@@ -335,8 +339,10 @@ function expandIntake() {
 
 // ---------- links ---------------------------------------------------------------------------
 
-/** Fetches a web address through the server and puts its own words in the box. */
-async function readLinkIntoBox(url) {
+/** Fetches a web address through the server and puts its own words in the box. A `copy` is a page the
+ *  search found for a link a site refused (offerCopies): when CIVIC's reader cannot read it either, the
+ *  search service's own text of that page is used, and the source says so. */
+async function readLinkIntoBox(url, { copy = null } = {}) {
   const host = (() => { try { return new URL(/^https?:\/\//i.test(url) ? url : `https://${url}`).hostname.replace(/^www\./, ''); } catch { return url; } })();
   ui.run.disabled = true;
   // The reading is visible while it lasts: the host and the seconds, ticking under the box.
@@ -367,6 +373,16 @@ async function readLinkIntoBox(url) {
     return true;
   } catch (err) {
     const code = err?.code || '';
+    if (copy && !controller.signal.aborted && String(copy.text || '').trim().length >= 20) {
+      // The copy's own site turned CIVIC away too: the search service's text of that page is used.
+      ui.source.value = copy.text;
+      state.sourceLink = { url: copy.url, title: copy.title || host, kind: 'page' };
+      state.video = null;
+      state.sourceMeta = { kind: 'link', url: copy.url, title: copy.title || host, author: copy.author || '', published: copy.published || '', site: copy.site || host, via: 'search' };
+      state.loadedText = copy.text;
+      ui.sourceMeta.textContent = t('intake.readCopy', { title: copy.title || host, n: fmtNumber(copy.text.length) });
+      return true;
+    }
     const known = ['url_no_transcript', 'url_forbidden', 'url_private', 'url_timeout', 'url_unreachable',
       'url_not_web', 'url_too_big', 'url_no_text', 'url_not_text', 'url_status', 'url_redirects', 'url_empty'];
     // A site that keeps its text from CIVIC is named, in the reader's language, with what to do.
@@ -380,7 +396,11 @@ async function readLinkIntoBox(url) {
     }[code];
     const sentence = own ? own() : known.includes(code) ? err.message : t('errors.url', { message: err?.message || code });
     ui.sourceMeta.textContent = sentence; // stays under the box until the box changes; the toast passes
-    toast(sentence, { error: true, ms: 9000 });
+    // A site that keeps its text from CIVIC: the same article is often published elsewhere, so the server's
+    // search service looks for it, when the operator has set one; the reader picks from what it finds. The
+    // toast then waits: it would cover the list, and it is shown only if nothing is found.
+    if (!copy && SITE_CODES.has(code) && state.server?.findCopies) offerCopies(url, site, sentence);
+    else toast(sentence, { error: true, ms: 9000 });
     return false;
   } finally {
     clearInterval(tick);
@@ -389,10 +409,91 @@ async function readLinkIntoBox(url) {
   }
 }
 
+// ---------- a refused link, found elsewhere ------------------------------------------------
+
+const SITE_CODES = new Set(['url_refused', 'url_silent', 'url_paywall', 'url_shell']);
+
+/** Asks the server's search service for the article a site refused: the same article republished
+ *  elsewhere, and other reports of the same story. While it looks, the seconds tick under the box;
+ *  what it finds is listed for the reader to pick from. Nothing found, or the search failing, leaves
+ *  the site's sentence under the box as it is (the search's own failure is on /check, for the operator). */
+async function offerCopies(url, site, sentence = '') {
+  hideCopies();
+  const controller = new AbortController();
+  state.copiesAbort = controller;
+  const started = Date.now();
+  const showLooking = () => { ui.copiesStatus.textContent = t('copies.looking', { time: fmtSeconds(Date.now() - started) }); };
+  ui.copies.hidden = false;
+  showLooking();
+  const tick = setInterval(showLooking, 1000);
+  state.timers.push(tick);
+  try {
+    const got = await api.findCopies(url, { signal: controller.signal });
+    if (controller.signal.aborted) return;
+    const list = Array.isArray(got?.copies) ? got.copies : [];
+    if (!list.length) { hideCopies(); if (sentence) toast(sentence, { error: true, ms: 9000 }); return; }
+    state.copies = { list, publisher: got.publisher || site, site };
+    renderCopies();
+  } catch {
+    if (!controller.signal.aborted) { hideCopies(); if (sentence) toast(sentence, { error: true, ms: 9000 }); }
+  } finally {
+    clearInterval(tick);
+    if (state.copiesAbort === controller) state.copiesAbort = null;
+  }
+}
+
+/** The list under the box: each copy's headline (a link to the page itself), its site and date, and
+ *  whether it says it is the refused paper's own article; the reader picks by the headline. */
+function renderCopies() {
+  if (!state.copies) return;
+  const { list, publisher, site } = state.copies;
+  ui.copiesStatus.textContent = '';
+  ui.copiesTitle.textContent = t('copies.title', { site });
+  ui.copiesList.replaceChildren(...list.map((c) => {
+    const when = c.published ? fmtDay(c.published) : '';
+    const meta = el('span', { class: 'copy-meta' }, [[c.site, when].filter(Boolean).join(' · ')]);
+    if (c.credited) meta.append(el('span', { class: 'copy-credit', text: ` · ${t('copies.republished', { publisher })}` }));
+    return el('li', { class: 'copy' }, [
+      el('a', { class: 'copy-title', href: c.url, target: '_blank', rel: 'noopener noreferrer', text: c.title || c.site }),
+      meta,
+      el('button', { type: 'button', class: 'btn btn-outline btn-small copy-test', text: t('copies.test'), onclick: () => useCopy(c) }),
+    ]);
+  }));
+  ui.copies.hidden = false;
+}
+
+/** A day as the reader's language writes it ("30 Sept 2026"); the date the page carries, not a guess. */
+function fmtDay(ymd) {
+  const d = new Date(`${String(ymd).slice(0, 10)}T12:00:00Z`);
+  if (Number.isNaN(d.getTime())) return String(ymd);
+  try { return d.toLocaleDateString(currentLocale(), { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' }); } catch { return String(ymd).slice(0, 10); }
+}
+
+/** The reader picked a copy: it is read like any link (CIVIC's own reader first, the search's text of
+ *  that page when its site turns CIVIC away too), and the run starts on it, as the reader asked. */
+async function useCopy(copy) {
+  hideCopies();
+  ui.source.value = copy.url;
+  const ok = await readLinkIntoBox(copy.url, { copy });
+  if (ok) await startRun();
+}
+
+function hideCopies() {
+  state.copiesAbort?.abort();
+  state.copiesAbort = null;
+  state.copies = null;
+  if (!ui.copies) return;
+  ui.copies.hidden = true;
+  ui.copiesStatus.textContent = '';
+  ui.copiesTitle.textContent = '';
+  ui.copiesList.replaceChildren();
+}
+
 // ---------- the run -------------------------------------------------------------------------
 
 async function startRun() {
   if (!state.server) { toast(t('errors.server'), { error: true }); return; }
+  hideCopies();
 
   // A web address in the box is read first, and its text replaces the address, so the reader sees
   // exactly what will be tested before a single claim is extracted.
@@ -482,6 +583,7 @@ function resetRunState() {
 
 function resetAll() {
   resetRunState();
+  hideCopies();
   state.video = null;
   ui.runSection.hidden = true;
   ui.run.disabled = false;
@@ -1495,6 +1597,7 @@ async function startEcho(text) {
 
 function refreshDynamicText() {
   ui.langSelect.value = currentLocale();
+  renderCopies();
   setRunWording();
   renderNav();
   updateSourceMeta();

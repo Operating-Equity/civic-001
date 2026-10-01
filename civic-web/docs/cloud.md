@@ -287,6 +287,35 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
   September lists the model, `xhigh` and the `pro` mode; $2 / $0.10 / $10 per million by several
   published reports, OpenAI's own page being unreachable from the session) was refused to the session
   by its permission classifier twice, so it is the operator's, in Render's dashboard.
+- **1 October, evening: a new OpenAI key, and the two sign-in settings.** The operator moved CIVIC's
+  OpenAI key to another account of theirs and, in the same visit to Render's dashboard, set
+  `CIVIC_SESSION_SECRET` (64 random hex characters made on their Mac, never seen by the session) and
+  `CIVIC_OPERATOR_CODES` (their own code, the one allowed 150 runs), with one "Save and deploy"
+  (`dep-davac3c1nsns73av5olg`, live 18:27 UTC, same build c91e41d8c251). The session had tried to set the
+  two settings itself and its permission classifier refused a secret-store write, so the operator did
+  all three. Proved from the session, read-only, nothing printed (11/11): the three names exact with no
+  near miss, the key sendable, the secret 64 hex characters, the operator code the 150-run entry; the
+  operator's code signs in on the new secret and is known as the operator's; /check ready, the key
+  accepted for gpt-5.6-sol with no tokens spent, both warnings gone; the operator sees the sign-ins and
+  every code's runs, and another code sees neither. Everyone signs in once more after this deploy. Not
+  provable without a run: OpenAI has required a verified organization to stream its reasoning models
+  and to return reasoning summaries, so the operator's first run on the new account is the last proof;
+  a refusal would appear on the row in OpenAI's words, and pasting the old key back undoes it.
+- **1 October, night: a refused article, found elsewhere.** The operator's Times link was refused to
+  CIVIC's server (403), while ChatGPT summarised it in 2 minutes 39 seconds by keyword searches, reading
+  The Straits Times' licensed republication. Measured from the session: a search built only from the
+  link's words, its date and the line republishers print ("This article originally appeared in The New
+  York Times") returned that republication first, and CIVIC's live server read it in 559 ms (6,703
+  characters, the same quotes ChatGPT summarised). The first copy found by a broader search, on
+  dnyuz.com, was a different Times article on the same speech, which is why the reader picks by headline
+  and nothing chooses for them. The operator's link history since 18 September (Render's request log):
+  15 reads by people, 5 read, 8 refused (half of them YouTube videos, which the transcript service now
+  opens), 1 sign-in prompt, 1 stopped. Built: `server/copies.js` and `/api/find-copies`; the list under
+  the box; the copy read by CIVIC's reader or, when its own site refuses CIVIC too, taken from the search
+  service's text with the attribution saying so; the refusal's sentence reworded to say it is CIVIC's
+  server the site turns away. Inert until the operator pastes `CIVIC_SEARCH_KEY` (Exa, dashboard.exa.ai);
+  `CIVIC_SEARCH_URL` set from the session. Guard: a section of twelve checks with a stand-in search
+  service; browser 8/8.
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 

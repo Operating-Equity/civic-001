@@ -24,8 +24,10 @@ export class UrlError extends Error {
 // sentences in its own languages; the server's are the English ones, with the site's name.
 export const siteName = (url) => url.hostname.replace(/^www\./, '');
 export const SITE_SENTENCES = {
-  url_refused: (site) => `${site} does not let CIVIC read its pages from here. If you can open the article, copy its text and paste it here.`,
-  url_silent: (site) => `${site} does not let CIVIC read its pages from here. If you can open the article, copy its text and paste it here.`,
+  // Said so that the reader knows it is CIVIC's server the site turned away, not them (the operator's
+  // question of 1 October: "Why did you say I could not access this when I could?").
+  url_refused: (site) => `${site} turns CIVIC's server away, though people can often read it in a browser. If you can open the article, copy its text and paste it here.`,
+  url_silent: (site) => `${site} turns CIVIC's server away, though people can often read it in a browser. If you can open the article, copy its text and paste it here.`,
   url_paywall: (site) => `${site} keeps this article behind its paywall, so CIVIC cannot read it here. If you subscribe, copy the article's text and paste it here.`,
   url_shell: (site) => `${site} builds this page in the browser, so no readable text reached CIVIC. Copy the article's text and paste it here.`,
 };
@@ -70,7 +72,8 @@ function isPrivateAddress(ip) {
     s.startsWith('::ffff:127.') || s.startsWith('::ffff:10.') || s.startsWith('::ffff:192.168.');
 }
 
-async function assertPublic(urlString) {
+/** Only a public web address is ever asked, whoever asks: the link reader, the transcript door, the search door. */
+export async function assertPublic(urlString) {
   const url = new URL(urlString);
   if (url.protocol !== 'http:' && url.protocol !== 'https:') {
     throw new UrlError('url_not_web', 'Only web addresses beginning http:// or https:// can be read.');
