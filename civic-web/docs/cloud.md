@@ -315,7 +315,11 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
   service's text with the attribution saying so; the refusal's sentence reworded to say it is CIVIC's
   server the site turns away. Inert until the operator pastes `CIVIC_SEARCH_KEY` (Exa, dashboard.exa.ai);
   `CIVIC_SEARCH_URL` set from the session. Guard: a section of twelve checks with a stand-in search
-  service; browser 8/8.
+  service; browser 8/8. Live (PR #53, build deaa2a51602c), after the operator pasted the key at 22:39 UTC:
+  the Times link found 12 pages in 1.3 s, The Straits Times' republication first and credited, CIVIC's
+  reader reading it (6/6). The same run showed some search texts are fragments (the Washington Post's
+  845 characters, CNN's 1,000), so a copy taken from the search's text now waits in the box with a
+  sentence for the reader's press, as a marked article does, and the list stays (browser 9/9).
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 

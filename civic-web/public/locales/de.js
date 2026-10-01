@@ -9,7 +9,7 @@ export default {
     readingUrl: '{host} wird gelesen…',
     readingUrlTime: '{host} wird gelesen · {time}',
     readUrl: '{title} gelesen · {n} Zeichen',
-    readCopy: '{title} gelesen · {n} Zeichen, aus der Kopie der Seite beim Suchdienst',
+    copyCheck: 'Dies ist die Kopie der Seite von {site} beim Suchdienst, {n} Zeichen, die CIVIC selbst nicht lesen konnte. Wenn es der ganze Artikel ist, drücken Sie {button}; wenn nicht, wählen Sie eine andere oder fügen Sie den Text des Artikels ein.',
     markedWall: '{site} kennzeichnet diesen Artikel als Abonnenteninhalt; dies ist, was es geschickt hat. Wenn es der ganze Artikel ist, drücken Sie {button}. Wenn nicht, kopieren Sie den Text des Artikels und fügen Sie ihn hier ein.',
     autoCaptions: 'Dieses Video hatte kein geschriebenes Transkript, daher wurden YouTubes automatische Untertitel verwendet. Sie enthalten Transkriptionsfehler.',
     upload: 'Dokument hochladen',

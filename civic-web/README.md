@@ -167,9 +167,12 @@ the reports, each group in the service's order; a page dated more than two days 
 (time zones, and next-day editions), the refused site's own pages and repeats are left out. Nothing decides which page is the article: a paper
 often runs more than one article on the same event the same day, so the reader picks by the headline,
 and "Test this one" reads that page through CIVIC's own reader and starts the run on it. When the
-copy's site turns CIVIC away too, the search service's text of that page is used instead, and the
-source's attribution in the prompt's slot says the text was read "through a search service's copy of
-that address". While the search runs, the seconds tick under the box; the refusal's pop-up waits, and
+copy's site turns CIVIC away too, the search service's text of that page goes into the box instead,
+with a sentence naming the site and the text's length, and waits: a search's text can be a fragment
+(seen live on 1 October: 845 characters of a Washington Post article), so, as with a marked article,
+the reader presses the button if it is the whole article, or chooses another from the list, which
+stays. The source's attribution in the prompt's slot then says the text was read "through a search
+service's copy of that address". While the search runs, the seconds tick under the box; the refusal's pop-up waits, and
 appears only if nothing is found. Proved on the operator's Times link of 1 October: a search built from
 its words, its date and the republishers' line found The Straits Times' republication first, and
 CIVIC's server read it in half a second. The request is the shape of Exa's `/search` (the service
