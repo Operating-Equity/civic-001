@@ -301,6 +301,21 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
   provable without a run: OpenAI has required a verified organization to stream its reasoning models
   and to return reasoning summaries, so the operator's first run on the new account is the last proof;
   a refusal would appear on the row in OpenAI's words, and pasting the old key back undoes it.
+- **1 October, night: a refused article, found elsewhere.** The operator's Times link was refused to
+  CIVIC's server (403), while ChatGPT summarised it in 2 minutes 39 seconds by keyword searches, reading
+  The Straits Times' licensed republication. Measured from the session: a search built only from the
+  link's words, its date and the line republishers print ("This article originally appeared in The New
+  York Times") returned that republication first, and CIVIC's live server read it in 559 ms (6,703
+  characters, the same quotes ChatGPT summarised). The first copy found by a broader search, on
+  dnyuz.com, was a different Times article on the same speech, which is why the reader picks by headline
+  and nothing chooses for them. The operator's link history since 18 September (Render's request log):
+  15 reads by people, 5 read, 8 refused (half of them YouTube videos, which the transcript service now
+  opens), 1 sign-in prompt, 1 stopped. Built: `server/copies.js` and `/api/find-copies`; the list under
+  the box; the copy read by CIVIC's reader or, when its own site refuses CIVIC too, taken from the search
+  service's text with the attribution saying so; the refusal's sentence reworded to say it is CIVIC's
+  server the site turns away. Inert until the operator pastes `CIVIC_SEARCH_KEY` (Exa, dashboard.exa.ai);
+  `CIVIC_SEARCH_URL` set from the session. Guard: a section of twelve checks with a stand-in search
+  service; browser 8/8.
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 

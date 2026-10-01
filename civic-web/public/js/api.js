@@ -79,6 +79,18 @@ export async function readUrl(url, { signal } = {}) {
   return res.json();
 }
 
+/** A link a site refused, looked for elsewhere by the server's search service: { site, publisher, copies }. */
+export async function findCopies(url, { signal } = {}) {
+  const res = await call('api/find-copies', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ url }),
+    signal,
+  });
+  if (!res.ok) await throwFromResponse(res);
+  return res.json();
+}
+
 /** True when the box holds one web address and nothing else. */
 export function looksLikeUrl(s) {
   const v = String(s || '').trim();

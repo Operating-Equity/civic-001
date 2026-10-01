@@ -13,6 +13,7 @@ import { recent } from './diagnostics.js';
 import { whereTheShellSetsIt } from './key.js';
 import { gateStates } from './gate.js';
 import { silentSites } from './fetchurl.js';
+import { searchOn } from './copies.js';
 import { registry } from './tools/index.js';
 import { toolsOn } from './tools/request.js';
 
@@ -113,6 +114,13 @@ export async function selftest({ apiKey, build }) {
     } catch (err) {
       checks.push(warn('The internal ledger cannot be written', err.message, 'Costs will not be recorded. Nothing else is affected.'));
     }
+  }
+
+  // The search door (server/copies.js), named by its address and never its key, when it is set.
+  if (searchOn()) {
+    let host = '';
+    try { host = new URL(String(config.searchUrl).trim()).hostname; } catch { host = String(config.searchUrl).trim(); }
+    checks.push(ok('A link a site refuses is looked for elsewhere', `Through the search service at ${host}. The reader picks the copy to test; each search's cost is on the ledger.`));
   }
 
   // The door's own settings, when the door is shut: said here so the operator sees them once.

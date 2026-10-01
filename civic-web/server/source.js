@@ -15,6 +15,9 @@ export function sourceMeta(raw = {}) {
     kind,
     title: clean(raw?.title), author: clean(raw?.author), site: clean(raw?.site),
     published: clean(raw?.published, 60), url: clean(raw?.url, 2000), name: clean(raw?.name),
+    // 'search' when a link's text came from the search service's copy of that address, because the
+    // site turned CIVIC's own reader away (server/copies.js); the attribution then says so.
+    via: raw?.via === 'search' ? 'search' : '',
   };
 }
 
@@ -30,7 +33,9 @@ export function attributionLines(meta, now = new Date()) {
     if (m.site && m.site !== m.title) lines.push(`Site: ${m.site}`);
     if (m.published) lines.push(`Published: ${m.published}`);
     if (m.url) lines.push(`Address: ${m.url}`);
-    lines.push(`Read by CIVIC from that address on ${day(now)}.`);
+    lines.push(m.via === 'search'
+      ? `Read by CIVIC on ${day(now)} through a search service's copy of that address.`
+      : `Read by CIVIC from that address on ${day(now)}.`);
   } else if (m.kind === 'file') {
     lines.push(`Source: the file ${m.name || '(unnamed)'}, provided to CIVIC on ${day(now)}.`);
     if (m.title) lines.push(`Title: ${m.title}`);

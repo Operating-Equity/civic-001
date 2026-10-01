@@ -13,7 +13,8 @@ import { ApiError, operatorKey, describeError } from './openai.js';
 import { openStream } from './stream.js';
 import * as jobs from './jobs.js';
 import { fileToText, normalise, ACCEPTED_SOURCE_EXT } from './documents.js';
-import { readUrl, UrlError } from './fetchurl.js';
+import { readUrl, UrlError, isSingleUrl } from './fetchurl.js';
+import { findCopies, searchOn } from './copies.js';
 import { sourceMeta, sourceBlock } from './source.js';
 import { runExtraction } from './extract.js';
 import { runEvaluation } from './evaluate.js';
@@ -175,6 +176,25 @@ app.post('/api/read-url', wrap(async (req, res) => {
   } catch (err) {
     if (ac.signal.aborted) return; // the page has gone (reloaded, or stopped): nothing failed
     if (err instanceof UrlError) { const e = new ApiError(err.status || 400, err.code, err.message); e.detail = err.detail || null; e.site = err.site || null; throw e; }
+    throw err;
+  }
+}));
+
+// A link a site refused, looked for elsewhere: the same article republished, and other reports of the
+// same story, for the reader to pick from (server/copies.js). Asked by the page only when the search
+// service is set (/api/health findCopies); the search's own failures are notes on /check, and the reader
+// then has today's sentence and nothing else.
+app.post('/api/find-copies', wrap(async (req, res) => {
+  const url = String(req.body?.url || '').trim();
+  if (!searchOn()) throw new ApiError(409, 'search_off', 'No search service is set.');
+  if (!isSingleUrl(url)) throw new ApiError(400, 'url_empty', 'No address was given.');
+  const ac = new AbortController();
+  res.on('close', () => { if (!res.writableFinished) ac.abort(); });
+  try {
+    res.json(await findCopies(url, { signal: ac.signal }));
+  } catch (err) {
+    if (ac.signal.aborted) return; // the page has gone, or the reader moved on: nothing failed
+    if (err instanceof UrlError) throw new ApiError(err.status || 400, err.code, err.message);
     throw err;
   }
 }));
