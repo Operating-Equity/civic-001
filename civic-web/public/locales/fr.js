@@ -9,7 +9,7 @@ export default {
     readingUrl: 'Lecture de {host}…',
     readingUrlTime: 'Lecture de {host} · {time}',
     readUrl: 'Lu {title} · {n} caractères',
-    readCopy: 'Lu {title} · {n} caractères, depuis la copie de la page que conserve le service de recherche',
+    copyCheck: 'Voici la copie de la page de {site} que conserve le service de recherche, {n} caractères, que CIVIC n\'a pas pu lire lui-même. S\'il s\'agit de l\'article entier, appuyez sur {button} ; sinon, choisissez-en une autre ou collez le texte de l\'article.',
     markedWall: '{site} indique que cet article est réservé aux abonnés ; voici ce qu\'il a envoyé. Si c\'est l\'article entier, appuyez sur {button}. Sinon, copiez le texte de l\'article et collez-le ici.',
     autoCaptions: 'Cette vidéo n\'avait pas de transcription écrite ; les sous-titres automatiques de YouTube ont été utilisés. Ils contiennent des erreurs de transcription.',
     upload: 'Téléverser un document',

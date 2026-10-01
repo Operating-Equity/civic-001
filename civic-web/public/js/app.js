@@ -341,7 +341,10 @@ function expandIntake() {
 
 /** Fetches a web address through the server and puts its own words in the box. A `copy` is a page the
  *  search found for a link a site refused (offerCopies): when CIVIC's reader cannot read it either, the
- *  search service's own text of that page is used, and the source says so. */
+ *  search service's own text of that page goes into the box, and the source says so. A search's text
+ *  can be a fragment of the page (seen live on 1 October: 845 characters of a Washington Post article),
+ *  so that text waits for the reader, as a marked article does (release G): the run starts only when
+ *  they press the button, and the list stays for choosing another. */
 async function readLinkIntoBox(url, { copy = null } = {}) {
   const host = (() => { try { return new URL(/^https?:\/\//i.test(url) ? url : `https://${url}`).hostname.replace(/^www\./, ''); } catch { return url; } })();
   ui.run.disabled = true;
@@ -380,8 +383,9 @@ async function readLinkIntoBox(url, { copy = null } = {}) {
       state.video = null;
       state.sourceMeta = { kind: 'link', url: copy.url, title: copy.title || host, author: copy.author || '', published: copy.published || '', site: copy.site || host, via: 'search' };
       state.loadedText = copy.text;
-      ui.sourceMeta.textContent = t('intake.readCopy', { title: copy.title || host, n: fmtNumber(copy.text.length) });
-      return true;
+      const sentence = t('intake.copyCheck', { site: copy.site || host, n: fmtNumber(copy.text.length), button: t('intake.run') });
+      ui.sourceMeta.textContent = sentence; // under the box, just above the list it refers to; no pop-up to cover the list
+      return false;
     }
     const known = ['url_no_transcript', 'url_forbidden', 'url_private', 'url_timeout', 'url_unreachable',
       'url_not_web', 'url_too_big', 'url_no_text', 'url_not_text', 'url_status', 'url_redirects', 'url_empty'];
@@ -472,10 +476,12 @@ function fmtDay(ymd) {
 /** The reader picked a copy: it is read like any link (CIVIC's own reader first, the search's text of
  *  that page when its site turns CIVIC away too), and the run starts on it, as the reader asked. */
 async function useCopy(copy) {
-  hideCopies();
+  const buttons = [...ui.copiesList.querySelectorAll('.copy-test')];
+  for (const b of buttons) b.disabled = true;
   ui.source.value = copy.url;
   const ok = await readLinkIntoBox(copy.url, { copy });
-  if (ok) await startRun();
+  if (ok) { await startRun(); return; }
+  for (const b of buttons) b.disabled = false; // the list stays: the copy's text waits in the box, or another can be chosen
 }
 
 function hideCopies() {

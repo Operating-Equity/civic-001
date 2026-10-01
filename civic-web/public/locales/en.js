@@ -10,7 +10,7 @@ export default {
     readingUrl: 'Reading {host}…',
     readingUrlTime: 'Reading {host} · {time}',
     readUrl: 'Read {title} · {n} characters',
-    readCopy: 'Read {title} · {n} characters, from the search service\'s copy of the page',
+    copyCheck: 'This is the search service\'s copy of {site}\'s page, {n} characters, which CIVIC could not read itself. If it is the whole article, press {button}; if not, choose another or paste the article\'s text.',
     markedWall: '{site} marks this article as for subscribers; this is what it sent. If it is the whole article, press {button}. If not, copy the article\'s text and paste it here.',
     autoCaptions: 'This video had no written transcript, so YouTube\'s automatic captions were used. They contain transcription errors.',
     upload: 'Upload a document',
