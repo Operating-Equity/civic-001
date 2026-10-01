@@ -11,7 +11,7 @@ import { t, setLocale, initLocale, LOCALES, currentLocale, fmtNumber, fmtSeconds
 import * as api from './api.js';
 import { $, $$, el, renderMarkdown, renderMath, setBar, toast, easeChars, easeTime, bump, copyText } from './render.js';
 
-const MAX_CLAIMS = 10; // the automatic run (the operator's number); anything beyond is the reader's explicit choice
+const MAX_CLAIMS = 10; // the most one request carries, and the batch size of a selection; how many run without a press is the server's figure (autoFirst)
 const IN_FLIGHT = 3; // claims in flight at once when no server answers; the server's own figure wins (see inFlight below)
 const searchCount = (trail) => (trail || []).filter((s) => s.kind !== 'tool').length; // the web searches in a trail; a tool call is a step of its own
 const GLYPH = { true: '✓', false: '✕', unverified: '?', unread: '–' };
@@ -68,7 +68,7 @@ function cacheElements() {
     step1Thinking: $('#step1-thinking'), step1ThinkingSummary: $('#step1-thinking-summary'), step1ThinkingBody: $('#step1-thinking-body'),
     step2: $('#step-eval'), step2Title: $('#step2-title'), step2Status: $('#step2-status'), step2Gate: $('#step2-gate'), bar2: $('#bar-eval'),
     echo: $('#echo'), echoImg: $('#echo-img'), echoShimmer: $('#echo-shimmer'), echoFrame: $('#echo .echo-frame'), rail: $('.rail'),
-    intakeSlow: $('.intake-slow'),
+    intakeLede: $('.intake-lede'), intakeSlow: $('.intake-slow'),
     intake: $('#intake'), intakeSummary: $('#intake-summary'), intakeSummaryText: $('#intake-summary-text'), showText: $('#btn-show-text'),
     scoreSourceTitle: $('#score-source-title'), scoreSourceSub: $('#score-source-sub'), scorePhase: $('#score-phase'), claimsFrom: $('#claims-from'),
     claims: $('#claims'), claimsSub: $('#claims-sub'), claimsList: $('#claims-list'),
@@ -92,17 +92,33 @@ function paceNow() {
   return Math.max(1, Number(state.server?.inFlight) || IN_FLIGHT);
 }
 
+/** Claims that run without a press: the server's figure (CIVIC_AUTO_TEST_FIRST); 0 = the reader chooses every one. */
+function autoFirst() {
+  const v = Number(state.server?.autoTestFirst);
+  return Number.isInteger(v) && v >= 0 ? v : MAX_CLAIMS;
+}
+
 /**
- * The lede names the pace, so it says the server's figure and never a number baked into the page: one
- * change to CIVIC_EVAL_CONCURRENCY moves the sentence and the run together. The attribute is set as
- * well as the text so a change of language keeps the number (i18n.js reads data-i18n-params), and this
- * runs again on that change because the word itself is language-dependent.
+ * The two intake sentences name what runs and how fast, so they say the server's figures and never a
+ * number baked into the page: a change to CIVIC_AUTO_TEST_FIRST or CIVIC_EVAL_CONCURRENCY moves the
+ * sentence and the run together. With nothing running by itself, the sentences say that the reader
+ * chooses. The key and the parameters are set on the element as well as the text, so a change of
+ * language keeps them (i18n.js reads data-i18n and data-i18n-params); this runs again on that change
+ * because the number words are language-dependent. Until the server has answered, the page has no figure
+ * to name, so the call at boot (pending) says the reader chooses, which is true in every configuration,
+ * rather than a number the server may not be running; a server that never answers leaves the page on
+ * its own fallbacks, as the run itself is.
  */
-function setPaceWording() {
-  if (!ui.intakeSlow) return;
-  const params = { n: numberWord(paceNow()) };
-  ui.intakeSlow.dataset.i18nParams = JSON.stringify(params);
-  ui.intakeSlow.textContent = t('intake.slow', params);
+function setRunWording({ pending = false } = {}) {
+  const auto = pending ? 0 : autoFirst();
+  const say = (node, key, params) => {
+    if (!node) return;
+    node.dataset.i18n = key;
+    node.dataset.i18nParams = JSON.stringify(params);
+    node.textContent = t(key, params);
+  };
+  say(ui.intakeLede, auto > 0 ? 'intake.lede' : 'intake.ledeChoose', auto > 0 ? { n: auto } : {});
+  say(ui.intakeSlow, auto > 0 ? 'intake.slow' : 'intake.slowChoose', auto > 0 ? { first: numberWord(auto), n: numberWord(paceNow()) } : { n: numberWord(paceNow()) });
 }
 
 // ---------- boot ----------------------------------------------------------------------------
@@ -111,7 +127,7 @@ async function boot() {
   cacheElements();
   for (const l of LOCALES) ui.langSelect.append(el('option', { value: l.code, text: l.name }));
   initLocale();
-  setPaceWording();          // before anything is painted, so the sentence never shows its own placeholder
+  setRunWording({ pending: true });   // before anything is painted, so the sentences never show a placeholder, and no figure until the server gives one
   ui.langSelect.value = currentLocale();
   ui.langSelect.addEventListener('change', () => setLocale(ui.langSelect.value));
   document.addEventListener('civic:locale', refreshDynamicText);
@@ -122,10 +138,10 @@ async function boot() {
   ui.resetTop.addEventListener('click', resetAll);
   ui.reset.addEventListener('click', resetAll);
   ui.selectAll.addEventListener('click', toggleSelectAll);
-  // Parked for now (the operator's rule of 18 September, cost control until there is revenue
-  // against it): choosing claims beyond the first ten works as before, and the button that would
-  // test them says so instead; the report button appears after the first batch and says so too.
-  ui.testSelected.addEventListener('click', () => toast(t('claims.later')));
+  // The reader's choice runs (unparked 1 October, with CIVIC_AUTO_TEST_FIRST: what runs without a
+  // press is the operator's setting, and the rest is the reader's). The report button still says
+  // reports come later.
+  ui.testSelected.addEventListener('click', testSelected);
   ui.report.addEventListener('click', () => toast(t('report.soon')));
   // Leaving the page is the one way, besides Start a new test, that a run is stopped: the server
   // keeps working through a cut connection, so it has to be told when nobody will come back.
@@ -145,7 +161,7 @@ async function boot() {
   } catch {
     state.server = null;
   }
-  setPaceWording();          // again, now with the server's own figure
+  setRunWording();           // again, now with the server's own figures
   renderNav();
 }
 
@@ -700,14 +716,16 @@ function addClaim(n, c) {
   const claim = claimOf(c);
   ui.claims.hidden = false;
   state.claims[n - 1] = claim;
-  if (n <= MAX_CLAIMS) {
+  const auto = autoFirst();
+  if (n <= auto) {
     ui.claimsList.append(el('li', {}, [claimNode(claim)]));
     ui.claimsSub.textContent = t('claims.all', { n });
   } else {
     ui.beyond.hidden = false;
+    ui.beyondList.style.counterReset = `claim ${auto}`;   // the rows go on counting from where the automatic ones stop
     ui.beyondList.append(el('li', {}, [claimNode(claim)]));
-    ui.beyondTitle.textContent = t('claims.more', { n: n - MAX_CLAIMS });
-    ui.claimsSub.textContent = t('claims.testing', { n: MAX_CLAIMS });
+    ui.beyondTitle.textContent = t(auto ? 'claims.more' : 'claims.found', { n: n - auto });
+    ui.claimsSub.textContent = auto ? t('claims.testing', { n: auto }) : '';
   }
 }
 
@@ -716,8 +734,9 @@ function finishExtraction(ev) {
   state.claimsRaw = ev.raw || '';
   const all = (ev.claims || []).filter((c) => c.text).map(claimOf);
   state.claims = all;
-  const first = all.slice(0, MAX_CLAIMS);
-  state.beyond = all.slice(MAX_CLAIMS).map((c, k) => ({ n: MAX_CLAIMS + k + 1, ...c, selected: false, tested: false }));
+  const auto = autoFirst();
+  const first = all.slice(0, auto);
+  state.beyond = all.slice(auto).map((c, k) => ({ n: auto + k + 1, ...c, selected: false, tested: false }));
   ui.claimsList.replaceChildren(...first.map((c, k) => el('li', {}, [buildCard(c, k + 1)])));
   ui.claims.hidden = all.length === 0 && !state.claimsRaw;
   renderClaimsHeadings();
@@ -729,19 +748,22 @@ function finishExtraction(ev) {
   setBar(ui.bar1, 1, { done: true });
   setStatus('step1', all.length ? 'step1.done' : 'step1.none', { n: all.length, time: fmtSeconds(ev.ms || Date.now() - state.extractStartedAt) });
 
-  if (!all.length) {
+  if (!first.length) {
+    // Nothing found, or nothing runs without a press (CIVIC_AUTO_TEST_FIRST=0): the claims wait for the
+    // reader's choice, and the button runs them.
     state.phase = 'done';
     setStatus('step2', null);
     ui.run.disabled = false;
+    syncBeyondRows();
     return;
   }
-  runBatch(first, [...ui.claimsList.querySelectorAll('.card')]); // the first ten (or fewer) always run, in their rows
+  runBatch(first, [...ui.claimsList.querySelectorAll('.card')]); // the automatic ones run in their rows
 }
 
 function renderClaimsHeadings() {
   if (!state.claims.length) return;
-  const first = Math.min(state.claims.length, MAX_CLAIMS);
-  ui.claimsSub.textContent = state.beyond.length ? t('claims.testing', { n: first }) : t('claims.all', { n: first });
+  const first = Math.min(state.claims.length, autoFirst());
+  ui.claimsSub.textContent = first === 0 ? '' : (state.beyond.length ? t('claims.testing', { n: first }) : t('claims.all', { n: first }));
 }
 
 function renderClaimsRaw() {
@@ -763,7 +785,9 @@ function buildBeyondRows() {
   const items = state.beyond;
   ui.beyond.hidden = items.length === 0;
   if (!items.length) return;
-  ui.beyondTitle.textContent = t('claims.more', { n: items.length });
+  const auto = autoFirst();
+  ui.beyondList.style.counterReset = `claim ${auto}`;
+  ui.beyondTitle.textContent = t(auto ? 'claims.more' : 'claims.found', { n: items.length });
   ui.beyondList.replaceChildren(...items.map((item) => {
     const card = buildCard(item, item.n);
     const box = el('input', { type: 'checkbox', class: 'card-check', 'aria-label': item.text });
@@ -798,7 +822,7 @@ function renderBeyondTools() {
   ui.selectAll.disabled = busy;
   ui.selectAll.textContent = t(allSelected ? 'claims.clearAll' : 'claims.selectAll');
   ui.testSelected.hidden = open.length === 0;
-  ui.testSelected.disabled = selected === 0 || busy;   // it counts the choice; testing them is parked (see boot)
+  ui.testSelected.disabled = selected === 0 || busy;
   ui.testSelected.textContent = t('claims.testSelected', { n: selected });
   let hint = '';
   if (busy) hint = t('claims.afterFirst');
@@ -1471,7 +1495,7 @@ async function startEcho(text) {
 
 function refreshDynamicText() {
   ui.langSelect.value = currentLocale();
-  setPaceWording();
+  setRunWording();
   renderNav();
   updateSourceMeta();
   for (const which of ['step1', 'step2']) { const s = state.status[which]; if (s) setStatus(which, s.key, s.params); }

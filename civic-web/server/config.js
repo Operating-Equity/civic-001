@@ -109,7 +109,12 @@ export const config = {
   toolsPass: env('CIVIC_TOOLS_PASS', ''),
   maxSourceChars: int('CIVIC_MAX_SOURCE_CHARS', 0),
   allowSourceTruncation: bool('CIVIC_ALLOW_SOURCE_TRUNCATION', false),
-  maxClaims: 10, // the automatic run; claims beyond wait for the reader's selection (operator's rule, ten since 17 September)
+  maxClaims: 10, // the most one /api/evaluate request carries; the page sends one claim per request and runs a selection in batches of this
+  // How many of the claims found run without a press. The rest are listed with a checkbox and run
+  // when the reader chooses them. Ten was the operator's rule of 17 September; 0, the operator's
+  // choice of 1 October, means nothing runs until the reader chooses: every claim found is shown
+  // with its checkbox. A setting, so the figure moves without a release.
+  autoTestFirst: int('CIVIC_AUTO_TEST_FIRST', 10),
   maxUploadBytes: int('CIVIC_MAX_UPLOAD_BYTES', 200 * 1024 * 1024),
   heartbeatMs: 15000,
 
@@ -178,6 +183,7 @@ export function publicConfig(promptStatus) {
   const shape = requestShape();
   return {
     maxClaims: config.maxClaims,
+    autoTestFirst: config.autoTestFirst,   // the page runs this many without a press; 0 = the reader chooses every one
     inFlight: config.evalConcurrency,   // the page paces itself by this, so the operator changes it with one setting
     maxSourceChars: config.maxSourceChars,
     maxUploadBytes: config.maxUploadBytes,

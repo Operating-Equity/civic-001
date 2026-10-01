@@ -271,6 +271,22 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
   a price that scales with the document, Stripe, history — is in the plan and comes release by
   release; the operator's earliest own step is a domain, because sign-in codes cannot be mailed to
   readers without one.
+- **1 October: the reader chooses (CIVIC_AUTO_TEST_FIRST).** The operator's instruction: start at
+  zero automatic. How many of the claims found run without a press is now a setting the page reads
+  from `/api/health` (`autoTestFirst`, ten unless set); the rest are listed with checkboxes, and the
+  "Test N selected claims" button, parked since 18 September, runs them (the 81-character id that would
+  have broken it was fixed in R0). At 0 nothing runs by itself: every claim found is shown with its
+  checkbox, numbered from one, under "N claims found · choose which to test", and the intake's two
+  sentences say the reader chooses, in four languages, from the same figures as the pace; until the
+  server has answered, the page names no figure at all, so nothing flashes before the health reply.
+  Set to 0 on the service before this merged, so the deploy carried it. This is the first piece of R3 pulled
+  forward; the price on the button and the modes come with R3 itself. The same day: a Render Postgres
+  (CIVIC, Basic-256mb, Ohio, 15 GB) was created by the operator and closed to the outside internet, and
+  its internal address copied into the service as DATABASE_URL from Render's own API, never shown;
+  nothing reads it until R1. The model switch to gpt-6.1-sol at effort xhigh (OpenAI's SDK 7.25.0 of 29
+  September lists the model, `xhigh` and the `pro` mode; $2 / $0.10 / $10 per million by several
+  published reports, OpenAI's own page being unreachable from the session) was refused to the session
+  by its permission classifier twice, so it is the operator's, in Render's dashboard.
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 

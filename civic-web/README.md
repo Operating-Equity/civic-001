@@ -1,8 +1,9 @@
 # CIVIC — main page prototype
 
-The functional main page: paste or upload text, CIVIC extracts every empirical claim, tests the
-first ten, three at a time, and shows each determination (True / False / Unverified) with the full
-encyclopedia-style entry, a live scoreboard, a challenge panel per result, and a reset.
+The functional main page: paste or upload text, CIVIC extracts every empirical claim, lists them with
+checkboxes, runs the ones the reader chooses three at a time (or the first `CIVIC_AUTO_TEST_FIRST` of them
+without a press, when that setting is above 0), and shows each determination (True / False / Unverified)
+with the full encyclopedia-style entry, a live scoreboard, a challenge panel per result, and a reset.
 
 Two rules the code exists to keep:
 
@@ -99,11 +100,9 @@ The page shows the estimated cost per card and per run behind an **Internal** ch
 page. Dollar figures come from the table in `server/pricing.js`; token counts come from the API
 and are exact, in the ledger.
 
-The first ten claims always run. Claims beyond ten are listed with checkboxes, and the reader
-can choose among them; the button that would test the chosen ones is parked for now (the
-operator's rule of 18 September, cost control until there is revenue against it) and says so.
-Once the first ten are tested, **Create report** appears beside **Start a new test**; it is
-parked the same way until the report is designed.
+How many claims run without a press is `CIVIC_AUTO_TEST_FIRST` (10 unless set). The rest are listed with checkboxes, and the reader
+chooses which to test; **Test N selected claims** runs them, in batches of ten, three at a time. With the setting at 0 nothing
+runs by itself: every claim found is shown with its checkbox, numbered from one, and the page's own sentences say so.
 
 Each sign-in code allows a number of runs: `CIVIC_CODE_USES` (five) unless the code's own entry
 in `CIVIC_ACCESS_CODES` names one (`ABCD234:150`). A run is counted when its extraction starts;
@@ -257,7 +256,7 @@ truncation setting. No fallback model. No size limit of ours on the document.
 | Reasoning mode, both steps | `pro` | Operator, 21 September: GPT-5.6's pro mode, OpenAI's "highest-intelligence API option" short of GPT-6; more model work per answer at the same per-token rates. `standard` or blank sends no mode key. |
 | Web search | on, both steps, not configurable | The prompts were tested in a UI where search is available to every prompt. A request without it is not what was tested. |
 | Reasoning summary | `auto` | Display only: the model's own account of its reasoning, shown on the card. Does not change the answer. Blank to turn off. |
-| Claims run automatically | 10, three at a time, each on its own request; the rest wait for the reader's selection. The page is told the figure by the server (`CIVIC_EVAL_CONCURRENCY`, reported as `inFlight` on `/api/health`), so the pace changes with one setting and no release | Operator's rule |
+| Claims run automatically | `CIVIC_AUTO_TEST_FIRST` of them (10 unless set; 0 = none: every claim found waits for the reader's checkbox and runs when chosen), three at a time, each on its own request. The page is told both figures by the server (`autoTestFirst` and `inFlight` on `/api/health`), so what runs and how fast change with one setting and no release. The intake sentences follow the figures too. | Operator's rule; 0 since 1 October |
 | Sign-in | Off unless `CIVIC_ACCESS_CODES` is set (comma-separated seven-character codes). Then every API route but the health line needs the cookie a listed code earns: the page's Sign in opens a dialog for an email address and a code; only the code is checked, the email is kept with the sign-in and listed on /check. A cookie is bound to the code it was issued under, so taking a code off the list signs out its holders and nobody else. Nothing is counted and nothing locks. Since 30 September: the cookie is signed with `CIVIC_SESSION_SECRET` when set (unset, with a derivation from the OpenAI key, which /check flags, because a change of that key then signs everyone out); a job belongs to the sign-in that started it, so another code cannot attach to, stop or let go of it; `CIVIC_OPERATOR_CODES` names the codes that see the sign-in list and the runs per code on /check (unset, every code holder does); routes match their case exactly and the gate sits on `/api` itself, so `/API/extract` is nobody's route; a request the browser marks as another site's is refused. | Operator's rule; accounts come later |
 | Pacing | OpenAI keeps a bucket of the key's minute limit that refills continuously at that limit per minute; each request costs what OpenAI estimates for it, and a request the bucket cannot hold is refused with exactly the wait that refills the difference (its refusals say so, to the millisecond). CIVIC reads those figures from every reply and sends one request at a time: the next goes only after the previous reply's headers have been read, and only when the bucket holds its cost. What each kind of request costs is learned from OpenAI's exact figures alone: a request sent into a full minute, or a refusal. /check shows the figures. | OpenAI's own numbers |
 | Rate limits | Never a failure, never an error on a row. A refusal at the door sets the bucket to OpenAI's figures; the refused request waits exactly what OpenAI asked and goes first. A refusal can also arrive inside a running reply, when the response's own later call (after a web search) finds the minute short and OpenAI ends the response with its figures in an error event: it is read the same way, the claim waits exactly what OpenAI asked, and goes again whole. This is why claims run three at a time rather than twenty: a running reply is charged again at each of its later calls (67,000 to 89,000 each), by far more than its admission showed, so many parallel claims starve one another; three need about 450,000 in a typical minute against the key's 2,000,000-a-minute limit (read from the check page on 18 September; it was 500,000 on 16 September). Four ran from 18 September; three again from 22 September, because effort `max` in mode `pro` is more model work per claim and the wider margin is worth having. The figure is a setting, so it moves without a release. A used-up quota is reported in words. | OpenAI's own numbers |

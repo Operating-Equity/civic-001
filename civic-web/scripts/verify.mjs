@@ -360,6 +360,14 @@ async function gateChecks() {
       !r.failure && r.health?.inFlight === 2 && r.stats?.maxInFlight === 2 && done(r) === 6, `${r.failure} inFlight=${r.health?.inFlight} maxInFlight=${r.stats?.maxInFlight} done=${done(r)}`);
   }
 
+  // 0c. What runs without a press is a setting too (CIVIC_AUTO_TEST_FIRST): the page is told the figure
+  // on /api/health, ten unless set, and a determination the reader asks for runs whatever it is.
+  {
+    const r = await gateRun(5, { MOCK_TPM: '5000000', MOCK_RESERVE: String(reserve), MOCK_CONTINUATION: '90000' }, { claims: [SIX[0]], serverEnv: { CIVIC_AUTO_TEST_FIRST: '0' } });
+    check('what runs without a press is a setting: /api/health carries autoTestFirst (10 unless set; 0 with CIVIC_AUTO_TEST_FIRST=0), and a determination the reader asks for still runs',
+      config.autoTestFirst === 10 && r.health?.autoTestFirst === 0 && !r.failure && done(r) === 1, `${r.failure} default=${config.autoTestFirst} set=${r.health?.autoTestFirst} done=${done(r)}`);
+  }
+
   // 1. Steady costs. The budget holds three; one more fits each second as the bucket refills.
   {
     const r = await gateRun(0, { MOCK_TPM: String(reserve * 3), MOCK_RESERVE: String(reserve), MOCK_WINDOW_MS: '3000' }, { extraction: true, serverEnv: twenty });
