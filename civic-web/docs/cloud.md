@@ -287,6 +287,20 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
   September lists the model, `xhigh` and the `pro` mode; $2 / $0.10 / $10 per million by several
   published reports, OpenAI's own page being unreachable from the session) was refused to the session
   by its permission classifier twice, so it is the operator's, in Render's dashboard.
+- **1 October, evening: a new OpenAI key, and the two sign-in settings.** The operator moved CIVIC's
+  OpenAI key to another account of theirs and, in the same visit to Render's dashboard, set
+  `CIVIC_SESSION_SECRET` (64 random hex characters made on their Mac, never seen by the session) and
+  `CIVIC_OPERATOR_CODES` (their own code, the one allowed 150 runs), with one "Save and deploy"
+  (`dep-davac3c1nsns73av5olg`, live 18:27 UTC, same build c91e41d8c251). The session had tried to set the
+  two settings itself and its permission classifier refused a secret-store write, so the operator did
+  all three. Proved from the session, read-only, nothing printed (11/11): the three names exact with no
+  near miss, the key sendable, the secret 64 hex characters, the operator code the 150-run entry; the
+  operator's code signs in on the new secret and is known as the operator's; /check ready, the key
+  accepted for gpt-5.6-sol with no tokens spent, both warnings gone; the operator sees the sign-ins and
+  every code's runs, and another code sees neither. Everyone signs in once more after this deploy. Not
+  provable without a run: OpenAI has required a verified organization to stream its reasoning models
+  and to return reasoning summaries, so the operator's first run on the new account is the last proof;
+  a refusal would appear on the row in OpenAI's words, and pasting the old key back undoes it.
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 
