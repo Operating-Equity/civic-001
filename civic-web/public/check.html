@@ -7,7 +7,7 @@
 <link rel="stylesheet" href="css/fonts.css">
 <link rel="stylesheet" href="css/civic.css">
 <style>
-  .check-page { max-width: 46rem; margin: 0 auto; padding: 2rem 1rem 4rem; }
+  .check-page { max-width: 46rem; margin: 0 auto; padding: 2rem 1rem 4rem; position: relative; z-index: 1; }
   .check-head { margin: 0 0 .25rem; font-family: var(--font-display, inherit); font-size: 2rem; }
   .check-lede { margin: 0 0 1.5rem; color: var(--ink-soft, #55606e); }
   .check-verdict { padding: 1rem 1.25rem; border-radius: .75rem; font-size: 1.05rem; font-weight: 600; margin-bottom: 1.5rem; }
@@ -34,7 +34,12 @@
 </style>
 </head>
 <body>
-<main class="check-page">
+<!-- The page's mathematical field, held still on the golden rectangle here (js/field.js). -->
+<div class="field" id="field" aria-hidden="true" data-phase="idle" data-field="" data-still="golden">
+  <div class="field-layer" data-slot="a"></div>
+  <div class="field-layer" data-slot="b"></div>
+</div>
+<main class="check-page glass">
   <h1 class="check-head">Is FactEngine working?</h1>
   <p class="check-lede">This page asks the server directly. It costs nothing and runs no tests.</p>
 
@@ -52,6 +57,7 @@
   <div class="check-failures" id="failures"></div>
   <textarea class="check-report input" id="report" hidden readonly></textarea>
 </main>
+<script type="module" src="js/field.js"></script>
 <script type="module" src="js/check.js"></script>
 </body>
 </html>

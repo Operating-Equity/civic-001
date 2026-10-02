@@ -80,8 +80,8 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
   are gone (the counts and, with accounting on, the estimated cost remain); the empty caption bar
   that painted a light strip over the bottom of the picture is gone (the Images API returns no
   model name, and the bar showed that empty name); the footer line about a key in the browser is
-  gone; the picture is now an edit of the CIVIC photograph (the page's own background,
-  `public/assets/civic-scene-1920.jpg`, the file the operator attached), sent with every request
+  gone; the picture is now an edit of the CIVIC photograph (`public/assets/civic-scene-1920.jpg`,
+  the style reference photograph, formerly the page's background, the file the operator attached), sent with every request
   as the style reference with the instruction to take only how it is made and none of what it
   shows (server/illustrate.js; the SDK streams the file afresh on every attempt because a
   buffered upload fails with the server's fetch); the ledger records OpenAI's usage for it. The
@@ -332,6 +332,33 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
   screenshots from the real app on the stand-in, then the chosen one built across the whole experience; the
   photographic background goes in all three (the operator's requirement), while the photograph stays as the
   echo's unseen style reference.
+- **2 October, afternoon: the page's background is mathematics, under clearer glass (the design, release 3 of
+  the rename).** The operator's brief after the three directions, in their words: keep and enhance the glass;
+  behind it "something mathematical, anything from a math proof to designs that are known in mathematics, like
+  the golden ratio, chaos" and fractals; "a design and not just part of a photo"; light, never dark, because
+  "light clears up darkness and reveals truth"; glass because "truth has two factors", light and transparency;
+  the whole "a mathematical proof that the truth has been created"; "there will be no dark mode". And, on the
+  plan's first draft: nothing developed with a custom domain as a dependency; the domain waits until commercial
+  deployment is near, and accounts and payments wait with it. Built, with no domain, key, secret or setting
+  involved: `public/js/field.js`, a fixed, inert, aria-hidden layer behind every panel that draws ten fields
+  from their own definitions (no picture file): four proofs typeset by KaTeX (Euclid IX.20, the irrationality
+  of √2, Euclid I.47 as the windmill figure, Euler's identity), the golden rectangle and its spiral, the
+  Mandelbrot set and a Julia set (`field-worker.js`, off the page's thread, at half resolution, kept for the
+  phase's next visit), the Koch snowflake, the Lorenz attractor, a double pendulum's trace and the Ulam spiral.
+  The field changes with the run, idle to extracting to evaluating to done, by one of two decks drawn once per
+  visit, so every run shows all four kinds and the page is never the same twice; Start a new test returns the
+  home field; reduced motion makes every change instant and stops the three fractals' slow drift. The glass is
+  clearer (`--glass` .42, `--glass-strong` .56, blur 18 px, a sheen and a shine; `--ink-3` darkened so hints
+  keep 4.7 : 1 and body text 14 : 1 on the worst backdrop); the sign-in dialog and the toast are light glass,
+  and what the dialog dims is light, not darkness. The `.sky` band and the two smaller copies of the
+  photograph are gone (712 KB fewer on the page); `civic-scene-1920.jpg` stays as the echo's style reference
+  only. The check page holds the golden rectangle still. Proof: guard 177/177 with the real prompts; a new
+  browser check (scratchpad/field-check.mjs, 19/19: the run drives the field through the deck's four fields
+  and reset restores the home field; every field draws content of its kind; the fractals drift only at desktop
+  width and never under reduced motion, where the change is instant; nothing widens a phone; the check page;
+  the served files under the stamp; no CSP violation, no page error); copies 9/9, choose 10/10, pace 11/11,
+  sign-in 6/6; leak check clean. The operator saw the ten fields under the home, then the whole page in eight
+  states at both widths, before anything merged.
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 

@@ -10,6 +10,7 @@
 import { t, setLocale, initLocale, LOCALES, currentLocale, fmtNumber, fmtSeconds, fmtUsd, numberWord } from './i18n.js';
 import * as api from './api.js';
 import { $, $$, el, renderMarkdown, renderMath, setBar, toast, easeChars, easeTime, bump, copyText } from './render.js';
+import { field } from './field.js';   // the mathematics behind the glass follows the run's phase
 
 const MAX_CLAIMS = 10; // the most one request carries, and the batch size of a selection; how many run without a press is the server's figure (autoFirst)
 const IN_FLIGHT = 3; // claims in flight at once when no server answers; the server's own figure wins (see inFlight below)
@@ -516,6 +517,7 @@ async function startRun() {
   state.accounting = Boolean(state.server?.accounting);
   state.source = text;
   state.phase = 'extracting';
+  field.setPhase('extracting');
   state.abort = new AbortController();
   state.runId = api.newJobId('run');
   state.extractJob = `${state.runId}-x`;
@@ -589,6 +591,7 @@ function resetRunState() {
 
 function resetAll() {
   resetRunState();
+  field.setPhase('idle');
   hideCopies();
   state.video = null;
   ui.runSection.hidden = true;
@@ -860,6 +863,7 @@ function finishExtraction(ev) {
     // Nothing found, or nothing runs without a press (CIVIC_AUTO_TEST_FIRST=0): the claims wait for the
     // reader's choice, and the button runs them.
     state.phase = 'done';
+    field.setPhase('done');
     setStatus('step2', null);
     ui.run.disabled = false;
     syncBeyondRows();
@@ -974,6 +978,7 @@ async function runBatch(claims, nodes) {
   nodes.forEach((node, k) => { node.dataset.index = String(start + k); node.dataset.state = 'pending'; });
   state.batch = { start, size: claims.length, done: 0 };
   state.phase = 'evaluating';
+  field.setPhase('evaluating');
   state.evalStartedAt = Date.now();
 
   ui.step2Title.textContent = start === 0 ? t('step2.title', { n: claims.length }) : t('step2.more', { n: claims.length });
@@ -1119,6 +1124,7 @@ function handleEvalEvent(ev, mapIndex) {
 
 function finishBatch(ev) {
   state.phase = 'done';
+  field.setPhase('done');
   setStep(ui.step2, 'done');
   setBar(ui.bar2, 1, { done: true });
   setStatus('step2', 'step2.done', { total: state.batch.size, time: fmtSeconds(ev.ms || Date.now() - state.evalStartedAt) });
@@ -1149,6 +1155,7 @@ function failRun(err) {
   if (state.phase === 'extracting') { setStep(ui.step1, 'idle'); setStatus('step1', null); setBar(ui.bar1, 0); }
   if (state.phase === 'evaluating') { setStatus('step2', 'step2.stopped'); }
   state.phase = 'done';
+  field.setPhase('done');
   ui.run.disabled = false;
   syncBeyondRows();
 }

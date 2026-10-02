@@ -13,8 +13,12 @@
 </head>
 <body>
 
-<div class="sky" aria-hidden="true">
-  <img class="sky-img" src="assets/civic-scene-1920.jpg" srcset="assets/civic-scene-1100.jpg 1100w, assets/civic-scene-1920.jpg 1920w" sizes="100vw" alt="" decoding="async" fetchpriority="high">
+<!-- The field: a drawn layer of mathematics behind the glass (js/field.js). Fixed to the window, so
+     every panel has it behind it at any scroll depth, and it changes with the run. Decoration only:
+     hidden from anyone reading the page by ear, and nothing in it can be pressed. -->
+<div class="field" id="field" aria-hidden="true" data-phase="idle" data-field="">
+  <div class="field-layer" data-slot="a"></div>
+  <div class="field-layer" data-slot="b"></div>
 </div>
 
 <header class="masthead">

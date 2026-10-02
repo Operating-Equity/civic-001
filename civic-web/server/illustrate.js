@@ -36,7 +36,8 @@ scales of justice, lightbulbs, brains, magnifying glasses, or glowing orbs. If t
 about an event, photograph the place it happened. If it is about a measurement, photograph the
 thing measured. If it is about people, photograph the people at ordinary human scale.`;
 
-/** The style reference: the page's own background picture, sent with every request as a fresh stream. */
+/** The style reference: the photograph that was the page's background until the mathematical field replaced it
+    (2 October); it stays on disk for this alone, and is sent with every request as a fresh stream. */
 const REFERENCE = new URL('../public/assets/civic-scene-1920.jpg', import.meta.url);
 const REFERENCE_NAME = 'civic-scene-1920.jpg';
 const referenceImage = () => toStreamingFile(fs.createReadStream(REFERENCE), REFERENCE_NAME, { type: 'image/jpeg' });
