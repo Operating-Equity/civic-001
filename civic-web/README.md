@@ -56,7 +56,11 @@ or under .2 alpha over the ground, thin strokes to .3), so body text on the stro
 of 14 : 1 and hints 4.7 : 1. The check page holds the golden rectangle still. The verdicts keep their own
 colours on every surface: true green, false red, unverified grey (the grey zone: strong but conflicting evidence,
 nothing dirty about it, the operator's rule of 2 October); a verdict the page could not read is dashed and hollow,
-a different thing. The amber is for cautions only (a card's note, the check page's warning mark).
+a different thing. The amber is for cautions only (a card's note, the check page's warning mark). There is one box type,
+rounded, and no corner brackets (the operator's rule of 2 October: the brackets made the page busy). The footer
+names the site and whose service it is, and carries the pages a commercial service owes, Terms, Privacy and
+Contact (`public/terms.html`, `privacy.html`, `contact.html`, placeholders until the operator writes them), and
+the year.
 
 ## Run it
 
