@@ -7,7 +7,7 @@
 //      and the reasoning summary, the search trail, the cited sources and the raw text are all
 //      on the card. When the verdict cannot be read from the model's own Conclusion, the card
 //      says so instead of guessing.
-import { t, setLocale, initLocale, LOCALES, currentLocale, fmtNumber, fmtSeconds, fmtUsd, numberWord } from './i18n.js';
+import { t, setLocale, initLocale, LOCALES, currentLocale, fmtNumber, fmtSeconds, fmtUsd } from './i18n.js';
 import * as api from './api.js';
 import { $, $$, el, renderMarkdown, renderMath, setBar, toast, easeChars, easeTime, bump, copyText } from './render.js';
 import { field } from './field.js';   // the mathematics behind the glass follows the run's phase
@@ -103,26 +103,24 @@ function autoFirst() {
 }
 
 /**
- * The two intake sentences name what runs and how fast, so they say the server's figures and never a
- * number baked into the page: a change to CIVIC_AUTO_TEST_FIRST or CIVIC_EVAL_CONCURRENCY moves the
- * sentence and the run together. With nothing running by itself, the sentences say that the reader
- * chooses. The key and the parameters are set on the element as well as the text, so a change of
- * language keeps them (i18n.js reads data-i18n and data-i18n-params); this runs again on that change
- * because the number words are language-dependent. Until the server has answered, the page has no figure
- * to name, so the call at boot (pending) says the reader chooses, which is true in every configuration,
- * rather than a number the server may not be running; a server that never answers leaves the page on
- * its own fallbacks, as the run itself is.
+ * The two intake sentences follow the server's CIVIC_AUTO_TEST_FIRST: with nothing running by itself
+ * they say the reader chooses; otherwise that testing starts. They name no figure (the operator's rule
+ * of 2 October: a count on the page is development language), so a change of the pace or of the
+ * number that runs by itself never puts a stale number on the page. The key is set on the element as
+ * well as the text, so a change of language keeps it (i18n.js reads data-i18n). Until the server has
+ * answered, the call at boot (pending) says the reader chooses, which is true in every configuration.
  */
 function setRunWording({ pending = false } = {}) {
   const auto = pending ? 0 : autoFirst();
-  const say = (node, key, params) => {
+  const say = (node, key) => {
     if (!node) return;
     node.dataset.i18n = key;
-    node.dataset.i18nParams = JSON.stringify(params);
-    node.textContent = t(key, params);
+    delete node.dataset.i18nParams;
+    node.textContent = t(key);
   };
-  say(ui.intakeLede, auto > 0 ? 'intake.lede' : 'intake.ledeChoose', auto > 0 ? { n: auto } : {});
-  say(ui.intakeSlow, auto > 0 ? 'intake.slow' : 'intake.slowChoose', auto > 0 ? { first: numberWord(auto), n: numberWord(paceNow()) } : { n: numberWord(paceNow()) });
+  say(ui.intakeLede, auto > 0 ? 'intake.lede' : 'intake.ledeChoose');
+  say(ui.intakeSlow, auto > 0 ? 'intake.slow' : 'intake.slowChoose');
+  if (ui.step2Title && state.phase !== 'evaluating' && !state.batch?.size) ui.step2Title.textContent = auto > 0 ? t('step2.title', { n: auto }) : t('step2.choose');
 }
 
 // ---------- boot ----------------------------------------------------------------------------
@@ -585,7 +583,7 @@ function resetRunState() {
   setStep(ui.step2, 'idle'); setBar(ui.bar2, 0);
   setStatus('step1', null); setStatus('step2', null);
   renderGateLine();
-  ui.step2Title.textContent = t('step2.title', { n: MAX_CLAIMS });
+  ui.step2Title.textContent = autoFirst() > 0 ? t('step2.title', { n: autoFirst() }) : t('step2.choose');
   renderScoreboard();
 }
 
@@ -1616,7 +1614,7 @@ function refreshDynamicText() {
   updateSourceMeta();
   for (const which of ['step1', 'step2']) { const s = state.status[which]; if (s) setStatus(which, s.key, s.params); }
   renderGateLine();
-  ui.step2Title.textContent = state.batch.start > 0 ? t('step2.more', { n: state.batch.size }) : t('step2.title', { n: state.batch.size || MAX_CLAIMS });
+  if (state.batch.size) ui.step2Title.textContent = state.batch.start > 0 ? t('step2.more', { n: state.batch.size }) : t('step2.title', { n: state.batch.size });
   renderWarnings();
   renderClaimsHeadings();
   syncBeyondRows();

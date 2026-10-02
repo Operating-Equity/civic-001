@@ -1,10 +1,10 @@
 export default {
-  app: { tagline: 'La verdad, verificada.' },
+  app: { tagline: 'Hechos, verificados.' },
   nav: { language: 'Idioma', signin: 'Iniciar sesión', signup: 'Crear cuenta', soon: 'Las cuentas llegan con la próxima versión.' },
   intake: {
     title: 'FactEngine pone a prueba los hechos.',
-    lede: 'Pega una transcripción, un artículo, un discurso, una publicación o un estudio, o un enlace a uno. FactEngine extrae cada afirmación empírica que contiene y comprueba las primeras {n}.',
-    ledeChoose: 'Pega una transcripción, un artículo, un discurso, una publicación o un estudio, o un enlace a uno. FactEngine extrae cada afirmación empírica que contiene y las muestra para que elijas cuáles probar.',
+    lede: 'Pega una transcripción, un artículo, un discurso, una publicación o un estudio, o un enlace a uno. FactEngine extrae cada afirmación empírica que contiene y empieza a probarlas.',
+    ledeChoose: 'Pega una transcripción, un artículo, un discurso, una publicación o un estudio, o un enlace a uno. FactEngine extrae cada afirmación empírica que contiene; tú eliges cuáles probar.',
     placeholder: 'Pega texto, o un enlace a un artículo, un PDF o un vídeo de YouTube…',
     readingUrl: 'Leyendo {host}…',
     readingUrlTime: 'Leyendo {host} · {time}',
@@ -23,8 +23,8 @@ export default {
     showText: 'Mostrar el texto',
     hideText: 'Ocultar el texto',
     testing: 'Probando ahora',
-    slow: 'El primer paso tarda minutos en un documento largo para encontrar todas las afirmaciones que se van a probar, porque el modelo lee y examina todas las declaraciones antes de escribir nada. Las {first} determinaciones se ejecutan después de {n} en {n}, y cada una tarda unos minutos.',
-    slowChoose: 'El primer paso tarda minutos en un documento largo para encontrar todas las afirmaciones que se van a probar, porque el modelo lee y examina todas las declaraciones antes de escribir nada. Las determinaciones que elijas se ejecutan después de {n} en {n}, y cada una tarda unos minutos.',
+    slow: 'Encontrar todas las afirmaciones tarda unos minutos en un documento largo, porque el modelo lo lee entero antes de escribir. Cada prueba tarda después unos minutos más.',
+    slowChoose: 'Encontrar todas las afirmaciones tarda unos minutos en un documento largo, porque el modelo lo lee entero antes de escribir. Cada prueba que elijas tarda después unos minutos más.',
     empty: 'Pega o sube algo para probar.',
     truncated: 'El documento se recortó a {n} caracteres, el máximo por ejecución.',
   },
@@ -73,6 +73,7 @@ export default {
   step2: {
     title: 'Probando {n} afirmaciones',
     more: 'Probando {n} afirmaciones adicionales',
+    choose: 'Probando las afirmaciones que elijas',
     progress: '{done} de {total} completadas',
     running: '{running} en curso · {done} de {total} listas · {time}',
     throttled: '{running} en curso · {n} esperando su turno · {done} de {total} listas · {time}',

@@ -365,6 +365,14 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
   verdict the page could not read). Now `--unv` is grey (#525c69 on #e9edf1) on the scoreboard, the badge, the
   brackets and the number of a done card; an unread verdict is dashed and hollow so the two never look alike; the
   amber stays for cautions only (a card's note, the check page's warning mark) under its own tokens. Rides PR #56.
+- **2 October, evening: "Facts, verified.", and no figure in the intake sentences.** The operator on the design page:
+  "It looks beautiful", with two changes: the tagline becomes "Facts, verified." ("more consistent with our naming
+  conventions and gives me a little more latitude if I'm ever wrong"), and "and tests the first ten" goes ("that's
+  development language"). So the lede reads "FactEngine extracts every empirical claim it contains; you choose which
+  to test" (or "and starts testing them" when CIVIC_AUTO_TEST_FIRST is above 0), the sentence under the button names
+  no figure ("Finding every claim takes a few minutes on a long document, because the model reads it all before
+  writing. Each test you choose then takes a few minutes more."), and the step-2 header reads "Testing the claims you
+  choose" until a batch starts, in all four languages (204 keys each). Rides PR #56, which merges on these words.
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 
