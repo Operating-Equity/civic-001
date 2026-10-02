@@ -126,21 +126,33 @@ async function measured(until, days = config.priceWindowDays) {
   return { avgUsd: avg, sample: n };
 }
 
-/** The window's price: read once made; made at the window's first use from the lines before its start. */
+/**
+ * The window's price. A window that has its price keeps it until the next window: that is what "one price
+ * for everyone, fixed at each window's start" means. A window that has none is not fixed: it is asked
+ * again each time, so the start figure applies the moment the operator sets it (the operator's instruction
+ * of 2 October, 49 cents, was not to wait for midnight), and the measured price arrives at the first
+ * window after the sample is complete, since the sample is always the days before the window's start.
+ */
 export async function priceForWindow(ws) {
   const existing = await windowRow(ws);
-  if (existing) return existing;
+  if (existing && Number.isInteger(existing.priceCents)) return existing;
   const m = await measured(ws);
   let priceCents = null, basis = 'none';
   if (m.sample >= config.priceMinSample && m.avgUsd !== null) { priceCents = priceFromAverage(m.avgUsd); basis = 'measured'; }
   else if (Number.isInteger(config.priceStartCents) && config.priceStartCents >= 0) { priceCents = config.priceStartCents; basis = 'start'; }
   const row = { windowStart: ws, tier: tierAt(ws), priceCents, avgCostUsd: m.avgUsd, sample: m.sample, basis };
   if (dbOn()) {
-    await query('INSERT INTO windows (window_start, tier, price_cents, avg_cost_usd, sample, basis) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (window_start) DO NOTHING',
-      [new Date(ws), row.tier, priceCents, m.avgUsd, m.sample, basis]);
+    if (!existing) {
+      await query('INSERT INTO windows (window_start, tier, price_cents, avg_cost_usd, sample, basis) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (window_start) DO NOTHING',
+        [new Date(ws), row.tier, priceCents, m.avgUsd, m.sample, basis]);
+    } else if (priceCents !== null) {
+      await query('UPDATE windows SET price_cents = $2, avg_cost_usd = $3, sample = $4, basis = $5 WHERE window_start = $1 AND price_cents IS NULL', [new Date(ws), priceCents, m.avgUsd, m.sample, basis]);
+    }
     return (await windowRow(ws)) || row;
   }
-  if (!mem.windows.has(ws)) mem.windows.set(ws, row);
+  const had = mem.windows.get(ws);
+  if (!had) mem.windows.set(ws, row);
+  else if (priceCents !== null && had.priceCents === null) Object.assign(had, row);
   return mem.windows.get(ws);
 }
 
