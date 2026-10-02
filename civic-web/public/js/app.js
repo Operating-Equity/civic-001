@@ -866,6 +866,7 @@ function finishExtraction(ev) {
     state.phase = 'done';
     field.setPhase('done');
     setStatus('step2', null);
+    ui.scorePhase.hidden = true;   // the extraction is over; the scoreboard stops saying it is extracting
     ui.run.disabled = false;
     syncBeyondRows();
     return;

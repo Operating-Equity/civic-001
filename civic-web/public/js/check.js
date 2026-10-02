@@ -77,8 +77,10 @@ function money(usd, currency) {
 const cents = (c, currency) => (c === null || c === undefined ? 'none yet' : money(c / 100, currency));
 
 function table(head, rows) {
+  const wrap = el('div', 'check-scroll');   // a wide table scrolls sideways rather than widening the page
   const t = document.createElement('table');
   t.className = 'check-settings';
+  wrap.append(t);
   const tr = document.createElement('tr');
   for (const h of head) tr.append(el('th', null, h));
   t.append(tr);
@@ -87,7 +89,7 @@ function table(head, rows) {
     for (const v of row) r.append(el('td', null, v === null || v === undefined ? '—' : String(v)));
     t.append(r);
   }
-  return t;
+  return wrap;
 }
 
 /** The lines of the measurement, as sentences (the page and the text report share them). */
