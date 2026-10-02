@@ -1,11 +1,11 @@
 // English (source language). Keys ending in _one / _other are plural forms chosen by {n}.
 export default {
-  app: { tagline: 'Truth, verified.' },
+  app: { tagline: 'Facts, verified.' },
   nav: { language: 'Language', signin: 'Sign in', signup: 'Sign up', soon: 'Accounts arrive with the next release.' },
   intake: {
     title: 'FactEngine tests the facts.',
-    lede: 'Paste a transcript, article, speech, post or study, or a link to one. FactEngine extracts every empirical claim it contains and tests the first {n}.',
-    ledeChoose: 'Paste a transcript, article, speech, post or study, or a link to one. FactEngine extracts every empirical claim it contains and shows them for you to choose which to test.',
+    lede: 'Paste a transcript, article, speech, post or study, or a link to one. FactEngine extracts every empirical claim it contains and starts testing them.',
+    ledeChoose: 'Paste a transcript, article, speech, post or study, or a link to one. FactEngine extracts every empirical claim it contains; you choose which to test.',
     placeholder: 'Paste text, or a link to an article, a PDF or a YouTube video…',
     readingUrl: 'Reading {host}…',
     readingUrlTime: 'Reading {host} · {time}',
@@ -24,8 +24,8 @@ export default {
     showText: 'Show the text',
     hideText: 'Hide the text',
     testing: 'Now testing',
-    slow: 'The first step takes minutes on a long document to find all asserted claims to test, because the model reads and examines all statements before writing anything. The {first} determinations then run {n} at a time, each taking a few minutes.',
-    slowChoose: 'The first step takes minutes on a long document to find all asserted claims to test, because the model reads and examines all statements before writing anything. The determinations you choose then run {n} at a time, each taking a few minutes.',
+    slow: 'Finding every claim takes a few minutes on a long document, because the model reads it all before writing. Each test then takes a few minutes more.',
+    slowChoose: 'Finding every claim takes a few minutes on a long document, because the model reads it all before writing. Each test you choose then takes a few minutes more.',
     empty: 'Paste or upload something to test.',
     truncated: 'The document was cut to {n} characters, the maximum for one run.',
   },
@@ -74,6 +74,7 @@ export default {
   step2: {
     title: 'Testing {n} claims',
     more: 'Testing {n} additional claims',
+    choose: 'Testing the claims you choose',
     progress: '{done} of {total} complete',
     running: '{running} running · {done} of {total} done · {time}',
     throttled: '{running} running · {n} waiting their turn · {done} of {total} done · {time}',

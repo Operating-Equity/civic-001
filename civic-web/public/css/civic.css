@@ -1,17 +1,25 @@
-/* FactEngine (formerly CIVIC) — daylight. One deliberate theme: the page lives in the morning light of the scene.
+/* FactEngine (formerly CIVIC) — daylight glass over mathematics. One deliberate theme: light, never dark; clear
+   glass in the foreground; behind it a drawn mathematical field (js/field.js) that changes with the run.
    Type: Barlow Condensed (signage, like the mark) · Public Sans (civic body) · IBM Plex Mono (keys, counts). */
 
 :root {
   --ink: #15181d;
   --ink-2: #4a5563;
-  --ink-3: #78838f;
+  --ink-3: #5b6672;
   --line: rgba(21, 24, 29, 0.12);
   --line-soft: rgba(21, 24, 29, 0.07);
   --ground: #eef3f7;
   --paper: #ffffff;
-  --glass: rgba(255, 255, 255, 0.64);
-  --glass-strong: rgba(255, 255, 255, 0.84);
-  --glass-edge: rgba(255, 255, 255, 0.78);
+  /* The glass is clear: the mathematics shows through, softly blurred, under a bright edge of light. The
+     strong glass is where the reader reads and types; the arithmetic of legibility is in field.js's notes. */
+  --glass: rgba(255, 255, 255, 0.42);
+  --glass-strong: rgba(255, 255, 255, 0.56);
+  --glass-edge: rgba(255, 255, 255, 0.75);
+  --glass-blur: blur(18px) saturate(1.3);
+  --glass-sheen: linear-gradient(135deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0) 55%);
+  --glass-shine: inset 0 1px 0 rgba(255, 255, 255, 0.9), inset 1px 0 0 rgba(255, 255, 255, 0.45);
+  --gold-ink: #b8860b;
+  --green-ink: #2f9a64;
   --blue: #4874e4;
   --blue-deep: #2f56c4;
   --blue-soft: #e4ebfb;
@@ -19,7 +27,10 @@
   --sun: #f3c65a;
   --true: #1e7a4c;      --true-bg: #dcf3e5;     --true-edge: #9bd8b6;
   --false: #b3261e;     --false-bg: #fbe3e0;    --false-edge: #f0a7a0;
-  --unv: #8a5a00;       --unv-bg: #fff0cc;      --unv-edge: #f1cf7a;
+  /* Unverified is grey: the grey zone, strong but conflicting evidence, nothing dirty about it (the operator's
+     rule of 2 October). The amber stays for cautions only: a card's note, the check page's warning mark. */
+  --unv: #525c69;       --unv-bg: #e9edf1;      --unv-edge: #c3ccd5;
+  --note: #8a5a00;      --note-bg: #fff0cc;     --note-edge: #f1cf7a;
   --radius: 16px;
   --radius-sm: 9px;
   --shadow: 0 14px 44px rgba(24, 44, 84, 0.10);
@@ -49,32 +60,39 @@ body {
   overflow-x: hidden;
 }
 
-/* ---------- the sky: the scene, washed, sitting behind the top of the page ---------- */
-.sky {
-  position: absolute; inset: 0 0 auto 0; height: min(880px, 120vh); z-index: 0;
-  overflow: hidden; pointer-events: none;
-}
-.sky-img {
-  width: 104%; height: 100%; margin-inline-start: -2%;
-  object-fit: cover; object-position: center 42%;
-  filter: blur(1.4px) saturate(1.06);
-}
-.sky::after {
-  content: ""; position: absolute; inset: 0;
-  background:
-    linear-gradient(180deg, rgba(238, 243, 247, 0.18) 0%, rgba(238, 243, 247, 0.42) 38%, rgba(238, 243, 247, 0.86) 74%, var(--ground) 100%);
-}
+/* ---------- the field: mathematics behind the glass (drawn by js/field.js) ---------- */
+/* Fixed to the window, so every panel at any scroll depth has it behind it; inert; two layers that
+   cross-fade when the run changes phase. A field's large forms stay at or under .2 alpha over the ground
+   (thin strokes up to .3), so body text on the strong glass keeps a contrast of 14 : 1 and hints 4.7 : 1. */
+.field { position: fixed; inset: 0; z-index: 0; overflow: hidden; pointer-events: none; contain: strict; background: var(--ground); }
+.field-layer { position: absolute; inset: 0; opacity: 0; transition: opacity 1.2s ease; }
+.field-layer.is-on { opacity: 1; }
+.field-layer > svg, .field-layer > canvas, .field-layer > .field-proof { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+/* The three fractal fields drift in, slowly, where motion is welcome: the same at every zoom. */
+.field-layer.is-zoom { will-change: transform; animation: field-zoom 90s linear infinite alternate; }
+@keyframes field-zoom { from { transform: scale(1); } to { transform: scale(1.12); } }
+.field .f-ink { color: var(--ink); }
+.field .f-blue { color: var(--blue); }
+.field .f-gold { color: var(--gold-ink); }
+.field .f-green { color: var(--green-ink); }
+.field-proof { overflow: hidden; }
+.field-line { position: absolute; white-space: nowrap; line-height: 1; color: var(--ink); opacity: .2; transform-origin: 0 50%; }
+.field-line.f-blue { color: var(--blue); opacity: .26; }
+.field-line.f-gold { color: var(--gold-ink); opacity: .3; }
+.field-line .katex-display { margin: 0; }
+@media (prefers-reduced-motion: reduce) { .field-layer { transition: none; animation: none !important; transform: none !important; } }
+@media (max-width: 600px) { .field-line.f-minor { display: none; } }
 
 .page, .masthead, .footer { position: relative; z-index: 1; }
 
 /* ---------- glass ---------- */
 .glass {
-  background: var(--glass);
-  -webkit-backdrop-filter: blur(16px) saturate(1.25);
-  backdrop-filter: blur(16px) saturate(1.25);
+  background: var(--glass-sheen), var(--glass);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
   border: 1px solid var(--glass-edge);
   border-radius: var(--radius);
-  box-shadow: var(--shadow), inset 0 1px 0 rgba(255, 255, 255, 0.7);
+  box-shadow: var(--shadow), var(--glass-shine);
 }
 
 /* ---------- masthead ---------- */
@@ -91,8 +109,8 @@ body {
 }
 .masthead-nav {
   display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
-  padding: 4px 6px 4px 12px; border-radius: 999px; background: rgba(255, 255, 255, 0.58); border: 1px solid var(--glass-edge);
-  -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); box-shadow: var(--shadow-soft);
+  padding: 4px 6px 4px 12px; border-radius: 999px; background: rgba(255, 255, 255, 0.5); border: 1px solid var(--glass-edge);
+  -webkit-backdrop-filter: blur(14px) saturate(1.25); backdrop-filter: blur(14px) saturate(1.25); box-shadow: var(--shadow-soft), var(--glass-shine);
 }
 .lang { display: inline-flex; align-items: center; gap: 6px; color: var(--ink-2); padding-inline-end: 6px; }
 .lang-select {
@@ -115,7 +133,7 @@ body {
 .btn:disabled { opacity: .5; cursor: not-allowed; }
 .btn-primary { background: var(--blue); color: #fff; box-shadow: 0 6px 18px rgba(72, 116, 228, 0.30); }
 .btn-primary:hover { background: var(--blue-deep); }
-.btn-outline { border-color: var(--line); background: rgba(255, 255, 255, 0.55); }
+.btn-outline { border-color: var(--line); background: rgba(255, 255, 255, 0.5); }
 .btn-outline:hover { border-color: var(--ink-3); background: #fff; }
 .btn-text { color: var(--ink-2); }
 .btn-text:hover { color: var(--ink); background: rgba(21, 24, 29, 0.06); }
@@ -125,7 +143,7 @@ body {
 .icon { width: 18px; height: 18px; flex: none; }
 
 .input, .source {
-  font: inherit; color: var(--ink); background: rgba(255, 255, 255, 0.86);
+  font: inherit; color: var(--ink); background: rgba(255, 255, 255, 0.72);
   border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 12px 14px; width: 100%;
   transition: border-color .15s ease, box-shadow .15s ease;
 }
@@ -194,7 +212,7 @@ body {
 .intake.is-collapsed.is-open .source { display: block; margin-block-start: 12px; max-height: 260px; }
 .intake-summary { display: flex; align-items: center; gap: 6px 14px; flex-wrap: wrap; margin-block-start: 6px; font-size: 14.5px; color: var(--ink-2); }
 .intake-summary b { color: var(--ink); font-weight: 600; }
-.intake { padding: clamp(22px, 4vw, 38px) clamp(18px, 4vw, 40px) clamp(22px, 3vw, 30px); background: var(--glass-strong); }
+.intake { padding: clamp(22px, 4vw, 38px) clamp(18px, 4vw, 40px) clamp(22px, 3vw, 30px); background: var(--glass-sheen), var(--glass-strong); }
 .intake-title {
   font-family: var(--font-display); font-weight: 700; font-size: clamp(38px, 6vw, 58px); line-height: .98; letter-spacing: .005em;
   margin: 0 0 8px; text-wrap: balance;
@@ -208,7 +226,7 @@ body {
 .copies-title { margin: 0 0 6px; font-size: 14px; color: var(--ink-2); }
 .copies-title:empty, .copies-status:empty { display: none; }
 .copies-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
-.copy { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 2px 12px; padding: 8px 12px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--paper); }
+.copy { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 2px 12px; padding: 8px 12px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: rgba(255, 255, 255, .62); }
 .copy-title { grid-column: 1; font-weight: 600; color: var(--ink); text-decoration: none; overflow-wrap: anywhere; }
 .copy-title:hover { text-decoration: underline; }
 .copy-meta { grid-column: 1; font-size: 13px; color: var(--ink-3); overflow-wrap: anywhere; }
@@ -235,8 +253,8 @@ body {
 .run-warnings li::before { content: "!"; font-weight: 700; font-family: var(--font-display); font-size: 17px; line-height: 1.35; }
 .rail { display: grid; grid-template-columns: 1fr 224px; gap: 18px; align-items: stretch; }
 .rail-steps { display: grid; gap: 14px; align-content: start; }
-.step { padding: 16px 18px 14px; border-radius: var(--radius); background: var(--glass); border: 1px solid var(--glass-edge); box-shadow: var(--shadow-soft); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); transition: opacity .3s ease; }
-.step[data-state="idle"] { opacity: .55; }
+.step { padding: 16px 18px 14px; border-radius: var(--radius); background: var(--glass-sheen), var(--glass); border: 1px solid var(--glass-edge); box-shadow: var(--shadow-soft), var(--glass-shine); -webkit-backdrop-filter: blur(14px) saturate(1.25); backdrop-filter: blur(14px) saturate(1.25); transition: opacity .3s ease; }
+.step[data-state="idle"] { opacity: .6; }
 .step-head { display: grid; grid-template-columns: auto 1fr auto; align-items: baseline; gap: 12px; margin-block-end: 12px; }
 .step-n {
   font-family: var(--font-display); font-weight: 700; font-size: 17px; line-height: 1; color: #fff; background: var(--ink);
@@ -264,7 +282,7 @@ body {
    bottom edge is the second step's bottom edge. The image is cropped to that frame, never the
    frame stretched to the image, so the row's height is the steps' alone. */
 .echo { margin: 0; display: flex; flex-direction: column; min-height: 0; }
-.echo-frame { flex: 1 1 auto; min-height: 0; width: 100%; border-radius: var(--radius); overflow: hidden; background: rgba(255, 255, 255, .5); border: 1px solid var(--glass-edge); box-shadow: var(--shadow-soft); position: relative; }
+.echo-frame { flex: 1 1 auto; min-height: 0; width: 100%; border-radius: var(--radius); overflow: hidden; background: rgba(255, 255, 255, .4); border: 1px solid var(--glass-edge); box-shadow: var(--shadow-soft); position: relative; }
 .echo-frame img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; filter: blur(0); animation: focus 1.1s ease-out; }
 @keyframes focus { from { filter: blur(18px); opacity: .2; transform: scale(1.04); } to { filter: blur(0); opacity: 1; transform: none; } }
 .echo-shimmer { position: absolute; inset: 0; display: grid; place-items: end start; padding: 12px; font-size: 12.5px; color: var(--ink-2); background: linear-gradient(120deg, rgba(255,255,255,.25) 30%, rgba(255,255,255,.75) 50%, rgba(255,255,255,.25) 70%); background-size: 220% 100%; animation: shimmer 1.8s linear infinite; }
@@ -324,7 +342,7 @@ body {
 .scoreboard {
   position: sticky; top: 10px; z-index: 5;
   display: grid; grid-template-columns: repeat(3, auto) 1fr auto; align-items: center; gap: 8px 22px;
-  padding: 10px 18px; background: var(--glass-strong);
+  padding: 10px 18px; background: var(--glass-sheen), var(--glass-strong);
 }
 .scoreboard-actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
 .score-source { grid-column: 1 / -1; display: flex; align-items: baseline; gap: 4px 12px; flex-wrap: wrap; min-width: 0; font-size: 13.5px; color: var(--ink-2); padding-block-end: 6px; border-block-end: 1px solid var(--line-soft); }
@@ -344,7 +362,8 @@ body {
 
 /* results */
 .card, .claims, .claims-beyond, .raw { scroll-margin-top: 96px; }
-.card { padding: 20px 24px 18px; border-radius: var(--radius); background: var(--glass-strong); border: 1px solid var(--glass-edge); box-shadow: var(--shadow-soft); transition: box-shadow .3s ease; }
+/* A card sits on the blurred claims panel, so it needs no blur of its own: .55 white over .46 reads as .76. */
+.card { padding: 20px 24px 18px; border-radius: var(--radius); background: rgba(255, 255, 255, .55); border: 1px solid var(--glass-edge); box-shadow: var(--shadow-soft), var(--glass-shine); transition: box-shadow .3s ease; }
 .card .bk { opacity: 0; border-color: var(--blue); }
 .card[data-state="running"] .bk { opacity: 1; animation: pulse 1.4s ease-in-out infinite; }
 .card[data-state="done"] .bk { opacity: .9; animation: none; }
@@ -379,11 +398,11 @@ body {
 .card-model { color: var(--ink-3); }
 .card-model.is-fallback { color: var(--false); font-weight: 600; }
 .card-error { margin: 12px 0 0; color: var(--false); font-size: 14px; }
-.card-note { margin: 10px 0 0; font-size: 13.5px; color: var(--unv); background: var(--unv-bg); border: 1px solid var(--unv-edge); border-radius: var(--radius-sm); padding: 8px 12px; }
+.card-note { margin: 10px 0 0; font-size: 13.5px; color: var(--note); background: var(--note-bg); border: 1px solid var(--note-edge); border-radius: var(--radius-sm); padding: 8px 12px; }
 
 /* everything the run produced besides the entry: reasoning, searches, sources, raw text */
 .card-detail { display: grid; gap: 6px; margin-block-start: 14px; }
-.raw { border: 1px solid var(--line-soft); border-radius: var(--radius-sm); background: rgba(255, 255, 255, .5); }
+.raw { border: 1px solid var(--line-soft); border-radius: var(--radius-sm); background: rgba(255, 255, 255, .42); }
 .raw-summary { cursor: pointer; padding: 8px 12px; font-size: 13px; font-weight: 600; letter-spacing: .03em; color: var(--ink-2); list-style: none; display: flex; align-items: center; gap: 8px; }
 .raw-summary::-webkit-details-marker { display: none; }
 .raw-summary::before { content: "▸"; color: var(--blue); font-size: 11px; transition: transform .15s ease; }
@@ -397,9 +416,10 @@ body {
 .sources-list a { color: var(--blue-deep); word-break: break-word; }
 .claims .raw { margin-block-start: 14px; }
 
-/* verdict present but unreadable: never silently counted as anything */
-.verdict-unread .badge { color: var(--ink-2); background: rgba(21, 24, 29, .06); border-color: var(--line); }
-.card[data-state="done"].verdict-unread .bk { border-color: var(--ink-3); }
+/* verdict present but unreadable: never silently counted as anything, and never mistaken for Unverified (grey
+   too), so its badge and its brackets are dashed and hollow */
+.verdict-unread .badge { color: var(--ink-3); background: transparent; border-style: dashed; border-color: var(--ink-3); }
+.card[data-state="done"].verdict-unread .bk { border-color: var(--ink-3); border-style: dashed; }
 .card[data-state="done"].verdict-unread .card-n { color: var(--ink-3); }
 
 /* the entry: encyclopedia prose */
@@ -421,7 +441,7 @@ body {
 .card[data-state="running"] .prose::after { content: "▍"; color: var(--blue); animation: pulse 1s steps(2) infinite; }
 
 /* challenge */
-.challenge { margin-block-start: 14px; padding: 16px 18px; border-radius: var(--radius-sm); background: rgba(255, 255, 255, .7); border: 1px solid var(--line); display: grid; gap: 10px; animation: open .22s ease-out; }
+.challenge { margin-block-start: 14px; padding: 16px 18px; border-radius: var(--radius-sm); background: rgba(255, 255, 255, .6); border: 1px solid var(--line); display: grid; gap: 10px; animation: open .22s ease-out; }
 .challenge-title { margin: 0; font-family: var(--font-display); font-weight: 600; font-size: 22px; }
 .challenge-lede { margin: 0; font-size: 14px; color: var(--ink-2); }
 .challenge-text { resize: vertical; min-height: 96px; }
@@ -443,10 +463,11 @@ body {
 /* ---------- toast ---------- */
 .toast {
   position: fixed; inset-inline: 0; bottom: 22px; margin: 0 auto; width: max-content; max-width: min(92vw, 560px); z-index: 20;
-  padding: 12px 18px; border-radius: 999px; font-size: 14.5px; color: #fff; background: rgba(21, 24, 29, .92);
-  box-shadow: 0 10px 30px rgba(0, 0, 0, .25); animation: open .2s ease-out; text-align: center;
+  padding: 12px 18px; border-radius: 999px; font-size: 14.5px; color: var(--ink); background: rgba(255, 255, 255, .72);
+  border: 1px solid var(--glass-edge); -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur);
+  box-shadow: var(--shadow), var(--glass-shine); animation: open .2s ease-out; text-align: center;
 }
-.toast.is-error { background: var(--false); }
+.toast.is-error { background: var(--false); color: #fff; border-color: transparent; }
 
 /* ---------- responsive ---------- */
 @media (max-width: 760px) {
@@ -519,8 +540,9 @@ body {
 .bk-tl, .bk-tr, .bk-bl, .bk-br { border-radius: 0; }
 
 /* Sign-in by code: a small square dialog, the corners as the brackets are. */
-dialog.signin { border: 1px solid var(--line); border-radius: 0; padding: 26px 26px 20px; width: min(420px, calc(100vw - 32px)); background: var(--paper); color: var(--ink); box-shadow: 0 24px 60px rgba(21, 24, 29, 0.28); }
-dialog.signin::backdrop { background: rgba(21, 24, 29, 0.45); }
+/* The dialog is glass too, and what it dims is light, not darkness: the page behind it blurs and brightens. */
+dialog.signin { border: 1px solid var(--glass-edge); border-radius: 0; padding: 26px 26px 20px; width: min(420px, calc(100vw - 32px)); background: var(--glass-sheen), var(--glass-strong); -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur); color: var(--ink); box-shadow: 0 24px 60px rgba(21, 24, 29, 0.18), var(--glass-shine); }
+dialog.signin::backdrop { background: rgba(238, 243, 247, 0.5); -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); }
 .signin-form { display: grid; gap: 14px; }
 .signin-title { margin: 0; font-size: 22px; }
 .signin-lede { margin: 0; color: var(--ink-2); font-size: 14px; line-height: 1.45; }

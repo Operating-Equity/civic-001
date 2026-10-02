@@ -1,10 +1,10 @@
 export default {
-  app: { tagline: 'Wahrheit, geprüft.' },
+  app: { tagline: 'Fakten, geprüft.' },
   nav: { language: 'Sprache', signin: 'Anmelden', signup: 'Registrieren', soon: 'Konten kommen mit der nächsten Version.' },
   intake: {
     title: 'FactEngine prüft die Fakten.',
-    lede: 'Füge ein Transkript, einen Artikel, eine Rede, einen Beitrag oder eine Studie ein, oder einen Link darauf. FactEngine entnimmt jede empirische Aussage und prüft die ersten {n}.',
-    ledeChoose: 'Füge ein Transkript, einen Artikel, eine Rede, einen Beitrag oder eine Studie ein, oder einen Link darauf. FactEngine entnimmt jede empirische Aussage und zeigt sie an, damit Sie wählen, welche geprüft werden.',
+    lede: 'Fügen Sie ein Transkript, einen Artikel, eine Rede, einen Beitrag oder eine Studie ein, oder einen Link darauf. FactEngine entnimmt jede empirische Aussage und beginnt, sie zu prüfen.',
+    ledeChoose: 'Fügen Sie ein Transkript, einen Artikel, eine Rede, einen Beitrag oder eine Studie ein, oder einen Link darauf. FactEngine entnimmt jede empirische Aussage; Sie wählen, welche geprüft werden.',
     placeholder: 'Text einfügen, oder einen Link zu einem Artikel, PDF oder YouTube-Video…',
     readingUrl: '{host} wird gelesen…',
     readingUrlTime: '{host} wird gelesen · {time}',
@@ -23,8 +23,8 @@ export default {
     showText: 'Text anzeigen',
     hideText: 'Text ausblenden',
     testing: 'Wird geprüft',
-    slow: 'Der erste Schritt dauert bei einem langen Dokument Minuten, um alle behaupteten Aussagen zu finden, die geprüft werden sollen, weil das Modell alle Aussagen liest und prüft, bevor es etwas schreibt. Die {first} Bestimmungen laufen dann {n} gleichzeitig, jede dauert einige Minuten.',
-    slowChoose: 'Der erste Schritt dauert bei einem langen Dokument Minuten, um alle behaupteten Aussagen zu finden, die geprüft werden sollen, weil das Modell alle Aussagen liest und prüft, bevor es etwas schreibt. Die von Ihnen gewählten Bestimmungen laufen dann {n} gleichzeitig, jede dauert einige Minuten.',
+    slow: 'Alle Aussagen zu finden dauert bei einem langen Dokument einige Minuten, weil das Modell alles liest, bevor es schreibt. Jede Prüfung dauert dann einige Minuten mehr.',
+    slowChoose: 'Alle Aussagen zu finden dauert bei einem langen Dokument einige Minuten, weil das Modell alles liest, bevor es schreibt. Jede Prüfung, die Sie wählen, dauert dann einige Minuten mehr.',
     empty: 'Fügen Sie etwas ein oder laden Sie etwas hoch.',
     truncated: 'Das Dokument wurde auf {n} Zeichen gekürzt, das Maximum pro Lauf.',
   },
@@ -73,6 +73,7 @@ export default {
   step2: {
     title: '{n} Behauptungen werden geprüft',
     more: '{n} weitere Behauptungen werden geprüft',
+    choose: 'Die gewählten Aussagen werden geprüft',
     progress: '{done} von {total} abgeschlossen',
     running: '{running} laufen · {done} von {total} fertig · {time}',
     throttled: '{running} laufen · {n} warten, bis sie an der Reihe sind · {done} von {total} fertig · {time}',

@@ -1,10 +1,10 @@
 export default {
-  app: { tagline: 'La vérité, vérifiée.' },
+  app: { tagline: 'Des faits, vérifiés.' },
   nav: { language: 'Langue', signin: 'Se connecter', signup: 'Créer un compte', soon: 'Les comptes arrivent avec la prochaine version.' },
   intake: {
     title: 'FactEngine teste les faits.',
-    lede: 'Collez une transcription, un article, un discours, une publication ou une étude, ou un lien vers l\'un d\'eux. FactEngine extrait chaque affirmation empirique qu\'il contient et teste les {n} premières.',
-    ledeChoose: 'Collez une transcription, un article, un discours, une publication ou une étude, ou un lien vers l\'un d\'eux. FactEngine extrait chaque affirmation empirique qu\'il contient et les affiche pour que vous choisissiez lesquelles tester.',
+    lede: 'Collez une transcription, un article, un discours, une publication ou une étude, ou un lien vers l\'un d\'eux. FactEngine extrait chaque affirmation empirique qu\'il contient et commence à les tester.',
+    ledeChoose: 'Collez une transcription, un article, un discours, une publication ou une étude, ou un lien vers l\'un d\'eux. FactEngine extrait chaque affirmation empirique qu\'il contient ; vous choisissez lesquelles tester.',
     placeholder: 'Collez un texte, ou un lien vers un article, un PDF ou une vidéo YouTube…',
     readingUrl: 'Lecture de {host}…',
     readingUrlTime: 'Lecture de {host} · {time}',
@@ -23,8 +23,8 @@ export default {
     showText: 'Afficher le texte',
     hideText: 'Masquer le texte',
     testing: 'Test en cours',
-    slow: 'La première étape prend des minutes sur un long document pour trouver toutes les affirmations à tester, car le modèle lit et examine toutes les déclarations avant d\'écrire quoi que ce soit. Les {first} déterminations s\'exécutent ensuite {n} par {n}, chacune en quelques minutes.',
-    slowChoose: 'La première étape prend des minutes sur un long document pour trouver toutes les affirmations à tester, car le modèle lit et examine toutes les déclarations avant d\'écrire quoi que ce soit. Les déterminations que vous choisissez s\'exécutent ensuite {n} par {n}, chacune en quelques minutes.',
+    slow: 'Trouver toutes les affirmations prend quelques minutes sur un long document, car le modèle le lit en entier avant d\'écrire. Chaque test prend ensuite quelques minutes de plus.',
+    slowChoose: 'Trouver toutes les affirmations prend quelques minutes sur un long document, car le modèle le lit en entier avant d\'écrire. Chaque test que vous choisissez prend ensuite quelques minutes de plus.',
     empty: 'Collez ou téléversez quelque chose à tester.',
     truncated: 'Le document a été tronqué à {n} caractères, le maximum par test.',
   },
@@ -73,6 +73,7 @@ export default {
   step2: {
     title: 'Test de {n} affirmations',
     more: 'Test de {n} affirmations supplémentaires',
+    choose: 'Test des affirmations que vous choisissez',
     progress: '{done} sur {total} terminés',
     running: '{running} en cours · {done} sur {total} terminées · {time}',
     throttled: '{running} en cours · {n} en attente de leur tour · {done} sur {total} terminées · {time}',

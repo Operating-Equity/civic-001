@@ -1,7 +1,7 @@
 # FactEngine
 
 Paste a document, a transcript, a speech, a study or a link. FactEngine extracts every empirical claim it
-contains, tests the first twenty at the same time, and shows each determination as True, False or
+contains and lists them; you choose which to test, and each determination is shown as True, False or
 Unverified with the full entry behind it.
 
 The working application is in **[`civic-web/`](civic-web/README.md)**, which has the instructions for
@@ -11,9 +11,8 @@ running it, the settings, and how the prompts are kept.
 
 1. **Extraction.** The whole document goes to the model with the operator's extraction prompt. Every
    empirical claim comes back as a numbered list, shown verbatim.
-2. **Determination.** The first twenty claims each go out as their own request, all at the same time,
-   carrying the operator's evaluation prompt with that one claim in it. Claims beyond twenty wait for
-   the reader to choose them.
+2. **Determination.** Each claim the reader chooses goes out as its own request, a few at a time,
+   carrying the operator's evaluation prompt with that one claim in it.
 3. **The entry.** Each card shows the verdict in its own colour, the complete entry, the model's
    reasoning summary, every web search it ran, every source it cited, and the raw text.
 

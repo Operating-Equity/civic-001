@@ -13,14 +13,18 @@
 </head>
 <body>
 
-<div class="sky" aria-hidden="true">
-  <img class="sky-img" src="assets/civic-scene-1920.jpg" srcset="assets/civic-scene-1100.jpg 1100w, assets/civic-scene-1920.jpg 1920w" sizes="100vw" alt="" decoding="async" fetchpriority="high">
+<!-- The field: a drawn layer of mathematics behind the glass (js/field.js). Fixed to the window, so
+     every panel has it behind it at any scroll depth, and it changes with the run. Decoration only:
+     hidden from anyone reading the page by ear, and nothing in it can be pressed. -->
+<div class="field" id="field" aria-hidden="true" data-phase="idle" data-field="">
+  <div class="field-layer" data-slot="a"></div>
+  <div class="field-layer" data-slot="b"></div>
 </div>
 
 <header class="masthead">
   <a class="brand" href="./" aria-label="FactEngine">
     <span class="brand-word">FactEngine</span>
-    <span class="brand-tag" data-i18n="app.tagline">Truth, verified.</span>
+    <span class="brand-tag" data-i18n="app.tagline">Facts, verified.</span>
   </a>
   <nav class="masthead-nav" aria-label="Account">
     <label class="lang">
@@ -70,7 +74,7 @@
       <span class="intake-summary-text" id="intake-summary-text"></span>
       <button type="button" class="btn btn-text btn-small" id="btn-show-text"></button>
     </div>
-    <p class="intake-lede" data-i18n="intake.ledeChoose">Paste a transcript, article, speech, post or study, or a link to one. FactEngine extracts every empirical claim it contains and shows them for you to choose which to test.</p>
+    <p class="intake-lede" data-i18n="intake.ledeChoose">Paste a transcript, article, speech, post or study, or a link to one. FactEngine extracts every empirical claim it contains; you choose which to test.</p>
     <label class="visually-hidden" for="source-text" data-i18n="intake.title">FactEngine tests the facts.</label>
     <textarea id="source-text" class="source" rows="9" placeholder="Paste text, or a link to an article, a PDF or a YouTube video…" data-i18n-placeholder="intake.placeholder" spellcheck="false"></textarea>
     <div class="intake-tools">
@@ -142,7 +146,7 @@
         <div class="step" id="step-eval" data-state="idle">
           <div class="step-head">
             <span class="step-n" aria-hidden="true">2</span>
-            <h2 class="step-title" id="step2-title" data-i18n="step2.title" data-i18n-params='{"n":10}'>Testing 10 claims</h2>
+            <h2 class="step-title" id="step2-title" data-i18n="step2.choose">Testing the claims you choose</h2>
             <span class="step-status" id="step2-status"></span>
           </div>
           <div class="bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="bar-eval"><i></i></div>
