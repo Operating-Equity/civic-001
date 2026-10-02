@@ -158,7 +158,10 @@ to test, measure, and optimize." `server/economics.js` does exactly that and not
   `CIVIC_PRICE_WINDOW_DAYS` (7), marked up `CIVIC_PRICE_MARKUP_PERCENT` (25) and rounded up to the cent,
   once `CIVIC_PRICE_MIN_SAMPLE` (20) determinations have been measured. Until then
   `CIVIC_PRICE_START_CENTS`, the operator's figure; with no start figure nothing is priced until the
-  sample exists, and /check shows the average as it grows. `CIVIC_CURRENCY` (USD) names the money.
+  sample exists, and /check shows the average as it grows. A window that has its price keeps it until the
+  next window; one that has none is not fixed, so the start figure applies the moment it is set (49 cents,
+  the operator's figure of 2 October) and the measured price arrives at the first window after the sample
+  is complete. `CIVIC_CURRENCY` (USD) names the money.
 - **The loss guard**: `CIVIC_TIER_LOSS_GUARD_USD` (unset = off). When the current window's margin falls
   below minus that figure, every new run goes to tier 1, the switch is recorded, and tier 1 holds until
   the margin earned since covers the loss; then the rotation resumes.

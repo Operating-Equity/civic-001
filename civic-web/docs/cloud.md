@@ -414,6 +414,14 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
   carry the price surface; the operator's /check carries the measurement from Postgres and another code's does not
   (15/15, scratchpad/live-pricing.mjs). The first real runs now put rows in the database and the measured average
   on /check.
+- **2 October, 21:00 UTC: the first price is 49 cents, the operator's figure.** Asked whether the 45 cents in the
+  pictures was data, the answer was no: a stand-in start figure for the pictures and the guard, and no real cost
+  had ever been retained (the ledger lived on the instance and reset at each deploy; the persistent disk was never
+  made; the server never logged costs). The operator chose to set a start price now: `CIVIC_PRICE_START_CENTS=49`,
+  written to the service with render-env.mjs. With it, one fix: a window that began without a price would have kept
+  its empty price until the next six-hour window (midnight UTC), so now a window without a price is asked again each
+  time and takes the start figure the moment it is set and deployed; a window with a price keeps it until the next
+  window; the measured price still arrives at the first window after the sample is complete.
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 

@@ -1523,6 +1523,7 @@ async function economicsChecks() {
       const h5 = await json(`${base(P5)}/api/health`, a5);
       const st5 = await json(`${base(P5)}/api/selftest`, a5);
       await seed(DB2, { runId: 'seed-b', tier: 3, from: T2 - DAY, n: 1, cost: 0.36, price: 45, free: false });
+      await new Promise((r) => setTimeout(r, 5500));   // the health line's prices are cached for five seconds
       const h5again = await json(`${base(P5)}/api/health`, a5);
       const P6 = PORT + 55;
       await boot(P6, { DATABASE_URL: DB2, CIVIC_CLOCK: at(T3) });
@@ -1531,11 +1532,30 @@ async function economicsChecks() {
       const st6 = await json(`${base(P6)}/api/selftest`, a6);
       const r6 = await runOn(P6, a6, 'verify-econ-r6');
       const windows = (await dbQuery(DB2, 'SELECT window_start, price_cents, sample, basis, avg_cost_usd::float AS avg FROM windows WHERE window_start >= $1 ORDER BY window_start', [new Date(T2)])).rows;
-      check('with no start figure and nineteen of the twenty determinations the average needs, nothing is priced (the health line says no price, the check page says 19 of 20 measured at 36 cents); the twentieth arriving does not move a window already begun; the next window prices at the measured average × 1.25, rounded up: 45 cents, and a run in it is told so',
+      check('with no start figure and nineteen of the twenty determinations the average needs, nothing is priced (the health line says no price, the check page says 19 of 20 measured at 36 cents); the twentieth, dated before the window, prices it the next time it is asked, since a window without a price is not fixed: the measured average × 1.25, rounded up, 45 cents; the next window prices the same, and a run in it is told so',
         h5.pricing?.priceCents === null && st5.economics?.price?.cents === null && st5.economics?.price?.measuredSample === 19 && Math.abs(st5.economics.price.measuredAvgUsd - 0.36) < 1e-9
-          && h5again.pricing?.priceCents === null && h6.pricing?.priceCents === 45 && st6.economics?.price?.basis === 'measured' && st6.economics?.price?.windowSample === 20 && pricingOf(r6)?.priceCents === 45
-          && windows.length === 2 && windows[0].price_cents === null && windows[0].basis === 'none' && windows[0].sample === 19 && windows[1].price_cents === 45 && windows[1].basis === 'measured' && windows[1].sample === 20 && Math.abs(windows[1].avg - 0.36) < 1e-9,
+          && h5again.pricing?.priceCents === 45 && h6.pricing?.priceCents === 45 && st6.economics?.price?.basis === 'measured' && st6.economics?.price?.windowSample === 20 && pricingOf(r6)?.priceCents === 45
+          && windows.length === 2 && windows.every((w) => w.price_cents === 45 && w.basis === 'measured' && w.sample === 20 && Math.abs(w.avg - 0.36) < 1e-9),
         JSON.stringify({ h5: h5.pricing, st5: st5.economics?.price, h5again: h5again.pricing, h6: h6.pricing, st6: st6.economics?.price, windows }));
+      // 7b. The operator sets the start figure during a window that began without one (2 October, 49 cents): the next instance prices at once.
+      const DB4 = await makeDb('civic_verify_econ4');
+      const P8 = PORT + 59;
+      const s8 = await boot(P8, { DATABASE_URL: DB4, CIVIC_CLOCK: at(T0) });
+      const a8 = await signin(P8, 'ABCD234');
+      const h8 = await json(`${base(P8)}/api/health`, a8);
+      const row8 = (await dbQuery(DB4, 'SELECT price_cents, basis FROM windows')).rows;
+      s8.kill('SIGTERM');
+      await new Promise((r) => setTimeout(r, 500));
+      const P9 = PORT + 61;
+      await boot(P9, { DATABASE_URL: DB4, CIVIC_CLOCK: at(T0 + 10 * 60e3), CIVIC_PRICE_START_CENTS: '49' });
+      const a9 = await signin(P9, 'ABCD234');
+      const h9b = await json(`${base(P9)}/api/health`, a9);
+      const r9b = await runOn(P9, a9, 'verify-econ-r9b');
+      const row9 = (await dbQuery(DB4, 'SELECT price_cents, basis FROM windows')).rows;
+      check('a window that began with no price (the row says none) takes the start figure the moment the operator sets it: the next instance on the same database, ten minutes into the same window, prices at 49 cents, tells a run so, and the window\'s row now says start',
+        h8.pricing?.priceCents === null && row8.length === 1 && row8[0].price_cents === null && row8[0].basis === 'none'
+          && h9b.pricing?.priceCents === 49 && pricingOf(r9b)?.priceCents === 49 && row9.length === 1 && row9[0].price_cents === 49 && row9[0].basis === 'start',
+        JSON.stringify({ h8: h8.pricing, row8, h9b: h9b.pricing, r9b: pricingOf(r9b), row9 }));
       // 8. The loss guard: a window that lost more than the guard sends every new run to tier 1, until the margin earned since covers the loss.
       const DB3 = await makeDb('civic_verify_econ3');
       const P7 = PORT + 56;
