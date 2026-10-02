@@ -407,6 +407,13 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
   rollback. The guard proves it on a real Postgres (its own cluster here; a service container in CI, required).
   The operator's figures still to set: `CIVIC_PRICE_START_CENTS` (without it nothing is priced until twenty
   determinations are measured, which /check counts) and `CIVIC_TIER_LOSS_GUARD_USD` (off until set).
+  **Live** (PR #58 squash 03be08d, deploy dep-db01e7bm8hqs73cloag0 at 20:42 UTC, build 7f25548cbcc1; CI green in
+  both shapes with the Postgres container; merged with the service idle): the boot log reads "measuring in Postgres ·
+  schema 001-economics.sql applied"; the health line carries pricing (tier 4 at that hour, three free, no price yet
+  because the start figure is unset and nothing is measured); the served page, script, stylesheet and four locales
+  carry the price surface; the operator's /check carries the measurement from Postgres and another code's does not
+  (15/15, scratchpad/live-pricing.mjs). The first real runs now put rows in the database and the measured average
+  on /check.
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 
