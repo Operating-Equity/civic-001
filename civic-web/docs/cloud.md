@@ -373,6 +373,20 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
   no figure ("Finding every claim takes a few minutes on a long document, because the model reads it all before
   writing. Each test you choose then takes a few minutes more."), and the step-2 header reads "Testing the claims you
   choose" until a batch starts, in all four languages (204 keys each). Rides PR #56, which merges on these words.
+  **Live** (PR #56 squash e44ce31, deploy dep-davv67rm8hqs73cij3jg at 18:17 UTC, build 1ca43e214b90): the served
+  page carries the field and no photograph, the clear glass, the grey verdict, "Facts, verified." and the choose
+  sentence; field.js and field-worker.js under the stamp; the check page over the golden rectangle (the two deleted
+  pictures' addresses answer the page itself, by the single-page fallback; the style reference is still served).
+- **2 October, night: no brackets, one rounded box, a clearer glass, the commercial footer.** The operator, on the
+  live page: "remove all blue brackets from the interface. It's too busy now with them. There should be one box type,
+  and it should be the one with rounded edges"; the footer must carry "FactEngine.com · A service of
+  OperatingEquity.ai", Terms, Privacy, Contact and © 2026 ("I'll worry about those pages later"); and "make the boxes
+  a little less opaque so the text is clearly visible, but the glass effect is apparent". So: the corner brackets are
+  gone from the intake, the echo and every card (the running state keeps its bar, the verdict its badge and number);
+  every box is rounded, the sign-in dialog too; the glass is a shade clearer (`--glass` .36, `--glass-strong` .5,
+  cards .48; body text still 14 : 1, hints 4.6 : 1); the footer has the site, the service, the three links and the
+  year in four languages (209 keys each), and the three pages exist as one-sentence placeholders over the still
+  field until the operator writes them.
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 

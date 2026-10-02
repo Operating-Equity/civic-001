@@ -200,5 +200,5 @@ export default {
   echo: { alt: 'Symbolische Illustration des Dokuments', making: 'Der Bildausschnitt entsteht…', video: 'Das geprüfte Video' },
   time: { seconds_one: '{n} Sekunde', seconds_other: '{n} Sekunden', minutes: '{m} Min {s} s' },
   numbers: { 1: 'eins', 2: 'zwei', 3: 'drei', 4: 'vier', 5: 'fünf', 6: 'sechs', 7: 'sieben', 8: 'acht', 9: 'neun', 10: 'zehn', 11: 'elf', 12: 'zwölf' },
-  footer: { service: 'Ein Dienst von' },
+  footer: { site: 'FactEngine.com', service: 'Ein Dienst von', terms: 'Nutzungsbedingungen', privacy: 'Datenschutz', contact: 'Kontakt', copyright: '© 2026' },
 };

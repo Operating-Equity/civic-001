@@ -200,5 +200,5 @@ export default {
   echo: { alt: 'Ilustración simbólica del documento', making: 'Componiendo el encuadre…', video: 'El vídeo a prueba' },
   time: { seconds_one: '{n} segundo', seconds_other: '{n} segundos', minutes: '{m} min {s} s' },
   numbers: { 1: 'uno', 2: 'dos', 3: 'tres', 4: 'cuatro', 5: 'cinco', 6: 'seis', 7: 'siete', 8: 'ocho', 9: 'nueve', 10: 'diez', 11: 'once', 12: 'doce' },
-  footer: { service: 'Un servicio de' },
+  footer: { site: 'FactEngine.com', service: 'Un servicio de', terms: 'Términos', privacy: 'Privacidad', contact: 'Contacto', copyright: '© 2026' },
 };

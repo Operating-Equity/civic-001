@@ -65,9 +65,8 @@
 <main class="page">
 
 
-  <!-- Intake: the functional heart of the page, framed by the brackets from the mark. -->
-  <section class="intake glass frame" id="intake" aria-labelledby="intake-title">
-    <i class="bk bk-tl" aria-hidden="true"></i><i class="bk bk-tr" aria-hidden="true"></i><i class="bk bk-bl" aria-hidden="true"></i><i class="bk bk-br" aria-hidden="true"></i>
+  <!-- Intake: the functional heart of the page. -->
+  <section class="intake glass" id="intake" aria-labelledby="intake-title">
     <h1 class="intake-title" id="intake-title" data-i18n="intake.title">FactEngine tests the facts.</h1>
     <!-- While a test runs the box closes to this line, so the results are not pushed down the page. -->
     <div class="intake-summary" id="intake-summary" hidden>
@@ -154,8 +153,7 @@
         </div>
       </div>
 
-      <figure class="echo frame" id="echo" hidden>
-        <i class="bk bk-tl" aria-hidden="true"></i><i class="bk bk-tr" aria-hidden="true"></i><i class="bk bk-bl" aria-hidden="true"></i><i class="bk bk-br" aria-hidden="true"></i>
+      <figure class="echo" id="echo" hidden>
         <div class="echo-frame">
           <img id="echo-img" alt="Symbolic photograph of the document" data-i18n-alt="echo.alt" hidden>
           <div class="echo-shimmer" id="echo-shimmer"><span data-i18n="echo.making">Composing the frame…</span></div>
@@ -195,17 +193,26 @@
 </main>
 
 <footer class="footer">
-  <a class="footer-service" href="https://operatingequity.ai" target="_blank" rel="noopener">
-    <span data-i18n="footer.service">As a service of</span>
-    <img src="assets/oe-logo.png" alt="OperatingEquity.ai" class="oe-mark" width="44" height="24">
-    <span class="oe-name">OperatingEquity.ai</span>
-  </a>
+  <div class="footer-brand">
+    <a class="footer-site" href="./">FactEngine.com</a>
+    <span class="footer-dot" aria-hidden="true">·</span>
+    <a class="footer-service" href="https://operatingequity.ai" target="_blank" rel="noopener">
+      <span data-i18n="footer.service">A service of</span>
+      <img src="assets/oe-logo.png" alt="OperatingEquity.ai" class="oe-mark" width="44" height="24">
+      <span class="oe-name">OperatingEquity.ai</span>
+    </a>
+  </div>
+  <nav class="footer-links" aria-label="Terms, privacy and contact">
+    <a href="terms" data-i18n="footer.terms">Terms</a>
+    <a href="privacy" data-i18n="footer.privacy">Privacy</a>
+    <a href="contact" data-i18n="footer.contact">Contact</a>
+    <span class="footer-copy" data-i18n="footer.copyright">© 2026</span>
+  </nav>
   <p class="footer-build mono" id="build-stamp" title="Which version of the page this browser has loaded."></p>
 </footer>
 
 <template id="tpl-card">
-  <article class="card frame" data-state="pending">
-    <i class="bk bk-tl" aria-hidden="true"></i><i class="bk bk-tr" aria-hidden="true"></i><i class="bk bk-bl" aria-hidden="true"></i><i class="bk bk-br" aria-hidden="true"></i>
+  <article class="card" data-state="pending">
     <header class="card-head">
       <span class="card-n mono"></span>
       <p class="card-claim"></p>
