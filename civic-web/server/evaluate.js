@@ -22,8 +22,10 @@ import { parseEntry, conclusionExcerpt } from './verdict.js';
 import { requestTools, toolStep, searchCount } from './tools/request.js';
 export { parseEntry, VERDICTS } from './verdict.js';
 
-export async function runEvaluation({ apiKey, claims, document = '', send, signal }) {
+export async function runEvaluation({ apiKey, claims, document = '', send, signal, ctx = {} }) {
   const client = clientFor(apiKey);
+  // Whose work each claim's line is: the run, the sign-in, and the determination's own id (server/economics.js).
+  const lineCtx = (i) => ({ runId: ctx.runId || null, owner: ctx.owner || null, determinationId: ctx.determinationIds?.[i] || null });
   const total = claims.length;
   let completed = 0;
   const started = Date.now();
@@ -207,7 +209,7 @@ export async function runEvaluation({ apiKey, claims, document = '', send, signa
           continue;
         }
         const safe = describeError(err);
-        record({ kind: 'evaluate', ok: false, code: safe.code, model: modelUsed, effort: config.evalEffort, claim: claimHash(claim), ms: Date.now() - startedAt });
+        record({ kind: 'evaluate', ok: false, code: safe.code, model: modelUsed, effort: config.evalEffort, claim: claimHash(claim), ms: Date.now() - startedAt }, lineCtx(i));
         send({ t: 'error', i, code: safe.code, message: safe.message });
         completed++;
         send({ t: 'batch-progress', completed, total });
@@ -227,7 +229,7 @@ export async function runEvaluation({ apiKey, claims, document = '', send, signa
       claim: claimHash(claim), chars: claim.length, fellBack: fellBack?.used || null, verdict: parsed.verdict, verdictSource: parsed.verdictSource,
       confidence: parsed.confidence, usage, searches: searchCount(trail), sources: sources.length, incomplete, ms,
       usd: cost.usd, priced: cost.priced,
-    });
+    }, lineCtx(i));
     completed++;
     send({
       t: 'done', i,

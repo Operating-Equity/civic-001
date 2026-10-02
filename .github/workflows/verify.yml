@@ -16,6 +16,25 @@ jobs:
     defaults:
       run:
         working-directory: civic-web
+    # The economics (server/economics.js) are proved on a real Postgres, as on Render: a service
+    # container here, and CIVIC_VERIFY_REQUIRE_DATABASE=1 so that a missing database fails the guard
+    # rather than skipping its checks.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: verify
+          POSTGRES_USER: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      CIVIC_VERIFY_DATABASE_URL: postgres://postgres:verify@localhost:5432/postgres
+      CIVIC_VERIFY_REQUIRE_DATABASE: "1"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

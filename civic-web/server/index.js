@@ -29,6 +29,7 @@ import { gate, sessionOf, required as signinRequired, codes as accessCodes, norm
 import { allowance as codeAllowance, used as codeUsed, recordUse, summary as codesSummary } from './uses.js';
 import { registry } from './tools/index.js';
 import { mountGateway } from './tools/gateway.js';
+import * as economics from './economics.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const publicDir = path.join(here, '..', 'public');
@@ -109,14 +110,18 @@ const ownerOf = (req) => { const s = sessionOf(req); return s ? `${fingerprintOf
 
 // ---- API ---------------------------------------------------------------------------------
 
-app.get('/api/health', (req, res) => {
+app.get('/api/health', wrap(async (req, res) => {
   const session = sessionOf(req);
+  // What the page shows of the prices (server/economics.js): the tier, the free count, the price and
+  // the operator's note. Never a cost. Null when pricing is off, or when it cannot be read just now.
+  const pricing = await economics.publicState().catch((err) => { console.error('[economics] the price could not be read:', err.message); return null; });
   res.json({
     ok: true, build: BUILD, ...publicConfig(promptStatus()), readUrl: true, acceptedSourceExt: ACCEPTED_SOURCE_EXT, acceptedChallengeExt: ACCEPTED_CHALLENGE_EXT,
     active: jobs.active(),                                              // runs in flight right now, whatever their connections are doing; an update waits for zero
     access: { required: signinRequired(), session: session ? { email: session.email, operator: isOperator(session) } : null },
+    pricing,
   });
-});
+}));
 
 // Sign-in by code. The code is the only thing checked; the email is kept with the sign-in.
 app.post('/api/signin', (req, res) => {
@@ -137,7 +142,10 @@ app.get('/api/selftest', wrap(async (req, res) => {
   // Who signed in, and the runs per code, are the operator's to see: with CIVIC_OPERATOR_CODES set
   // they go to those codes alone; unset, to every code holder, as before 30 September.
   const operator = !operatorsConfigured() || isOperator(sessionOf(req));
-  res.json({ ...await selftest({ apiKey: operatorKey({ optional: true }), build: BUILD }), signins: operator ? recentSignins(10) : [], codes: operator && signinRequired() ? codesSummary() : [], access: { required: signinRequired(), operator } });
+  // The measurement (server/economics.js) is the operator's alone: the price and what it came from, the
+  // tier clock, the guard, and the money per tier, per user and per window.
+  const economy = operator && economics.enabled() ? await economics.report().catch((err) => ({ error: err.message })) : null;
+  res.json({ ...await selftest({ apiKey: operatorKey({ optional: true }), build: BUILD }), signins: operator ? recentSignins(10) : [], codes: operator && signinRequired() ? codesSummary() : [], access: { required: signinRequired(), operator }, economics: economy });
 }));
 
 // The page reports its own failures here, so /check can show them afterwards.
@@ -238,10 +246,22 @@ app.post('/api/extract', wrap(async (req, res) => {
 
   const meta = sourceMeta(req.body?.source);
   const text = source.text;
+  // The run's row (server/economics.js): its tier and its window's price are fixed here and hold for
+  // the document. The page is told them first of all, so the rows can show Free and the price.
+  // Bookkeeping never stops a run: a row that cannot be made is said in the log, and the run goes on.
+  const run = await economics.openRun({ id, owner, email: session?.email || null, codeFp: session ? fingerprintOf(session.code) : null, chars: text.length })
+    .catch((err) => { console.error('[economics] the run could not be recorded:', err.message); return null; });
+  const ctx = { runId: id, owner };
+  // The row was awaited: a second request for this job meanwhile (a page coming back at once) joins it.
+  const meanwhile = jobs.get(id, owner);
+  if (meanwhile) { meanwhile.attach(openStream(req, res), req.body?.cursor); return; }
   jobs.start(id, 'extraction', async ({ send, signal }) => {
+    if (run) send({ t: 'pricing', tier: run.tier, freeFacts: run.freeAllowed, priceCents: run.priceCents, currency: config.currency, note: config.pricingNote || null });
     try {
-      await runExtraction({ apiKey, text, meta, send, signal, sourceWarning });
+      const result = await runExtraction({ apiKey, text, meta, send, signal, sourceWarning, ctx });
+      economics.finishRun(id, { claimsTotal: result?.total ?? null, status: result ? 'done' : 'cancelled' });
     } catch (err) {
+      economics.finishRun(id, { status: 'failed' });
       const safe = describeError(err);
       send({ t: 'error', code: safe.code, message: safe.message, status: safe.status });
     }
@@ -264,12 +284,38 @@ app.post('/api/evaluate', wrap(async (req, res) => {
   const source = req.body?.text ? normalise(req.body.text) : null;
   const document = source && source.chars >= 20 ? sourceBlock(source.text, sourceMeta(req.body?.source)) : '';
 
+  // Each claim's row (server/economics.js): the server decides, never the page, whether it is one of
+  // the document's free ones or priced at the run's price, and the page is told before the model is
+  // asked. The page names its run and the claim's number; a request without them (an older page, the
+  // guard's own) is measured as a determination of no run, priced at nothing.
+  const runId = typeof req.body?.runId === 'string' && /^[A-Za-z0-9_.:-]{8,128}$/.test(req.body.runId.trim()) ? req.body.runId.trim() : null;
+  const n = Number.isInteger(req.body?.n) && req.body.n > 0 ? req.body.n : null;
+  const detIds = claims.map((_, i) => (claims.length === 1 ? id : `${id}#${i + 1}`));
+  const quotes = [];
+  for (let i = 0; i < claims.length; i++) {
+    quotes.push(await economics.openDetermination({ id: detIds[i], runId, n: claims.length === 1 ? n : null, chars: claims[i].length })
+      .catch((err) => { console.error('[economics] the determination could not be recorded:', err.message); return null; }));
+  }
+  const ctx = { runId, owner, determinationIds: detIds };
+  // The rows were awaited: a second request for this job meanwhile joins it rather than starting it twice.
+  const meanwhile = jobs.get(id, owner);
+  if (meanwhile) { meanwhile.attach(openStream(req, res), req.body?.cursor); return; }
   jobs.start(id, 'determination', async ({ send, signal }) => {
+    quotes.forEach((q, i) => { if (q) send({ t: 'quote', i, free: q.free, priceCents: q.priceCents, currency: config.currency }); });
+    // The books close with the claim's own end: done books its revenue at list; an error books nothing.
+    const sendAndBook = (ev) => {
+      send(ev);
+      if (ev.t === 'done' && ev.i !== undefined) economics.book(detIds[ev.i], { status: 'done', verdict: ev.verdict || null, model: ev.model || null });
+      else if (ev.t === 'error' && ev.i !== undefined) economics.book(detIds[ev.i], { status: 'failed', failure: ev.code || 'error' });
+    };
     try {
-      await runEvaluation({ apiKey, claims, document, send, signal });
+      await runEvaluation({ apiKey, claims, document, send: sendAndBook, signal, ctx });
     } catch (err) {
       const safe = describeError(err);
       send({ t: 'error', code: safe.code, message: safe.message, status: safe.status });
+    } finally {
+      // A claim the request ended without a result for (the page stopped the run, the request failed): failed, nothing booked.
+      await economics.closeOpen(detIds, signal.aborted ? 'cancelled' : 'ended');
     }
   }, { owner }).attach(openStream(req, res), 0);
 }));
@@ -441,9 +487,23 @@ server.keepAliveTimeout = 75 * 1000;
 // start them over), so their model calls are stopped rather than paid for to no end; the listener
 // closes, so the port is free for the next FactEngine; the process ends when the last connection closes.
 process.on('SIGTERM', () => {
-  jobs.cancel(jobs.ids());
-  server.close(() => process.exit(0));
-  if (typeof server.closeIdleConnections === 'function') server.closeIdleConnections();
+  // First the books: every determination this instance still has in flight is failed as `deploy`,
+  // its cost kept and nothing booked (server/economics.js), given a few seconds and no more.
+  Promise.race([economics.closeAllOpen('deploy'), new Promise((r) => setTimeout(r, 3000))]).catch(() => {}).finally(() => {
+    jobs.cancel(jobs.ids());
+    server.close(() => process.exit(0));
+    if (typeof server.closeIdleConnections === 'function') server.closeIdleConnections();
+  });
 });
+
+// The measurement's home is prepared before the door opens (server/economics.js, server/db.js): a
+// schema that cannot be made stops this instance here, with the reason, and the host's health check
+// keeps the old one answering.
+try {
+  await economics.boot();
+} catch (err) {
+  console.error(`\nSTOPPED: the database could not be prepared, so this FactEngine did not start: ${err?.message || err}\n`);
+  process.exit(1);
+}
 
 server.listen(config.port);

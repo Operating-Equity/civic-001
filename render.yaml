@@ -49,3 +49,8 @@ services:
         sync: false
       - key: CIVIC_ACCESS_CODES
         sync: false
+      # The measurement of every run and determination (server/economics.js) lives in the Render
+      # Postgres named CIVIC; its internal connection string is set on the service in Render as
+      # DATABASE_URL (Render's own name for it), never here.
+      - key: DATABASE_URL
+        sync: false

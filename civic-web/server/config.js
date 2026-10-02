@@ -21,6 +21,10 @@ const env = (name, fallback) => {
 const list = (name, fallback) => env(name, fallback).split(',').map((s) => s.trim()).filter(Boolean);
 const int = (name, fallback) => Number.parseInt(env(name, String(fallback)), 10);
 const bool = (name, fallback) => /^(1|true|yes|on)$/i.test(env(name, fallback ? 'true' : 'false'));
+const num = (name, fallback) => { const v = Number(env(name, String(fallback))); return Number.isFinite(v) ? v : fallback; };
+// A figure the operator may leave unset: null then, never a number of ours.
+const optInt = (name) => { const v = Number.parseInt(env(name, ''), 10); return Number.isInteger(v) ? v : null; };
+const optNum = (name) => { const raw = env(name, ''); const v = Number(raw); return raw !== '' && Number.isFinite(v) ? v : null; };
 
 // The operator's configuration: gpt-5.6-sol, OpenAI's flagship below GPT-6, at its maximum. Tested by the
 // operator at reasoning effort xhigh; on 21 September they asked for the model's maximum power short of
@@ -177,6 +181,34 @@ export const config = {
   signinLog: env('CIVIC_SIGNIN_LOG', new URL('../data/signins.jsonl', import.meta.url).pathname),
   // One line per run started under a code (server/uses.js); on a persistent disk in the cloud.
   usesFile: env('CIVIC_USES_FILE', new URL('../data/uses.jsonl', import.meta.url).pathname),
+
+  // Facts have a price, and every user is measured (server/economics.js; the operator's program of
+  // 2 October). Listing the claims is always free; testing one is priced, and a run's tier says how
+  // many of the claims the reader chooses on a document are free (tier 1: none; 2: one; 3: two; 4:
+  // three). The price is the measured average cost of a determination marked up by the percentage
+  // below, or the start figure until the sample is big enough; nothing is charged yet, revenue is
+  // booked at list price and marked not collected. Every figure here is the operator's.
+  pricingEnabled: bool('CIVIC_PRICING_ENABLED', true),         // false: the page as before, nothing priced or measured beyond the ledger
+  priceMarkupPercent: num('CIVIC_PRICE_MARKUP_PERCENT', 25),    // "the average needs to be marked up 25% to start"
+  priceWindowDays: num('CIVIC_PRICE_WINDOW_DAYS', 7),           // the average is taken over this many days (a flagged default)
+  priceMinSample: int('CIVIC_PRICE_MIN_SAMPLE', 20),            // determinations the average needs before it sets the price (a flagged default)
+  priceStartCents: optInt('CIVIC_PRICE_START_CENTS'),           // the price until the sample exists; unset = nothing is priced until it does
+  currency: env('CIVIC_CURRENCY', 'USD'),
+  tierHours: num('CIVIC_TIER_HOURS', 6),                        // "change every 6 hours"
+  tierOrder: list('CIVIC_TIER_ORDER', '1,2,3,4').map((x) => Number.parseInt(x, 10)).filter((x) => Number.isInteger(x) && x > 0),
+  tierShift: int('CIVIC_TIER_SHIFT', 1),                        // each day the rotation starts one tier later, so every tier meets every time of day (0 = a fixed clock)
+  tierLossGuardUsd: optNum('CIVIC_TIER_LOSS_GUARD_USD'),        // "unless one is very unprofitable and I am losing a lot of money. Become 1 until we earn it back"; unset = off
+  tierFixed: optInt('CIVIC_TIER_FIXED'),                        // one tier for everyone, for when the data has spoken
+  pricingNote: env('CIVIC_PRICING_NOTE', ''),                   // a sentence of the operator's under the prices (for instance that the beta is not charged)
+  // The measurement's home: Render's Postgres when DATABASE_URL is set (the rows outlive every
+  // deploy); without it, this instance's memory, which a restart empties. Never a CIVIC_ name:
+  // DATABASE_URL is what Render itself puts on a service. CIVIC_DATABASE_SSL: auto (verified TLS
+  // to a host with a dot in its name, none to an internal one), require, insecure or off.
+  databaseUrl: env('DATABASE_URL', ''),
+  databaseSsl: env('CIVIC_DATABASE_SSL', 'auto'),
+  // The guard's clock. Set to an instant (ISO 8601), the economics run as if the server had started
+  // then, so a tier change six hours away can be proved in a second. Never set it otherwise.
+  clock: env('CIVIC_CLOCK', ''),
 };
 
 /** Exactly what each request will carry. Printed at startup and reported by /api/health. */

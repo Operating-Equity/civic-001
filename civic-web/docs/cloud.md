@@ -391,6 +391,22 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
   bracket and no square frame, the footer names the site, the service, Terms, Privacy, Contact and the year, the
   stylesheet has no bracket rule, rounds the dialog and carries the clearer glass, /terms, /privacy and /contact
   are served as their own pages over the still field, and all four locales carry the footer words (11/11).
+- **2 October, late: facts have a price, and every user is measured (release P).** The operator's program:
+  "All empirical facts are parsed and listed for Free, and the user can then decide which or all to test,
+  with 0 to 3 free facts, and cost and revenue measured for all users in each tier"; "the average needs to be
+  marked up 25% to start"; "change every 6 hours unless one is very unprofitable and I am losing a lot of
+  money. Become 1 until we earn it back"; "I need to test, measure, and optimize. It's absolutely critical."
+  Built: `server/economics.js` (the tier fixed at a run's start and rotating every `CIVIC_TIER_HOURS` with a
+  daily shift; one price for everyone fixed at each window's start from the measured average × 1.25, or
+  `CIVIC_PRICE_START_CENTS` until twenty are measured, nothing priced until either exists; the loss guard to
+  tier 1; revenue at list on done only, not collected; a failed determination keeps its cost and uses up no
+  free one), `server/db.js` with `server/migrations/001-economics.sql` on the Render Postgres named CIVIC
+  (`DATABASE_URL`, already on the service), every ledger line carrying its run, determination and owner, the
+  page's Free marks and prices with the button's sum in four languages, the operator's measurement on /check
+  (price and basis, tier clock, guard, per tier, per user, per window), `CIVIC_PRICING_ENABLED=false` as the
+  rollback. The guard proves it on a real Postgres (its own cluster here; a service container in CI, required).
+  The operator's figures still to set: `CIVIC_PRICE_START_CENTS` (without it nothing is priced until twenty
+  determinations are measured, which /check counts) and `CIVIC_TIER_LOSS_GUARD_USD` (off until set).
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 

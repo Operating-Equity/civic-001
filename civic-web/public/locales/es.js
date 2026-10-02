@@ -200,5 +200,17 @@ export default {
   echo: { alt: 'Ilustración simbólica del documento', making: 'Componiendo el encuadre…', video: 'El vídeo a prueba' },
   time: { seconds_one: '{n} segundo', seconds_other: '{n} segundos', minutes: '{m} min {s} s' },
   numbers: { 1: 'uno', 2: 'dos', 3: 'tres', 4: 'cuatro', 5: 'cinco', 6: 'seis', 7: 'siete', 8: 'ocho', 9: 'nueve', 10: 'diez', 11: 'once', 12: 'doce' },
+  price: {
+    free: 'Gratis',
+    testPriced_one: 'Probar {n} afirmación · {amount}',
+    testPriced_other: 'Probar {n} afirmaciones · {amount}',
+    testFree_one: 'Probar {n} afirmación · gratis',
+    testFree_other: 'Probar {n} afirmaciones · gratis',
+    testMixed_one: 'Probar {n} afirmación · {free} gratis + {amount}',
+    testMixed_other: 'Probar {n} afirmaciones · {free} gratis + {amount}',
+    hint: 'Probar una afirmación cuesta {amount}.',
+    hintFree_one: 'La primera que elijas en cada documento es gratis.',
+    hintFree_other: 'Las primeras {n} que elijas en cada documento son gratis.',
+  },
   footer: { site: 'FactEngine.com', service: 'Un servicio de', terms: 'Términos', privacy: 'Privacidad', contact: 'Contacto', copyright: '© 2026' },
 };
