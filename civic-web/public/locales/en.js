@@ -202,5 +202,17 @@ export default {
   echo: { alt: 'Symbolic illustration of the document', making: 'Composing the frame…', video: 'The video under test' },
   time: { seconds_one: '{n} second', seconds_other: '{n} seconds', minutes: '{m} min {s} s' },
   numbers: { 1: 'one', 2: 'two', 3: 'three', 4: 'four', 5: 'five', 6: 'six', 7: 'seven', 8: 'eight', 9: 'nine', 10: 'ten', 11: 'eleven', 12: 'twelve' },
+  price: {
+    free: 'Free',
+    testPriced_one: 'Test {n} claim · {amount}',
+    testPriced_other: 'Test {n} claims · {amount}',
+    testFree_one: 'Test {n} claim · free',
+    testFree_other: 'Test {n} claims · free',
+    testMixed_one: 'Test {n} claim · {free} free + {amount}',
+    testMixed_other: 'Test {n} claims · {free} free + {amount}',
+    hint: 'Testing a claim costs {amount}.',
+    hintFree_one: 'The first {n} you choose on each document is free.',
+    hintFree_other: 'The first {n} you choose on each document are free.',
+  },
   footer: { site: 'FactEngine.com', service: 'A service of', terms: 'Terms', privacy: 'Privacy', contact: 'Contact', copyright: '© 2026' },
 };

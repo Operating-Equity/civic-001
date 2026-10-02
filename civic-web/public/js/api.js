@@ -217,9 +217,10 @@ export function extract({ jobId, text, source, signal, onEvent, onCut, onAttache
   return streamNdjson('api/extract', { jobId, text, source }, { signal, onEvent, onCut, onAttached, isEnd: (ev) => ev.t === 'done' || ev.t === 'error' });
 }
 
-export function evaluate({ jobId, claims, text, source, signal, onEvent, onCut, onAttached }) {
+export function evaluate({ jobId, claims, text, source, runId, n, signal, onEvent, onCut, onAttached }) {
   // A determination's story ends when the server closes the batch, or with an error for the run itself.
-  return streamNdjson('api/evaluate', { jobId, claims, text, source }, { signal, onEvent, onCut, onAttached, isEnd: (ev) => ev.t === 'complete' || (ev.t === 'error' && ev.i === undefined) });
+  // The run's name and the claim's number go with it, so the server can say whether this one is free.
+  return streamNdjson('api/evaluate', { jobId, claims, text, source, runId: runId || undefined, n: Number.isInteger(n) ? n : undefined }, { signal, onEvent, onCut, onAttached, isEnd: (ev) => ev.t === 'complete' || (ev.t === 'error' && ev.i === undefined) });
 }
 
 export async function illustrate({ text, signal }) {

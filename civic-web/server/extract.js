@@ -44,7 +44,7 @@ export function splitEntry(entry) {
   return { text: rest.slice(0, next).trim(), more: rest.slice(next).trim() };
 }
 
-export async function runExtraction({ apiKey, text, meta, send, signal, sourceWarning }) {
+export async function runExtraction({ apiKey, text, meta, send, signal, sourceWarning, ctx = {} }) {
   const client = clientFor(apiKey);
   // A prompt with a slot for the source asked for what is known of its origin too, so the source
   // goes in with what CIVIC knows of that. A prompt without a slot gets the text alone.
@@ -179,7 +179,7 @@ export async function runExtraction({ apiKey, text, meta, send, signal, sourceWa
   const claims = items.map((c, i) => ({ n: i + 1, ...splitEntry(c.text), entry: c.text }));
   const ms = Date.now() - started;
   const cost = estimateTextCost({ model: modelUsed, usage });
-  record({ kind: 'extract', model: modelUsed, effort: config.extractEffort, mode: config.extractReasoningMode || null, chars: text.length, claims: claims.length, usage, ms, usd: cost.usd, priced: cost.priced });
+  record({ kind: 'extract', model: modelUsed, effort: config.extractEffort, mode: config.extractReasoningMode || null, chars: text.length, claims: claims.length, usage, ms, usd: cost.usd, priced: cost.priced }, { runId: ctx.runId, owner: ctx.owner });
   // `raw` is the model's complete extraction output, exactly as returned, so it can be inspected.
   // No token figures go to the page (the operator's rule of 18 September); the ledger line above keeps them.
   const result = { t: 'done', total: claims.length, limit: config.maxClaims, claims, raw: full, reasoning: reasoning.trim() || null, trail, model: modelUsed, requested: config.extractModels[0], fellBack, effort: config.extractEffort, mode: config.extractReasoningMode || null, ms, cost, incomplete };

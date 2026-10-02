@@ -58,6 +58,7 @@ const state = {
   jobs: new Set(),     // every job of this run the server may still hold: cancelled on reset, on leaving
   evalStartedAt: 0,
   gate: null,          // the key's minute figures, from the server, once OpenAI has given them
+  pricing: null,       // this run's prices, from the server: { tier, freeFacts, priceCents, currency, note }; null = nothing priced
   status: { step1: null, step2: null },
 };
 
@@ -544,6 +545,7 @@ function newResult() {
     verdict: null, verdictSource: 'none', confidence: null, inspector: null,
     usage: null, cost: null, ms: null, trail: [], sources: [], incomplete: null, renderAt: 0,
     jobId: null, cutFrom: null,   // the claim's job at the server, and what the row said before its connection was cut
+    free: null, priceCents: null, // what the server said this one costs: one of the document's free ones, or the price
   };
 }
 
@@ -561,7 +563,7 @@ function resetRunState() {
     phase: 'idle', warnings: [], claims: [], claimsRaw: '', beyond: [], cards: [], results: [], extraction: null, echo: null,
     batch: { start: 0, size: 0, done: 0 }, counts: { true: 0, false: 0, unverified: 0 }, unread: 0,
     cost: 0, unpriced: false,
-    extractStartedAt: 0, extractChars: 0, found: 0, extractWait: null, extractCut: false, runId: '', extractJob: '', evalStartedAt: 0, gate: null, status: { step1: null, step2: null },
+    extractStartedAt: 0, extractChars: 0, found: 0, extractWait: null, extractCut: false, runId: '', extractJob: '', evalStartedAt: 0, gate: null, pricing: null, status: { step1: null, step2: null },
   });
   ui.runWarnings.replaceChildren();
   ui.runWarnings.hidden = true;
@@ -740,6 +742,7 @@ async function runExtraction(text) {
         if (ev.phase === 'incomplete') toast(t('step1.incomplete'), { error: true, ms: 9000 });
         break;
       case 'warning': addWarning(ev); break;
+      case 'pricing': state.pricing = ev; renderBeyondTools(); break;   // this run's tier, free count and price, from the server
       case 'done': finished = true; finishExtraction(ev); break;
       case 'error': finished = true; failRun(ev); break;
       default: break;
@@ -816,7 +819,7 @@ function renderExtractThinking() {
 // (who said it and when, what the source does not say), those lines, verbatim.
 // The Claim line is the row's title; the further lines are shown under it; the whole entry, as the
 // extractor wrote it, is what is tested, so the who and the when travel with every claim.
-function claimOf(c) { return { text: c.text, more: c.more || '', entry: c.entry || c.text }; }
+function claimOf(c) { return { n: Number.isInteger(c.n) ? c.n : undefined, text: c.text, more: c.more || '', entry: c.entry || c.text }; }
 function claimNode(c) {
   return el('div', {}, [el('span', { class: 'claim-text', text: c.text }), c.more ? el('div', { class: 'claim-more', text: c.more }) : null]);
 }
@@ -863,6 +866,7 @@ function finishExtraction(ev) {
     state.phase = 'done';
     field.setPhase('done');
     setStatus('step2', null);
+    ui.scorePhase.hidden = true;   // the extraction is over; the scoreboard stops saying it is extracting
     ui.run.disabled = false;
     syncBeyondRows();
     return;
@@ -933,11 +937,80 @@ function renderBeyondTools() {
   ui.selectAll.textContent = t(allSelected ? 'claims.clearAll' : 'claims.selectAll');
   ui.testSelected.hidden = open.length === 0;
   ui.testSelected.disabled = selected === 0 || busy;
-  ui.testSelected.textContent = t('claims.testSelected', { n: selected });
+  // With a price on this run, the button says what the selection costs: the first of the document's
+  // free ones go free, the rest at the price; without one, the count alone, as before.
+  const price = pricingNow();
+  if (price && selected > 0) {
+    const freeN = Math.min(freeRemaining(), selected);
+    const priced = selected - freeN;
+    const amount = fmtMoney(priced * price.priceCents, price.currency);
+    ui.testSelected.textContent = freeN === 0 ? t('price.testPriced', { n: selected, amount }) : priced === 0 ? t('price.testFree', { n: selected }) : t('price.testMixed', { n: selected, free: freeN, amount });
+  } else ui.testSelected.textContent = t('claims.testSelected', { n: selected });
   let hint = '';
   if (busy) hint = t('claims.afterFirst');
+  else if (price) hint = [t('price.hint', { amount: fmtMoney(price.priceCents, price.currency) }), price.freeFacts > 0 ? t('price.hintFree', { n: price.freeFacts }) : '', price.note || ''].filter(Boolean).join(' ');
   else if (state.accounting && averageCost() !== null) hint = t('claims.avgCost', { usd: fmtUsd(averageCost()) });
   ui.beyondHint.textContent = hint;
+  renderPriceLabels();
+}
+
+// ---------- prices: what the server said this run's claims cost ---------------------------------------
+
+/** This run's price, when the server set one: { priceCents, freeFacts, currency, note }; null when nothing is priced. */
+function pricingNow() {
+  const p = state.pricing;
+  return p && Number.isInteger(p.priceCents) && p.priceCents > 0 ? p : null;
+}
+
+/** Free claims still to be had on this document: the tier's count less the ones already taken (a failed one takes none). */
+function freeRemaining() {
+  const p = pricingNow();
+  if (!p) return 0;
+  const taken = state.results.filter((r) => r.free === true && r.status !== 'error').length;
+  return Math.max(0, (Number(p.freeFacts) || 0) - taken);
+}
+
+/** Money in the reader's language and the service's currency. */
+function fmtMoney(cents, currency) {
+  const amount = (Number(cents) || 0) / 100;
+  try { return new Intl.NumberFormat(currentLocale(), { style: 'currency', currency: currency || state.pricing?.currency || 'USD' }).format(amount); }
+  catch { return `${amount.toFixed(2)} ${currency || ''}`.trim(); }
+}
+
+function setPriceLabel(card, text, free) {
+  const node = card && $('.card-price', card);
+  if (!node) return;
+  node.textContent = text;
+  node.hidden = !text;
+  node.classList.toggle('is-free', Boolean(free));
+}
+
+/** A tested row's label is what the server said: Free, the price, or nothing when nothing was priced. */
+function renderPriceLabel(i) {
+  const r = state.results[i];
+  const card = cardOf(i);
+  if (!r || !card) return;
+  if (r.free === true) setPriceLabel(card, t('price.free'), true);
+  else if (Number.isInteger(r.priceCents) && r.priceCents > 0) setPriceLabel(card, fmtMoney(r.priceCents), false);
+  else setPriceLabel(card, '', false);
+}
+
+/**
+ * The rows still to choose from: the free marks sit on the rows that would be free if the reader
+ * pressed now (the chosen ones first, in the list's order, then the rest), and every other row shows
+ * the price. So a tick moves the marks, and the button's sum and the marks always agree.
+ */
+function renderPriceLabels() {
+  for (let i = 0; i < state.results.length; i++) renderPriceLabel(i);
+  const price = pricingNow();
+  const open = state.beyond.filter((b) => !b.tested && b.node);
+  if (!price) { for (const b of open) setPriceLabel(b.node, '', false); return; }
+  let left = freeRemaining();
+  for (const b of [...open.filter((b) => b.selected), ...open.filter((b) => !b.selected)]) {
+    const free = left > 0;
+    if (free) left--;
+    setPriceLabel(b.node, free ? t('price.free') : fmtMoney(price.priceCents, price.currency), free);
+  }
 }
 
 function toggleSelectAll() {
@@ -1044,6 +1117,7 @@ async function runClaim(i, signal, { keepGoing = () => true, onSettled = () => {
     try {
       await api.evaluate({
         jobId: job, claims: [claim.entry || claim.text], text: state.source, source: state.sourceMeta, signal, onEvent,
+        runId: state.extractJob, n: Number.isInteger(claim.n) ? claim.n : i + 1,   // the run is its extraction's job at the server, which is what the row is filed under; so the server can say whether this one is free
         // Whatever the row was saying (queued at the gate, inspecting, writing), it says the connection
         // was cut until a new one is open, then goes back to what it was saying.
         onCut: () => { if (!settled && r.phase !== 'reconnecting') { r.cutFrom = r.phase; r.phase = 'reconnecting'; renderCardStatus(i); } },
@@ -1106,6 +1180,7 @@ function handleEvalEvent(ev, mapIndex) {
       scheduleEntryRender(i);
       break;
     case 'trail': r.trail.push(ev.step); renderCardStatus(i); break;
+    case 'quote': r.free = ev.free ?? null; r.priceCents = ev.priceCents ?? null; renderPriceLabel(i); renderBeyondTools(); break;   // free, or the price: the server's word
     case 'source': r.sources.push(ev.source); break;
     case 'note': if (ev.code === 'no_reasoning_summary') r.noSummary = true; break;
     case 'retry':

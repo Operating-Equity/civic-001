@@ -4,7 +4,7 @@
 // verbatim, web search. Any other key in a request body is a failure, whoever added it.
 // It also runs the prompt leak guard: no committed file may contain a fragment of the prompts.
 // Run before every deploy: `npm run verify`. A non-zero exit is a defect.
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import http from 'node:http';
 import net from 'node:net';
@@ -21,6 +21,8 @@ import { isConnectionDrop, connectionWait, describeError } from '../server/opena
 import { generateCode, normalise, ALPHABET } from '../server/access.js';
 import { validateStandIn } from '../server/tools/contract.js';
 import { config, requestShape } from '../server/config.js';
+import { tierAt, windowStartAt, freeFor, priceFromAverage } from '../server/economics.js';
+import pg from 'pg';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.join(here, '..');
@@ -1340,6 +1342,262 @@ async function toolChecks() {
   }
 }
 await toolChecks();
+
+// Facts have a price, and every user is measured (server/economics.js, server/db.js; the operator's
+// program of 2 October). Proved on a real Postgres: the guard makes its own cluster here (initdb in a
+// temporary directory; as root, handed to the postgres user) or uses CIVIC_VERIFY_DATABASE_URL, as in
+// CI's service container; with CIVIC_VERIFY_REQUIRE_DATABASE=1 a missing database is a failure, so
+// nothing passes by skipping. The file mode (no DATABASE_URL) runs the same flow at the end.
+async function provisionPostgres() {
+  if (process.env.CIVIC_VERIFY_DATABASE_URL) return { url: process.env.CIVIC_VERIFY_DATABASE_URL, stop: async () => {} };
+  const onPath = (() => { const r = spawnSync('sh', ['-c', 'command -v initdb'], { encoding: 'utf8' }); return r.status === 0 ? path.dirname(r.stdout.trim()) : null; })();
+  const bins = ['/usr/lib/postgresql/18/bin', '/usr/lib/postgresql/17/bin', '/usr/lib/postgresql/16/bin', '/usr/local/pgsql/bin', '/opt/homebrew/opt/postgresql@17/bin', '/opt/homebrew/opt/postgresql@16/bin', '/usr/local/opt/postgresql@16/bin', onPath].filter(Boolean);
+  const bin = bins.find((b) => fs.existsSync(path.join(b, 'initdb')) && fs.existsSync(path.join(b, 'pg_ctl')));
+  if (!bin) return null;
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'civic-verify-pg-'));
+  const port = PORT + 90;   // its own port, clear of every server and stand-in the guard starts
+  const asPostgres = typeof process.getuid === 'function' && process.getuid() === 0;   // initdb will not run as root: the cluster is the postgres user's
+  const run = (cmd, args) => (asPostgres ? spawnSync('runuser', ['-u', 'postgres', '--', cmd, ...args], { encoding: 'utf8' }) : spawnSync(cmd, args, { encoding: 'utf8' }));
+  if (asPostgres) spawnSync('chown', ['-R', 'postgres', dir]);
+  const init = run(path.join(bin, 'initdb'), ['-D', path.join(dir, 'data'), '-U', 'postgres', '-A', 'trust', '--no-sync', '-E', 'UTF8']);
+  if (init.status !== 0) { console.error(`  (economics: initdb failed: ${(init.stderr || init.stdout || '').trim().slice(0, 200)})`); return null; }
+  const up = run(path.join(bin, 'pg_ctl'), ['-D', path.join(dir, 'data'), '-w', '-l', path.join(dir, 'pg.log'), '-o', `-p ${port} -k ${dir} -c listen_addresses=127.0.0.1 -F`, 'start']);
+  if (up.status !== 0) { let log = ''; try { log = fs.readFileSync(path.join(dir, 'pg.log'), 'utf8').trim().split('\n').slice(-3).join(' | '); } catch {} console.error(`  (economics: pg_ctl start failed: ${(up.stderr || up.stdout || '').trim().slice(0, 200)} ${log})`); return null; }
+  return { url: `postgres://postgres@127.0.0.1:${port}/postgres`, stop: async () => { run(path.join(bin, 'pg_ctl'), ['-D', path.join(dir, 'data'), '-m', 'immediate', 'stop']); try { fs.rmSync(dir, { recursive: true, force: true }); } catch {} } };
+}
+
+async function economicsChecks() {
+  const required = /^(1|true|yes)$/i.test(process.env.CIVIC_VERIFY_REQUIRE_DATABASE || '');
+  const provision = await provisionPostgres().catch((err) => { console.error(`  (economics: no database: ${err.message})`); return null; });
+  if (!provision) {
+    if (required) check('a Postgres is available for the economics checks (CIVIC_VERIFY_REQUIRE_DATABASE=1)', false, 'no CIVIC_VERIFY_DATABASE_URL, and initdb is not on this machine');
+    else console.log('  (economics: no Postgres here, so the database checks are skipped; CI runs them against a service container)');
+  }
+  const MOCK2 = MOCK_PORT + 50;
+  const mock = start([path.join(root, 'scripts', 'mock-openai.js')], { MOCK_PORT: String(MOCK2), MOCK_SPEED: '0.2', MOCK_EVAL_HOLD_MS: '900', MOCK_EVAL_MARK: process.env.MOCK_EVAL_MARK_FOR_GATE || '' });
+  await wait(`http://localhost:${MOCK2}/v1/mock/stats`, 15000, { anyResponse: true });
+  const text = 'The Eiffel Tower stands about 330 metres tall. Water boils at 100 degrees Celsius at sea level. Mount Everest is 8,849 metres above sea level.';
+  const usesFile = path.join(os.tmpdir(), `civic-verify-economics-uses-${Date.now()}.jsonl`);
+  const common = { OPENAI_BASE_URL: `http://localhost:${MOCK2}/v1`, OPENAI_API_KEY: KEY, CIVIC_IMAGE_ENABLED: 'false', CIVIC_LEDGER_FILE: path.join(os.tmpdir(), 'civic-verify-ledger.jsonl'), CIVIC_SIGNIN_LOG: path.join(os.tmpdir(), 'civic-verify-signins.jsonl'), CIVIC_USES_FILE: usesFile, CIVIC_ACCESS_CODES: 'ABCD234,EFGH567', CIVIC_OPERATOR_CODES: 'ABCD234', CIVIC_CODE_USES: '100' };
+  const servers = [];
+  const boot = async (port, env) => { const s = start([path.join(root, 'server', 'index.js')], { ...common, PORT: String(port), ...env }); servers.push(s); await wait(`http://localhost:${port}/api/health`, 20000); return s; };
+  const base = (port) => `http://localhost:${port}`;
+  const signin = async (port, code) => { const r = await fetch(`${base(port)}/api/signin`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: `${code.toLowerCase()}@verify`, code }) }); return (r.headers.get('set-cookie') || '').split(';')[0]; };
+  const streamAs = async (url, body, cookie) => { const res = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json', cookie }, body: JSON.stringify(body) }); if (!res.ok) throw new Error(`${url} HTTP ${res.status}: ${await res.text()}`); return (await res.text()).split('\n').filter(Boolean).map((l) => JSON.parse(l)); };
+  const json = async (url, cookie) => (await fetch(url, { headers: { cookie } })).json();
+  const runOn = async (port, cookie, jobId) => streamAs(`${base(port)}/api/extract`, { text, jobId }, cookie);
+  const detOn = async (port, cookie, { jobId, runId, n = 1, entry }) => streamAs(`${base(port)}/api/evaluate`, { jobId, claims: [entry], text, source: { kind: 'text' }, runId, n }, cookie);
+  const quoteOf = (events) => { const q = events.find((e) => e.t === 'quote'); return q ? { free: q.free, priceCents: q.priceCents } : null; };
+  const pricingOf = (events) => { const p = events.find((e) => e.t === 'pricing'); return p ? { tier: p.tier, freeFacts: p.freeFacts, priceCents: p.priceCents, currency: p.currency, note: p.note } : null; };
+  const HOUR = 3600e3, DAY = 86400e3;
+  const opts = { hours: 6, order: [1, 2, 3, 4], shift: 1, fixed: null };
+  // An instant in the first half of a day whose tier is 3, so the next window is tier 4 on the same day.
+  let T0 = Date.parse('2026-10-05T00:00:00Z');
+  while (!(tierAt(T0, opts) === 3 && [0, 6].includes(new Date(T0).getUTCHours()))) T0 += 6 * HOUR;
+  const T1 = T0 + 6 * HOUR;
+  const at = (ms) => new Date(ms).toISOString();
+
+  // 1. The clock, as arithmetic: every six hours, the daily shift, a fixed clock, a fixed tier.
+  try {
+    const base0 = Date.parse('2026-10-04T00:00:00Z');
+    const slots = {};   // hour of day → the tiers seen over four days
+    let changes = 0, prev = null, boundaries = true;
+    for (let k = 0; k < 16; k++) {
+      const t = base0 + k * 6 * HOUR;
+      const tier = tierAt(t, opts);
+      const mid = tierAt(t + 3 * HOUR, opts);
+      const before = tierAt(t - 1, opts);
+      if (mid !== tier) boundaries = false;
+      if (prev !== null && before !== prev) boundaries = false;
+      if (prev !== null && tier !== prev) changes++;
+      prev = tier;
+      const h = new Date(t).getUTCHours();
+      slots[h] = [...(slots[h] || []), tier];
+    }
+    const everyTierEveryHour = Object.values(slots).every((list) => JSON.stringify([...list].sort()) === '[1,2,3,4]');
+    const fixedClock = [0, 1, 2, 3].every((d) => tierAt(base0 + d * DAY, { ...opts, shift: 0 }) === tierAt(base0, { ...opts, shift: 0 }));
+    check('the tier changes every six hours and only at the boundary, over four days every tier meets every time of day (the daily shift), a shift of 0 is a fixed clock, and CIVIC_TIER_FIXED holds one tier',
+      boundaries && changes === 15 && everyTierEveryHour && fixedClock && tierAt(base0, { ...opts, fixed: 2 }) === 2 && tierAt(base0 + 5 * DAY, { ...opts, fixed: 2 }) === 2 && freeFor(1) === 0 && freeFor(4) === 3 && priceFromAverage(0.36, 25) === 45 && priceFromAverage(0.0081, 25) === 2,
+      JSON.stringify({ boundaries, changes, slots, fixedClock }));
+  } catch (err) { check('the tier clock arithmetic', false, err.message); }
+
+  let admin = null;
+  const dbUrl = (name) => { const u = new URL(provision.url); u.pathname = `/${name}`; return u.toString(); };
+  const makeDb = async (name) => { await admin.query(`DROP DATABASE IF EXISTS ${name}`); await admin.query(`CREATE DATABASE ${name}`); return dbUrl(name); };
+  const dbQuery = async (url, sql, params = []) => { const c = new pg.Client({ connectionString: url }); await c.connect(); try { return await c.query(sql, params); } finally { await c.end(); } };
+  if (provision) {
+    try {
+      admin = new pg.Client({ connectionString: provision.url });
+      await admin.connect();
+      const DB1 = await makeDb('civic_verify_econ1');
+      // 2. A run under tier 3 at the start price: the page is told first; the document's first two chosen claims are free, the third priced; a second document gets two free again.
+      const P1 = PORT + 50;
+      await boot(P1, { DATABASE_URL: DB1, CIVIC_CLOCK: at(T0), CIVIC_PRICE_START_CENTS: '45' });
+      const a = await signin(P1, 'ABCD234');
+      const health = await json(`${base(P1)}/api/health`, a);
+      check('with a database, the health line carries the prices as the page shows them: the tier, the free count, the price and the note, and nothing else, never a cost',
+        JSON.stringify(Object.keys(health.pricing || {}).sort()) === JSON.stringify(['currency', 'freeFacts', 'note', 'priceCents', 'tier']) && health.pricing.tier === 3 && health.pricing.freeFacts === 2 && health.pricing.priceCents === 45 && health.pricing.currency === 'USD' && !/cost|usd|margin|revenue|token/i.test(Object.keys(health.pricing).join(',')),
+        JSON.stringify(health.pricing));
+      const r1 = await runOn(P1, a, 'verify-econ-r1');
+      const claims = r1.find((e) => e.t === 'done')?.claims || [];
+      const entry = (i) => claims[i % Math.max(1, claims.length)]?.entry || text;
+      check('the extraction\'s first event after attaching tells the page this run\'s tier, free count and price, fixed for the document',
+        r1[0]?.t === 'attached' && JSON.stringify(pricingOf(r1)) === JSON.stringify({ tier: 3, freeFacts: 2, priceCents: 45, currency: 'USD', note: null }) && claims.length >= 3, JSON.stringify(r1.slice(0, 2)));
+      const d1 = await detOn(P1, a, { jobId: 'verify-econ-r1-c1', runId: 'verify-econ-r1', n: 1, entry: entry(0) });
+      const d2 = await detOn(P1, a, { jobId: 'verify-econ-r1-c2', runId: 'verify-econ-r1', n: 2, entry: entry(1) });
+      const d3 = await detOn(P1, a, { jobId: 'verify-econ-r1-c3', runId: 'verify-econ-r1', n: 3, entry: entry(2) });
+      const r2 = await runOn(P1, a, 'verify-econ-r2');
+      const d4 = await detOn(P1, a, { jobId: 'verify-econ-r2-c1', runId: 'verify-econ-r2', n: 1, entry: entry(0) });
+      check('under tier 3 the first two determinations the reader chooses on a document are free and the third is priced at 45 cents, each told to the page before the model is asked; a second document gets its two free again',
+        JSON.stringify([quoteOf(d1), quoteOf(d2), quoteOf(d3), quoteOf(d4)]) === JSON.stringify([{ free: true, priceCents: 0 }, { free: true, priceCents: 0 }, { free: false, priceCents: 45 }, { free: true, priceCents: 0 }]) && [d1, d2, d3, d4].every((d) => d.findIndex((e) => e.t === 'quote') < d.findIndex((e) => e.t === 'start')) && [d1, d2, d3, d4].every((d) => d.some((e) => e.t === 'done')),
+        JSON.stringify([quoteOf(d1), quoteOf(d2), quoteOf(d3), quoteOf(d4)]));
+      await new Promise((r) => setTimeout(r, 500));
+      const runs = (await dbQuery(DB1, 'SELECT id, owner, email, code_fp, tier, free_allowed, price_cents, status, claims_total, extract_usd::float AS extract_usd, chars FROM runs ORDER BY started_at')).rows;
+      const dets = (await dbQuery(DB1, 'SELECT id, run_id, n, status, free, price_cents, cost_usd::float AS cost_usd, priced, searches, verdict, model, collected, failure FROM determinations ORDER BY started_at')).rows;
+      const lines = (await dbQuery(DB1, 'SELECT kind, run_id, determination_id, owner, usd::float AS usd FROM cost_lines ORDER BY id')).rows;
+      check('the rows: each run carries its owner (the code\'s fingerprint and the email), its tier, its free count and its price, its claims and its own listing cost; each determination its run, its number, free or the price, its cost from its ledger line, its searches, its verdict and collected=false; every ledger line carries the ids',
+        runs.length === 2 && runs.every((r) => /^[0-9a-f]{16}:abcd234@verify$/.test(r.owner) && r.email === 'abcd234@verify' && r.code_fp.length === 16 && r.tier === 3 && r.free_allowed === 2 && r.price_cents === 45 && r.status === 'done' && r.claims_total === claims.length && r.extract_usd > 0 && r.chars === text.length)
+          && dets.length === 4 && dets.every((d) => d.status === 'done' && d.cost_usd > 0 && d.priced === true && d.collected === false && d.verdict && d.model && d.failure === null)
+          && JSON.stringify(dets.map((d) => [d.run_id, d.n, d.free, d.price_cents])) === JSON.stringify([['verify-econ-r1', 1, true, 0], ['verify-econ-r1', 2, true, 0], ['verify-econ-r1', 3, false, 45], ['verify-econ-r2', 1, true, 0]])
+          && lines.length === 6 && lines.filter((l) => l.kind === 'evaluate').every((l) => l.determination_id && l.run_id && l.owner) && lines.filter((l) => l.kind === 'extract').every((l) => l.run_id && !l.determination_id),
+        JSON.stringify({ runs, dets: dets.map((d) => [d.id, d.status, d.free, d.price_cents, d.cost_usd]), lines: lines.length }));
+      // 3. A determination stopped by the page fails, books nothing, keeps its cost line's figure, and never uses up a free one.
+      const resD5 = fetch(`${base(P1)}/api/evaluate`, { method: 'POST', headers: { 'content-type': 'application/json', cookie: a }, body: JSON.stringify({ jobId: 'verify-econ-r2-c2', claims: [entry(1)], text, source: { kind: 'text' }, runId: 'verify-econ-r2', n: 2 }) });
+      await new Promise((r) => setTimeout(r, 400));
+      await fetch(`${base(P1)}/api/cancel`, { method: 'POST', headers: { 'content-type': 'application/json', cookie: a }, body: JSON.stringify({ jobIds: ['verify-econ-r2-c2'] }) });
+      await (await resD5).text().catch(() => '');
+      await new Promise((r) => setTimeout(r, 400));
+      const d6 = await detOn(P1, a, { jobId: 'verify-econ-r2-c3', runId: 'verify-econ-r2', n: 3, entry: entry(2) });
+      const d5row = (await dbQuery(DB1, 'SELECT status, failure, free, price_cents FROM determinations WHERE id = $1', ['verify-econ-r2-c2'])).rows[0];
+      check('a determination the page stops is failed as cancelled with nothing booked, and it never uses up a free one: the document\'s next determination is free again',
+        d5row?.status === 'failed' && d5row?.failure === 'cancelled' && d5row?.price_cents === 0 && JSON.stringify(quoteOf(d6)) === JSON.stringify({ free: true, priceCents: 0 }), JSON.stringify({ d5row, d6: quoteOf(d6) }));
+      // 4. The next window on the same database: the schema is applied once, a run keeps its tier, a new run takes the new one.
+      const P2 = PORT + 51;
+      await boot(P2, { DATABASE_URL: DB1, CIVIC_CLOCK: at(T1), CIVIC_PRICE_START_CENTS: '45' });
+      const a2 = await signin(P2, 'ABCD234');
+      const migrations = (await dbQuery(DB1, 'SELECT count(*)::int AS n FROM schema_migrations')).rows[0].n;
+      const d7 = await detOn(P2, a2, { jobId: 'verify-econ-r1-c4', runId: 'verify-econ-r1', n: 4, entry: entry(0) });
+      const r3 = await runOn(P2, a2, 'verify-econ-r3');
+      const health2 = await json(`${base(P2)}/api/health`, a2);
+      check('a second FactEngine on the same database six hours on boots with the schema applied once; a determination of the first document, now from this one, is priced by that document\'s tier and count (two free already taken) whatever the clock says; a new document takes the new window\'s tier (4: three free)',
+        migrations === 1 && JSON.stringify(quoteOf(d7)) === JSON.stringify({ free: false, priceCents: 45 }) && JSON.stringify(pricingOf(r3)) === JSON.stringify({ tier: 4, freeFacts: 3, priceCents: 45, currency: 'USD', note: null }) && health2.pricing?.tier === 4,
+        JSON.stringify({ migrations, d7: quoteOf(d7), r3: pricingOf(r3), tier: health2.pricing?.tier }));
+      // 5. The measurement, for the operator alone.
+      const st = await json(`${base(P2)}/api/selftest`, a2);
+      const b2 = await signin(P2, 'EFGH567');
+      const stB = await json(`${base(P2)}/api/selftest`, b2);
+      const e = st.economics;
+      const t3 = e?.byTier?.find((x) => x.tier === 3), t4 = e?.byTier?.find((x) => x.tier === 4);
+      const user = e?.byUser?.find((x) => x.email === 'abcd234@verify');
+      check('the operator\'s check page carries the measurement: per tier (users, runs, determinations, free given, cost, listing cost, revenue at list, margin, margin per user, coverage), per user by email, per window, the price with its basis and the measured average so far, the tier clock, the guard off, revenue at list and nothing collected; a code that is not the operator\'s gets none of it',
+        Boolean(e) && e.store === 'postgres' && t3 && t3.users === 1 && t3.runs === 2 && t3.determinations === 6 && t3.failed === 1 && t3.freeGiven === 4 && t3.revenueUsd === 0.9 && t3.costUsd > 0 && Math.abs(t3.marginUsd - (t3.revenueUsd - t3.costUsd)) < 0.0011 && t3.extractUsd > 0 && typeof t3.coverage === 'number'
+          && t4 && t4.runs === 1 && t4.determinations === 0 && user && user.runs === 3 && user.determinations === 6 && user.freeGiven === 4 && e.byWindow.length === 2
+          && e.price.cents === 45 && e.price.basis === 'start' && e.price.measuredSample === 6 && e.price.measuredAvgUsd > 0 && e.price.minSample === 20 && e.price.markupPercent === 25
+          && e.tier.now === 4 && e.tier.freeFacts === 3 && e.tier.hours === 6 && e.guard.configured === false && /list price/.test(e.note) && stB.economics === null,
+        JSON.stringify({ t3, t4, user, price: e?.price, tier: e?.tier, guard: e?.guard, other: stB.economics }));
+      // 6. A deploy with a determination in flight: the row is failed as deploy, nothing booked.
+      const P3 = PORT + 52;
+      const s3 = await boot(P3, { DATABASE_URL: DB1, CIVIC_CLOCK: at(T1), CIVIC_PRICE_START_CENTS: '45' });
+      const a3 = await signin(P3, 'ABCD234');
+      const inflight = fetch(`${base(P3)}/api/evaluate`, { method: 'POST', headers: { 'content-type': 'application/json', cookie: a3 }, body: JSON.stringify({ jobId: 'verify-econ-r3-c1', claims: [entry(0)], text, source: { kind: 'text' }, runId: 'verify-econ-r3', n: 1 }) });
+      await new Promise((r) => setTimeout(r, 400));
+      s3.kill('SIGTERM');
+      await (await inflight).text().catch(() => '');
+      await new Promise((r) => setTimeout(r, 800));
+      const deployRow = (await dbQuery(DB1, 'SELECT status, failure, price_cents, free FROM determinations WHERE id = $1', ['verify-econ-r3-c1'])).rows[0];
+      check('a FactEngine told to stop with a determination in flight fails that row as deploy, nothing booked, before it goes', deployRow?.status === 'failed' && deployRow?.failure === 'deploy' && deployRow?.price_cents === 0, JSON.stringify(deployRow));
+      // 7. The price from the measured average: fixed at a window's start, start figure until the sample, the sample's own figure after.
+      const DB2 = await makeDb('civic_verify_econ2');
+      const T2 = T0 + 12 * HOUR, T3 = T2 + 6 * HOUR;
+      const seed = async (url, { runId, tier, from, n, cost, price, free, email = 'seed@verify' }) => {
+        await dbQuery(url, 'INSERT INTO runs (id, owner, email, started_at, tier, window_start, price_cents, free_allowed, status) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) ON CONFLICT (id) DO NOTHING', [runId, `seed:${email}`, email, new Date(from), tier, new Date(windowStartAt(from, 6)), price, freeFor(tier), 'done']);
+        for (let i = 0; i < n; i++) await dbQuery(url, "INSERT INTO determinations (id, run_id, n, started_at, ended_at, status, free, price_cents, cost_usd, priced) VALUES ($1, $2, $3, $4, $4, 'done', $5, $6, $7, true)", [`${runId}-d${i + 1}`, runId, i + 1, new Date(from + i * 1000), free, free ? 0 : price, cost]);
+      };
+      // nineteen determinations at 36 cents two days before: one short of the sample
+      const P4 = PORT + 53;
+      await boot(P4, { DATABASE_URL: DB2, CIVIC_CLOCK: at(T0) });   // the schema, for the seed
+      await seed(DB2, { runId: 'seed-a', tier: 3, from: T2 - 2 * DAY, n: 19, cost: 0.36, price: 45, free: false });
+      const P5 = PORT + 54;
+      await boot(P5, { DATABASE_URL: DB2, CIVIC_CLOCK: at(T2) });
+      const a5 = await signin(P5, 'ABCD234');
+      const h5 = await json(`${base(P5)}/api/health`, a5);
+      const st5 = await json(`${base(P5)}/api/selftest`, a5);
+      await seed(DB2, { runId: 'seed-b', tier: 3, from: T2 - DAY, n: 1, cost: 0.36, price: 45, free: false });
+      const h5again = await json(`${base(P5)}/api/health`, a5);
+      const P6 = PORT + 55;
+      await boot(P6, { DATABASE_URL: DB2, CIVIC_CLOCK: at(T3) });
+      const a6 = await signin(P6, 'ABCD234');
+      const h6 = await json(`${base(P6)}/api/health`, a6);
+      const st6 = await json(`${base(P6)}/api/selftest`, a6);
+      const r6 = await runOn(P6, a6, 'verify-econ-r6');
+      const windows = (await dbQuery(DB2, 'SELECT window_start, price_cents, sample, basis, avg_cost_usd::float AS avg FROM windows WHERE window_start >= $1 ORDER BY window_start', [new Date(T2)])).rows;
+      check('with no start figure and nineteen of the twenty determinations the average needs, nothing is priced (the health line says no price, the check page says 19 of 20 measured at 36 cents); the twentieth arriving does not move a window already begun; the next window prices at the measured average × 1.25, rounded up: 45 cents, and a run in it is told so',
+        h5.pricing?.priceCents === null && st5.economics?.price?.cents === null && st5.economics?.price?.measuredSample === 19 && Math.abs(st5.economics.price.measuredAvgUsd - 0.36) < 1e-9
+          && h5again.pricing?.priceCents === null && h6.pricing?.priceCents === 45 && st6.economics?.price?.basis === 'measured' && st6.economics?.price?.windowSample === 20 && pricingOf(r6)?.priceCents === 45
+          && windows.length === 2 && windows[0].price_cents === null && windows[0].basis === 'none' && windows[0].sample === 19 && windows[1].price_cents === 45 && windows[1].basis === 'measured' && windows[1].sample === 20 && Math.abs(windows[1].avg - 0.36) < 1e-9,
+        JSON.stringify({ h5: h5.pricing, st5: st5.economics?.price, h5again: h5again.pricing, h6: h6.pricing, st6: st6.economics?.price, windows }));
+      // 8. The loss guard: a window that lost more than the guard sends every new run to tier 1, until the margin earned since covers the loss.
+      const DB3 = await makeDb('civic_verify_econ3');
+      const P7 = PORT + 56;
+      await boot(P7, { DATABASE_URL: DB3, CIVIC_CLOCK: at(T0 + 30 * 60e3), CIVIC_PRICE_START_CENTS: '45', CIVIC_TIER_LOSS_GUARD_USD: '0.5' });
+      const a7 = await signin(P7, 'ABCD234');
+      const h7 = await json(`${base(P7)}/api/health`, a7);
+      // three free determinations at 50 cents each earlier in this window: the window's margin is −1.50, below −0.50
+      await seed(DB3, { runId: 'seed-loss', tier: 3, from: T0 + 60e3, n: 3, cost: 0.5, price: 45, free: true });
+      const r7 = await runOn(P7, a7, 'verify-econ-r7');
+      const st7 = await json(`${base(P7)}/api/selftest`, a7);
+      const events1 = (await dbQuery(DB3, 'SELECT engaged, loss_usd::float AS loss, earned_usd::float AS earned FROM guard_events ORDER BY id')).rows;
+      // four priced determinations at 50 cents with no cost, after the switch: 2.00 earned back against 1.50 lost
+      await seed(DB3, { runId: 'seed-earn', tier: 1, from: T0 + 40 * 60e3, n: 4, cost: 0, price: 50, free: false });
+      const r8 = await runOn(P7, a7, 'verify-econ-r8');
+      const events2 = (await dbQuery(DB3, 'SELECT engaged, loss_usd::float AS loss, earned_usd::float AS earned FROM guard_events ORDER BY id')).rows;
+      const st8 = await json(`${base(P7)}/api/selftest`, a7);
+      check('the loss guard (0.50 here): before any loss the rotation holds (tier 3); a window that has lost 1.50 sends the next run to tier 1 with nothing free, with the switch on record and on the check page; once 2.00 has been earned back since, the next run has the rotation again and the release is on record',
+        h7.pricing?.tier === 3 && pricingOf(r7)?.tier === 1 && pricingOf(r7)?.freeFacts === 0 && st7.economics?.guard?.engaged === true && Math.abs(st7.economics.guard.lossUsd - 1.5) < 1e-6 && st7.economics?.tier?.underGuard === true
+          && events1.length === 1 && events1[0].engaged === true && Math.abs(events1[0].loss - 1.5) < 1e-6
+          && pricingOf(r8)?.tier === 3 && pricingOf(r8)?.freeFacts === 2 && events2.length === 2 && events2[1].engaged === false && Math.abs(events2[1].earned - 2) < 1e-6 && st8.economics?.guard?.engaged === false,
+        JSON.stringify({ h7: h7.pricing?.tier, r7: pricingOf(r7), st7: st7.economics?.guard, events1, r8: pricingOf(r8), events2, st8: st8.economics?.guard }));
+    } catch (err) {
+      check('the economics checks on Postgres ran to the end', false, err.stack || err.message);
+    }
+    try { await admin?.end(); } catch {}
+  }
+  // 9. The file mode: no DATABASE_URL, the same flow, the rows in memory.
+  try {
+    const P9 = PORT + 57;
+    await boot(P9, { CIVIC_CLOCK: at(T0), CIVIC_PRICE_START_CENTS: '45', CIVIC_PRICING_NOTE: 'The beta is not charged.' });
+    const a9 = await signin(P9, 'ABCD234');
+    const h9 = await json(`${base(P9)}/api/health`, a9);
+    const r9 = await runOn(P9, a9, 'verify-econ-r9');
+    const claims9 = r9.find((e) => e.t === 'done')?.claims || [];
+    const e9 = (i) => claims9[i % Math.max(1, claims9.length)]?.entry || text;
+    const q = [];
+    for (let i = 0; i < 3; i++) q.push(quoteOf(await detOn(P9, a9, { jobId: `verify-econ-r9-c${i + 1}`, runId: 'verify-econ-r9', n: i + 1, entry: e9(i) })));
+    const st9 = await json(`${base(P9)}/api/selftest`, a9);
+    const t9 = st9.economics?.byTier?.find((x) => x.tier === 3);
+    check('without a database the same flow runs from memory: the health line and the extraction carry the prices with the operator\'s note, two free then one priced, and the operator\'s measurement counts them (and says the rows reset with the instance)',
+      h9.pricing?.note === 'The beta is not charged.' && JSON.stringify(pricingOf(r9)) === JSON.stringify({ tier: 3, freeFacts: 2, priceCents: 45, currency: 'USD', note: 'The beta is not charged.' })
+        && JSON.stringify(q) === JSON.stringify([{ free: true, priceCents: 0 }, { free: true, priceCents: 0 }, { free: false, priceCents: 45 }]) && st9.economics?.store === 'memory' && t9?.determinations === 3 && t9?.freeGiven === 2 && t9?.revenueUsd === 0.45,
+      JSON.stringify({ h9: h9.pricing, r9: pricingOf(r9), q, t9, store: st9.economics?.store }));
+    // 10. Pricing off: the rollback. The page is as before: no pricing on the health line, no pricing or quote event, nothing measured.
+    const P10 = PORT + 58;
+    await boot(P10, { CIVIC_PRICING_ENABLED: 'false', CIVIC_PRICE_START_CENTS: '45' });
+    const a10 = await signin(P10, 'ABCD234');
+    const h10 = await json(`${base(P10)}/api/health`, a10);
+    const r10 = await runOn(P10, a10, 'verify-econ-r10');
+    const d10 = await detOn(P10, a10, { jobId: 'verify-econ-r10-c1', runId: 'verify-econ-r10', n: 1, entry: e9(0) });
+    const st10 = await json(`${base(P10)}/api/selftest`, a10);
+    check('CIVIC_PRICING_ENABLED=false is the rollback: the health line says nothing of prices, no pricing or quote event reaches the page, the check page has no measurement, and the determination completes as before',
+      h10.pricing === null && !r10.some((e) => e.t === 'pricing') && !d10.some((e) => e.t === 'quote') && d10.some((e) => e.t === 'done') && st10.economics === null, JSON.stringify({ pricing: h10.pricing, kinds: d10.map((e) => e.t) }));
+  } catch (err) {
+    check('the economics checks in file mode ran to the end', false, err.stack || err.message);
+  }
+  for (const s of servers) { try { s.kill('SIGTERM'); } catch {} }
+  try { mock.kill('SIGTERM'); } catch {}
+  try { fs.unlinkSync(usesFile); } catch {}
+  if (provision) await provision.stop();
+}
+await economicsChecks();
 
 // The port is FactEngine's. An older FactEngine still holding it is closed and the port taken over; anything
 // else on it is left alone and named. Both are proved here with stand-in processes: one that runs

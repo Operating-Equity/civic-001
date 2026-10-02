@@ -364,6 +364,9 @@ body {
 .card[data-state="done"].verdict-unverified .card-n { color: var(--unv); }
 .card-claim { margin: 0; font-size: 16px; line-height: 1.45; font-weight: 500; text-wrap: pretty; }
 .card-verdict { display: flex; align-items: center; gap: 10px; justify-self: end; }
+/* What testing this claim costs, or that it is one of the document's free ones: a small chip beside the verdict's place. */
+.card-price { font-size: 12px; line-height: 1; color: var(--ink-2); background: rgba(255,255,255,.55); border: 1px solid var(--glass-edge); border-radius: 999px; padding: 5px 9px; white-space: nowrap; }
+.card-price.is-free { color: var(--green-ink); font-weight: 600; }
 .badge {
   display: inline-flex; align-items: center; gap: 7px;
   font-family: var(--font-display); font-weight: 700; font-size: 16px; letter-spacing: .05em; text-transform: uppercase; line-height: 1;

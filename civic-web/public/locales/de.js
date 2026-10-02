@@ -200,5 +200,17 @@ export default {
   echo: { alt: 'Symbolische Illustration des Dokuments', making: 'Der Bildausschnitt entsteht…', video: 'Das geprüfte Video' },
   time: { seconds_one: '{n} Sekunde', seconds_other: '{n} Sekunden', minutes: '{m} Min {s} s' },
   numbers: { 1: 'eins', 2: 'zwei', 3: 'drei', 4: 'vier', 5: 'fünf', 6: 'sechs', 7: 'sieben', 8: 'acht', 9: 'neun', 10: 'zehn', 11: 'elf', 12: 'zwölf' },
+  price: {
+    free: 'Gratis',
+    testPriced_one: '{n} Aussage prüfen · {amount}',
+    testPriced_other: '{n} Aussagen prüfen · {amount}',
+    testFree_one: '{n} Aussage prüfen · gratis',
+    testFree_other: '{n} Aussagen prüfen · gratis',
+    testMixed_one: '{n} Aussage prüfen · {free} gratis + {amount}',
+    testMixed_other: '{n} Aussagen prüfen · {free} gratis + {amount}',
+    hint: 'Eine Aussage zu prüfen kostet {amount}.',
+    hintFree_one: 'Die erste, die Sie in jedem Dokument wählen, ist gratis.',
+    hintFree_other: 'Die ersten {n}, die Sie in jedem Dokument wählen, sind gratis.',
+  },
   footer: { site: 'FactEngine.com', service: 'Ein Dienst von', terms: 'Nutzungsbedingungen', privacy: 'Datenschutz', contact: 'Kontakt', copyright: '© 2026' },
 };

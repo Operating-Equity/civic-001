@@ -68,6 +68,84 @@ function renderSettings(s, build, pacing, silent, tools) {
   }
 }
 
+/** Money for the operator's page, in the service's currency. */
+function money(usd, currency) {
+  if (usd === null || usd === undefined) return '—';
+  try { return new Intl.NumberFormat('en-US', { style: 'currency', currency: currency || 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(usd)); }
+  catch { return `${Number(usd).toFixed(2)} ${currency || ''}`; }
+}
+const cents = (c, currency) => (c === null || c === undefined ? 'none yet' : money(c / 100, currency));
+
+function table(head, rows) {
+  const wrap = el('div', 'check-scroll');   // a wide table scrolls sideways rather than widening the page
+  const t = document.createElement('table');
+  t.className = 'check-settings';
+  wrap.append(t);
+  const tr = document.createElement('tr');
+  for (const h of head) tr.append(el('th', null, h));
+  t.append(tr);
+  for (const row of rows) {
+    const r = document.createElement('tr');
+    for (const v of row) r.append(el('td', null, v === null || v === undefined ? '—' : String(v)));
+    t.append(r);
+  }
+  return wrap;
+}
+
+/** The lines of the measurement, as sentences (the page and the text report share them). */
+function economicsLines(e) {
+  const c = e.currency;
+  const lines = [];
+  const p = e.price;
+  if (p.cents === null || p.cents === undefined) {
+    lines.push(`No price yet. ${p.measuredSample} of the ${p.minSample} determinations the average needs have been measured over the last ${p.days} days` +
+      (p.measuredAvgUsd !== null ? `, averaging ${money(p.measuredAvgUsd, c)} each (${money(p.measuredAvgUsd * (1 + p.markupPercent / 100), c)} with the ${p.markupPercent} % markup)` : '') +
+      '. Until the sample exists nothing is priced; set CIVIC_PRICE_START_CENTS to price from today, and the measured figure takes over at the first window after the sample is complete.');
+  } else {
+    lines.push(`Price per claim: ${cents(p.cents, c)}, fixed for the window that began ${p.windowStart.slice(0, 16).replace('T', ' ')} UTC` +
+      (p.basis === 'measured' ? ` from the measured average of ${money(p.windowAvgUsd, c)} over ${p.windowSample} determinations in the ${p.days} days before it, marked up ${p.markupPercent} % and rounded up to the cent.`
+        : ` from CIVIC_PRICE_START_CENTS, because the ${p.days}-day sample held ${p.windowSample} of the ${p.minSample} determinations the average needs.`) +
+      (p.measuredSample ? ` Measured so far: ${p.measuredSample} determinations averaging ${money(p.measuredAvgUsd, c)}, which would price at ${money(Math.ceil(p.measuredAvgUsd * (100 + p.markupPercent)) / 100, c)}.` : ''));
+  }
+  const t = e.tier;
+  lines.push(t.fixed ? `Tier ${t.now} for everyone (CIVIC_TIER_FIXED): ${t.freeFacts} free claim${t.freeFacts === 1 ? '' : 's'} per document.`
+    : `Tier ${t.now} now${t.underGuard ? ', held there by the loss guard' : ''}: ${t.freeFacts} free claim${t.freeFacts === 1 ? '' : 's'} per document. The tiers change every ${t.hours} hours in the order ${t.order.join(', ')}, starting ${t.shift} later each day${t.shift ? ' so that every tier meets every time of day' : ''}; the next change is at ${t.nextChangeAt.slice(11, 16)} UTC. A run keeps the tier it started under.`);
+  const g = e.guard;
+  if (!g.configured) lines.push('The loss guard is off: set CIVIC_TIER_LOSS_GUARD_USD to the loss in one window that should send every new run to tier 1 until it is earned back.');
+  else if (g.engaged) lines.push(`The loss guard is engaged since ${g.since.slice(0, 16).replace('T', ' ')} UTC: the window had lost ${money(g.lossUsd, c)} (the guard is ${money(g.thresholdUsd, c)}); ${money(g.earnedUsd, c)} has been earned back since, and the rotation resumes once that covers the loss.`);
+  else lines.push(`The loss guard is watching: this window's margin is ${money(g.windowMarginUsd, c)} against a guard of ${money(g.thresholdUsd, c)}${g.released ? `; last released ${g.released.slice(0, 16).replace('T', ' ')} UTC` : ''}.`);
+  lines.push(`${e.note} The rows live in ${e.store === 'postgres' ? 'Postgres and outlive every deploy' : 'this instance\'s memory and reset when it restarts'}.`);
+  return lines;
+}
+
+/** The operator's measurement: the price, the tier clock, the guard, and the money per tier, per user and per window. */
+function renderEconomics(e) {
+  let box = $('#economics');
+  if (!box) { box = el('div', 'check-failures'); box.id = 'economics'; $('#failures').before(box); }
+  box.textContent = '';
+  if (!e) return;
+  box.append(el('h2', null, 'Prices, tiers and what each user costs'));
+  if (e.error) { box.append(el('p', 'check-detail', `The measurement could not be read: ${e.error}`)); return; }
+  const ul = el('ul');
+  for (const line of economicsLines(e)) ul.append(el('li', null, line));
+  box.append(ul);
+  const c = e.currency;
+  const row = (x) => [x.users, x.runs, x.determinations, x.failed, x.freeGiven, money(x.costUsd, c), money(x.extractUsd, c), money(x.revenueUsd, c), money(x.marginUsd, c), x.marginPerUserUsd === null ? null : money(x.marginPerUserUsd, c), x.coverage === null ? null : x.coverage.toFixed(2)];
+  box.append(el('h2', null, 'Per tier'));
+  box.append(e.byTier.length
+    ? table(['Tier', 'Free per document', 'Users', 'Runs', 'Determinations', 'Failed', 'Free given', 'Cost', 'Listing cost', 'Revenue at list', 'Margin', 'Margin per user', 'Coverage'], e.byTier.map((x) => [x.tier, x.freeFacts, ...row(x)]))
+    : el('p', 'check-detail', 'No run has been measured yet.'));
+  box.append(el('h2', null, 'Per user'));
+  box.append(e.byUser.length
+    ? table(['User', 'Users', 'Runs', 'Determinations', 'Failed', 'Free given', 'Cost', 'Listing cost', 'Revenue at list', 'Margin', 'Margin per user', 'Coverage'], e.byUser.map((x) => [x.email || x.owner, ...row(x)]))
+    : el('p', 'check-detail', 'Nobody has run a test yet.'));
+  box.append(el('h2', null, 'Per window'));
+  box.append(e.byWindow.length
+    ? table(['Window (UTC)', 'Tier', 'Price', 'Users', 'Runs', 'Determinations', 'Failed', 'Free given', 'Cost', 'Listing cost', 'Revenue at list', 'Margin', 'Margin per user', 'Coverage'], e.byWindow.map((x) => [x.windowStart ? x.windowStart.slice(0, 16).replace('T', ' ') : '—', x.tier, cents(x.priceCents, c), ...row(x)]))
+    : el('p', 'check-detail', 'No window has had a run yet.'));
+  box.append(el('p', 'check-detail', 'Cost is each determination\'s own ledger line (OpenAI\'s token counts at the price table, plus its searches); the listing cost is each run\'s extraction, kept apart. Margin is revenue at list less the determinations\' cost. Coverage is revenue against cost plus the markup: 1.00 means the tokens and the markup are both covered. A free determination counts as given; a failed one keeps its cost and books nothing.'));
+}
+
 function renderFailures(list) {
   const box = $('#failures');
   box.textContent = '';
@@ -123,6 +201,11 @@ function asText(data) {
     ...Object.entries(data.settings).map(([k, v]) => `  ${k}: ${v}`),
     ...pacingRows(data.pacing).map(([k, v]) => `  ${k}: ${v}`),
   ];
+  if (data.economics && !data.economics.error) {
+    lines.push('', 'Prices, tiers and what each user costs');
+    for (const line of economicsLines(data.economics)) lines.push(`  ${line}`);
+    for (const x of data.economics.byTier) lines.push(`  tier ${x.tier}: ${x.users} users, ${x.runs} runs, ${x.determinations} determinations (${x.freeGiven} free, ${x.failed} failed), cost ${money(x.costUsd, data.economics.currency)}, listing ${money(x.extractUsd, data.economics.currency)}, revenue at list ${money(x.revenueUsd, data.economics.currency)}, margin ${money(x.marginUsd, data.economics.currency)}, coverage ${x.coverage === null ? '—' : x.coverage.toFixed(2)}`);
+  }
   if (data.recentFailures?.length) {
     lines.push('', 'Recent failures');
     for (const f of data.recentFailures) lines.push(`  ${f.at} ${f.where} ${f.code || ''} ${f.message}`);
@@ -165,6 +248,7 @@ async function run() {
     verdict.textContent = data.summary;
     renderChecks(data.checks);
     renderSettings(data.settings, data.build, data.pacing, data.silentSites, data.tools);
+    renderEconomics(data.economics);
     renderFailures(data.recentFailures);
     renderSignins(data);
     $('#report').value = asText(data);
