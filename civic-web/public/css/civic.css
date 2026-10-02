@@ -27,7 +27,10 @@
   --sun: #f3c65a;
   --true: #1e7a4c;      --true-bg: #dcf3e5;     --true-edge: #9bd8b6;
   --false: #b3261e;     --false-bg: #fbe3e0;    --false-edge: #f0a7a0;
-  --unv: #8a5a00;       --unv-bg: #fff0cc;      --unv-edge: #f1cf7a;
+  /* Unverified is grey: the grey zone, strong but conflicting evidence, nothing dirty about it (the operator's
+     rule of 2 October). The amber stays for cautions only: a card's note, the check page's warning mark. */
+  --unv: #525c69;       --unv-bg: #e9edf1;      --unv-edge: #c3ccd5;
+  --note: #8a5a00;      --note-bg: #fff0cc;     --note-edge: #f1cf7a;
   --radius: 16px;
   --radius-sm: 9px;
   --shadow: 0 14px 44px rgba(24, 44, 84, 0.10);
@@ -395,7 +398,7 @@ body {
 .card-model { color: var(--ink-3); }
 .card-model.is-fallback { color: var(--false); font-weight: 600; }
 .card-error { margin: 12px 0 0; color: var(--false); font-size: 14px; }
-.card-note { margin: 10px 0 0; font-size: 13.5px; color: var(--unv); background: var(--unv-bg); border: 1px solid var(--unv-edge); border-radius: var(--radius-sm); padding: 8px 12px; }
+.card-note { margin: 10px 0 0; font-size: 13.5px; color: var(--note); background: var(--note-bg); border: 1px solid var(--note-edge); border-radius: var(--radius-sm); padding: 8px 12px; }
 
 /* everything the run produced besides the entry: reasoning, searches, sources, raw text */
 .card-detail { display: grid; gap: 6px; margin-block-start: 14px; }
@@ -413,9 +416,10 @@ body {
 .sources-list a { color: var(--blue-deep); word-break: break-word; }
 .claims .raw { margin-block-start: 14px; }
 
-/* verdict present but unreadable: never silently counted as anything */
-.verdict-unread .badge { color: var(--ink-2); background: rgba(21, 24, 29, .06); border-color: var(--line); }
-.card[data-state="done"].verdict-unread .bk { border-color: var(--ink-3); }
+/* verdict present but unreadable: never silently counted as anything, and never mistaken for Unverified (grey
+   too), so its badge and its brackets are dashed and hollow */
+.verdict-unread .badge { color: var(--ink-3); background: transparent; border-style: dashed; border-color: var(--ink-3); }
+.card[data-state="done"].verdict-unread .bk { border-color: var(--ink-3); border-style: dashed; }
 .card[data-state="done"].verdict-unread .card-n { color: var(--ink-3); }
 
 /* the entry: encyclopedia prose */

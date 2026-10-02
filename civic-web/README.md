@@ -53,7 +53,10 @@ two decks drawn at random once per visit. The three fractal fields drift in slow
 stops that and makes every change instant. The field is decoration only: hidden from screen readers,
 inert, never reading matter, and nothing about it is stored or sent. Its ink stays faint (large forms at
 or under .2 alpha over the ground, thin strokes to .3), so body text on the strong glass keeps a contrast
-of 14 : 1 and hints 4.7 : 1. The check page holds the golden rectangle still.
+of 14 : 1 and hints 4.7 : 1. The check page holds the golden rectangle still. The verdicts keep their own
+colours on every surface: true green, false red, unverified grey (the grey zone: strong but conflicting evidence,
+nothing dirty about it, the operator's rule of 2 October); a verdict the page could not read is dashed and hollow,
+a different thing. The amber is for cautions only (a card's note, the check page's warning mark).
 
 ## Run it
 

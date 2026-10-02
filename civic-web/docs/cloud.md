@@ -359,6 +359,12 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
   the served files under the stamp; no CSP violation, no page error); copies 9/9, choose 10/10, pace 11/11,
   sign-in 6/6; leak check clean. The operator saw the ten fields under the home, then the whole page in eight
   states at both widths, before anything merged.
+- **2 October, later: Unverified is grey.** The operator, on the screenshots: "They are usually in the grey zone,
+  with strong but conflicting evidence. There is nothing brown (dirty) about these facts; they just cannot be
+  resolved." The Unverified verdict had been dark amber since the first commit (never grey; the grey state was a
+  verdict the page could not read). Now `--unv` is grey (#525c69 on #e9edf1) on the scoreboard, the badge, the
+  brackets and the number of a done card; an unread verdict is dashed and hollow so the two never look alike; the
+  amber stays for cautions only (a card's note, the check page's warning mark) under its own tokens. Rides PR #56.
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 
