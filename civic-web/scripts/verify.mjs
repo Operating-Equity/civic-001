@@ -1490,7 +1490,7 @@ async function economicsChecks() {
       const t3 = e?.byTier?.find((x) => x.tier === 3), t4 = e?.byTier?.find((x) => x.tier === 4);
       const user = e?.byUser?.find((x) => x.email === 'abcd234@verify');
       check('the operator\'s check page carries the measurement: per tier (users, runs, determinations, free given, cost, listing cost, revenue at list, margin, margin per user, coverage), per user by email, per window, the price with its basis and the measured average so far, the tier clock, the guard off, revenue at list and nothing collected; a code that is not the operator\'s gets none of it',
-        Boolean(e) && e.store === 'postgres' && t3 && t3.users === 1 && t3.runs === 2 && t3.determinations === 6 && t3.failed === 1 && t3.freeGiven === 4 && t3.revenueUsd === 0.9 && t3.costUsd > 0 && Math.abs(t3.marginUsd - (t3.revenueUsd - t3.costUsd)) < 0.011 && t3.extractUsd > 0 && typeof t3.coverage === 'number'
+        Boolean(e) && e.store === 'postgres' && t3 && t3.users === 1 && t3.runs === 2 && t3.determinations === 6 && t3.failed === 1 && t3.freeGiven === 4 && t3.revenueUsd === 0.9 && t3.costUsd > 0 && Math.abs(t3.marginUsd - (t3.revenueUsd - t3.costUsd)) < 0.0011 && t3.extractUsd > 0 && typeof t3.coverage === 'number'
           && t4 && t4.runs === 1 && t4.determinations === 0 && user && user.runs === 3 && user.determinations === 6 && user.freeGiven === 4 && e.byWindow.length === 2
           && e.price.cents === 45 && e.price.basis === 'start' && e.price.measuredSample === 6 && e.price.measuredAvgUsd > 0 && e.price.minSample === 20 && e.price.markupPercent === 25
           && e.tier.now === 4 && e.tier.freeFacts === 3 && e.tier.hours === 6 && e.guard.configured === false && /list price/.test(e.note) && stB.economics === null,

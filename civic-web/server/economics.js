@@ -336,6 +336,7 @@ export async function publicState() {
 }
 
 const round2 = (v) => Math.round(v * 100) / 100;
+const round4 = (v) => Math.round(v * 10000) / 10000;   // the ledger's own precision: a listing that cost a tenth of a cent is not nothing
 const coverageOf = (revenue, cost) => (cost > 0 ? round2(revenue / (cost * (1 + (config.priceMarkupPercent || 0) / 100))) : null);
 
 /** The operator's measurement, for /check: the price, the tier clock, the guard, and the money per tier, per user and per window. */
@@ -363,7 +364,7 @@ export async function report() {
     const m = money(g.dets);
     const extract = g.runs.reduce((s, r) => s + r.extractUsd, 0);
     const users = new Set(g.runs.map((r) => r.owner || 'open door')).size;
-    return { users, runs: g.runs.length, determinations: m.done, failed: m.failed, freeGiven: m.free, costUsd: round2(m.cost), extractUsd: round2(extract), revenueUsd: round2(m.revenue), marginUsd: round2(m.margin), marginPerUserUsd: users ? round2(m.margin / users) : null, coverage: coverageOf(m.revenue, m.cost) };
+    return { users, runs: g.runs.length, determinations: m.done, failed: m.failed, freeGiven: m.free, costUsd: round4(m.cost), extractUsd: round4(extract), revenueUsd: round2(m.revenue), marginUsd: round4(m.margin), marginPerUserUsd: users ? round4(m.margin / users) : null, coverage: coverageOf(m.revenue, m.cost) };
   };
   const byTier = [...group((r) => r.tier)].sort((a, b) => a[0] - b[0]).map(([tier, g]) => ({ tier, freeFacts: freeFor(tier), ...line(g) }));
   const byUser = [...group((r) => r.owner || 'open door')].map(([owner, g]) => ({ owner, email: g.runs.find((r) => r.email)?.email || null, ...line(g) }))
