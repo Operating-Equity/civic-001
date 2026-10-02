@@ -17,7 +17,7 @@ export default {
     },
     {
       verb: 'read_page', args: { url: `${base}/refuse` }, refused: true,
-      expect: (text) => /turns CIVIC's server away/.test(text),
+      expect: (text) => /turns FactEngine's server away/.test(text),
     },
     {
       verb: 'get_transcript', args: { url: 'https://www.youtube.com/watch?v=vid1' },

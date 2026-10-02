@@ -1,5 +1,5 @@
 // Reading a link. A reader should be able to paste a web address and press the button, so this
-// turns an address into the text CIVIC tests: an article, a transcript, a PDF, a plain file.
+// turns an address into the text FactEngine tests: an article, a transcript, a PDF, a plain file.
 //
 // Two rules it keeps:
 //   1. Nothing is summarised, shortened or rewritten. The page's own words come back, with the
@@ -19,17 +19,17 @@ export class UrlError extends Error {
   constructor(code, message) { super(message); this.code = code; this.status = 400; }
 }
 
-// ---- A site that keeps its text from CIVIC ---------------------------------------------------
+// ---- A site that keeps its text from FactEngine ---------------------------------------------------
 // The reader is told which site, and what to do: paste the article's text. The page has these
 // sentences in its own languages; the server's are the English ones, with the site's name.
 export const siteName = (url) => url.hostname.replace(/^www\./, '');
 export const SITE_SENTENCES = {
-  // Said so that the reader knows it is CIVIC's server the site turned away, not them (the operator's
+  // Said so that the reader knows it is FactEngine's server the site turned away, not them (the operator's
   // question of 1 October: "Why did you say I could not access this when I could?").
-  url_refused: (site) => `${site} turns CIVIC's server away, though people can often read it in a browser. If you can open the article, copy its text and paste it here.`,
-  url_silent: (site) => `${site} turns CIVIC's server away, though people can often read it in a browser. If you can open the article, copy its text and paste it here.`,
-  url_paywall: (site) => `${site} keeps this article behind its paywall, so CIVIC cannot read it here. If you subscribe, copy the article's text and paste it here.`,
-  url_shell: (site) => `${site} builds this page in the browser, so no readable text reached CIVIC. Copy the article's text and paste it here.`,
+  url_refused: (site) => `${site} turns FactEngine's server away, though people can often read it in a browser. If you can open the article, copy its text and paste it here.`,
+  url_silent: (site) => `${site} turns FactEngine's server away, though people can often read it in a browser. If you can open the article, copy its text and paste it here.`,
+  url_paywall: (site) => `${site} keeps this article behind its paywall, so FactEngine cannot read it here. If you subscribe, copy the article's text and paste it here.`,
+  url_shell: (site) => `${site} builds this page in the browser, so no readable text reached FactEngine. Copy the article's text and paste it here.`,
 };
 const siteError = (code, site) => { const e = new UrlError(code, SITE_SENTENCES[code](site)); e.site = site; return e; };
 
@@ -284,7 +284,7 @@ const YOUTUBE_CLIENTS = {
   ANDROID_VR: { id: '28', context: { clientName: 'ANDROID_VR', clientVersion: '1.62.27', deviceMake: 'Oculus', deviceModel: 'Quest 3', androidSdkVersion: 32, osName: 'Android', osVersion: '12L' }, ua: 'com.google.android.apps.youtube.vr.oculus/1.62.27 (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip' },
   IOS: { id: '5', context: { clientName: 'IOS', clientVersion: '20.10.4', deviceMake: 'Apple', deviceModel: 'iPhone16,2', osName: 'iPhone', osVersion: '18.3.2.22D82' }, ua: 'com.google.ios.youtube/20.10.4 (iPhone16,2; U; CPU iOS 18_3_2 like Mac OS X;)' },
 };
-const VIDEO_WALL = 'YouTube would not show this video\'s captions to CIVIC\'s server without a sign-in, as it does for some videos. Open the video on YouTube, choose Show transcript under the description, copy the text and paste it here.';
+const VIDEO_WALL = 'YouTube would not show this video\'s captions to FactEngine\'s server without a sign-in, as it does for some videos. Open the video on YouTube, choose Show transcript under the description, copy the text and paste it here.';
 const NO_CAPTIONS = 'That video has no caption track that YouTube will hand over, so there is no transcript to test. Paste the transcript text instead.';
 
 /** One door: the player API's answer for a video as that client asks it. `{ player }` when the door

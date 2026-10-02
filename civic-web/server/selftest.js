@@ -1,4 +1,4 @@
-// Is CIVIC actually able to work right now? This answers that in plain language, so a fault is
+// Is FactEngine actually able to work right now? This answers that in plain language, so a fault is
 // never a guess made between two people who cannot see each other's screens.
 //
 // It checks the things that really stop a run: the prompts, the key, whether OpenAI accepts that
@@ -25,7 +25,7 @@ async function checkKeyAndModel(apiKey) {
   const checks = [];
   if (!apiKey) {
     checks.push(bad('No OpenAI key', 'This server has no key, and none was sent from the page.',
-      'CIVIC runs only on the operator\'s key, never on a reader\'s. Put OPENAI_API_KEY in the settings file next to the server.'));
+      'FactEngine runs only on the operator\'s key, never on a reader\'s. Put OPENAI_API_KEY in the settings file next to the server.'));
     return checks;
   }
   if (!/^[\x21-\x7E]+$/.test(apiKey)) {
@@ -36,7 +36,7 @@ async function checkKeyAndModel(apiKey) {
     const fix = !mine
       ? 'Remove the key saved in this browser and add it again, in full, from platform.openai.com.'
       : config.key?.fromFile
-        ? 'Open the settings file next to CIVIC and replace the key with the whole key from platform.openai.com.'
+        ? 'Open the settings file next to FactEngine and replace the key with the whole key from platform.openai.com.'
         : ['This key is set in this computer\'s environment. In a Terminal window run:  unset OPENAI_API_KEY',
            ...whereTheShellSetsIt().map((at) => `It is also set in ${at.file}, line ${at.line}; remove that line and open a new Terminal window.`),
           ].join('  ');
@@ -82,7 +82,7 @@ async function checkKeyAndModel(apiKey) {
 export async function selftest({ apiKey, build }) {
   const checks = [];
 
-  checks.push(ok('The CIVIC server is running', `Version ${build}. Node ${process.version}.`));
+  checks.push(ok('The FactEngine server is running', `Version ${build}. Node ${process.version}.`));
 
   const prompts = promptStatus();
   const versions = promptVersions();
@@ -98,7 +98,7 @@ export async function selftest({ apiKey, build }) {
   if (config.key?.conflict) {
     const at = whereTheShellSetsIt();
     checks.push(warn('Two different keys were found',
-      'CIVIC used the one in its own settings file, which is the rule. A different key is set in this computer\'s environment and is being ignored.',
+      'FactEngine used the one in its own settings file, which is the rule. A different key is set in this computer\'s environment and is being ignored.',
       ['To remove the other one, run:  unset OPENAI_API_KEY',
        ...at.map((x) => `It is also set in ${x.file}, line ${x.line}; remove that line and open a new Terminal window.`),
       ].join('  ')));
@@ -141,10 +141,10 @@ export async function selftest({ apiKey, build }) {
     at: new Date().toISOString(),
     ready: failures.length === 0,
     summary: failures.length === 0
-      ? 'CIVIC is ready. Paste a document or a link and press Test the facts.'
+      ? 'FactEngine is ready. Paste a document or a link and press Test the facts.'
       : failures.length === 1
-        ? 'One thing is stopping CIVIC from working.'
-        : `${failures.length} things are stopping CIVIC from working.`,
+        ? 'One thing is stopping FactEngine from working.'
+        : `${failures.length} things are stopping FactEngine from working.`,
     settings: {
       model: config.evalModels[0],
       effort: config.evalEffort,

@@ -1,7 +1,7 @@
 // What the source is, said plainly: for the prompt's attribution slot and for the page.
 //
 // The extraction prompt's slot asks for the source together with what is known of who produced
-// it and when. CIVIC knows some of that: for a link, the page's title, author, site, date and
+// it and when. FactEngine knows some of that: for a link, the page's title, author, site, date and
 // address, and the day it read them; for a file, its name and the day; for pasted text, only the
 // day. Only what is known is said, and nothing is guessed.
 const KINDS = new Set(['text', 'file', 'link']);
@@ -16,7 +16,7 @@ export function sourceMeta(raw = {}) {
     title: clean(raw?.title), author: clean(raw?.author), site: clean(raw?.site),
     published: clean(raw?.published, 60), url: clean(raw?.url, 2000), name: clean(raw?.name),
     // 'search' when a link's text came from the search service's copy of that address, because the
-    // site turned CIVIC's own reader away (server/copies.js); the attribution then says so.
+    // site turned FactEngine's own reader away (server/copies.js); the attribution then says so.
     via: raw?.via === 'search' ? 'search' : '',
   };
 }
@@ -34,15 +34,15 @@ export function attributionLines(meta, now = new Date()) {
     if (m.published) lines.push(`Published: ${m.published}`);
     if (m.url) lines.push(`Address: ${m.url}`);
     lines.push(m.via === 'search'
-      ? `Read by CIVIC on ${day(now)} through a search service's copy of that address.`
-      : `Read by CIVIC from that address on ${day(now)}.`);
+      ? `Read by FactEngine on ${day(now)} through a search service's copy of that address.`
+      : `Read by FactEngine from that address on ${day(now)}.`);
   } else if (m.kind === 'file') {
-    lines.push(`Source: the file ${m.name || '(unnamed)'}, provided to CIVIC on ${day(now)}.`);
+    lines.push(`Source: the file ${m.name || '(unnamed)'}, provided to FactEngine on ${day(now)}.`);
     if (m.title) lines.push(`Title: ${m.title}`);
     if (m.author) lines.push(`By: ${m.author}`);
     if (m.published) lines.push(`Dated: ${m.published}`);
   } else {
-    lines.push(`Source: text pasted into CIVIC on ${day(now)}; no title, author or date was given with it.`);
+    lines.push(`Source: text pasted into FactEngine on ${day(now)}; no title, author or date was given with it.`);
   }
   return lines;
 }

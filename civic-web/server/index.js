@@ -1,4 +1,4 @@
-// CIVIC main-page server. Serves the page, keeps the prompts, and proxies the reader's own
+// FactEngine main-page server. Serves the page, keeps the prompts, and proxies the reader's own
 // OpenAI key to OpenAI. Nothing under server/ is ever served as a static file.
 import fs from 'node:fs';
 import http from 'node:http';
@@ -34,7 +34,7 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const publicDir = path.join(here, '..', 'public');
 
 // The version stamp covers the page and the server alike (see build.js). The page is served with
-// no caching and its assets under /b/<stamp>/, so an updated CIVIC cannot be hidden behind a
+// no caching and its assets under /b/<stamp>/, so an updated FactEngine cannot be hidden behind a
 // browser's copy of yesterday's JavaScript. This mattered: the page and its code were once served
 // with an hour of caching and no version in their addresses, so a reader who had visited before
 // kept running the old code after an update and saw a fixed fault again.
@@ -98,7 +98,7 @@ const wrap = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).cat
 // The door (server/access.js): with CIVIC_ACCESS_CODES set, every API route but the health line
 // and the sign-in itself needs the cookie a listed code earns. It is mounted on /api itself, so
 // what is under /api is Express's decision and the gate's alike, never two readings of one path.
-// CIVIC's tools for the model (server/tools): the gateway answers OpenAI's servers with the pass, so it
+// FactEngine's tools for the model (server/tools): the gateway answers OpenAI's servers with the pass, so it
 // sits outside the sign-in gate; without a pass set it answers no one.
 mountGateway(app, { registry, pass: config.toolsPass, version: BUILD });
 app.use('/api', gate);
@@ -130,7 +130,7 @@ app.post('/api/signin', (req, res) => {
 });
 app.post('/api/signout', (req, res) => { clearCookie(req, res); res.json({ ok: true }); });
 
-// Is CIVIC able to work right now? Answered in plain language at /check, so a fault is never
+// Is FactEngine able to work right now? Answered in plain language at /check, so a fault is never
 // something a reader has to catch as a message disappears.
 app.get('/api/selftest', wrap(async (req, res) => {
   res.setHeader('Cache-Control', 'no-store');
@@ -161,7 +161,7 @@ app.post('/api/parse', upload.single('file'), wrap(async (req, res) => {
   res.json({ name: req.file.originalname, ...parsed });
 }));
 
-// Reading a link. The reader pastes a web address instead of text, and CIVIC fetches the page, the
+// Reading a link. The reader pastes a web address instead of text, and FactEngine fetches the page, the
 // PDF or the video's caption track and hands back its words. Nothing is summarised or shortened:
 // the source's own text comes back and appears in the box, so the reader sees what will be tested.
 app.post('/api/read-url', wrap(async (req, res) => {
@@ -352,10 +352,10 @@ const server = http.createServer(app);
 
 function banner() {
   const status = promptStatus();
-  console.log(`CIVIC build ${BUILD} is running on http://localhost:${config.port}`);
+  console.log(`FactEngine build ${BUILD} is running on http://localhost:${config.port}`);
   if (config.key?.conflict) {
     console.log('');
-    console.log('NOTE: two different OpenAI keys were found, and CIVIC used the one in its own');
+    console.log('NOTE: two different OpenAI keys were found, and FactEngine used the one in its own');
     console.log('      settings file, which is the rule. The other is set in this computer\'s');
     console.log('      environment and is being ignored. To remove it:  unset OPENAI_API_KEY');
     for (const at of whereTheShellSetsIt()) console.log(`      It is also set in ${at.file}, line ${at.line}.`);
@@ -364,7 +364,7 @@ function banner() {
   if (config.serverKey && !config.key?.usable) {
     const o = config.key?.offending;
     console.log('');
-    console.log('STOP: the OpenAI key CIVIC has cannot be sent in a request at all, so every test');
+    console.log('STOP: the OpenAI key FactEngine has cannot be sent in a request at all, so every test');
     console.log(`      will fail. It came from ${config.key?.source}.`);
     if (o) console.log(`      Character ${o.index} of the key is ${JSON.stringify(o.char)}, which a request cannot carry.`);
     console.log('      A key copied from somewhere that shortened it for display ends this way.');
@@ -381,9 +381,9 @@ function banner() {
   if (config.openaiBaseUrl) console.log(`OpenAI base URL override: ${config.openaiBaseUrl}`);
 }
 
-// The launcher asks for the browser, and it is opened from here, once this CIVIC is actually
-// answering. It used to be opened by the launcher on a timer, so when this CIVIC failed to start
-// the browser opened on whatever was already on the port: the older CIVIC, with the older fault,
+// The launcher asks for the browser, and it is opened from here, once this FactEngine is actually
+// answering. It used to be opened by the launcher on a timer, so when this FactEngine failed to start
+// the browser opened on whatever was already on the port: the older FactEngine, with the older fault,
 // which looked exactly like an update that had not taken.
 function openBrowser() {
   if (process.env.CIVIC_OPEN_BROWSER !== '1') return;
@@ -398,29 +398,29 @@ function openBrowser() {
 
 server.on('listening', () => { banner(); openBrowser(); });
 
-// The port is CIVIC's. If an older CIVIC still holds it, it is closed and the port taken over,
+// The port is FactEngine's. If an older FactEngine still holds it, it is closed and the port taken over,
 // so an update can never leave yesterday's process answering with today's files underneath it.
-// Anything that is not a CIVIC is left alone and named, so the person can close it themselves.
+// Anything that is not a FactEngine is left alone and named, so the person can close it themselves.
 let attempts = 0;
 server.on('error', async (err) => {
   try {
     if (err?.code === 'EADDRINUSE' && attempts++ === 0) {
       const found = await takeOverPort(config.port, { appDir: path.join(here, '..') });
       if (found.closed.length) {
-        console.log(`Closed an older CIVIC${found.build ? ` (build ${found.build})` : ''} that was still holding port ${config.port}.`);
+        console.log(`Closed an older FactEngine${found.build ? ` (build ${found.build})` : ''} that was still holding port ${config.port}.`);
         server.listen(config.port);
         return;
       }
-      const lines = ['', `STOPPED: port ${config.port} is already in use, so this CIVIC did not start.`];
-      if (found.unknown) lines.push('CIVIC could not find out by what. Close other programs, then start CIVIC again.');
-      for (const f of found.foreign) lines.push(`It is in use by something that is not CIVIC: ${f.command || `process ${f.pid}`}${f.error ? ` (could not be closed: ${f.error})` : ''}.`);
-      if (found.foreign.length) lines.push('Close that program, then start CIVIC again.');
+      const lines = ['', `STOPPED: port ${config.port} is already in use, so this FactEngine did not start.`];
+      if (found.unknown) lines.push('FactEngine could not find out by what. Close other programs, then start FactEngine again.');
+      for (const f of found.foreign) lines.push(`It is in use by something that is not FactEngine: ${f.command || `process ${f.pid}`}${f.error ? ` (could not be closed: ${f.error})` : ''}.`);
+      if (found.foreign.length) lines.push('Close that program, then start FactEngine again.');
       lines.push('');
       console.error(lines.join('\n'));
       process.exit(1);
     }
     if (err?.code === 'EADDRINUSE') {
-      console.error(`\nSTOPPED: an older CIVIC holding port ${config.port} would not close. Close every CIVIC window, then start it again.\n`);
+      console.error(`\nSTOPPED: an older FactEngine holding port ${config.port} would not close. Close every FactEngine window, then start it again.\n`);
       process.exit(1);
     }
     console.error('[civic] server error', err?.code || err?.message || err);
@@ -437,9 +437,9 @@ server.headersTimeout = 60 * 1000;
 server.keepAliveTimeout = 75 * 1000;
 
 // A deploy, or the launcher closing an older copy, ends this process with SIGTERM. Its jobs can no
-// longer reach anyone (the host has already moved the traffic to the next CIVIC, whose page will
+// longer reach anyone (the host has already moved the traffic to the next FactEngine, whose page will
 // start them over), so their model calls are stopped rather than paid for to no end; the listener
-// closes, so the port is free for the next CIVIC; the process ends when the last connection closes.
+// closes, so the port is free for the next FactEngine; the process ends when the last connection closes.
 process.on('SIGTERM', () => {
   jobs.cancel(jobs.ids());
   server.close(() => process.exit(0));

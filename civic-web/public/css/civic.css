@@ -1,4 +1,4 @@
-/* CIVIC — daylight. One deliberate theme: the page lives in the morning light of the scene.
+/* FactEngine (formerly CIVIC) — daylight. One deliberate theme: the page lives in the morning light of the scene.
    Type: Barlow Condensed (signage, like the mark) · Public Sans (civic body) · IBM Plex Mono (keys, counts). */
 
 :root {
@@ -83,6 +83,7 @@ body {
   display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap;
 }
 .brand { display: inline-flex; align-items: center; gap: 14px; text-decoration: none; color: var(--ink); }
+.brand-word { font-family: var(--font-display); font-weight: 700; font-size: 30px; line-height: 1; letter-spacing: 0.01em; color: var(--ink); }
 .brand-mark { width: 62px; height: 62px; object-fit: contain; }
 .brand-tag {
   font-family: var(--font-display); font-weight: 600; font-size: 19px; letter-spacing: 0.08em; text-transform: uppercase;

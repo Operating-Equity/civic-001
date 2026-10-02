@@ -2,7 +2,7 @@
   "name": "civic-web",
   "version": "0.1.0",
   "private": true,
-  "description": "CIVIC — empirical claim testing. Main page prototype (server keeps the prompts; browser never sees them).",
+  "description": "FactEngine (formerly CIVIC) — empirical claim testing. Main page prototype (server keeps the prompts; browser never sees them).",
   "type": "module",
   "engines": {
     "node": ">=22.9"

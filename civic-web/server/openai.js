@@ -29,7 +29,7 @@ function assertSendable(key, where) {
 }
 
 /**
- * The key CIVIC runs on. It is the operator's, always, and it is the only one.
+ * The key FactEngine runs on. It is the operator's, always, and it is the only one.
  *
  * A reader's own key is never accepted, and this is the first requirement of the product rather
  * than a convenience. Running a prompt on someone else's key hands them the prompt: it travels to
@@ -43,7 +43,7 @@ export function operatorKey({ optional = false } = {}) {
   if (!config.serverKey) {
     if (optional) return ''; // the self-check reports a missing key rather than refusing
     throw new ApiError(503, 'no_operator_key',
-      'This CIVIC has no OpenAI key of its own, and it will not run on anyone else\'s. ' +
+      'This FactEngine has no OpenAI key of its own, and it will not run on anyone else\'s. ' +
       'The operator sets OPENAI_API_KEY in the settings file beside the server. Open /check.');
   }
   // The self-check must be able to look at a broken key in order to explain it.

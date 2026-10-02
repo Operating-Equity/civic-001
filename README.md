@@ -1,6 +1,6 @@
-# CIVIC
+# FactEngine
 
-Paste a document, a transcript, a speech, a study or a link. CIVIC extracts every empirical claim it
+Paste a document, a transcript, a speech, a study or a link. FactEngine extracts every empirical claim it
 contains, tests the first twenty at the same time, and shows each determination as True, False or
 Unverified with the full entry behind it.
 
@@ -44,7 +44,7 @@ npm run verify        # reads the request bodies actually sent, and the leak gua
 npm start             # http://localhost:3000
 ```
 
-`http://localhost:3000/check` asks the server whether CIVIC can work at all and answers in sentences:
+`http://localhost:3000/check` asks the server whether FactEngine can work at all and answers in sentences:
 prompts installed, key configured, OpenAI accepting the key, the key allowed to use the model.
 
 ## Layout
@@ -55,4 +55,4 @@ render.yaml     Blueprint for running the server on Render without a terminal.
 ```
 
 A video fact-checking prototype lived here until September 2026, in `civic-backend/` and
-`civic-frontend/`. It was removed once CIVIC replaced it and remains in the history.
+`civic-frontend/`. It was removed once FactEngine replaced it and remains in the history.

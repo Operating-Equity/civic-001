@@ -42,7 +42,7 @@ function pacingRows(pacing) {
     parts.push(`${g.inFlight} in flight · ${g.waiting} waiting · ${g.replies} replies · ${g.refusals} refusals`);
     rows.push([`Pacing, ${g.model}`, parts.join(' · ')]);
   }
-  if (!rows.length) rows.push(['Pacing', 'Nothing has been sent since this CIVIC started. The key\'s minute figures arrive with the first reply.']);
+  if (!rows.length) rows.push(['Pacing', 'Nothing has been sent since this FactEngine started. The key\'s minute figures arrive with the first reply.']);
   return rows;
 }
 
@@ -56,7 +56,7 @@ function renderSettings(s, build, pacing, silent, tools) {
     ['Prompt versions', s.prompts || 'none installed'],
     ['Version', build],
     ...pacingRows(pacing),
-    ...(silent && silent.length ? [['Sites that stayed silent', silent.map((x) => `${x.host} (${x.cause}, since ${x.at.slice(11, 19)} UTC)`).join(' · ') + ' — a site that never answers the connection is remembered until CIVIC restarts, and re-checked whenever it is asked for again']] : []),
+    ...(silent && silent.length ? [['Sites that stayed silent', silent.map((x) => `${x.host} (${x.cause}, since ${x.at.slice(11, 19)} UTC)`).join(' · ') + ' — a site that never answers the connection is remembered until FactEngine restarts, and re-checked whenever it is asked for again']] : []),
     ...(tools ? [['Sources the model can reach for', (tools.sources || []).length ? (tools.sources.map((x) => `${x.name} (${x.verbs.join(', ')})`).join(' · ') + (tools.reachable ? '' : ' — not in the requests yet: the gateway\'s address and pass are not both set')) : 'none on']] : []),
   ];
   const table = $('#settings');
@@ -91,7 +91,7 @@ function renderSignins(data) {
   box.textContent = '';
   if (!data.access?.required) return;
   box.append(el('h2', null, 'Recent sign-ins'));
-  if (!data.signins?.length) { box.append(el('p', 'check-detail', 'Nobody has signed in since this CIVIC started.')); return; }
+  if (!data.signins?.length) { box.append(el('p', 'check-detail', 'Nobody has signed in since this FactEngine started.')); return; }
   const ul = el('ul');
   for (const s of data.signins) {
     const li = document.createElement('li');
@@ -113,7 +113,7 @@ function renderCodes(data, after) {
 
 function asText(data) {
   const lines = [
-    `CIVIC self-check · ${data.at}`,
+    `FactEngine self-check · ${data.at}`,
     `Version ${data.build}`,
     data.summary,
     '',
@@ -144,19 +144,19 @@ async function run() {
     const res = await fetch('api/selftest', { cache: 'no-store' });
     if (res.status === 404) {
       // This page came from the files on disk, but the running server has no such route: the
-      // process is older than the files around it. Almost always an earlier CIVIC window still open.
+      // process is older than the files around it. Almost always an earlier FactEngine window still open.
       verdict.className = 'check-verdict is-blocked';
-      verdict.textContent = 'The CIVIC that is running is older than the CIVIC on this computer. '
-        + 'Close every CIVIC window, then start it again from the Desktop.';
+      verdict.textContent = 'The FactEngine that is running is older than the FactEngine on this computer. '
+        + 'Close every FactEngine window, then start it again from the Desktop.';
       $('#report').value = 'The running server does not have /api/selftest, so it predates the files '
-        + 'it is serving. An older CIVIC window is still holding the port.';
+        + 'it is serving. An older FactEngine window is still holding the port.';
       return;
     }
     if (res.status === 401) {
       // The door is locked and this browser has not signed in: the main page's Sign in opens it.
       verdict.className = 'check-verdict is-blocked';
       verdict.textContent = 'Sign in on the main page first, then check again.';
-      $('#report').value = 'This CIVIC needs a sign-in. Open the main page, sign in with an access code, then come back here.';
+      $('#report').value = 'This FactEngine needs a sign-in. Open the main page, sign in with an access code, then come back here.';
       return;
     }
     if (!res.ok) throw new Error(`the server answered ${res.status}`);
@@ -170,8 +170,8 @@ async function run() {
     $('#report').value = asText(data);
   } catch (err) {
     verdict.className = 'check-verdict is-blocked';
-    verdict.textContent = `The CIVIC server did not answer: ${err.message}. Is the CIVIC window still open?`;
-    $('#report').value = `The CIVIC server did not answer: ${err.message}`;
+    verdict.textContent = `The FactEngine server did not answer: ${err.message}. Is the FactEngine window still open?`;
+    $('#report').value = `The FactEngine server did not answer: ${err.message}`;
   }
 }
 

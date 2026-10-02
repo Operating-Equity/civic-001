@@ -320,6 +320,18 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
   reader reading it (6/6). The same run showed some search texts are fragments (the Washington Post's
   845 characters, CNN's 1,000), so a copy taken from the search's text now waits in the box with a
   sentence for the reader's press, as a marked article does, and the list stays (browser 9/9).
+- **2 October: the service is renamed FactEngine.** The operator's decision, with a design-tool mock of a home
+  page for the new name (judged functional but dated; nothing of it is used but the name). This release renames
+  every reader-facing occurrence: the four locales (15 keys each; the headline is a placeholder the operator
+  edits), the page's title, description, wordmark (text, in the display font, in place of the CIVIC logo image;
+  the final mark comes with the chosen design) and favicon (an SVG F inside the corner brackets), the server's
+  sentences (refusals, the attribution lines that enter the prompt's slot, the check page's rows, the startup
+  lines), the check page, the guard's expectations and the browser checks. Internal identifiers stay as they
+  are: the CIVIC_* settings, the Render service and address, the package and file names, the cookie, the
+  localStorage key, the MCP server label. The design itself is the next two releases: three directions shown as
+  screenshots from the real app on the stand-in, then the chosen one built across the whole experience; the
+  photographic background goes in all three (the operator's requirement), while the photograph stays as the
+  echo's unseen style reference.
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 
