@@ -1,6 +1,6 @@
-# CIVIC — main page prototype
+# FactEngine (formerly CIVIC) — main page prototype
 
-The functional main page: paste or upload text, CIVIC extracts every empirical claim, lists them with
+The functional main page: paste or upload text, FactEngine extracts every empirical claim, lists them with
 checkboxes, runs the ones the reader chooses three at a time (or the first `CIVIC_AUTO_TEST_FIRST` of them
 without a press, when that setting is above 0), and shows each determination (True / False / Unverified)
 with the full encyclopedia-style entry, a live scoreboard, a challenge panel per result, and a reset.
@@ -47,10 +47,10 @@ npm start            # http://localhost:3000
 ```
 
 `npm start` reads the `.env` file in this folder (gitignored; see `.env.example`). Put the
-operator's key there as `OPENAI_API_KEY`. That file is CIVIC's configuration and wins over a
+operator's key there as `OPENAI_API_KEY`. That file is FactEngine's configuration and wins over a
 variable of the same name in the environment, so a stale shell variable cannot quietly take over.
 
-**CIVIC runs on the operator's key and on no other.** A key offered by a browser is ignored
+**FactEngine runs on the operator's key and on no other.** A key offered by a browser is ignored
 outright: there is no key box on the page, no key is stored there, and nothing a reader sends can
 choose the key. This is the first requirement of the product, not a convenience. A prompt run on
 someone else's key is a prompt handed to them: it travels to OpenAI under their account, appears in
@@ -59,13 +59,13 @@ narrows that exposure but does not remove it, and it was never the operator's to
 stranger's account. `npm run verify` reads the Authorization header of every request the server
 actually sent and fails if any of them carried a key offered by a browser.
 
-**The port is CIVIC's.** When `npm start` finds an older CIVIC still holding the port, it closes
+**The port is FactEngine's.** When `npm start` finds an older FactEngine still holding the port, it closes
 it and takes the port over, so an update can never leave yesterday's process answering with
-today's files underneath it. A CIVIC is recognised by where it runs from and which Node it runs
+today's files underneath it. A FactEngine is recognised by where it runs from and which Node it runs
 on, never by its name. Anything else on the port is left alone and named in the Terminal window.
 The version stamp shown in the page footer, on `/check`, in `/api/health` and in the Terminal
-covers the page and the server alike, so which CIVIC is running is never a matter of belief.
-`CIVIC_OPEN_BROWSER=1 npm start` opens the browser once CIVIC is actually answering; the Mac
+covers the page and the server alike, so which FactEngine is running is never a matter of belief.
+`CIVIC_OPEN_BROWSER=1 npm start` opens the browser once FactEngine is actually answering; the Mac
 launcher sets it.
 
 ### Without a key (development)
@@ -150,13 +150,13 @@ the text goes into the box marked, with the sentence that the site marks the art
 subscribers, and the reader decides whether it is the whole article before pressing the button
 (the operator's rule of 19 September; the run does not start by itself in this one case); a shell
 (no paragraph of prose, under 200 characters at most). The page's sentences are in four languages.
-The refusal's sentence says it is CIVIC's server the site turned away, "though people can often read it
+The refusal's sentence says it is FactEngine's server the site turned away, "though people can often read it
 in a browser" (the operator's question of 1 October: a reader who could open the article read the old
 sentence as saying they could not).
 
 **A refused article, found elsewhere.** The same article is often published at another address: papers
 that republish another paper's articles with permission end each one with "This article originally
-appeared in …", and other outlets report the same story. When a site turns CIVIC away (a refusal,
+appeared in …", and other outlets report the same story. When a site turns FactEngine away (a refusal,
 silence, a paywall or a shell) and the operator has set a search service (`CIVIC_SEARCH_URL` and
 `CIVIC_SEARCH_KEY`; `server/copies.js`), the server asks it twice, at once, with only what the link
 itself carries: the words of its address (the segment with the most words; ids and section names carry
@@ -166,8 +166,8 @@ with each page's headline, site and date: pages that say they are the paper's ow
 the reports, each group in the service's order; a page dated more than two days from the link's date
 (time zones, and next-day editions), the refused site's own pages and repeats are left out. Nothing decides which page is the article: a paper
 often runs more than one article on the same event the same day, so the reader picks by the headline,
-and "Test this one" reads that page through CIVIC's own reader and starts the run on it. When the
-copy's site turns CIVIC away too, the search service's text of that page goes into the box instead,
+and "Test this one" reads that page through FactEngine's own reader and starts the run on it. When the
+copy's site turns FactEngine away too, the search service's text of that page goes into the box instead,
 with a sentence naming the site and the text's length, and waits: a search's text can be a fragment
 (seen live on 1 October: 845 characters of a Washington Post article), so, as with a marked article,
 the reader presses the button if it is the whole article, or chooses another from the list, which
@@ -175,7 +175,7 @@ stays. The source's attribution in the prompt's slot then says the text was read
 service's copy of that address". While the search runs, the seconds tick under the box; the refusal's pop-up waits, and
 appears only if nothing is found. Proved on the operator's Times link of 1 October: a search built from
 its words, its date and the republishers' line found The Straits Times' republication first, and
-CIVIC's server read it in half a second. The request is the shape of Exa's `/search` (the service
+FactEngine's server read it in half a second. The request is the shape of Exa's `/search` (the service
 tested), its key travels in `x-api-key` like the transcript service's, each search's cost is the
 service's own figure on the ledger (Exa: $7 for a thousand searches), a rate limit is a wait of the
 time the service asks, and any other refusal is a note on /check, the key struck out. With nothing
@@ -201,16 +201,16 @@ make), with the public key and the visitor id the watch page itself embeds; noth
 YouTube's player has several doors (the Android app's, the TV app's, the embedded player's, the VR
 app's, the iPhone app's) and guards them unevenly, so they are asked in turn (`CIVIC_YOUTUBE_CLIENTS`)
 until one answers with captions. A video shut at every door gets "YouTube would not show this video's
-captions to CIVIC's server without a sign-in, as it does for some videos. Open the video on YouTube,
+captions to FactEngine's server without a sign-in, as it does for some videos. Open the video on YouTube,
 choose Show transcript under the description, copy the text and paste it here.", with each door's
 answer on /check; a video with no captions at an open door says so.
 
 When every door is shut and the operator has set a hosted transcript service (`CIVIC_TRANSCRIPT_URL`
 and `CIVIC_TRANSCRIPT_KEY`, with `CIVIC_TRANSCRIPT_HEADER` and `CIVIC_TRANSCRIPT_PREFIX` for how the
-key is carried and `CIVIC_TRANSCRIPT_JOB_URL` for where a job's result is read), CIVIC asks it as the
+key is carried and `CIVIC_TRANSCRIPT_JOB_URL` for where a job's result is read), FactEngine asks it as the
 last door. No vendor is named in the code: the address takes `{id}` and `{url}`, the answer is read
 for whichever shape it has, a single piece of text or a list of pieces, and a service that hands back
-a job while it makes the transcript is followed to the end of that job, with no time limit of CIVIC's
+a job while it makes the transcript is followed to the end of that job, with no time limit of FactEngine's
 own. Most services carry the key raw in a header of their own, so the prefix is empty unless one is
 named. `.env.example` holds the four values for Supadata, the service the operator uses. With nothing
 set, nothing is asked and the sentence above stands. The key is a
@@ -224,15 +224,15 @@ the picture's box (320 by 180 beside the steps, full width on a phone), or its t
 when the owner allows no embedding; no picture is generated for a video. `CIVIC_YOUTUBE_BASE` lets
 the guard stand in for YouTube.
 
-Addresses that resolve inside a private network are refused, so a public CIVIC server cannot be
+Addresses that resolve inside a private network are refused, so a public FactEngine server cannot be
 aimed at machines behind its own firewall. `CIVIC_ALLOW_PRIVATE_URLS=true` lifts that for local
 development only.
 
 ## Sources as tools
 
-The model can reach for CIVIC's own tools while it works, through the gateway at `/mcp` (the open
-standard, MCP, over HTTP). The gateway is CIVIC's server itself; OpenAI's servers call it during a
-response, with a pass CIVIC issues (`CIVIC_TOOLS_PASS`), and the model's call is answered at once.
+The model can reach for FactEngine's own tools while it works, through the gateway at `/mcp` (the open
+standard, MCP, over HTTP). The gateway is FactEngine's server itself; OpenAI's servers call it during a
+response, with a pass FactEngine issues (`CIVIC_TOOLS_PASS`), and the model's call is answered at once.
 The requests name it with one entry in the existing `tools` list beside web search, and nothing
 else changes: the prompts go byte for byte, and whether the model calls a tool is the model's
 decision. With `CIVIC_TOOLS_URL` or the pass unset, the requests are exactly as before and the
@@ -242,11 +242,11 @@ The tools are **verbs**, few and stable (`server/tools/verbs.js`): `read_page` a
 `get_transcript` today; `search_law`, `get_case`, `search_filings`, `get_financials`,
 `search_news` as those domains arrive. The **sources** behind them are adapters
 (`server/tools/adapters/`, one file each, with a stand-in beside it for the guard): the web, read by
-CIVIC's own link reader with all of its rules, is the first; a legal or financial database is one
+FactEngine's own link reader with all of its rules, is the first; a legal or financial database is one
 more file, its key and its address as settings, and nothing else in the program names it. A source
 is on when its settings are set; a verb is listed when a source answers it; a verb several sources
 answer gains a `source` parameter the model must fill, listing each source in its own words, so the
-model chooses the source and CIVIC's code never does. Every source answers in one shape (title,
+model chooses the source and FactEngine's code never does. Every source answers in one shape (title,
 site, address, date, the text, and where it came from), whole, with the source's own next page as
 a cursor when it has one. What a source keeps back (a refusal, a paywall, a silence) reaches the
 model as the reader's own sentence, information for its analysis, never as the claim's failure.
@@ -262,8 +262,8 @@ number in this program in the path of a determination that the operator did not 
 **Extraction request:** `model`, `input` (the extraction prompt, verbatim, with the source in
 place of its final bracketed line, as the only message), `reasoning.effort`, `reasoning.mode`, `reasoning.summary`,
 `tools` (one `web_search`, no options; and, when the gateway is set, one `mcp` entry naming it, with `server_label`, `server_url`, `headers` carrying the pass and `require_approval: never`, nothing else), `stream`, `store`. The source goes into that slot with
-what CIVIC knows of its attribution, since the slot asks for it: for a link, the page's title,
-author, site, date and address and the day CIVIC read it; for a file, its name and the day; for
+what FactEngine knows of its attribution, since the slot asks for it: for a link, the page's title,
+author, site, date and address and the day FactEngine read it; for a file, its name and the day; for
 pasted text, the day it was pasted and that nothing else was given. Nothing is guessed. A prompt
 without a final bracketed line is sent as `instructions` instead, with the text alone as the only
 message. The reply is read as a numbered list; in each entry the text under a `Claim:` label is
@@ -289,7 +289,7 @@ truncation setting. No fallback model. No size limit of ours on the document.
 | Reasoning summary | `auto` | Display only: the model's own account of its reasoning, shown on the card. Does not change the answer. Blank to turn off. |
 | Claims run automatically | `CIVIC_AUTO_TEST_FIRST` of them (10 unless set; 0 = none: every claim found waits for the reader's checkbox and runs when chosen), three at a time, each on its own request. The page is told both figures by the server (`autoTestFirst` and `inFlight` on `/api/health`), so what runs and how fast change with one setting and no release. The intake sentences follow the figures too. | Operator's rule; 0 since 1 October |
 | Sign-in | Off unless `CIVIC_ACCESS_CODES` is set (comma-separated seven-character codes). Then every API route but the health line needs the cookie a listed code earns: the page's Sign in opens a dialog for an email address and a code; only the code is checked, the email is kept with the sign-in and listed on /check. A cookie is bound to the code it was issued under, so taking a code off the list signs out its holders and nobody else. Nothing is counted and nothing locks. Since 30 September: the cookie is signed with `CIVIC_SESSION_SECRET` when set (unset, with a derivation from the OpenAI key, which /check flags, because a change of that key then signs everyone out); a job belongs to the sign-in that started it, so another code cannot attach to, stop or let go of it; `CIVIC_OPERATOR_CODES` names the codes that see the sign-in list and the runs per code on /check (unset, every code holder does); routes match their case exactly and the gate sits on `/api` itself, so `/API/extract` is nobody's route; a request the browser marks as another site's is refused. | Operator's rule; accounts come later |
-| Pacing | OpenAI keeps a bucket of the key's minute limit that refills continuously at that limit per minute; each request costs what OpenAI estimates for it, and a request the bucket cannot hold is refused with exactly the wait that refills the difference (its refusals say so, to the millisecond). CIVIC reads those figures from every reply and sends one request at a time: the next goes only after the previous reply's headers have been read, and only when the bucket holds its cost. What each kind of request costs is learned from OpenAI's exact figures alone: a request sent into a full minute, or a refusal. /check shows the figures. | OpenAI's own numbers |
+| Pacing | OpenAI keeps a bucket of the key's minute limit that refills continuously at that limit per minute; each request costs what OpenAI estimates for it, and a request the bucket cannot hold is refused with exactly the wait that refills the difference (its refusals say so, to the millisecond). FactEngine reads those figures from every reply and sends one request at a time: the next goes only after the previous reply's headers have been read, and only when the bucket holds its cost. What each kind of request costs is learned from OpenAI's exact figures alone: a request sent into a full minute, or a refusal. /check shows the figures. | OpenAI's own numbers |
 | Rate limits | Never a failure, never an error on a row. A refusal at the door sets the bucket to OpenAI's figures; the refused request waits exactly what OpenAI asked and goes first. A refusal can also arrive inside a running reply, when the response's own later call (after a web search) finds the minute short and OpenAI ends the response with its figures in an error event: it is read the same way, the claim waits exactly what OpenAI asked, and goes again whole. This is why claims run three at a time rather than twenty: a running reply is charged again at each of its later calls (67,000 to 89,000 each), by far more than its admission showed, so many parallel claims starve one another; three need about 450,000 in a typical minute against the key's 2,000,000-a-minute limit (read from the check page on 18 September; it was 500,000 on 16 September). Four ran from 18 September; three again from 22 September, because effort `max` in mode `pro` is more model work per claim and the wider margin is worth having. The figure is a setting, so it moves without a release. A used-up quota is reported in words. | OpenAI's own numbers |
 | Retries | None counted on a connection that could not be made or was cut: that is the operating system's report ("no route to host", "connection refused", "connection reset"), never OpenAI's, and nothing was decided by it. The claim waits for the connection and goes again a second after the failed go began, however long the route is missing; a go that finds no route costs nothing. The row says why it waits, in the system's words, and /check records the outage with its start, its cause, its length and the machine's addresses at the time. 8 on a 5xx, which costs nothing. No back-off of ours: a failed attempt rejoins the line at the gate, and OpenAI's own retry-after, when given, comes first. | Never on a model or parameter error |
 | Time limits | None of ours, on either step or on reading a link. An extraction of a very long document or a determination at a high effort takes as long as it takes; a connection the network reports dead is made again, not counted as a failure. | Operator's rule |
@@ -385,7 +385,7 @@ No token figure appears anywhere on the page or in what the page receives (the o
 
 An image model handed raw document text returns something generic. Stage one therefore reads the
 document and writes a specific brief — subject, setting, foreground, light, palette, lens — and
-stage two makes that brief as an edit of the CIVIC photograph (the page's own background,
+stage two makes that brief as an edit of the FactEngine photograph (the page's own background,
 `public/assets/civic-scene-1920.jpg`), attached to every request as the style reference: the model
 takes only how that picture is made and none of what it shows, and no text, charts or symbols
 appear anywhere in the result (the operator's rule of 18 September). Every echo therefore uploads
@@ -426,7 +426,7 @@ response 100 minutes). The work itself belongs to the server, not to the connect
 and the reply is a stream of the job's events. A connection that is cut on the way (a browser's
 network, a relay such as iCloud Private Relay, which cut a finished four-minute extraction on
 18 September) stops nothing: the page opens a new connection a second later, says how many events
-it already has, and receives the rest; the step line or the row reads "The connection to CIVIC
+it already has, and receives the rest; the step line or the row reads "The connection to FactEngine
 was cut · going again" meanwhile. Nothing is run twice and nothing is paid for twice. Only the
 page stops a job: Start a new test and leaving the page send a cancel. A deploy ends the process
 that was running, and with it its jobs: `/api/health` reports `active`, the runs in flight

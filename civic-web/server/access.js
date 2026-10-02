@@ -9,7 +9,7 @@
 // The cookie carries the email, a fingerprint of the code it was issued under, and a signature
 // over both, keyed by that code together with the server's own key. So a code taken off the list
 // signs out exactly the browsers that used it and nobody else, and a cookie proves nothing on a
-// CIVIC whose list does not hold its code. The server's key in the derivation means a cookie
+// FactEngine whose list does not hold its code. The server's key in the derivation means a cookie
 // alone does not let anyone work the code back out of it. Nothing is counted and nothing locks:
 // seven characters from an alphabet of thirty-one give 27 billion codes, and guessing is hopeless
 // without any limit of ours.
@@ -133,7 +133,7 @@ const OPEN = new Set(['/health', '/signin', '/signout']);
 const SAFE = new Set(['GET', 'HEAD', 'OPTIONS']);
 export function gate(req, res, next) {
   if (!SAFE.has(req.method) && req.get('sec-fetch-site') === 'cross-site') {
-    return next(new ApiError(403, 'cross_site', 'That request came from another site, so CIVIC did not act on it.'));
+    return next(new ApiError(403, 'cross_site', 'That request came from another site, so FactEngine did not act on it.'));
   }
   if (!required() || OPEN.has(req.path)) return next();
   const session = verify(cookieOf(req));

@@ -3,8 +3,9 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>CIVIC</title>
-<meta name="description" content="Paste any text. CIVIC extracts its empirical claims and tests each one: true, false, or unverified.">
+<title>FactEngine</title>
+<meta name="description" content="Paste any text, link or document. FactEngine extracts its empirical claims and tests the ones you choose: true, false, or unverified.">
+<link rel="icon" type="image/svg+xml" href="assets/favicon.svg">
 <link rel="icon" type="image/png" href="assets/favicon.png">
 <link rel="stylesheet" href="vendor/katex/katex.min.css">
 <link rel="stylesheet" href="css/fonts.css">
@@ -17,8 +18,8 @@
 </div>
 
 <header class="masthead">
-  <a class="brand" href="./" aria-label="CIVIC">
-    <img class="brand-mark" src="assets/civic-logo.png" alt="CIVIC" width="62" height="62">
+  <a class="brand" href="./" aria-label="FactEngine">
+    <span class="brand-word">FactEngine</span>
     <span class="brand-tag" data-i18n="app.tagline">Truth, verified.</span>
   </a>
   <nav class="masthead-nav" aria-label="Account">
@@ -63,14 +64,14 @@
   <!-- Intake: the functional heart of the page, framed by the brackets from the mark. -->
   <section class="intake glass frame" id="intake" aria-labelledby="intake-title">
     <i class="bk bk-tl" aria-hidden="true"></i><i class="bk bk-tr" aria-hidden="true"></i><i class="bk bk-bl" aria-hidden="true"></i><i class="bk bk-br" aria-hidden="true"></i>
-    <h1 class="intake-title" id="intake-title" data-i18n="intake.title">Truth Engine tests the facts.</h1>
+    <h1 class="intake-title" id="intake-title" data-i18n="intake.title">FactEngine tests the facts.</h1>
     <!-- While a test runs the box closes to this line, so the results are not pushed down the page. -->
     <div class="intake-summary" id="intake-summary" hidden>
       <span class="intake-summary-text" id="intake-summary-text"></span>
       <button type="button" class="btn btn-text btn-small" id="btn-show-text"></button>
     </div>
-    <p class="intake-lede" data-i18n="intake.ledeChoose">Paste a transcript, article, speech, post or study, or a link to one. CIVIC extracts every empirical claim it contains and shows them for you to choose which to test.</p>
-    <label class="visually-hidden" for="source-text" data-i18n="intake.title">Truth Engine tests the facts.</label>
+    <p class="intake-lede" data-i18n="intake.ledeChoose">Paste a transcript, article, speech, post or study, or a link to one. FactEngine extracts every empirical claim it contains and shows them for you to choose which to test.</p>
+    <label class="visually-hidden" for="source-text" data-i18n="intake.title">FactEngine tests the facts.</label>
     <textarea id="source-text" class="source" rows="9" placeholder="Paste text, or a link to an article, a PDF or a YouTube video…" data-i18n-placeholder="intake.placeholder" spellcheck="false"></textarea>
     <div class="intake-tools">
       <div class="intake-left">

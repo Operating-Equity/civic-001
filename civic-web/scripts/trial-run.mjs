@@ -121,7 +121,7 @@ const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
 const base = path.resolve(`civic-trial-${stamp}`);
 fs.writeFileSync(`${base}.json`, JSON.stringify({ file, server: health, extraction, claims, results: rows, echo: echoResult && { ...echoResult, dataUrl: undefined } }, null, 2));
 const md = [
-  `# CIVIC trial run — ${new Date().toLocaleString()}`, '',
+  `# FactEngine trial run — ${new Date().toLocaleString()}`, '',
   `Document: ${file} (${text.length} characters)`,
   `Extraction: ${extraction.total} claims, ${extraction.model}, ${secs(extraction.ms)}`,
   `Tested: ${rows.length} · ${JSON.stringify(byVerdict)}`,

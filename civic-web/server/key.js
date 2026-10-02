@@ -1,4 +1,4 @@
-// Where CIVIC's own key comes from. One rule, no conditions.
+// Where FactEngine's own key comes from. One rule, no conditions.
 //
 // A reader lost an afternoon to two keys disagreeing. A truncated one exported in their shell weeks
 // earlier beat the correct one the installer had just written beside the server, because
@@ -12,12 +12,12 @@
 //
 // The rule now is plain, and it is the same whether or not either key is any good:
 //
-//   The settings file beside the server is CIVIC's configuration. If it names a key, that key is
-//   the one CIVIC uses. The environment is used only when the settings file says nothing.
+//   The settings file beside the server is FactEngine's configuration. If it names a key, that key is
+//   the one FactEngine uses. The environment is used only when the settings file says nothing.
 //
 // This keeps hosts working, where there is no settings file and the environment is the only source.
 // It makes an installed copy predictable: what the installer wrote is what runs. And when the two
-// disagree, CIVIC says so rather than choosing in silence.
+// disagree, FactEngine says so rather than choosing in silence.
 import fs from 'node:fs';
 
 const NAME = 'OPENAI_API_KEY';
@@ -44,7 +44,7 @@ export function resolveKey({ settingsFile, environment = process.env } = {}) {
   const inEnv = String(environment[NAME] || '').trim();
 
   const chosen = inFile || inEnv;
-  const source = inFile ? 'the settings file next to CIVIC' : (inEnv ? 'this computer\'s environment' : 'nowhere');
+  const source = inFile ? 'the settings file next to FactEngine' : (inEnv ? 'this computer\'s environment' : 'nowhere');
 
   return {
     value: chosen,

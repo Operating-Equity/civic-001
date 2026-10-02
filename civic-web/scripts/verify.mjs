@@ -311,7 +311,7 @@ async function gateRun(n, env, { extraction = false, claims = SIX, serverEnv = {
   await wait(`http://localhost:${PORT2}/api/health`);
   const out = { events: [], ex: [], failure: '', stats: null, pacing: null };
   const text = 'The Eiffel Tower stands about 330 metres tall. Water boils at 100 degrees Celsius at sea level. Mount Everest is 8,849 metres above sea level.';
-  // As in a real run, an extraction goes first. The first request a CIVIC ever sends teaches the
+  // As in a real run, an extraction goes first. The first request a FactEngine ever sends teaches the
   // gate the key's limit and nothing else (what the bucket held before it is not known); the first
   // determination is then sent into a full minute and teaches its cost exactly, and so is the
   // extraction that follows the claims.
@@ -579,7 +579,7 @@ async function accessChecks() {
     const revoked = await json(`http://localhost:${PORT3}/api/health`, { headers: { cookie } });
     const okB = await post(`${base}/api/signin`, { email: 'b@example.com', code: 'EFGH567' });
     const stillIn = await json(`http://localhost:${PORT3}/api/health`, { headers: { cookie: okB.cookie } });
-    check('taking a code off the list signs out exactly its holders: on a CIVIC without ABCD234 the cookie issued under it proves nothing, and one issued under EFGH567 is honoured',
+    check('taking a code off the list signs out exactly its holders: on a FactEngine without ABCD234 the cookie issued under it proves nothing, and one issued under EFGH567 is honoured',
       revoked.body?.access?.session === null && stillIn.body?.access?.session?.email === 'b@example.com', JSON.stringify({ revoked: revoked.body?.access, stillIn: stillIn.body?.access }));
     const out = await post(`${base}/api/signout`, {}, { cookie });
     check('signing out clears the cookie', out.status === 200 && out.cookie === 'civic_access=', JSON.stringify(out));
@@ -665,7 +665,7 @@ async function securityChecks() {
 
     const onB = await json(`http://localhost:${PORT3}/api/health`, { headers: { cookie: op } });
     const onC = await json(`http://localhost:${PORT4}/api/health`, { headers: { cookie: op } });
-    check('with CIVIC_SESSION_SECRET set the cookie is the secret\'s and not the key\'s: a CIVIC on another OpenAI key and the same secret honours it; one on another key without the secret does not',
+    check('with CIVIC_SESSION_SECRET set the cookie is the secret\'s and not the key\'s: a FactEngine on another OpenAI key and the same secret honours it; one on another key without the secret does not',
       onB.body?.access?.session?.email === 'op@example.com' && onC.body?.access?.session === null, JSON.stringify({ onB: onB.body?.access, onC: onC.body?.access }));
 
     const opHealth = await json(`${base}/api/health`, { headers: { cookie: op } });
@@ -749,7 +749,7 @@ async function usesChecks() {
 }
 await usesChecks();
 
-// The visual echo is an edit of the CIVIC photograph, sent with every request as the style
+// The visual echo is an edit of the FactEngine photograph, sent with every request as the style
 // reference (the operator's rule of 18 September): the picture takes its style and none of its
 // content, and the request carries nothing beyond the knobs the operator tested with.
 async function illustrateChecks() {
@@ -974,7 +974,7 @@ async function linkChecks() {
     // A site that keeps its text is named, with what to do.
     const refused = await read(`http://localhost:${SITE}/refuse`);
     check('a site that refuses the request is named, with what to do, and nothing of the status reaches the reader',
-      refused.status === 400 && refused.body?.error?.code === 'url_refused' && refused.body?.error?.site === 'localhost' && /^localhost turns CIVIC's server away, though people can often read it in a browser\./.test(refused.body?.error?.message || '') && !/40[13]/.test(refused.body?.error?.message || ''), JSON.stringify(refused.body));
+      refused.status === 400 && refused.body?.error?.code === 'url_refused' && refused.body?.error?.site === 'localhost' && /^localhost turns FactEngine's server away, though people can often read it in a browser\./.test(refused.body?.error?.message || '') && !/40[13]/.test(refused.body?.error?.message || ''), JSON.stringify(refused.body));
     const teaser = await read(`http://localhost:${SITE}/paywalled-teaser`);
     check('a page marked as not free (the flag Google News reads) that sent no paragraph of prose is a paywall: the site is named by its own name, nothing is tested',
       teaser.status === 400 && teaser.body?.error?.code === 'url_paywall' && teaser.body?.error?.site === 'The Daily Stand-in' && /^The Daily Stand-in keeps this article behind its paywall/.test(teaser.body?.error?.message || ''), JSON.stringify(teaser.body));
@@ -1004,7 +1004,7 @@ async function linkChecks() {
     const shutRec = (await failures()).find((f) => f.code === 'url_video_wall');
     const doors5 = ytCalls.filter((c) => c.videoId === 'vid5').map((c) => c.client?.clientName);
     check('a video shut at every door gets the wall sentence that points to YouTube\'s own transcript panel, and the record names each door\'s answer',
-      shutVideo.status === 400 && shutVideo.body?.error?.code === 'url_video_wall' && /^YouTube would not show this video\'s captions to CIVIC\'s server without a sign-in/.test(shutVideo.body?.error?.message || '') && JSON.stringify(doors5) === JSON.stringify(['ANDROID', 'TVHTML5', 'WEB_EMBEDDED_PLAYER', 'ANDROID_VR', 'IOS']) && /ANDROID LOGIN_REQUIRED: Sign in.*IOS LOGIN_REQUIRED/.test(shutRec?.detail || ''), JSON.stringify({ body: shutVideo.body, doors5, detail: shutRec?.detail }));
+      shutVideo.status === 400 && shutVideo.body?.error?.code === 'url_video_wall' && /^YouTube would not show this video\'s captions to FactEngine\'s server without a sign-in/.test(shutVideo.body?.error?.message || '') && JSON.stringify(doors5) === JSON.stringify(['ANDROID', 'TVHTML5', 'WEB_EMBEDDED_PLAYER', 'ANDROID_VR', 'IOS']) && /ANDROID LOGIN_REQUIRED: Sign in.*IOS LOGIN_REQUIRED/.test(shutRec?.detail || ''), JSON.stringify({ body: shutVideo.body, doors5, detail: shutRec?.detail }));
     const none = await read('https://www.youtube.com/watch?v=vid6');
     check('a video with no captions at an open door gets the no-captions sentence, not the wall', none.status === 400 && none.body?.error?.code === 'url_no_transcript' && /has no caption track/.test(none.body?.error?.message || ''), JSON.stringify(none.body));
     const empty = await read('https://www.youtube.com/watch?v=vid3');
@@ -1060,7 +1060,7 @@ async function linkChecks() {
     const silent1 = await read(`http://127.0.0.1:${SILENT}/`, { signal: firstAc.signal }).catch((e) => ({ status: 'aborted', ms: 40000, body: { error: { message: e.message } } }));
     clearTimeout(firstTimer);
     check('a site that never answers the connection is found in about ten seconds, not the operating system\'s minute, and named with what to do',
-      silent1.status === 400 && silent1.body?.error?.code === 'url_silent' && silent1.ms < 30000 && /turns CIVIC's server away/.test(silent1.body?.error?.message || ''), JSON.stringify({ status: silent1.status, ms: silent1.ms, body: silent1.body }));
+      silent1.status === 400 && silent1.body?.error?.code === 'url_silent' && silent1.ms < 30000 && /turns FactEngine's server away/.test(silent1.body?.error?.message || ''), JSON.stringify({ status: silent1.status, ms: silent1.ms, body: silent1.body }));
     const silent2 = await read(`http://127.0.0.1:${SILENT}/`);
     const listed = ((await (await fetch(`${base}/api/selftest`)).json()).silentSites || []).map((x) => x.host);
     check('the silent site is remembered: the next read answers at once, and /check lists the site',
@@ -1080,7 +1080,7 @@ async function linkChecks() {
     clearTimeout(muteTimer);
     const muteRec = (await failures()).find((f) => f.where === 'server:POST /api/read-url' && /HEADERS_TIMEOUT/.test(f.detail || ''));
     check('a site that takes the request and never answers it is found in about ten seconds too, named with what to do, and the record says which silence',
-      mute1.status === 400 && mute1.body?.error?.code === 'url_silent' && mute1.ms >= 9000 && mute1.ms < 30000 && /turns CIVIC's server away/.test(mute1.body?.error?.message || '') && Boolean(muteRec), JSON.stringify({ status: mute1.status, ms: mute1.ms, body: mute1.body, detail: muteRec?.detail }));
+      mute1.status === 400 && mute1.body?.error?.code === 'url_silent' && mute1.ms >= 9000 && mute1.ms < 30000 && /turns FactEngine's server away/.test(mute1.body?.error?.message || '') && Boolean(muteRec), JSON.stringify({ status: mute1.status, ms: mute1.ms, body: mute1.body, detail: muteRec?.detail }));
     const mute2 = await read(`http://127.0.0.2:${MUTE}/`);
     check('that site is remembered as well: the next read answers at once', mute2.status === 400 && mute2.body?.error?.code === 'url_silent' && mute2.ms < 1500, JSON.stringify({ ms: mute2.ms, code: mute2.body?.error?.code }));
     mute.close();
@@ -1130,7 +1130,7 @@ async function copiesChecks() {
         const results = republished ? [
           { url: `http://localhost:${SITE3}/copy-a`, title: 'Hegseth lays out his military vision', publishedDate: '2026-10-01T00:05:00.000Z', author: '', text: `${plain(4)}\n\nThis article originally appeared in 127.0.0.1.` },
           { url: `http://localhost:${SITE3}/copy-old`, title: 'An older article from the same paper', publishedDate: '2025-09-30T00:00:00.000Z', text: `${plain(4)}\n\nThis article originally appeared in 127.0.0.1.` },
-          { url: `http://localhost:${SITE3}/copy-blocked`, title: 'The same article, on a site that turns CIVIC away', publishedDate: '2026-09-30T12:00:00.000Z', author: '127.0.0.1', text: plain(5) },
+          { url: `http://localhost:${SITE3}/copy-blocked`, title: 'The same article, on a site that turns FactEngine away', publishedDate: '2026-09-30T12:00:00.000Z', author: '127.0.0.1', text: plain(5) },
         ] : [
           { url: `http://localhost:${SITE3}/report-d`, title: 'Another outlet reports the speech', publishedDate: '2026-09-30T21:51:00.000Z', text: plain(3) },
           { url: REFUSED, title: 'The refused page itself', publishedDate: '2026-09-30T00:00:00.000Z', text: plain(2) },
@@ -1175,7 +1175,7 @@ async function copiesChecks() {
     const lines = attributionLines({ kind: 'link', title: 'T', url: 'https://example.org/a', via: 'search' }, new Date('2026-10-01T12:00:00Z'));
     const direct = attributionLines({ kind: 'link', title: 'T', url: 'https://example.org/a' }, new Date('2026-10-01T12:00:00Z'));
     check('when a copy\'s text came from the search service, the source\'s attribution says so; otherwise it is as before',
-      lines.at(-1) === 'Read by CIVIC on 2026-10-01 through a search service\'s copy of that address.' && direct.at(-1) === 'Read by CIVIC from that address on 2026-10-01.', JSON.stringify([lines.at(-1), direct.at(-1)]));
+      lines.at(-1) === 'Read by FactEngine on 2026-10-01 through a search service\'s copy of that address.' && direct.at(-1) === 'Read by FactEngine from that address on 2026-10-01.', JSON.stringify([lines.at(-1), direct.at(-1)]));
 
     // Without the service set: the page is told so, and nothing is asked.
     const hOff = await (await fetch(`${baseOff}/api/health`)).json();
@@ -1202,11 +1202,11 @@ async function copiesChecks() {
     check('/check says a refused link is looked for elsewhere, naming the service by its address and never its key',
       (st.checks || []).some((c) => c.state === 'ok' && c.title === 'A link a site refuses is looked for elsewhere' && /localhost/.test(c.detail)) && !JSON.stringify(st).includes(SEARCH_KEY), JSON.stringify((st.checks || []).map((c) => c.title)));
 
-    // CIVIC's own reader reads the copy it can, and is turned away by the one whose site refuses it, which
+    // FactEngine's own reader reads the copy it can, and is turned away by the one whose site refuses it, which
     // is when the page uses the search service's text of that page (proved in the browser check).
     const a = await read(baseOn, `http://localhost:${SITE3}/copy-a`);
     const b = await read(baseOn, `http://localhost:${SITE3}/copy-blocked`);
-    check('a picked copy is read by CIVIC\'s own reader like any link; a copy whose site turns CIVIC away answers the refusal, and the page then has the search\'s text of it',
+    check('a picked copy is read by FactEngine\'s own reader like any link; a copy whose site turns FactEngine away answers the refusal, and the page then has the search\'s text of it',
       a.status === 200 && /originally appeared in 127\.0\.0\.1/.test(a.body?.text || '') && b.status === 400 && b.body?.error?.code === 'url_refused' && got.body.copies[1].text.length > 100, JSON.stringify({ a: a.status, b: b.body?.error?.code }));
 
     // A rate limit is a wait: the service's own Retry-After, then the same search again.
@@ -1319,16 +1319,16 @@ async function toolChecks() {
     const client = sent.filter((r) => r.path === '/mcp-client');
     const listed = client.find((r) => r.step === 'list');
     const made = client.filter((r) => r.step === 'call');
-    check('the stand-in OpenAI, as a client of the gateway, listed the tools and made its calls: the page\'s text came back whole, the refused page as the site\'s answer', listed?.status === 200 && JSON.stringify(listed?.names) === JSON.stringify(['read_page', 'get_transcript']) && made.length === 2 && made[0].failed === false && /The Nile is about 6,650 kilometres long/.test(made[0].output) && made[1].failed === true && /turns CIVIC's server away/.test(made[1].output), JSON.stringify({ listed: listed?.names, made: made.map((m) => [m.status, m.failed, String(m.output).slice(0, 80)]) }));
+    check('the stand-in OpenAI, as a client of the gateway, listed the tools and made its calls: the page\'s text came back whole, the refused page as the site\'s answer', listed?.status === 200 && JSON.stringify(listed?.names) === JSON.stringify(['read_page', 'get_transcript']) && made.length === 2 && made[0].failed === false && /The Nile is about 6,650 kilometres long/.test(made[0].output) && made[1].failed === true && /turns FactEngine's server away/.test(made[1].output), JSON.stringify({ listed: listed?.names, made: made.map((m) => [m.status, m.failed, String(m.output).slice(0, 80)]) }));
     const steps = ev.filter((e) => e.t === 'trail').map((e) => e.step);
     const toolSteps = steps.filter((s) => s.kind === 'tool');
     const done = ev.find((e) => e.t === 'done');
-    check('the page\'s stream shows each tool call as a step of the trail, by its verb and what it was asked, with the source\'s answer when it kept the page', toolSteps.length === 2 && toolSteps[0].name === 'read_page' && toolSteps[0].url === `${siteBase}/tool-page` && toolSteps[0].status === 'completed' && !toolSteps[0].error && toolSteps[1].status === 'failed' && /turns CIVIC's server away/.test(toolSteps[1].error || ''), JSON.stringify(toolSteps));
+    check('the page\'s stream shows each tool call as a step of the trail, by its verb and what it was asked, with the source\'s answer when it kept the page', toolSteps.length === 2 && toolSteps[0].name === 'read_page' && toolSteps[0].url === `${siteBase}/tool-page` && toolSteps[0].status === 'completed' && !toolSteps[0].error && toolSteps[1].status === 'failed' && /turns FactEngine's server away/.test(toolSteps[1].error || ''), JSON.stringify(toolSteps));
     const webSteps = steps.filter((s) => s.kind !== 'tool').length;
     check('the searches counted for the cost are the web searches alone; the tool calls sit in the trail and on their own ledger lines; the row said it was reading', Boolean(done) && done.searches === webSteps && done.trail.length === webSteps + 2 && ev.some((e) => e.t === 'phase' && e.phase === 'reading'), JSON.stringify({ searches: done?.searches, webSteps, trail: done?.trail?.length }));
     const ledger = readIf(ledgerFile).split('\n').filter(Boolean).map((l) => JSON.parse(l));
     const toolLines = ledger.filter((l) => l.kind === 'tool');
-    check('each call is one ledger line: the source, the verb, the time, the operator\'s price (zero for CIVIC\'s own reader), and how it ended', toolLines.length >= 2 && toolLines.every((l) => l.source === 'web' && ['read_page', 'get_transcript'].includes(l.verb) && l.usd === 0 && l.priced === true && typeof l.ms === 'number') && toolLines.some((l) => l.ok === true && l.chars > 100) && toolLines.some((l) => l.ok === false && l.code === 'url_refused'), JSON.stringify(toolLines.slice(-2)));
+    check('each call is one ledger line: the source, the verb, the time, the operator\'s price (zero for FactEngine\'s own reader), and how it ended', toolLines.length >= 2 && toolLines.every((l) => l.source === 'web' && ['read_page', 'get_transcript'].includes(l.verb) && l.usd === 0 && l.priced === true && typeof l.ms === 'number') && toolLines.some((l) => l.ok === true && l.chars > 100) && toolLines.some((l) => l.ok === false && l.code === 'url_refused'), JSON.stringify(toolLines.slice(-2)));
     const st = await (await fetch(`${base}/api/selftest`)).json();
     check('/check lists the sources the model can reach for, by name and verb, and that the requests name the gateway', st.tools?.reachable === true && st.tools?.on === true && st.tools?.sources?.[0]?.id === 'web' && JSON.stringify(st.tools.sources[0].verbs) === JSON.stringify(['read_page', 'get_transcript']), JSON.stringify(st.tools));
     const everywhere = readIf(ledgerFile) + readIf(errorLog) + JSON.stringify(st) + JSON.stringify(ev) + JSON.stringify(ex) + await (await fetch(`${base}/`)).text() + await (await fetch(`${base}/api/health`)).text();
@@ -1341,9 +1341,9 @@ async function toolChecks() {
 }
 await toolChecks();
 
-// The port is CIVIC's. An older CIVIC still holding it is closed and the port taken over; anything
+// The port is FactEngine's. An older FactEngine still holding it is closed and the port taken over; anything
 // else on it is left alone and named. Both are proved here with stand-in processes: one that runs
-// from CIVIC's own directory, as an installed copy does, and one that does not.
+// from FactEngine's own directory, as an installed copy does, and one that does not.
 async function takeoverChecks() {
   const holder = (cwd, port) => {
     const child = spawn(process.execPath, ['-e', `require('node:http').createServer().listen(${port}, () => process.send && process.send('up'))`],
@@ -1354,24 +1354,24 @@ async function takeoverChecks() {
   const settle = (ms) => new Promise((r) => setTimeout(r, ms));
   const env = { OPENAI_API_KEY: KEY, CIVIC_IMAGE_ENABLED: 'false', CIVIC_LEDGER_FILE: path.join(os.tmpdir(), 'civic-verify-ledger.jsonl') };
 
-  // 1. An older CIVIC (a process running from CIVIC's directory) holds the port: it must be closed.
+  // 1. An older FactEngine (a process running from FactEngine's directory) holds the port: it must be closed.
   const older = await holder(root, PORT + 1);
   const taker = start([path.join(root, 'server', 'index.js')], { ...env, PORT: String(PORT + 1) });
   let took = false;
   try { await wait(`http://localhost:${PORT + 1}/api/health`, 20000); took = true; } catch {}
   await settle(300);
-  check('an older CIVIC holding the port is closed and the port taken over', took && !alive(older), took ? 'the older process is still alive' : 'the new CIVIC never answered');
+  check('an older FactEngine holding the port is closed and the port taken over', took && !alive(older), took ? 'the older process is still alive' : 'the new FactEngine never answered');
   try { taker.kill('SIGTERM'); } catch {}
   try { older.kill('SIGKILL'); } catch {}
 
-  // 2. Something that is not CIVIC holds the port: it must be left alone, and CIVIC must say so.
+  // 2. Something that is not FactEngine holds the port: it must be left alone, and FactEngine must say so.
   const other = await holder(os.tmpdir(), PORT + 2);
   const refused = start([path.join(root, 'server', 'index.js')], { ...env, PORT: String(PORT + 2) });
   let stderr = '';
   refused.stderr.on('data', (d) => { stderr += d; });
   const code = await new Promise((resolve) => { refused.on('exit', resolve); setTimeout(() => resolve('timeout'), 20000); });
-  check('a process that is not CIVIC on the port is left alone, and CIVIC says so',
-    code === 1 && alive(other) && /STOPPED: port \d+ is already in use/.test(stderr) && /not CIVIC/.test(stderr),
+  check('a process that is not FactEngine on the port is left alone, and FactEngine says so',
+    code === 1 && alive(other) && /STOPPED: port \d+ is already in use/.test(stderr) && /not FactEngine/.test(stderr),
     `exit ${code}, other alive=${alive(other)}, stderr: ${stderr.trim().slice(0, 160)}`);
   try { other.kill('SIGKILL'); } catch {}
 }
