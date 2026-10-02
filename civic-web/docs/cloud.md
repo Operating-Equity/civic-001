@@ -386,7 +386,11 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
   every box is rounded, the sign-in dialog too; the glass is a shade clearer (`--glass` .36, `--glass-strong` .5,
   cards .48; body text still 14 : 1, hints 4.6 : 1); the footer has the site, the service, the three links and the
   year in four languages (209 keys each), and the three pages exist as one-sentence placeholders over the still
-  field until the operator writes them.
+  field until the operator writes them. **Live** (PR #57 squash 9c51422, deploy dep-db00phff3r2c73ajijm0 at 19:58
+  UTC, build 9172eb122a57; merged with the service idle, CI green in both shapes): the served page carries no
+  bracket and no square frame, the footer names the site, the service, Terms, Privacy, Contact and the year, the
+  stylesheet has no bracket rule, rounds the dialog and carries the clearer glass, /terms, /privacy and /contact
+  are served as their own pages over the still field, and all four locales carry the footer words (11/11).
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 
