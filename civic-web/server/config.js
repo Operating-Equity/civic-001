@@ -70,7 +70,7 @@ export const config = {
   evalReasoningMode: modeOrNone(env('CIVIC_EVAL_REASONING_MODE', MODE)),
   evalReasoningSummary: env('CIVIC_EVAL_REASONING_SUMMARY', 'auto'),
   webSearch: true, // both steps, always; not an environment setting
-  // Three claims at a time. This one figure paces both the page (which sends one claim per request
+  // Ten claims at a time. This one figure paces both the page (which sends one claim per request
   // and keeps this many in flight, reading it from publicConfig below) and a request that carries
   // several claims, as the guard's does, so the pace is one setting and never a release. One at a
   // time was the operator's instruction of 17 September, after twenty at once had failed on the key's
@@ -78,12 +78,12 @@ export const config = {
   // own later calls, after a web search, by 67,000 to 89,000, far above what its admission showed,
   // so many parallel claims starve one another); two ran whole on the address; on 18 September the
   // operator chose three on the 500,000-a-minute figure of 16 September, then four once the check
-  // page showed the key's current limit, 2,000,000 a minute. Back to three on 22 September: the
-  // operator is watching tokens rise, and release M's effort `max` in mode `pro` is more model work
-  // per claim, so three (≈ 450,000 in a typical minute) leaves the wider margin. The check page's
-  // pacing row, after a run, is the figure to set this by.
-  // Ten remains the size of a run.
-  evalConcurrency: int('CIVIC_EVAL_CONCURRENCY', 3),
+  // page showed the key's current limit, 2,000,000 a minute; back to three on 22 September when
+  // release M's effort `max` in mode `pro` meant more model work per claim. Ten on 3 October, the
+  // operator's choice: the key's minute now reads 40,000,000 tokens (the check page's pacing row),
+  // twenty times September's, and a reader's whole selection runs at this pace in one batch. The
+  // check page's pacing row, after a run, is the figure to set this by.
+  evalConcurrency: int('CIVIC_EVAL_CONCURRENCY', 10),
   evalRetries: int('CIVIC_EVAL_RETRIES', 8),           // rate limits and 5xx only; never on a model or parameter error
 
   // Source documents. No limit of ours. If a document exceeds the model's context window the API
@@ -125,7 +125,7 @@ export const config = {
   toolsPass: env('CIVIC_TOOLS_PASS', ''),
   maxSourceChars: int('CIVIC_MAX_SOURCE_CHARS', 0),
   allowSourceTruncation: bool('CIVIC_ALLOW_SOURCE_TRUNCATION', false),
-  maxClaims: 10, // the most one /api/evaluate request carries; the page sends one claim per request and runs a selection in batches of this
+  maxClaims: int('CIVIC_MAX_CLAIMS', 10), // the most one /api/evaluate request carries (the guard's multi-claim requests); the page sends one claim per request, so this bounds nothing it does
   // How many of the claims found run without a press. The rest are listed with a checkbox and run
   // when the reader chooses them. Ten was the operator's rule of 17 September; 0, the operator's
   // choice of 1 October, means nothing runs until the reader chooses: every claim found is shown
@@ -206,6 +206,11 @@ export const config = {
   // to a host with a dot in its name, none to an internal one), require, insecure or off.
   databaseUrl: env('DATABASE_URL', ''),
   databaseSsl: env('CIVIC_DATABASE_SSL', 'auto'),
+  // The pool to that database. Every determination opens a short transaction on its run's row, so
+  // ten readers pressing at once need ten connections, or wait for one; a wait longer than this
+  // was a lost price row (the claim ran unmeasured), so it is long, and a setting.
+  databasePool: int('CIVIC_DATABASE_POOL', 10),
+  databaseWaitMs: int('CIVIC_DATABASE_WAIT_MS', 30000),
   // The guard's clock. Set to an instant (ISO 8601), the economics run as if the server had started
   // then, so a tier change six hours away can be proved in a second. Never set it otherwise.
   clock: env('CIVIC_CLOCK', ''),

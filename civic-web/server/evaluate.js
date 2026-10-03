@@ -26,6 +26,8 @@ export async function runEvaluation({ apiKey, claims, document = '', send, signa
   const client = clientFor(apiKey);
   // Whose work each claim's line is: the run, the sign-in, and the determination's own id (server/economics.js).
   const lineCtx = (i) => ({ runId: ctx.runId || null, owner: ctx.owner || null, determinationId: ctx.determinationIds?.[i] || null });
+  // Whose turn the request takes at the gate: the sign-in when the door is shut, else the run, else the job.
+  const owner = ctx.owner || ctx.runId || ctx.jobId || null;
   const total = claims.length;
   let completed = 0;
   const started = Date.now();
@@ -76,10 +78,10 @@ export async function runEvaluation({ apiKey, claims, document = '', send, signa
         reasoning,
         tools,
         stream: true,
-        store: false, // the key belongs to the reader; the prompt must not appear in their dashboard
+        store: false, // the prompt must not appear in any dashboard: the operator's key runs every request
       };
       // Through the gate: sent only when the key's minute holds it. A held claim's row says so, in figures.
-      return throughGate(client, body, { kind: 'determination', signal, onHold: (h) => send({ t: 'phase', i, phase: 'queued', ...h }) });
+      return throughGate(client, body, { kind: 'determination', owner, signal, onHold: (h) => send({ t: 'phase', i, phase: 'queued', ...h }) });
     };
 
     for (let tries = 0; ; tries++) {

@@ -32,6 +32,7 @@ export default {
   step1: {
     title: 'Extracting empirical claims',
     queued: 'Waiting its turn…',
+    queuedTimed: 'Waiting its turn · {time}',
     reading: 'Reading {n} characters…',
     found_one: '{n} claim found so far',
     found_other: '{n} claims found so far',

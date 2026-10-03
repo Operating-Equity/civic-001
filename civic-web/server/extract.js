@@ -72,7 +72,7 @@ export async function runExtraction({ apiKey, text, meta, send, signal, sourceWa
       stream: true,
       store: false,
     };
-    return throughGate(client, body, { kind: 'extraction', signal, onHold: (h) => send({ t: 'phase', phase: 'queued', ...h }) });
+    return throughGate(client, body, { kind: 'extraction', owner: ctx.owner || ctx.runId || null, signal, onHold: (h) => send({ t: 'phase', phase: 'queued', ...h }) });
   };
 
   let usage = null;

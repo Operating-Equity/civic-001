@@ -28,6 +28,9 @@ export function active() { let n = 0; for (const j of jobs.values()) if (!j.fini
 
 export function ids() { return [...jobs.keys()]; }
 
+/** Readers with work in flight right now: the distinct owners of the unfinished jobs (an open door's jobs count as one). */
+export function readers() { const owners = new Set(); for (const j of jobs.values()) if (!j.finished) owners.add(j.owner ?? ''); return owners.size; }
+
 class Job {
   constructor(id, kind, owner) {
     this.id = id;

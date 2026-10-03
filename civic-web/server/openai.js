@@ -239,7 +239,10 @@ export function streamFailure(event, fallback) {
  * streaming request, the response object otherwise. The caller must call `release()` when the
  * reply has been consumed, so the gate knows the request is over. `kind` names what the request
  * is (an extraction, a determination, the art direction), because each kind has its own cost in
- * OpenAI's accounting. `onHold` is told, in figures, when and why the request is waiting.
+ * OpenAI's accounting; `owner` is whose turn it takes in the gate's line (the sign-in, else the run,
+ * else the job), so readers are served in turns. A send reserves its kind's cost until its own
+ * headers replace the reservation with OpenAI's figure. `onHold` is told, in figures, when and why
+ * the request is waiting.
  *
  * A refusal never leaves here. OpenAI turns a request back with its exact figures (the limit,
  * what was used, what this request costs, when it fits); the gate takes those, the request waits
@@ -247,9 +250,9 @@ export function streamFailure(event, fallback) {
  * (which it waits out, see connectionWait), a used-up quota, or a real error; it never sees a
  * rate limit.
  */
-export async function throughGate(client, body, { kind = 'request', signal, onHold } = {}) {
+export async function throughGate(client, body, { kind = 'request', owner = null, signal, onHold } = {}) {
   const gate = gateFor(body.model);
-  let ticket = await gate.admit({ kind, signal, onHold });
+  let ticket = await gate.admit({ kind, owner, signal, onHold });
   for (;;) {
     try {
       const { data, response } = await client.responses.create(body, { signal }).withResponse();
@@ -261,7 +264,7 @@ export async function throughGate(client, body, { kind = 'request', signal, onHo
       if (!isRateLimit(err)) { gate.failed(ticket, err); throw err; }
       const refusal = parseRefusal(err);
       gate.refused(ticket, refusal);
-      ticket = await gate.admit({ kind, signal, onHold, first: true, notBefore: refusal.waitMs ? Date.now() + refusal.waitMs : 0 });
+      ticket = await gate.admit({ kind, owner, signal, onHold, first: true, notBefore: refusal.waitMs ? Date.now() + refusal.waitMs : 0 });
     }
   }
 }

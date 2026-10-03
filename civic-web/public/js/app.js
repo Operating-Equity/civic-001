@@ -12,8 +12,8 @@ import * as api from './api.js';
 import { $, $$, el, renderMarkdown, renderMath, setBar, toast, easeChars, easeTime, bump, copyText } from './render.js';
 import { field } from './field.js';   // the mathematics behind the glass follows the run's phase
 
-const MAX_CLAIMS = 10; // the most one request carries, and the batch size of a selection; how many run without a press is the server's figure (autoFirst)
-const IN_FLIGHT = 3; // claims in flight at once when no server answers; the server's own figure wins (see inFlight below)
+const MAX_CLAIMS = 10; // the most one request carries (the page sends one claim per request, so this bounds nothing it does); how many run without a press is the server's figure (autoFirst)
+const IN_FLIGHT = 10; // claims in flight at once when no server answers; the server's own figure wins (see inFlight below)
 const searchCount = (trail) => (trail || []).filter((s) => s.kind !== 'tool').length; // the web searches in a trail; a tool call is a step of its own
 const GLYPH = { true: '✓', false: '✕', unverified: '?', unread: '–' };
 
@@ -52,6 +52,7 @@ const state = {
   extractChars: 0,
   found: 0,
   extractWait: null,   // while the extraction waits for the connection to OpenAI: { code, why, since }
+  extractQueued: null, // while the extraction waits its turn at the gate (the key's minute, another reader's turn): { waitMs, at }
   extractCut: false,   // the connection carrying the extraction was cut; it is being opened again
   runId: '',           // this run's name; every job of the run is named after it
   extractJob: '',      // the extraction's job at the server (server/jobs.js)
@@ -563,7 +564,7 @@ function resetRunState() {
     phase: 'idle', warnings: [], claims: [], claimsRaw: '', beyond: [], cards: [], results: [], extraction: null, echo: null,
     batch: { start: 0, size: 0, done: 0 }, counts: { true: 0, false: 0, unverified: 0 }, unread: 0,
     cost: 0, unpriced: false,
-    extractStartedAt: 0, extractChars: 0, found: 0, extractWait: null, extractCut: false, runId: '', extractJob: '', evalStartedAt: 0, gate: null, pricing: null, status: { step1: null, step2: null },
+    extractStartedAt: 0, extractChars: 0, found: 0, extractWait: null, extractQueued: null, extractCut: false, runId: '', extractJob: '', evalStartedAt: 0, gate: null, pricing: null, status: { step1: null, step2: null },
   });
   ui.runWarnings.replaceChildren();
   ui.runWarnings.hidden = true;
@@ -630,9 +631,9 @@ function showFailure(message, err) {
   ui.runWarnings.scrollIntoView({ behavior: 'smooth', block: 'center' });
 }
 
-/** Twenty claims run at the same time. The status line says so, and says when a rate limit is
-    turning them back into a queue, which is the only thing that makes a run take twenty times as
-    long as one claim. */
+/** The claims run as many at a time as the server says. The status line says how many are running
+    and how many are waiting their turn at the key's minute, which is the one thing that makes a run
+    take longer than its pace would. */
 function updateEvalStatus() {
   if (state.phase !== 'evaluating' || !state.batch.size) return;
   const running = state.results.filter((r) => r.status === 'running').length;
@@ -731,14 +732,14 @@ async function runExtraction(text) {
       case 'trail':
         state.extractSearches = ev.searches || (state.extractSearches + 1);
         break;
-      case 'start': state.extractWait = null; break;   // the connection was made; the model is reading
+      case 'start': state.extractWait = null; state.extractQueued = null; break;   // the request went: the model is reading
       case 'retry':
         // A connection failure is a wait for the connection, shown as such until the next go begins.
         state.extractWait = ev.reason === 'connection' ? { code: ev.code, why: ev.why, since: ev.since || Date.now() } : null;
         if (!state.extractWait) setStatus('step1', 'step1.retry');
         break;
       case 'phase':
-        if (ev.phase === 'queued') setStatus('step1', 'step1.queued');
+        if (ev.phase === 'queued') { state.extractQueued = { waitMs: ev.waitMs || 0, at: Date.now() }; setStatus('step1', 'step1.queued'); }
         if (ev.phase === 'incomplete') toast(t('step1.incomplete'), { error: true, ms: 9000 });
         break;
       case 'warning': addWarning(ev); break;
@@ -794,6 +795,8 @@ function updateExtractBar() {
   if (!state.found) {
     ui.bar1.classList.add('is-waiting');
     setBar(ui.bar1, 0.06 + easeTime(elapsed, 90000, 0.2));
+    // Held at the gate (the key's minute, or another reader's turn): the waiting words stay, with the time, until the request goes.
+    if (state.extractQueued) { setStatus('step1', 'step1.queuedTimed', { time: fmtSeconds(Date.now() - state.extractQueued.at) }); return; }
     setStatus('step1', state.extractSearches ? 'step1.thinkingSearched' : 'step1.thinking',
       { time: fmtSeconds(elapsed), n: state.extractSearches });
     return;
@@ -1026,12 +1029,10 @@ async function testSelected() {
   if (!chosen.length) return;
   for (const b of chosen) { b.tested = true; b.selected = false; }
   syncBeyondRows();
-  // The server tests at most ten per request; larger selections run in consecutive batches.
-  for (let i = 0; i < chosen.length; i += MAX_CLAIMS) {
-    const chunk = chosen.slice(i, i + MAX_CLAIMS);
-    await runBatch(chunk.map(claimOf), chunk.map((b) => b.node));
-    if (state.phase !== 'done') break; // a failure or reset stops the queue
-  }
+  // The whole selection is one batch, run at the server's pace (one claim per request, `inFlight`
+  // of them at once, the next starting as one ends): thirty chosen claims read "Testing 30 claims"
+  // and run ten at a time with no pause between tens. Until 3 October they ran in batches of ten.
+  await runBatch(chosen.map(claimOf), chosen.map((b) => b.node));
 }
 
 function averageCost() {

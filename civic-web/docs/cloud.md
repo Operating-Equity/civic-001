@@ -439,7 +439,32 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
   company" (the operator's answer); under the results one sentence in four languages says determinations are
   made by an AI model from the sources it cites and can be wrong (222 keys per locale). The guard gains a pages
   section: each page served with its heading, the text and the address, no script but the field, no vendor, no
-  key or token; the footer and the locales' new words.
+  key or token; the footer and the locales' new words. **Live** (PR #60 squash 3d7bd6c, deploy dep-db0is1avcj2c739c2chg at 16:34 UTC, build
+  35616ee703d2; guard 209/209 with the real prompts; CI green in both shapes; browser 16/16): the four pages are served
+  with their headings, the texts and the address, no script but the field and no vendor name; the footer carries the
+  four links in a new tab and the Fact Engine LLC line; the AI line is in the page and all four locales (12/12,
+  scratchpad/live-texts.mjs). The review and the placeholders are the operator's; counsel's reading is on the checklist.
+- **3 October, 09:30 UTC: readers at once.** The operator: "I need to increase the number of simultaneous sessions
+  because a service where you wait 20 minutes to start is a place you never come back to"; "Is each browser session
+  talking to an api?"; "I am extremely worried that a mere 3 users is painfully slow and inefficient." The facts, read
+  before anything changed: every browser talks only to FactEngine's server (one stream per determination, three at
+  once per page), the server talks to OpenAI on the one key, and nothing of ours caps readers; the "3" was per reader.
+  The key's minute now reads 40,000,000 tokens (the gate's own reading of OpenAI's headers; 2,000,000 in September; the
+  tier-5 ceiling), so the budget is no longer the limit. Durations by people since 19 September (Render's request
+  log): a determination 195 s median, 237 s at the 75th percentile, 339 s at most; an article's listing 93 to 315 s at
+  max/pro (584 s once). The operator chose: ten at once per reader; the extraction's effort kept at max/pro and
+  measured first. Built: `CIVIC_EVAL_CONCURRENCY` 10 (written to the service), the whole selection as one batch at
+  that pace (no pause between tens); the gate sends in parallel, bounded by the bucket less the reservations of the
+  sends whose headers have not arrived, the first of a kind alone (it teaches), listings before determinations, the
+  readers in turns, a refused request first (gate.js; the reader's turn is the sign-in, else the run, else the job);
+  the check page's pacing row shows what is in the air, reserved and waiting by kind and reader, and the readers with
+  work in flight; the report carries how long determinations and listings take over the window, with the searches per
+  determination (the figures to decide the extraction's effort by); the extraction's "Waiting its turn" survives the
+  bar updater; the database pool and its wait are settings (10 connections, 30 s: an 8 s wait had lost the price row).
+  Cached tokens count toward OpenAI's minute (its limiter runs before its cache), so caching cuts cost, never raises
+  capacity; the 2 GB instance is the operator's step when readers arrive. Guard: ten at a time never an eleventh;
+  the line's order in process; parallel sends; the reservation preventing overshoot on a budget of two; a listing
+  first; two readers in turns; door and in-stream refusals; the pacing row mid-run; the durations in both stores.
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 

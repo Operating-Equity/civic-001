@@ -69,7 +69,7 @@ export function priceFromAverage(avgUsd, markupPercent = config.priceMarkupPerce
 }
 
 // ---- the rows -------------------------------------------------------------------------------------
-const mem = { runs: new Map(), dets: new Map(), windows: new Map(), guard: [] };
+const mem = { runs: new Map(), dets: new Map(), windows: new Map(), guard: [], lines: [] };   // lines: { at, kind, ms, searches } of finished calls, for the durations
 const inFlight = new Set();   // determinations this instance has open: failed as `deploy` when it is told to stop
 
 const ms = (v) => (v === null || v === undefined ? null : (v instanceof Date ? v.getTime() : Number(v)));
@@ -329,6 +329,31 @@ export function costLine(line, ctx = {}) {
   }
   if (ctx.determinationId && kind === 'evaluate') { const d = mem.dets.get(ctx.determinationId); if (d) { d.costUsd += usd; d.priced = d.priced && priced; d.searches += searches; } }
   else if (ctx.runId && kind === 'extract') { const r = mem.runs.get(ctx.runId); if (r) r.extractUsd += usd; }
+  if (line.ok !== false && Number.isFinite(Number(line.ms))) { mem.lines.push({ at: Number(line.ts) || now(), kind, ms: Number(line.ms), searches }); if (mem.lines.length > 20000) mem.lines.splice(0, mem.lines.length - 15000); }
+}
+
+/**
+ * How long the model's calls take, from the ledger lines of finished calls over the window: the count, the mean and the
+ * 75th percentile of each kind's milliseconds (which begin before admission, so a wait at the gate is inside them),
+ * and the mean web searches per determination. The figures the operator decides the extraction's effort by.
+ */
+async function durations(since) {
+  let rows;
+  if (dbOn()) {
+    const r = await query("SELECT kind, (line->>'ms')::float8 AS ms, COALESCE((line->>'searches')::float8, 0) AS searches FROM cost_lines WHERE at >= $1 AND ok IS NOT FALSE AND kind IN ('evaluate', 'extract') AND line->>'ms' IS NOT NULL", [new Date(since)]);
+    rows = r.rows.map((x) => ({ kind: x.kind, ms: Number(x.ms), searches: Number(x.searches) }));
+  } else rows = mem.lines.filter((l) => l.at >= since && (l.kind === 'evaluate' || l.kind === 'extract'));
+  const stat = (list) => {
+    const ms = list.map((l) => l.ms).filter((v) => Number.isFinite(v)).sort((a, b) => a - b);
+    if (!ms.length) return { n: 0, meanMs: null, p75Ms: null };
+    return { n: ms.length, meanMs: Math.round(ms.reduce((a, b) => a + b, 0) / ms.length), p75Ms: ms[Math.min(ms.length - 1, Math.floor(0.75 * ms.length))] };
+  };
+  const dets = rows.filter((l) => l.kind === 'evaluate');
+  const d = stat(dets);
+  return {
+    determinations: { ...d, meanSearches: dets.length ? Math.round((dets.reduce((a, l) => a + (l.searches || 0), 0) / dets.length) * 10) / 10 : null },
+    extractions: stat(rows.filter((l) => l.kind === 'extract')),
+  };
 }
 
 // ---- what the page and the operator are told --------------------------------------------------------
@@ -388,6 +413,7 @@ export async function report() {
   const soFar = await measured(t);
   const guard = await guardState(t);
   const tier = guard.engaged ? 1 : tierAt(t);
+  const took = await durations(t - config.priceWindowDays * DAY).catch((err) => { warn('the durations could not be read', err); return null; });
   return {
     at: new Date(t).toISOString(),
     currency: config.currency,
@@ -395,6 +421,7 @@ export async function report() {
     tier: { now: tier, freeFacts: freeFor(tier), hours: config.tierHours, order: config.tierOrder, shift: config.tierShift, fixed: config.tierFixed, nextChangeAt: new Date(nextChangeAt(t)).toISOString(), underGuard: Boolean(guard.engaged) },
     guard: { ...guard, since: guard.since ? new Date(guard.since).toISOString() : null, windowStart: guard.windowStart ? new Date(guard.windowStart).toISOString() : null, released: guard.released ? new Date(guard.released).toISOString() : null },
     byTier, byUser, byWindow,
+    durations: took,   // over the price window: how long a determination and a listing take, and the searches per determination
     store: dbOn() ? 'postgres' : 'memory',
     note: 'Revenue is at list price; nothing is collected yet.',
   };

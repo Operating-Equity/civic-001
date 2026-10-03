@@ -39,14 +39,17 @@ function pacingRows(pacing) {
     if (g.requests?.limit) parts.push(`${n(g.requests.limit)} requests a minute`);
     for (const [kind, cost] of Object.entries(g.costs || {})) parts.push(`OpenAI has counted up to ${n(cost)} for one ${kind}`);
     if (g.tokens?.available !== null && g.tokens?.available !== undefined) parts.push(`${n(g.tokens.available)} tokens available now`);
-    parts.push(`${g.inFlight} in flight · ${g.waiting} waiting · ${g.replies} replies · ${g.refusals} refusals`);
+    const air = g.pending ? ` (${g.pending} sent and awaiting ${g.pending === 1 ? 'its' : 'their'} headers, ${n(g.reserved || 0)} tokens reserved for ${g.pending === 1 ? 'it' : 'them'})` : '';
+    const byKind = Object.entries(g.waitingByKind || {}).map(([k, c]) => `${c} ${k === 'extraction' ? (c === 1 ? 'listing' : 'listings') : k === 'determination' ? (c === 1 ? 'determination' : 'determinations') : k}`).join(', ');
+    const line = g.waiting ? ` (${byKind}${g.owners ? `, from ${g.owners} ${g.owners === 1 ? 'reader' : 'readers'}` : ''})` : '';
+    parts.push(`${g.inFlight} in flight${air} · ${g.waiting} waiting${line} · ${g.replies} replies · ${g.refusals} refusals`);
     rows.push([`Pacing, ${g.model}`, parts.join(' · ')]);
   }
   if (!rows.length) rows.push(['Pacing', 'Nothing has been sent since this FactEngine started. The key\'s minute figures arrive with the first reply.']);
   return rows;
 }
 
-function renderSettings(s, build, pacing, silent, tools) {
+function renderSettings(s, build, pacing, silent, tools, readers) {
   const rows = [
     ['Model', s.model],
     ['Reasoning effort', s.effort],
@@ -56,6 +59,7 @@ function renderSettings(s, build, pacing, silent, tools) {
     ['Prompt versions', s.prompts || 'none installed'],
     ['Version', build],
     ...pacingRows(pacing),
+    ...(readers !== undefined && readers !== null ? [['Readers now', readers ? `${readers} with work in flight on this instance` : 'none with work in flight on this instance']] : []),
     ...(silent && silent.length ? [['Sites that stayed silent', silent.map((x) => `${x.host} (${x.cause}, since ${x.at.slice(11, 19)} UTC)`).join(' · ') + ' — a site that never answers the connection is remembered until FactEngine restarts, and re-checked whenever it is asked for again']] : []),
     ...(tools ? [['Sources the model can reach for', (tools.sources || []).length ? (tools.sources.map((x) => `${x.name} (${x.verbs.join(', ')})`).join(' · ') + (tools.reachable ? '' : ' — not in the requests yet: the gateway\'s address and pass are not both set')) : 'none on']] : []),
   ];
@@ -114,6 +118,13 @@ function economicsLines(e) {
   if (!g.configured) lines.push('The loss guard is off: set CIVIC_TIER_LOSS_GUARD_USD to the loss in one window that should send every new run to tier 1 until it is earned back.');
   else if (g.engaged) lines.push(`The loss guard is engaged since ${g.since.slice(0, 16).replace('T', ' ')} UTC: the window had lost ${money(g.lossUsd, c)} (the guard is ${money(g.thresholdUsd, c)}); ${money(g.earnedUsd, c)} has been earned back since, and the rotation resumes once that covers the loss.`);
   else lines.push(`The loss guard is watching: this window's margin is ${money(g.windowMarginUsd, c)} against a guard of ${money(g.thresholdUsd, c)}${g.released ? `; last released ${g.released.slice(0, 16).replace('T', ' ')} UTC` : ''}.`);
+  const d = e.durations;
+  const mins = (ms) => (ms >= 90000 ? `${(ms / 60000).toFixed(1)} min` : `${Math.round(ms / 1000)} s`);
+  if (d && (d.determinations.n || d.extractions.n)) {
+    lines.push((d.determinations.n ? `A determination takes ${mins(d.determinations.meanMs)} on average over the last ${e.price.days} days (three in four within ${mins(d.determinations.p75Ms)}, ${d.determinations.n} measured)${d.determinations.meanSearches !== null ? `, with ${d.determinations.meanSearches} web searches each` : ''}` : 'No determination measured yet') +
+      (d.extractions.n ? `; a listing takes ${mins(d.extractions.meanMs)} on average (three in four within ${mins(d.extractions.p75Ms)}, ${d.extractions.n} measured)` : '; no listing measured yet') +
+      '. The times run from the request to its end, so a wait at the gate is inside them.');
+  } else lines.push('No durations measured yet: the first runs put how long a determination and a listing take here.');
   lines.push(`${e.note} The rows live in ${e.store === 'postgres' ? 'Postgres and outlive every deploy' : 'this instance\'s memory and reset when it restarts'}.`);
   return lines;
 }
@@ -247,7 +258,7 @@ async function run() {
     verdict.className = `check-verdict ${data.ready ? 'is-ready' : 'is-blocked'}`;
     verdict.textContent = data.summary;
     renderChecks(data.checks);
-    renderSettings(data.settings, data.build, data.pacing, data.silentSites, data.tools);
+    renderSettings(data.settings, data.build, data.pacing, data.silentSites, data.tools, data.readers);
     renderEconomics(data.economics);
     renderFailures(data.recentFailures);
     renderSignins(data);
