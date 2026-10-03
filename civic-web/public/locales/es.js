@@ -82,7 +82,7 @@ export default {
     waiting: 'Esperando las afirmaciones',
     stopped: 'Detenido',
   },
-  score: { true: 'Verdadero', false: 'Falso', unverified: 'Sin verificar', cost: 'Coste est.', internal: 'Interno', unread: 'Veredicto sin leer', extracting: 'Extrayendo afirmaciones…' },
+  score: { true: 'Verdadero', false: 'Falso', unverified: 'Sin verificar', cost: 'Coste est.', internal: 'Interno', unread: 'Veredicto sin leer', extracting: 'Extrayendo afirmaciones…', aiLine: 'Las determinaciones las hace un modelo de IA a partir de las fuentes que cita y pueden ser erróneas; compruebe las fuentes antes de confiar en una.' },
   card: {
     pending: 'En cola',
     starting: 'Asignando un inspector…',
@@ -212,5 +212,5 @@ export default {
     hintFree_one: 'La primera que elijas en cada documento es gratis.',
     hintFree_other: 'Las primeras {n} que elijas en cada documento son gratis.',
   },
-  footer: { site: 'FactEngine.com', service: 'Un servicio de', terms: 'Términos', privacy: 'Privacidad', contact: 'Contacto', copyright: '© 2026' },
+  footer: { site: 'FactEngine.com', service: 'Un servicio de', parent: 'una empresa de Operating Equity', terms: 'Términos', privacy: 'Privacidad', refunds: 'Reembolsos', contact: 'Contacto', copyright: '© 2026' },
 };

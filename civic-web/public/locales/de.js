@@ -82,7 +82,7 @@ export default {
     waiting: 'Warten auf die Behauptungen',
     stopped: 'Gestoppt',
   },
-  score: { true: 'Wahr', false: 'Falsch', unverified: 'Ungeprüft', cost: 'Gesch. Kosten', internal: 'Intern', unread: 'Urteil ungelesen', extracting: 'Behauptungen werden extrahiert…' },
+  score: { true: 'Wahr', false: 'Falsch', unverified: 'Ungeprüft', cost: 'Gesch. Kosten', internal: 'Intern', unread: 'Urteil ungelesen', extracting: 'Behauptungen werden extrahiert…', aiLine: 'Die Feststellungen trifft ein KI-Modell anhand der Quellen, die es nennt, und sie können falsch sein; prüfen Sie die Quellen, bevor Sie sich auf eine verlassen.' },
   card: {
     pending: 'In der Warteschlange',
     starting: 'Ein Prüfer wird zugewiesen…',
@@ -212,5 +212,5 @@ export default {
     hintFree_one: 'Die erste, die Sie in jedem Dokument wählen, ist gratis.',
     hintFree_other: 'Die ersten {n}, die Sie in jedem Dokument wählen, sind gratis.',
   },
-  footer: { site: 'FactEngine.com', service: 'Ein Dienst von', terms: 'Nutzungsbedingungen', privacy: 'Datenschutz', contact: 'Kontakt', copyright: '© 2026' },
+  footer: { site: 'FactEngine.com', service: 'Ein Dienst von', parent: 'ein Unternehmen von Operating Equity', terms: 'Nutzungsbedingungen', privacy: 'Datenschutz', refunds: 'Erstattungen', contact: 'Kontakt', copyright: '© 2026' },
 };

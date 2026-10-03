@@ -60,9 +60,12 @@ colours on every surface: true green, false red, unverified grey (the grey zone:
 nothing dirty about it, the operator's rule of 2 October); a verdict the page could not read is dashed and hollow,
 a different thing. The amber is for cautions only (a card's note, the check page's warning mark). There is one box type,
 rounded, and no corner brackets (the operator's rule of 2 October: the brackets made the page busy). The footer
-names the site and whose service it is, and carries the pages a commercial service owes, Terms, Privacy and
-Contact (`public/terms.html`, `privacy.html`, `contact.html`, placeholders until the operator writes them), and
-the year.
+names the site and whose service it is ("A service of Fact Engine LLC, an Operating Equity company"), and carries
+the pages a commercial service owes, Terms, Privacy, Refunds and Contact (`public/terms.html`, `privacy.html`,
+`refunds.html`, `contact.html`: the operator's launch texts of 3 October, in English, static HTML in `.prose` over
+the still field, their placeholders in square brackets theirs to fill), and the year. The four open in a new tab,
+because leaving the page cancels a run in progress. Under the results, one sentence in the reader's language says
+that determinations are made by an AI model from the sources it cites and can be wrong.
 
 ## Run it
 

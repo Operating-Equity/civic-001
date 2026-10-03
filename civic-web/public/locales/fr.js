@@ -82,7 +82,7 @@ export default {
     waiting: 'En attente des affirmations',
     stopped: 'Arrêté',
   },
-  score: { true: 'Vrai', false: 'Faux', unverified: 'Non vérifié', cost: 'Coût est.', internal: 'Interne', unread: 'Verdict non lu', extracting: 'Extraction des affirmations…' },
+  score: { true: 'Vrai', false: 'Faux', unverified: 'Non vérifié', cost: 'Coût est.', internal: 'Interne', unread: 'Verdict non lu', extracting: 'Extraction des affirmations…', aiLine: 'Les déterminations sont faites par un modèle d\'IA à partir des sources qu\'il cite et peuvent être erronées ; vérifiez les sources avant de vous y fier.' },
   card: {
     pending: 'En file',
     starting: 'Désignation d\'un inspecteur…',
@@ -212,5 +212,5 @@ export default {
     hintFree_one: 'La première que vous choisissez dans chaque document est gratuite.',
     hintFree_other: 'Les {n} premières que vous choisissez dans chaque document sont gratuites.',
   },
-  footer: { site: 'FactEngine.com', service: 'Un service de', terms: 'Conditions', privacy: 'Confidentialité', contact: 'Contact', copyright: '© 2026' },
+  footer: { site: 'FactEngine.com', service: 'Un service de', parent: 'une société d\'Operating Equity', terms: 'Conditions', privacy: 'Confidentialité', refunds: 'Remboursements', contact: 'Contact', copyright: '© 2026' },
 };

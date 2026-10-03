@@ -83,7 +83,7 @@ export default {
     waiting: 'Waiting for the claims',
     stopped: 'Stopped',
   },
-  score: { true: 'True', false: 'False', unverified: 'Unverified', cost: 'Est. cost', internal: 'Internal', unread: 'Verdict unread', extracting: 'Extracting claims…' },
+  score: { true: 'True', false: 'False', unverified: 'Unverified', cost: 'Est. cost', internal: 'Internal', unread: 'Verdict unread', extracting: 'Extracting claims…', aiLine: 'Determinations are made by an AI model from the sources it cites and can be wrong; check the sources before relying on one.' },
   card: {
     pending: 'Queued',
     starting: 'Assigning an inspector…',
@@ -214,5 +214,5 @@ export default {
     hintFree_one: 'The first {n} you choose on each document is free.',
     hintFree_other: 'The first {n} you choose on each document are free.',
   },
-  footer: { site: 'FactEngine.com', service: 'A service of', terms: 'Terms', privacy: 'Privacy', contact: 'Contact', copyright: '© 2026' },
+  footer: { site: 'FactEngine.com', service: 'A service of', parent: 'an Operating Equity company', terms: 'Terms', privacy: 'Privacy', refunds: 'Refunds', contact: 'Contact', copyright: '© 2026' },
 };

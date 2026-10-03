@@ -421,7 +421,25 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
   written to the service with render-env.mjs. With it, one fix: a window that began without a price would have kept
   its empty price until the next six-hour window (midnight UTC), so now a window without a price is asked again each
   time and takes the start figure the moment it is set and deployed; a window with a price keeps it until the next
-  window; the measured price still arrives at the first window after the sample is complete.
+  window; the measured price still arrives at the first window after the sample is complete. The operator, on the
+  figure: "The cost changes based on api cost average fact run times x 1.25. $.49 is a guess. It may be high."; the
+  sample stays twenty ("Ten is only a fraction of a single document"). **Live** (PR #59 squash 0550358, deploy
+  dep-db03697f3r2c73amkorg at 22:42 UTC, build d8ad3b5f04a9; guard 191/191; CI green in both shapes): the health
+  line carries priceCents 49, the operator's /check reads 49 cents, basis start, measured 0 of 20, in the window that
+  had begun without a price (15/15, scratchpad/live-pricing.mjs). The page now marks the free claims and prices the
+  rest at $0.49; the measured average × 1.25 replaces the guess after twenty determinations.
+- **3 October, 07:40 UTC: the launch texts on the site.** The operator's word: "the text you created should go in the
+  applicable sections on the site and be reviewed and changed, but I want things in place." The Terms of Service,
+  Privacy Policy, Refund and Dispute Policy and Contact texts from the document "FactEngine: launch texts and
+  checklist" (rev 13: 13+, parental permission under 18, purchases by adults; vendors by category only) are
+  `public/terms.html`, `privacy.html`, `refunds.html` (new) and `contact.html`: static HTML in `.prose` over the still
+  field, English only, each with a nav line to the other three, the support address as a link, and the
+  placeholders in square brackets left as they are for the review. The footer gains Refunds, opens the four pages
+  in a new tab (leaving the page cancels a run), and reads "A service of Fact Engine LLC, an Operating Equity
+  company" (the operator's answer); under the results one sentence in four languages says determinations are
+  made by an AI model from the sources it cites and can be wrong (222 keys per locale). The guard gains a pages
+  section: each page served with its heading, the text and the address, no script but the field, no vendor, no
+  key or token; the footer and the locales' new words.
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 

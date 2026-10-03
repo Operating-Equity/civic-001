@@ -122,6 +122,8 @@
       <div class="scoreboard-actions">
         <button type="button" class="btn btn-outline btn-small" id="btn-reset-top" data-i18n="reset">Start a new test</button>
       </div>
+      <!-- The AI disclosure, under the results, in the reader's language (the operator's rule of 3 October; the Terms carry it too). -->
+      <p class="score-note" data-i18n="score.aiLine">Determinations are made by an AI model from the sources it cites and can be wrong; check the sources before relying on one.</p>
     </div>
 
 
@@ -196,16 +198,14 @@
   <div class="footer-brand">
     <a class="footer-site" href="./">FactEngine.com</a>
     <span class="footer-dot" aria-hidden="true">·</span>
-    <a class="footer-service" href="https://operatingequity.ai" target="_blank" rel="noopener">
-      <span data-i18n="footer.service">A service of</span>
-      <img src="assets/oe-logo.png" alt="OperatingEquity.ai" class="oe-mark" width="44" height="24">
-      <span class="oe-name">OperatingEquity.ai</span>
-    </a>
+    <span class="footer-service"><span data-i18n="footer.service">A service of</span> <span class="footer-company">Fact Engine LLC,</span> <a class="footer-parent" href="https://operatingequity.ai" target="_blank" rel="noopener"><img src="assets/oe-logo.png" alt="" class="oe-mark" width="44" height="24"><span class="oe-name" data-i18n="footer.parent">an Operating Equity company</span></a></span>
   </div>
-  <nav class="footer-links" aria-label="Terms, privacy and contact">
-    <a href="terms" data-i18n="footer.terms">Terms</a>
-    <a href="privacy" data-i18n="footer.privacy">Privacy</a>
-    <a href="contact" data-i18n="footer.contact">Contact</a>
+  <!-- The legal pages open in a new tab: leaving this page cancels a run in progress (pagehide), and a reader who opens the Terms mid-run keeps their run. -->
+  <nav class="footer-links" aria-label="Terms, privacy, refunds and contact">
+    <a href="terms" target="_blank" rel="noopener" data-i18n="footer.terms">Terms</a>
+    <a href="privacy" target="_blank" rel="noopener" data-i18n="footer.privacy">Privacy</a>
+    <a href="refunds" target="_blank" rel="noopener" data-i18n="footer.refunds">Refunds</a>
+    <a href="contact" target="_blank" rel="noopener" data-i18n="footer.contact">Contact</a>
     <span class="footer-copy" data-i18n="footer.copyright">© 2026</span>
   </nav>
   <p class="footer-build mono" id="build-stamp" title="Which version of the page this browser has loaded."></p>
