@@ -351,6 +351,8 @@ body {
 .score-unverified .score-n, .score-unverified .score-l { color: var(--unv); }
 .score-meta { display: flex; gap: 18px; font-size: 13px; color: var(--ink-2); justify-content: flex-end; flex-wrap: wrap; }
 .score-meta b { font-weight: 500; color: var(--ink); }
+/* The AI disclosure under the results: one sentence, full width, in the reader's language (score.aiLine). */
+.score-note { grid-column: 1 / -1; margin: 0; padding-block-start: 6px; border-block-start: 1px solid var(--line-soft); font-size: 13px; line-height: 1.45; color: var(--ink-2); }
 
 /* results */
 .card, .claims, .claims-beyond, .raw { scroll-margin-top: 96px; }
@@ -446,17 +448,26 @@ body {
 .footer-site { color: var(--ink); font-weight: 600; text-decoration: none; }
 .footer-site:hover, .footer-site:focus-visible { text-decoration: underline; }
 .footer-dot { color: var(--ink-3); }
-.footer-service { display: inline-flex; align-items: center; gap: 10px; color: var(--ink-2); text-decoration: none; }
-.footer-service:hover .oe-name { text-decoration: underline; }
+.footer-service { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; color: var(--ink-2); }
+.footer-company { color: var(--ink); font-weight: 600; }
+.footer-parent { display: inline-flex; align-items: center; gap: 8px; color: var(--ink-2); text-decoration: none; }
+.footer-parent:hover .oe-name, .footer-parent:focus-visible .oe-name { text-decoration: underline; }
 .footer-links { display: inline-flex; align-items: center; gap: 18px; flex-wrap: wrap; }
 .footer-links a { color: var(--ink-2); text-decoration: none; }
 .footer-links a:hover, .footer-links a:focus-visible { color: var(--ink); text-decoration: underline; }
 .footer-copy { color: var(--ink-3); }
-/* The plain pages (terms, privacy, contact): one glass sheet over the still field. */
+/* The plain pages (terms, privacy, refunds, contact): one glass sheet over the still field, the text in .prose. */
 .plain-page { max-width: 46rem; margin: 40px auto; padding: 28px clamp(18px, 4vw, 40px) 32px; position: relative; z-index: 1; }
 .plain-brand { font-family: var(--font-display); font-weight: 700; font-size: 26px; line-height: 1; color: var(--ink); text-decoration: none; }
 .plain-head { font-family: var(--font-display); font-weight: 700; font-size: clamp(32px, 5vw, 44px); line-height: 1; margin: 16px 0 10px; }
 .plain-lede { color: var(--ink-2); font-size: 17px; margin: 0 0 22px; max-width: var(--measure); }
+.plain-nav { margin: 14px 0 0; font-size: 13.5px; color: var(--ink-3); }
+.plain-nav a { color: var(--ink-2); text-decoration: none; }
+.plain-nav a:hover, .plain-nav a:focus-visible { color: var(--ink); text-decoration: underline; }
+.plain-nav a[aria-current] { color: var(--ink); font-weight: 600; }
+.plain-page .prose { max-width: none; font-size: 16px; }
+.plain-page .prose h2 { margin-block-start: 26px; }
+.plain-back { margin: 28px 0 0; }
 @media (max-width: 760px) { .plain-page { margin: 16px auto; } }
 .oe-mark { height: 24px; width: auto; }
 .oe-name { color: var(--ink); font-weight: 600; }

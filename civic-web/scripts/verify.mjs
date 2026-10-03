@@ -1655,6 +1655,60 @@ async function takeoverChecks() {
 }
 await takeoverChecks();
 
+// ---- the pages a commercial service owes: the texts are served, whole, English, with no script but the field ----
+// Terms, Privacy, Refunds and Contact are static files (public/*.html) served at /terms, /privacy, /refunds and
+// /contact by the extensionless rule; each carries its heading, the support address and the text in .prose, names no
+// vendor (categories only: the operator's rule of 3 October) and loads nothing but the field. The footer of the page
+// links the four in a new tab (leaving the page cancels a run), and the four locales carry the footer and AI-line words.
+async function pagesChecks() {
+  const MOCK8 = MOCK_PORT + 70, PORT8 = PORT + 70;
+  start([path.join(root, 'scripts', 'mock-openai.js')], { MOCK_PORT: String(MOCK8), MOCK_SPEED: '0.2' });
+  await wait(`http://localhost:${MOCK8}/v1/mock/stats`, 15000, { anyResponse: true });   // the stats route answers 401 without the key: any answer means up
+  const server = start([path.join(root, 'server', 'index.js')], { PORT: String(PORT8), OPENAI_BASE_URL: `http://localhost:${MOCK8}/v1`, OPENAI_API_KEY: KEY, CIVIC_IMAGE_ENABLED: 'false', CIVIC_LEDGER_FILE: path.join(os.tmpdir(), 'civic-verify-ledger.jsonl') });
+  try {
+    await wait(`http://localhost:${PORT8}/api/health`);
+    const base = `http://localhost:${PORT8}`;
+    const page = async (p) => { const r = await fetch(`${base}${p}`); return { status: r.status, type: r.headers.get('content-type') || '', text: await r.text() }; };
+    const PAGES = [
+      ['/terms', 'Terms of Service', /15\. Dispute resolution/],
+      ['/privacy', 'Privacy Policy', /8\. Children/],
+      ['/refunds', 'Refund and Dispute Policy', /A test that fails is never charged\./],
+      ['/contact', 'Contact', /Arbitration opt-out/],
+    ];
+    const vendors = /\b(OpenAI|Exa|Supadata|YouTube|Render|Stripe|Google|Resend|Cloudflare)\b/;
+    for (const [p, heading, mark] of PAGES) {
+      const r = await page(p);
+      const scripts = r.text.match(/<script[^>]*>/g) || [];
+      check(`${p}: served as its own page with the heading "${heading}", the text in .prose, the support address as a link, and the field held still`,
+        r.status === 200 && /text\/html/.test(r.type) && r.text.includes(`<h1 class="plain-head">${heading}</h1>`) && r.text.includes('class="prose"') && r.text.includes('href="mailto:support@operatingequity.ai"') && mark.test(r.text) && r.text.includes('data-still="golden"'),
+        `status ${r.status} type ${r.type} heading ${r.text.includes(heading)} mark ${mark.test(r.text)}`);
+      check(`${p}: loads no script but the field, names no vendor and no key or token`,
+        scripts.length === 1 && /src="js\/field\.js"/.test(scripts[0]) && !vendors.test(r.text) && !/\b(api key|token|tokens)\b/i.test(r.text) && !/sk-[A-Za-z0-9]/.test(r.text),
+        `scripts ${JSON.stringify(scripts)} vendor ${(r.text.match(vendors) || [])[0] || 'none'}`);
+      check(`${p}: links the other three pages and marks itself`,
+        r.text.includes('class="plain-nav"') && ['terms', 'privacy', 'refunds', 'contact'].every((q) => r.text.includes(`href="${q}"`)) && r.text.includes(`href="${p.slice(1)}" aria-current="page"`), '');
+    }
+    const home = await page('/');
+    const footer = (home.text.match(/<footer class="footer">[\s\S]*?<\/footer>/) || [''])[0];
+    check('the page\'s footer links Terms, Privacy, Refunds and Contact in a new tab and names Fact Engine LLC, an Operating Equity company',
+      ['terms', 'privacy', 'refunds', 'contact'].every((q) => new RegExp(`<a href="${q}" target="_blank" rel="noopener" data-i18n="footer\\.${q}">`).test(footer)) && /class="footer-company">Fact Engine LLC,</.test(footer) && /data-i18n="footer\.parent">an Operating Equity company</.test(footer) && /aria-label="Terms, privacy, refunds and contact"/.test(footer),
+      footer.slice(0, 300));
+    check('the page carries the AI disclosure line under the results, translated by key',
+      /<p class="score-note" data-i18n="score\.aiLine">Determinations are made by an AI model from the sources it cites and can be wrong; check the sources before relying on one\.<\/p>/.test(home.text), '');
+    const words = { en: ['Refunds', 'an Operating Equity company', 'Determinations are made by an AI model'], es: ['Reembolsos', 'una empresa de Operating Equity', 'Las determinaciones las hace un modelo de IA'], fr: ['Remboursements', "une société d'Operating Equity", "Les déterminations sont faites par un modèle d'IA"], de: ['Erstattungen', 'ein Unternehmen von Operating Equity', 'Die Feststellungen trifft ein KI-Modell'] };
+    for (const [code, [refunds, parent, ai]] of Object.entries(words)) {
+      const l = await page(`/locales/${code}.js`);
+      const raw = l.text.replace(/\\'/g, "'");   // the source escapes an apostrophe inside its single-quoted strings (fr: d'IA)
+      check(`${code}: the locale carries the footer's refunds and parent words and the AI line`, l.status === 200 && raw.includes(`refunds: '${refunds}'`) && raw.includes(parent) && raw.includes(ai), `status ${l.status} refunds ${raw.includes(`refunds: '${refunds}'`)} parent ${raw.includes(parent)} ai ${raw.includes(ai)}`);
+    }
+  } catch (err) {
+    check('pages checks completed', false, err.message);
+  } finally {
+    try { server.kill('SIGTERM'); } catch {}
+  }
+}
+await pagesChecks();
+
 const failed = results.filter((r) => !r.ok);
 for (const r of results) console.log(`${r.ok ? 'PASS' : 'FAIL'}  ${r.name}${r.ok ? '' : `   ← ${r.detail}`}`);
 console.log(failed.length
