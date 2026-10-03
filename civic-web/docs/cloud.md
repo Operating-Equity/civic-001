@@ -464,7 +464,18 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
   Cached tokens count toward OpenAI's minute (its limiter runs before its cache), so caching cuts cost, never raises
   capacity; the 2 GB instance is the operator's step when readers arrive. Guard: ten at a time never an eleventh;
   the line's order in process; parallel sends; the reservation preventing overshoot on a budget of two; a listing
-  first; two readers in turns; door and in-stream refusals; the pacing row mid-run; the durations in both stores.
+  first; two readers in turns; door and in-stream refusals; the pacing row mid-run; the durations in both stores. **Live** (PR #61 squash 7c96699, deploy dep-db0j20lg1s2s738pd2kg at 16:50 UTC, build b2add7a70cc8; guard
+  221/221 with the real prompts and 221/221 in the stand-in shape; CI green in both shapes; browser 9/9: a twelve-claim
+  selection as one batch with ten requests issued at once, six rows on plain localhost because Chromium opens six
+  HTTP/1.1 connections per host, where the live service speaks HTTP/2 and ten streams multiplex; the held listing's
+  "Waiting its turn · N s"): the health line tells the page ten and carries no pacing figure; the served app runs the
+  whole selection as one batch; the four locales carry the timed waiting words; the operator's check data carries the
+  pacing rows' air, reservations and waiting by kind and reader (no row yet: a gate's row exists from the instance's
+  first request, and nobody has run since the deploy), the readers line and the report's durations (10/10,
+  scratchpad/live-readers.mjs). The durations read zero: the one run since measurement began (01:51 UTC, under a
+  reader's code) was cut nineteen seconds in, before its listing finished, so nothing was recorded; the operator's
+  next run is the first figure. One addition beyond the plan: the per-request claims cap became a setting
+  (`CIVIC_MAX_CLAIMS`, 10 unless set), because the guard's twelve-claim request needed it and the figure was a constant.
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 
