@@ -113,7 +113,11 @@ app.post('/v1/responses', async (req, res) => {
     });
   }
 
+  // MOCK_HEADERS_DELAY_MS holds the reply's headers back (a slow start) while their figures stay those of the
+  // decision above, as the real limiter's do: the gate's reservations are proved against it.
+  if (HEADERS_DELAY > 0) await sleep(HEADERS_DELAY);
   const send = sse(res);
+  entry.headersAt = Date.now();
   const id = 'resp_' + Math.random().toString(36).slice(2);
   send({ type: 'response.created', response: { id, status: 'in_progress' } });
 
@@ -344,6 +348,7 @@ const levelOf = (b, now = Date.now()) => Math.min(b.limit, b.level + (now - b.at
 const settle = (b, now = Date.now()) => { b.level = levelOf(b, now); b.at = now; };
 const fmtWait = (ms) => (ms < 1000 ? `${Math.ceil(ms)}ms` : `${(ms / 1000).toFixed(3)}s`);
 const CONTINUATION = Number(process.env.MOCK_CONTINUATION || 0);
+const HEADERS_DELAY = Number(process.env.MOCK_HEADERS_DELAY_MS || 0);   // the reply's headers held back this long (scaled by MOCK_SPEED)
 const STREAM_LIMIT = new Set(String(process.env.MOCK_STREAM_RATE_LIMIT_REQUESTS || '').split(',').map(Number).filter(Boolean));
 const STREAM_REQUESTED = Number(process.env.MOCK_STREAM_REQUESTED || 0);
 const stats = { admitted: 0, refused: 0, refusedInStream: 0, inFlight: 0, maxInFlight: 0, timeline: [] };
@@ -381,7 +386,7 @@ function admitOrRefuse(res, model, kind, drained) {
   stats.admitted++;
   stats.inFlight++;
   stats.maxInFlight = Math.max(stats.maxInFlight, stats.inFlight);
-  const entry = { at: now, kind, cost, level: Math.floor(TOKENS.level), endedAt: null };
+  const entry = { at: now, kind, cost, level: Math.floor(TOKENS.level), headersAt: null, endedAt: null };
   stats.timeline.push(entry);
   limitHeaders(res, now);
   return entry;

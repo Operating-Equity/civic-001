@@ -9,19 +9,25 @@
 // exactly the wait that refills the difference. The requests-per-minute bucket works the same way
 // at one per request. Nothing else is in the rule: no window that opens all at once, no reset to full.
 //
-// The gate keeps those buckets from the headers of every reply and from every refusal, and sends
-// one request at a time: the next goes only after the previous reply's headers have been read (a
-// stream's headers arrive as it starts), so every admission is checked against the server's latest
-// figure plus the refill since it. The cost of a kind of request (an extraction, a determination,
-// the art direction for the picture) is learned only from OpenAI's exact figures: the drop shown
-// by a request sent into a full minute, or the Requested figure in a refusal. A kind whose cost is
-// not yet known goes only when the figures say the minute is full, so its reply shows its cost
-// exactly. A refusal that arrives anyway (two CIVICs on one key, a cost larger than any seen) is
-// handled here: the refused request waits exactly what OpenAI asked and goes first. The one earlier
-// gate learned the cost from the drop between two replies without the refill in between, took the
-// whole minute to be back after a refusal's wait, and had been proved against a stand-in whose
-// minute opened all at once; it admitted everything and OpenAI refused most of it.
-// Nothing here is a number of ours.
+// The gate keeps those buckets from the headers of every reply and from every refusal. A request
+// goes when the bucket, less what is reserved by the sends whose headers have not yet arrived (each
+// at what OpenAI has shown for its kind), holds its cost; when the headers arrive, their figure
+// replaces the reservation, so every admission is checked against the server's latest figure plus
+// the refill since it, and many readers' requests leave together instead of one after another
+// (until 3 October the next went only after the previous reply's headers, which under many readers
+// made the last of N requests wait N header latencies). The cost of a kind of request (an
+// extraction, a determination, the art direction for the picture) is learned only from OpenAI's
+// exact figures: the drop shown by a request sent alone into a full minute, or the Requested figure
+// in a refusal. The first request ever, and the first of each kind, goes alone, with nothing else in
+// the air, so its reply's figures are its own and teach exactly. The line is kept in an order, not a
+// figure: listings before determinations (listing is the free first step and a reader's first
+// impression), and among determinations the readers take turns, so one reader's thirty queued claims
+// never starve another's first three. A refusal that arrives anyway (two FactEngines on one key, a
+// cost larger than any seen) is handled here: the refused request waits exactly what OpenAI asked
+// and goes first. The one earlier gate learned the cost from the drop between two replies without
+// the refill in between, took the whole minute to be back after a refusal's wait, and had been
+// proved against a stand-in whose minute opened all at once; it admitted everything and OpenAI
+// refused most of it. Nothing here is a number of ours.
 
 /** "1.2s", "850ms", "1m2.5s" and the like, as OpenAI writes its times. */
 export function parseDuration(s) {
@@ -123,14 +129,20 @@ export function parseRefusal(err) {
 
 function abortError() { const e = new Error('aborted'); e.name = 'AbortError'; return e; }
 
+// Before the determinations, the listing: it is the free first step and the reader's first
+// impression. Anything else (the art direction, on its own model) comes after. An order, not a figure.
+const RANK = { extraction: 0, determination: 1 };
+const rankOf = (kind) => RANK[kind] ?? 2;
+
 export class RateGate {
   constructor(model) {
     this.model = model;
     this.tokens = new Bucket('tokens');
     this.requests = new Bucket('requests');
     this.costs = new Map();   // kind → the largest cost OpenAI has shown for it, in its own accounting
-    this.queue = [];          // tickets in the order asked; the head goes next
-    this.lane = null;         // the ticket sent whose reply headers have not arrived yet
+    this.lines = new Map();   // rank → [{ owner, tickets }]: the owners in the order they are served, each one's tickets in the order asked
+    this.pending = new Set(); // sent, headers not yet arrived; each holds its reservation
+    this.lane = null;         // a ticket sent alone, to teach: nothing else goes until its headers arrive
     this.inFlight = 0;        // sent, and not yet over
     this.waiters = [];
     this.seq = 0;
@@ -145,49 +157,110 @@ export class RateGate {
     if (cost !== null && cost > 0 && cost > (this.costs.get(kind) ?? 0)) this.costs.set(kind, cost);
   }
 
-  /** Milliseconds until a request of this kind may go, by the figures: 0 now, Infinity never. */
+  /** The waiting tickets in the order they would go: rank by rank, and within a rank turn by turn around the owners (A1 B1 A2 B2 A3). */
+  order() {
+    const out = [];
+    for (const rank of [...this.lines.keys()].sort((a, b) => a - b)) {
+      const line = this.lines.get(rank);
+      for (let turn = 0, any = true; any; turn++) {
+        any = false;
+        for (const e of line) if (e.tickets[turn]) { out.push(e.tickets[turn]); any = true; }
+      }
+    }
+    return out;
+  }
+
+  /** A ticket joins its owner's list in its class; one turned back by OpenAI (`first`) puts its owner's turn now, behind any turned back before it. */
+  enqueue(ticket, first) {
+    const rank = rankOf(ticket.kind);
+    if (!this.lines.has(rank)) this.lines.set(rank, []);
+    const line = this.lines.get(rank);
+    let e = line.find((x) => x.owner === ticket.owner);
+    if (!e) { e = { owner: ticket.owner, tickets: [] }; line.push(e); }
+    if (first) {
+      line.splice(line.indexOf(e), 1); line.unshift(e);
+      let k = 0; while (k < e.tickets.length && e.tickets[k].first) k++;
+      e.tickets.splice(k, 0, ticket);
+    } else e.tickets.push(ticket);
+  }
+
+  /** The ticket leaves the line. Served, its owner's turn passes to the end; abandoned, the turn stays. */
+  take(ticket, served) {
+    const line = this.lines.get(rankOf(ticket.kind)) || [];
+    const j = line.findIndex((x) => x.owner === ticket.owner);
+    if (j < 0) return;
+    const e = line[j], k = e.tickets.indexOf(ticket);
+    if (k >= 0) e.tickets.splice(k, 1);
+    if (!e.tickets.length) line.splice(j, 1);
+    else if (served) { line.splice(j, 1); line.push(e); }
+  }
+
+  /** The tokens held by the sends whose headers have not arrived, at what OpenAI has shown for their kinds. */
+  reserved() { let n = 0; for (const t of this.pending) n += t.reserve; return n; }
+
+  /**
+   * Milliseconds until a request of this kind may go, by the figures: 0 now, Infinity never, null
+   * when no time can be named yet (a reservation must give way to its headers first).
+   */
   waitFor(kind, now = Date.now()) {
     if (!this.tokens.known()) return 0;                          // nothing known yet: it goes alone and teaches
     const cost = this.cost(kind);
-    const tokens = cost === null ? this.tokens.waitFor(this.tokens.limit, now) : this.tokens.waitFor(cost, now);
-    const requests = this.requests.known() ? this.requests.waitFor(1, now) : 0;
+    if (cost === null) return this.tokens.waitFor(this.tokens.limit, now);   // a full minute, alone
+    if (cost > this.tokens.limit) return Infinity;
+    const reserved = this.reserved();
+    if (cost + reserved > this.tokens.limit) return null;
+    const tokens = this.tokens.waitFor(cost + reserved, now);
+    let requests = 0;
+    if (this.requests.known()) {
+      if (1 + this.pending.size > this.requests.limit) return null;
+      requests = this.requests.waitFor(1 + this.pending.size, now);
+    }
     return Math.max(tokens, requests);
   }
 
-  /** The wait a ticket at `position` in the line sees: the budget must cover what is ahead of it too. */
+  /** The wait a ticket at `position` in the line sees: the budget must cover the reservations and what is ahead of it too. */
   waitAt(position, now = Date.now()) {
     if (!this.tokens.known()) return 0;
-    let need = 0;
-    for (let k = 0; k <= position && k < this.queue.length; k++) {
-      const c = this.cost(this.queue[k].kind);
+    const order = this.order();
+    let need = this.reserved();
+    for (let k = 0; k <= position && k < order.length; k++) {
+      const c = this.cost(order[k].kind);
       need += c === null ? this.tokens.limit : c;
     }
     need = Math.min(need, this.tokens.limit);
-    const requests = this.requests.known() ? this.requests.waitFor(Math.min(position + 1, this.requests.limit), now) : 0;
+    const requests = this.requests.known() ? this.requests.waitFor(Math.min(position + 1 + this.pending.size, this.requests.limit), now) : 0;
     return Math.max(this.tokens.waitFor(need, now), requests);
   }
 
   /**
-   * Resolves with a ticket when the request may be sent. Admission is in the order asked, one at
-   * a time. `first` puts a request turned back by OpenAI at the head of the line, and `notBefore`
-   * is the time OpenAI itself named for it. `onHold` is told, in figures, whenever the wait changes.
+   * Resolves with a ticket when the request may be sent. Only the head of the line is examined
+   * and nothing passes it; the head goes when the bucket, less the reservations, holds its cost,
+   * and the next head is examined at once, so eligible sends leave together. The first request
+   * ever and the first of a kind go alone (nothing else in the air until their headers arrive).
+   * `owner` is whose turn the request takes in its class. `first` puts a request turned back by
+   * OpenAI at the head of its class, and `notBefore` is the time OpenAI itself named for it.
+   * `onHold` is told, in figures, whenever the wait changes.
    */
-  async admit({ kind = 'request', signal, onHold, first = false, notBefore = 0 } = {}) {
-    const ticket = { kind, seq: ++this.seq, held: null, sentAt: 0 };
-    if (first) this.queue.unshift(ticket); else this.queue.push(ticket);
+  async admit({ kind = 'request', owner = null, signal, onHold, first = false, notBefore = 0 } = {}) {
+    const ticket = { kind, owner, first, seq: ++this.seq, held: null, sentAt: 0, reserve: 0, alone: false };
+    this.enqueue(ticket, first);
     try {
       for (;;) {
         if (signal?.aborted) throw abortError();
         const now = Date.now();
-        const position = this.queue.indexOf(ticket);
+        const position = this.order().indexOf(ticket);
+        const alone = !this.tokens.known() || this.cost(kind) === null;
         let wait = null;
-        if (position === 0 && this.lane === null) {
-          wait = Math.max(this.waitFor(kind, now), notBefore - now);
-          if (wait <= 0) break;
-          if (wait === Infinity) {
+        if (position === 0 && this.lane === null && (!alone || this.pending.size === 0)) {
+          const by = this.waitFor(kind, now);
+          if (by === Infinity) {
             const e = new Error(`OpenAI counts more tokens for this request than the key's limit of ${this.tokens.limit} a minute, so it can never be sent on this key.`);
             e.status = 413; e.code = 'over_minute_limit';
             throw e;
+          }
+          if (by !== null) {
+            wait = Math.max(by, notBefore - now);
+            if (wait <= 0) { ticket.alone = alone; break; }
           }
         }
         const est = wait !== null ? wait : this.waitAt(position, now);
@@ -197,21 +270,22 @@ export class RateGate {
         }
         await this.wait(signal, wait);
       }
-      this.queue.shift();
-      this.lane = ticket;
+      this.take(ticket, true);
+      ticket.reserve = ticket.alone ? 0 : this.cost(kind);
+      if (ticket.alone) this.lane = ticket;
+      this.pending.add(ticket);
       this.inFlight++;
       ticket.sentAt = Date.now();
       this.wake();
       return ticket;
     } catch (err) {
-      const i = this.queue.indexOf(ticket);
-      if (i >= 0) this.queue.splice(i, 1);
+      this.take(ticket, false);
       this.wake();
       throw err;
     }
   }
 
-  /** The reply's headers arrived: the buckets as they stood after this request. */
+  /** The reply's headers arrived: the buckets as they stood after this request, and the reservation gives way to the figure. */
   replied(ticket, headers, at = Date.now()) {
     const figures = (unit) => ({
       limit: int(header(headers, `x-ratelimit-limit-${unit}`)),
@@ -220,15 +294,17 @@ export class RateGate {
     });
     const tokens = figures('tokens');
     const requests = figures('requests');
-    // Sent into a full minute, the drop is this request's cost, exactly. Sent into a part-filled
-    // one, the drop would be an estimate, and estimates are not what the gate learns from.
+    // Sent alone into a full minute, the drop is this request's cost, exactly. Sent in company, the
+    // drop is the company's too, and sent into a part-filled minute it would be an estimate: neither
+    // is what the gate learns from.
     const before = this.tokens.available(at);
     const wasFull = before !== null && before >= this.tokens.limit;
     this.tokens.observe(tokens, at);
     this.requests.observe(requests, at);
-    if (wasFull && tokens.remaining !== null && this.tokens.limit !== null) this.learn(ticket.kind, this.tokens.limit - tokens.remaining);
+    if (ticket.alone && wasFull && tokens.remaining !== null && this.tokens.limit !== null) this.learn(ticket.kind, this.tokens.limit - tokens.remaining);
     this.replies++;
     this.last = { at, kind: ticket.kind, tokens, requests };
+    this.pending.delete(ticket);
     if (this.lane === ticket) this.lane = null;
     this.wake();
   }
@@ -236,6 +312,7 @@ export class RateGate {
   /** OpenAI turned the request back. Its figures are the truth; the request goes again, first. */
   refused(ticket, refusal, at = Date.now()) {
     this.applyRefusal(ticket.kind, refusal, at);
+    this.pending.delete(ticket);
     if (this.lane === ticket) this.lane = null;
     this.inFlight = Math.max(0, this.inFlight - 1);
     this.wake();
@@ -273,6 +350,7 @@ export class RateGate {
       const tokens = { limit: int(header(err.headers, 'x-ratelimit-limit-tokens')), remaining: int(header(err.headers, 'x-ratelimit-remaining-tokens')), resetMs: parseDuration(header(err.headers, 'x-ratelimit-reset-tokens')) };
       if (tokens.limit !== null && tokens.remaining !== null) this.tokens.observe(tokens, at);
     }
+    this.pending.delete(ticket);
     if (this.lane === ticket) this.lane = null;
     this.inFlight = Math.max(0, this.inFlight - 1);
     this.wake();
@@ -280,7 +358,8 @@ export class RateGate {
 
   /** The reply has been consumed, however it ended. */
   done(ticket) {
-    if (this.lane === ticket) this.lane = null;   // a reply that died before its headers must not hold the lane
+    this.pending.delete(ticket);                  // a reply that died before its headers must not hold its reservation
+    if (this.lane === ticket) this.lane = null;   // nor the lane
     this.inFlight = Math.max(0, this.inFlight - 1);
     this.wake();
   }
@@ -306,7 +385,11 @@ export class RateGate {
     // The costs are what OpenAI has shown at the door or in a refusal. A running reply is charged
     // again at each of its own later calls, so no figure here says how many can run at once.
     const costs = Object.fromEntries(this.costs);
-    return { model: this.model, tokens: bucket(this.tokens), requests: bucket(this.requests), costs, inFlight: this.inFlight, waiting: this.queue.length, replies: this.replies, refusals: this.refusals, last: this.last };
+    const waitingByKind = {};
+    const owners = new Set();
+    let waiting = 0;
+    for (const line of this.lines.values()) for (const e of line) { owners.add(e.owner); for (const t of e.tickets) { waiting++; waitingByKind[t.kind] = (waitingByKind[t.kind] || 0) + 1; } }
+    return { model: this.model, tokens: bucket(this.tokens), requests: bucket(this.requests), costs, inFlight: this.inFlight, pending: this.pending.size, reserved: this.reserved(), waiting, waitingByKind, owners: owners.size, replies: this.replies, refusals: this.refusals, last: this.last };
   }
 }
 

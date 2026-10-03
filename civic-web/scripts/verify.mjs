@@ -15,7 +15,7 @@ import express from 'express';
 import { leakChecks } from './leak-check.mjs';
 import { sourceBlock, attributionLines } from '../server/source.js';
 import { linkWords, publisherOf } from '../server/copies.js';
-import { Bucket, parseRefusal } from '../server/gate.js';
+import { Bucket, RateGate, parseRefusal } from '../server/gate.js';
 import { parseEntry } from '../server/verdict.js';
 import { isConnectionDrop, connectionWait, describeError } from '../server/openai.js';
 import { generateCode, normalise, ALPHABET } from '../server/access.js';
@@ -305,7 +305,7 @@ check('an error OpenAI answered with a status is not a connection failure', !isC
 // over the stand-in's minute (three seconds here), a cost per kind of request, a refusal with the
 // exact figures when the bucket cannot hold a request.
 const SIX = [1, 2, 3, 4, 5, 6].map((n) => `Claim number ${n} for the gate: the tower is ${300 + n} metres tall.`);
-async function gateRun(n, env, { extraction = false, claims = SIX, serverEnv = {} } = {}) {
+async function gateRun(n, env, { extraction = false, claims = SIX, serverEnv = {}, during = null } = {}) {
   const MOCK2 = MOCK_PORT + 10 + n, PORT2 = PORT + 10 + n;
   const mock = start([path.join(root, 'scripts', 'mock-openai.js')], { MOCK_PORT: String(MOCK2), MOCK_SPEED: '0.2', MOCK_EVAL_HOLD_MS: '400', MOCK_EVAL_MARK: process.env.MOCK_EVAL_MARK_FOR_GATE || '', ...env });
   await wait(`http://localhost:${MOCK2}/v1/mock/stats`, 15000, { anyResponse: true });
@@ -318,7 +318,11 @@ async function gateRun(n, env, { extraction = false, claims = SIX, serverEnv = {
   // determination is then sent into a full minute and teaches its cost exactly, and so is the
   // extraction that follows the claims.
   if (extraction) { try { await stream(`http://localhost:${PORT2}/api/extract`, { text }); } catch (err) { out.failure += ` first extraction: ${err.message}`; } }
-  try { out.events = await stream(`http://localhost:${PORT2}/api/evaluate`, { claims }); } catch (err) { out.failure = err.message; }
+  try {
+    const run = stream(`http://localhost:${PORT2}/api/evaluate`, { claims });
+    if (during) { try { out.during = await during(`http://localhost:${PORT2}`); } catch (err) { out.failure += ` during: ${err.message}`; } }   // something else arrives while the claims run
+    out.events = await run;
+  } catch (err) { out.failure = err.message; }
   if (extraction) {
     try { out.ex = await stream(`http://localhost:${PORT2}/api/extract`, { text }); }
     catch (err) { out.failure += ` extraction: ${err.message}`; }
@@ -346,12 +350,14 @@ async function gateChecks() {
   const starts = (r) => { const d = (r.stats?.timeline || []).filter((e) => e.kind === 'determination'); return d.map((e) => e.at - d[0].at); };
   const twenty = { CIVIC_EVAL_CONCURRENCY: '20' };   // the gate's pacing is proved with claims allowed to run together
 
-  // 0. The rule that runs: three claims at a time, never more, and none refused at the door or in its stream.
+  // 0. The rule that runs: ten claims at a time, never more, and none refused at the door or in its stream.
   {
-    const r = await gateRun(3, { MOCK_TPM: '5000000', MOCK_RESERVE: String(reserve), MOCK_CONTINUATION: '90000' }, { claims: SIX });
-    check('claims run three at a time: three determinations run together and never a fourth, and none is refused at the door or in its stream',
-      !r.failure && r.stats?.maxInFlight === 3 && r.stats?.refused === 0 && r.stats?.refusedInStream === 0 && done(r) === 6, `${r.failure} maxInFlight=${r.stats?.maxInFlight} refused=${r.stats?.refused} inStream=${r.stats?.refusedInStream} done=${done(r)}`);
-    check('the page is told the same figure it is paced by: /api/health carries inFlight equal to the configured concurrency',
+    const TWELVE = [...SIX, ...SIX.map((c) => c.replace('for the gate', 'for the gate again'))];
+    const r = await gateRun(3, { MOCK_TPM: '5000000', MOCK_RESERVE: String(reserve), MOCK_CONTINUATION: '90000' }, { claims: TWELVE, serverEnv: { CIVIC_MAX_CLAIMS: '12' } });
+    check('claims run ten at a time: ten determinations run together and never an eleventh, and none is refused at the door or in its stream',
+      !r.failure && r.stats?.maxInFlight === 10 && r.stats?.refused === 0 && r.stats?.refusedInStream === 0 && done(r) === 12, `${r.failure} maxInFlight=${r.stats?.maxInFlight} refused=${r.stats?.refused} inStream=${r.stats?.refusedInStream} done=${done(r)}`);
+    check('the database pool is a setting with its wait: ten connections and a thirty-second wait unless set (CIVIC_DATABASE_POOL, CIVIC_DATABASE_WAIT_MS)', config.databasePool === 10 && config.databaseWaitMs === 30000, `${config.databasePool} ${config.databaseWaitMs}`);
+  check('the page is told the same figure it is paced by: /api/health carries inFlight equal to the configured concurrency',
       r.health?.inFlight === config.evalConcurrency && r.health?.inFlight === r.stats?.maxInFlight, `inFlight=${r.health?.inFlight} configured=${config.evalConcurrency} maxInFlight=${r.stats?.maxInFlight}`);
   }
 
@@ -387,7 +393,7 @@ async function gateChecks() {
   // 2. A cost larger than any seen (OpenAI's estimate varies): refused once, learned from the refusal, never refused again.
   {
     const bigger = Math.round(reserve * 1.3);
-    const r = await gateRun(1, { MOCK_TPM: String(reserve * 3), MOCK_RESERVE_SERIES: `${reserve},${reserve},${bigger}`, MOCK_WINDOW_MS: '3000' }, { serverEnv: twenty });
+    const r = await gateRun(1, { MOCK_TPM: String(reserve * 2), MOCK_RESERVE_SERIES: `${reserve},${reserve},${bigger}`, MOCK_WINDOW_MS: '3000' }, { serverEnv: twenty });   // a budget of two: the third goes alone on what is left and meets its larger cost
     check('a determination that costs more than any seen is refused once, the figure is learned from the refusal, and nothing is refused after it',
       !r.failure && r.stats?.refused === 1 && done(r) === 6 && r.pacing?.costs?.determination === bigger && !r.events.some((e) => e.t === 'error'),
       `${r.failure} refused=${r.stats?.refused} done=${done(r)} costs=${JSON.stringify(r.pacing?.costs)}`);
@@ -398,6 +404,101 @@ async function gateChecks() {
     const t = starts(r);
     check('the requests-per-minute bucket paces the same way: two at once, then one every 1.5 s, no refusal',
       !r.failure && r.stats?.refused === 0 && done(r) === 6 && t.length === 6 && t[1] < 1000 && t[5] >= 4 * 1500 - 50 && t[5] <= 4 * 1500 + 2000, `${r.failure} refused=${r.stats?.refused} starts=${JSON.stringify(t)}`);
+  }
+
+  // Readers at once (3 October). Requests leave together, bounded by the bucket less what the sends whose
+  // headers have not arrived reserve; listings before determinations; the readers take turns.
+  const dets = (r) => (r.stats?.timeline || []).filter((e) => e.kind === 'determination');
+  const overlapping = (d) => d.filter((b) => d.some((a) => a !== b && a.at <= b.at && a.headersAt && b.at < a.headersAt)).length;
+  const startAt = (events, i, nth = 0) => events.filter((e) => e.t === 'start' && e.i === i)[nth]?.at;
+  const settle = (ms) => new Promise((r) => setTimeout(r, ms));
+  // 4. The line's order, in process: the listing first, the owners in turn, a refused ticket back at the front of its class.
+  {
+    const g = new RateGate('order');
+    g.tokens.observe({ limit: 100, remaining: 100 }); g.learn('determination', 100); g.learn('extraction', 100);
+    const headers = { 'x-ratelimit-limit-tokens': '100', 'x-ratelimit-remaining-tokens': '100' };
+    const order = []; const tickets = {};
+    const ask = (name, kind, owner, opts = {}) => g.admit({ kind, owner, ...opts }).then((t) => { order.push(name); tickets[name] = t; });
+    const pump = async (count) => { for (let k = 0; k < 200 && order.length < count; k++) await settle(2); };
+    ask('A1', 'determination', 'A'); ask('A2', 'determination', 'A'); ask('A3', 'determination', 'A');
+    ask('B1', 'determination', 'B'); ask('B2', 'determination', 'B');
+    ask('X', 'extraction', 'A');
+    await pump(1);
+    const st = g.state();
+    check('the gate\'s line: one sent with its reservation, five waiting (one listing, four determinations, two readers), and the pacing figures say so',
+      order[0] === 'A1' && st.pending === 1 && st.reserved === 100 && st.waiting === 5 && st.waitingByKind.extraction === 1 && st.waitingByKind.determination === 4 && st.owners === 2, JSON.stringify({ order, st }));
+    // A1 went at once (nothing was in line): the turns begin with what waits. The listing goes next, then
+    // A's turn, then B's. A2 is turned back at the door: it goes again first, ahead of B's next.
+    g.replied(tickets.A1, headers); await pump(2);
+    g.replied(tickets.X, headers); await pump(3);
+    g.refused(tickets.A2, parseRefusal({ status: 429, error: { message: 'Rate limit reached' } }));
+    g.admit({ kind: 'determination', owner: 'A', first: true, notBefore: 0 }).then((t) => { order.push('A2r'); tickets.A2r = t; });
+    await pump(4);
+    g.replied(tickets.A2r, headers); await pump(5);
+    g.replied(tickets.B1, headers); await pump(6);
+    g.replied(tickets.A3, headers); await pump(7);
+    g.replied(tickets.B2, headers);
+    check('the order served: the listing before every waiting determination, the two readers in turn, and the refused ticket back at the front of its class',
+      JSON.stringify(order) === JSON.stringify(['A1', 'X', 'A2', 'A2r', 'B1', 'A3', 'B2']) && g.state().waiting === 0 && g.state().pending === 0, JSON.stringify(order));
+  }
+  // 5. Parallel sends: the first of a kind alone (it teaches), then the rest together before any headers arrive.
+  {
+    const r = await gateRun(6, { MOCK_TPM: '5000000', MOCK_RESERVE: String(reserve), MOCK_HEADERS_DELAY_MS: '2500' }, { extraction: true, serverEnv: twenty });
+    const d = dets(r);
+    check('the first determination goes alone and teaches its cost; the next five leave together before its successor\'s headers arrive (no refusal, all six done)',
+      !r.failure && d.length === 6 && d[1].at >= d[0].headersAt && overlapping(d) >= 4 && r.stats?.refused === 0 && done(r) === 6 && r.pacing?.costs?.determination === reserve,
+      `${r.failure} n=${d.length} overlapping=${overlapping(d)} refused=${r.stats?.refused} done=${done(r)} costs=${JSON.stringify(r.pacing?.costs)}`);
+  }
+  // 6. The reservation prevents overshoot: a budget of two, headers slow, nothing is sent that the bucket less the reservations cannot hold.
+  {
+    const r = await gateRun(7, { MOCK_TPM: String(reserve * 2), MOCK_RESERVE: String(reserve), MOCK_WINDOW_MS: '3000', MOCK_HEADERS_DELAY_MS: '2500' }, { serverEnv: twenty });
+    const d = dets(r);
+    check('with a budget of two and slow headers the gate never sends what the bucket less the reservations cannot hold: no refusal, no two in the air together, all six done',
+      !r.failure && r.stats?.refused === 0 && done(r) === 6 && overlapping(d) === 0, `${r.failure} refused=${r.stats?.refused} done=${done(r)} overlapping=${overlapping(d)}`);
+  }
+  // 7. A listing arriving while determinations wait goes first.
+  {
+    const r = await gateRun(8, { MOCK_TPM: String(reserve * 3), MOCK_RESERVE: String(reserve), MOCK_WINDOW_MS: '3000' }, { serverEnv: twenty, during: async (base) => { await settle(400); return stream(`${base}/api/extract`, { text: 'The Eiffel Tower stands about 330 metres tall. Water boils at 100 degrees Celsius at sea level. Mount Everest is 8,849 metres above sea level.' }); } });
+    const d = dets(r);
+    const ex = (r.stats?.timeline || []).find((e) => e.kind === 'extraction');
+    check('a listing that arrives while determinations wait their turn goes before them, and both complete',
+      !r.failure && ex && d.length === 6 && ex.at < d[1].at && (r.during || []).some((e) => e.t === 'done') && done(r) === 6 && r.stats?.refused === 0,
+      `${r.failure} ex=${ex?.at} d1=${d[1]?.at} exDone=${(r.during || []).some((e) => e.t === 'done')} done=${done(r)} refused=${r.stats?.refused}`);
+  }
+  // 8. Two readers take turns: a second reader's three claims are not kept behind the first reader's six.
+  {
+    const THREE = [1, 2, 3].map((n) => `A second reader's claim number ${n}: the bridge is ${100 + n} metres long.`);
+    const r = await gateRun(10, { MOCK_TPM: String(reserve * 3), MOCK_RESERVE: String(reserve), MOCK_WINDOW_MS: '3000' }, { serverEnv: twenty, during: async (base) => { await settle(400); return stream(`${base}/api/evaluate`, { claims: THREE }); } });
+    const second = r.during || [];
+    check('two readers take turns at the gate: the second reader\'s third claim starts before the first reader\'s fifth, and all nine finish',
+      !r.failure && dets(r).length === 9 && done(r) === 6 && second.filter((e) => e.t === 'done').length === 3 && startAt(second, 2) < startAt(r.events, 4) && r.stats?.refused === 0,
+      `${r.failure} n=${dets(r).length} done=${done(r)} secondDone=${second.filter((e) => e.t === 'done').length} B3=${startAt(second, 2)} A5=${startAt(r.events, 4)}`);
+  }
+  // 9. A refusal at the door keeps the front: two sent together meet the drained bucket, both go again first, before the fifth.
+  {
+    const r = await gateRun(11, { MOCK_TPM: String(reserve * 3), MOCK_RESERVE: String(reserve), MOCK_WINDOW_MS: '3000', MOCK_RATE_LIMIT_REQUESTS: '3' }, { serverEnv: twenty });
+    const ev = r.events;
+    const held = ev.filter((e) => e.t === 'phase' && e.phase === 'queued');
+    check('two requests refused at the door together go again first, in their order, with OpenAI\'s own wait on the row, before the fifth starts',
+      !r.failure && r.stats?.refused === 2 && done(r) === 6 && held.some((e) => e.position === 1 && e.waitMs >= 500) && Math.max(startAt(ev, 2), startAt(ev, 3)) < startAt(ev, 4),
+      `${r.failure} refused=${r.stats?.refused} done=${done(r)} held=${JSON.stringify(held.slice(0, 4))} starts=${[2, 3, 4].map((i) => startAt(ev, i))}`);
+  }
+  // 10. A refusal inside a stream rejoins at the back of its class, and its Requested figure is learned.
+  {
+    const r = await gateRun(12, { MOCK_TPM: String(reserve * 3), MOCK_RESERVE: String(reserve), MOCK_WINDOW_MS: '3000', MOCK_STREAM_RATE_LIMIT_REQUESTS: '3', MOCK_STREAM_REQUESTED: '90000' }, { serverEnv: twenty });
+    const ev = r.events;
+    const retry = ev.find((e) => e.t === 'retry' && e.reason === 'rate_limit');
+    check('a claim refused inside its stream waits OpenAI\'s figure, rejoins behind its reader\'s other claims (its second start after the sixth claim\'s), finishes, and the gate learns the later call\'s charge',
+      !r.failure && r.stats?.refusedInStream === 1 && retry && retry.i === 2 && startAt(ev, 2, 1) > startAt(ev, 5) && done(r) === 6 && r.pacing?.costs?.determination === 90000,
+      `${r.failure} inStream=${r.stats?.refusedInStream} retry=${JSON.stringify(retry)} second=${startAt(ev, 2, 1)} sixth=${startAt(ev, 5)} done=${done(r)} costs=${JSON.stringify(r.pacing?.costs)}`);
+  }
+  // 11. The pacing row mid-run: sent and awaiting headers, reserved tokens, waiting by kind and by reader; nothing of it on /api/health.
+  {
+    const r = await gateRun(13, { MOCK_TPM: String(reserve * 3), MOCK_RESERVE: String(reserve), MOCK_WINDOW_MS: '3000', MOCK_HEADERS_DELAY_MS: '5000' }, { serverEnv: twenty, during: async (base) => { await settle(3500); return ((await (await fetch(`${base}/api/selftest`)).json()).pacing || [])[0] || null; } });
+    const g = r.during;
+    check('the pacing row says what is in the air and what waits: two sent awaiting their headers with two reservations, two waiting (determinations, one reader); the health line carries none of it',
+      !r.failure && g && g.pending === 2 && g.reserved === 2 * reserve && g.waiting === 2 && g.waitingByKind?.determination === 2 && g.owners === 1 && g.inFlight >= 2 && done(r) === 6 && !('pacing' in (r.health || {})),
+      `${r.failure} row=${JSON.stringify(g && { pending: g.pending, reserved: g.reserved, waiting: g.waiting, byKind: g.waitingByKind, owners: g.owners, inFlight: g.inFlight })} done=${done(r)}`);
   }
 }
 await gateChecks();
@@ -1495,6 +1596,9 @@ async function economicsChecks() {
           && e.price.cents === 45 && e.price.basis === 'start' && e.price.measuredSample === 6 && e.price.measuredAvgUsd > 0 && e.price.minSample === 20 && e.price.markupPercent === 25
           && e.tier.now === 4 && e.tier.freeFacts === 3 && e.tier.hours === 6 && e.guard.configured === false && /list price/.test(e.note) && stB.economics === null,
         JSON.stringify({ t3, t4, user, price: e?.price, tier: e?.tier, guard: e?.guard, other: stB.economics }));
+      check('the report carries how long determinations and listings take over the window, with the searches per determination',
+        e?.durations && e.durations.determinations.n >= 6 && e.durations.determinations.meanMs > 0 && e.durations.determinations.p75Ms >= e.durations.determinations.meanMs * 0.5 && typeof e.durations.determinations.meanSearches === 'number' && e.durations.extractions.n >= 2 && e.durations.extractions.meanMs > 0,
+        JSON.stringify(e?.durations));
       // 6. A deploy with a determination in flight: the row is failed as deploy, nothing booked.
       const P3 = PORT + 52;
       const s3 = await boot(P3, { DATABASE_URL: DB1, CIVIC_CLOCK: at(T1), CIVIC_PRICE_START_CENTS: '45' });
@@ -1599,6 +1703,8 @@ async function economicsChecks() {
       h9.pricing?.note === 'The beta is not charged.' && JSON.stringify(pricingOf(r9)) === JSON.stringify({ tier: 3, freeFacts: 2, priceCents: 45, currency: 'USD', note: 'The beta is not charged.' })
         && JSON.stringify(q) === JSON.stringify([{ free: true, priceCents: 0 }, { free: true, priceCents: 0 }, { free: false, priceCents: 45 }]) && st9.economics?.store === 'memory' && t9?.determinations === 3 && t9?.freeGiven === 2 && t9?.revenueUsd === 0.45,
       JSON.stringify({ h9: h9.pricing, r9: pricingOf(r9), q, t9, store: st9.economics?.store }));
+    check('in file mode the report carries the durations too, from the ledger lines this instance wrote',
+      st9.economics?.durations?.determinations?.n === 3 && st9.economics.durations.determinations.meanMs > 0 && st9.economics.durations.extractions.n === 1, JSON.stringify(st9.economics?.durations));
     // 10. Pricing off: the rollback. The page is as before: no pricing on the health line, no pricing or quote event, nothing measured.
     const P10 = PORT + 58;
     await boot(P10, { CIVIC_PRICING_ENABLED: 'false', CIVIC_PRICE_START_CENTS: '45' });

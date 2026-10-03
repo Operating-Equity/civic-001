@@ -31,6 +31,7 @@ export default {
   step1: {
     title: 'Extrayendo afirmaciones empíricas',
     queued: 'Esperando su turno…',
+    queuedTimed: 'Esperando su turno · {time}',
     reading: 'Leyendo {n} caracteres…',
     found_one: '{n} afirmación encontrada hasta ahora',
     found_other: '{n} afirmaciones encontradas hasta ahora',

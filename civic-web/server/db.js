@@ -34,7 +34,7 @@ function sslFor(url) {
 
 export function getPool() {
   if (!pool && dbOn()) {
-    pool = new pg.Pool({ connectionString: config.databaseUrl, max: 4, ssl: sslFor(config.databaseUrl), connectionTimeoutMillis: 8000, idleTimeoutMillis: 30000 });
+    pool = new pg.Pool({ connectionString: config.databaseUrl, max: config.databasePool, ssl: sslFor(config.databaseUrl), connectionTimeoutMillis: config.databaseWaitMs, idleTimeoutMillis: 30000 });
     pool.on('error', (err) => { console.error('[db] a pooled connection failed:', err.message); });
   }
   return pool;

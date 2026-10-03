@@ -31,6 +31,7 @@ export default {
   step1: {
     title: 'Empirische Behauptungen werden extrahiert',
     queued: 'Wartet, bis es an der Reihe ist…',
+    queuedTimed: 'Wartet, bis es an der Reihe ist · {time}',
     reading: '{n} Zeichen werden gelesen…',
     found_one: 'Bisher {n} Behauptung gefunden',
     found_other: 'Bisher {n} Behauptungen gefunden',

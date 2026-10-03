@@ -31,6 +31,7 @@ export default {
   step1: {
     title: 'Extraction des affirmations empiriques',
     queued: 'En attente de son tour…',
+    queuedTimed: 'En attente de son tour · {time}',
     reading: 'Lecture de {n} caractères…',
     found_one: '{n} affirmation trouvée jusqu\'ici',
     found_other: '{n} affirmations trouvées jusqu\'ici',

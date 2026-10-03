@@ -12,6 +12,7 @@ import { clientFor, describeError } from './openai.js';
 import { recent } from './diagnostics.js';
 import { whereTheShellSetsIt } from './key.js';
 import { gateStates } from './gate.js';
+import { readers as readersNow } from './jobs.js';
 import { silentSites } from './fetchurl.js';
 import { searchOn } from './copies.js';
 import { registry } from './tools/index.js';
@@ -157,6 +158,7 @@ export async function selftest({ apiKey, build }) {
     // The gate's figures for each model: the key's minute limit, what OpenAI counts for each kind
     // of request, what is available now, what is in flight and waiting, and what OpenAI last said.
     pacing: gateStates(),
+    readers: readersNow(),   // readers with work in flight on this instance right now
     silentSites: silentSites(),
     tools: { reachable: toolsOn(), ...registry.summary() }, // the sources the model can reach for, and whether the requests name the gateway
     recentFailures: recent(10),

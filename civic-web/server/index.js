@@ -1,5 +1,5 @@
-// FactEngine main-page server. Serves the page, keeps the prompts, and proxies the reader's own
-// OpenAI key to OpenAI. Nothing under server/ is ever served as a static file.
+// FactEngine main-page server. Serves the page, keeps the prompts, and sends every model request on
+// the operator's key (no reader ever holds one). Nothing under server/ is ever served as a static file.
 import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
@@ -296,7 +296,7 @@ app.post('/api/evaluate', wrap(async (req, res) => {
     quotes.push(await economics.openDetermination({ id: detIds[i], runId, n: claims.length === 1 ? n : null, chars: claims[i].length })
       .catch((err) => { console.error('[economics] the determination could not be recorded:', err.message); return null; }));
   }
-  const ctx = { runId, owner, determinationIds: detIds };
+  const ctx = { runId, owner, determinationIds: detIds, jobId: id };
   // The rows were awaited: a second request for this job meanwhile joins it rather than starting it twice.
   const meanwhile = jobs.get(id, owner);
   if (meanwhile) { meanwhile.attach(openStream(req, res), req.body?.cursor); return; }
