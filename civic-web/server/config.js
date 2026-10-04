@@ -3,8 +3,9 @@ import { resolveKey } from './key.js';
 import { extractionShape } from './prompts.js';
 // Runtime configuration.
 //
-// ONE RULE GOVERNS THIS FILE. The requests sent to OpenAI carry the operator's tested
-// configuration and nothing else: the model, the reasoning effort, the prompt, web search.
+// ONE RULE GOVERNS THIS FILE. The requests sent to OpenAI (and, for the listing when the operator
+// puts it there, to DeepSeek) carry the operator's tested configuration and nothing else: the model,
+// the reasoning effort, the prompt, web search.
 // No parameter is added that the operator did not test with. No cap, no mode, no verbosity,
 // no context-size, no fallback, no limit. `npm run verify` inspects the request bodies the
 // server actually sends and fails if any key beyond that set appears.
@@ -42,6 +43,18 @@ const modeOrNone = (v) => (v && v !== 'standard' ? v : '');
 // alternative to switch to: a reader's key is never accepted (see operatorKey in server/openai.js).
 const chosenKey = resolveKey({ settingsFile: new URL('../.env', import.meta.url).pathname });
 
+// The listing (step 1) on another provider than the determinations: the operator's choice of 4 October, "I want
+// use DeepSeek flash for the generating of empirical claims. It is 10 times faster and better." DeepSeek answers
+// OpenAI's Responses API at its own address and with its own key, runs web search on its own side, honours
+// reasoning.effort (none, low, high, max), makes no reasoning summary and has no mode; so on DeepSeek the request
+// carries the model, the prompt, the effort, web search and nothing else. The listing's effort is its own
+// (CIVIC_EXTRACT_EFFORT, max by the operator's answer of 4 October) and never inherited from CIVIC_EFFORT, so a
+// change of OpenAI's effort cannot move the listing. Unset, the listing is on OpenAI exactly as before.
+const PROVIDERS = ['openai', 'deepseek'];
+const PROVIDER = env('CIVIC_EXTRACT_PROVIDER', 'openai').trim().toLowerCase();
+const DEEPSEEK = PROVIDER === 'deepseek';
+const deepseekKey = resolveKey({ settingsFile: new URL('../.env', import.meta.url).pathname, name: 'DEEPSEEK_API_KEY' });
+
 
 /** "ABCD234" or "ABCD234:150": the code as typed made canonical, and its own allowance of runs if given. */
 function parseCodes(entries) {
@@ -56,13 +69,21 @@ function parseCodes(entries) {
 export const config = {
   port: int('PORT', 3000),
 
-  // Step 1 — empirical claim extraction.
-  extractModels: list('CIVIC_EXTRACT_MODELS', MODEL), // one id = no fallback
-  extractEffort: env('CIVIC_EXTRACT_EFFORT', EFFORT),
-  extractReasoningMode: modeOrNone(env('CIVIC_EXTRACT_REASONING_MODE', MODE)), // '' = no mode key in the request
+  // Step 1 — empirical claim extraction, on OpenAI unless CIVIC_EXTRACT_PROVIDER says deepseek.
+  extractProvider: PROVIDER,
+  extractProviderKnown: PROVIDERS.includes(PROVIDER),
+  extractModels: list('CIVIC_EXTRACT_MODELS', DEEPSEEK ? 'deepseek-flash' : MODEL), // one id = no fallback
+  extractEffort: DEEPSEEK ? env('CIVIC_EXTRACT_EFFORT', 'max') : env('CIVIC_EXTRACT_EFFORT', EFFORT),
+  extractReasoningMode: DEEPSEEK ? '' : modeOrNone(env('CIVIC_EXTRACT_REASONING_MODE', MODE)), // '' = no mode key in the request
   // Reasoning summaries are the model's own account of its reasoning, shown on the page. They do
-  // not change the answer. 'auto' lets the API decide the form. Blank turns them off.
-  extractSummary: env('CIVIC_EXTRACT_REASONING_SUMMARY', 'auto'),
+  // not change the answer. 'auto' lets the API decide the form. Blank turns them off. DeepSeek makes
+  // none (it streams its whole chain of thought instead, which never reaches the page).
+  extractSummary: DEEPSEEK ? '' : env('CIVIC_EXTRACT_REASONING_SUMMARY', 'auto'),
+  // DeepSeek's address and key, used only by the listing when it is on DeepSeek. The address is a setting
+  // so the guard can point it at its stand-in; the key follows the same rule as OpenAI's (server/key.js).
+  deepseekBaseUrl: env('CIVIC_DEEPSEEK_BASE_URL', 'https://api.deepseek.com'),
+  deepseekKey: deepseekKey.value,
+  deepseekKeyInfo: deepseekKey,
 
   // Step 2 — determination.
   evalModels: list('CIVIC_EVAL_MODELS', MODEL), // one id = no fallback
@@ -220,10 +241,11 @@ export const config = {
 export function requestShape() {
   const source = extractionShape();
   return {
-    extract: { model: config.extractModels[0], effort: config.extractEffort, mode: config.extractReasoningMode || null, summary: config.extractSummary || null, webSearch: true, fallback: config.extractModels.length > 1, source },
+    extract: { provider: config.extractProvider, model: config.extractModels[0], effort: config.extractEffort, mode: config.extractReasoningMode || null, summary: config.extractSummary || null, webSearch: true, fallback: config.extractModels.length > 1, source },
     evaluate: { model: config.evalModels[0], effort: config.evalEffort, mode: config.evalReasoningMode || null, summary: config.evalReasoningSummary || null, webSearch: true, fallback: config.evalModels.length > 1, source: 'ahead' },
     // Present in every request; never anything else.
-    keys: { extract: source === 'inserted' ? ['model', 'input', 'reasoning', 'tools', 'stream', 'store'] : ['model', 'instructions', 'input', 'reasoning', 'tools', 'stream', 'store'], evaluate: ['model', 'input', 'reasoning', 'tools', 'stream', 'store'] },
+    // On DeepSeek the listing carries no `store` (DeepSeek keeps nothing and does not take the key).
+    keys: { extract: [...(source === 'inserted' ? ['model', 'input'] : ['model', 'instructions', 'input']), 'reasoning', 'tools', 'stream', ...(config.extractProvider === 'deepseek' ? [] : ['store'])], evaluate: ['model', 'input', 'reasoning', 'tools', 'stream', 'store'] },
   };
 }
 
@@ -245,6 +267,7 @@ export function publicConfig(promptStatus) {
     serverKey: Boolean(config.serverKey),
     request: shape,
     models: {
+      extractProvider: shape.extract.provider,
       extract: shape.extract.model,
       extractEffort: shape.extract.effort,
       extractMode: shape.extract.mode,

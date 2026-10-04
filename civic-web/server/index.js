@@ -10,6 +10,7 @@ import multer from 'multer';
 import { config, publicConfig, requestShape } from './config.js';
 import { promptStatus, hasPrompt, promptVersions } from './prompts.js';
 import { ApiError, operatorKey, describeError } from './openai.js';
+import { listingKey, onDeepSeek, deepseekHost } from './deepseek.js';
 import { openStream } from './stream.js';
 import * as jobs from './jobs.js';
 import { fileToText, normalise, ACCEPTED_SOURCE_EXT } from './documents.js';
@@ -145,7 +146,7 @@ app.get('/api/selftest', wrap(async (req, res) => {
   // The measurement (server/economics.js) is the operator's alone: the price and what it came from, the
   // tier clock, the guard, and the money per tier, per user and per window.
   const economy = operator && economics.enabled() ? await economics.report().catch((err) => ({ error: err.message })) : null;
-  res.json({ ...await selftest({ apiKey: operatorKey({ optional: true }), build: BUILD }), signins: operator ? recentSignins(10) : [], codes: operator && signinRequired() ? codesSummary() : [], access: { required: signinRequired(), operator }, economics: economy });
+  res.json({ ...await selftest({ apiKey: operatorKey({ optional: true }), build: BUILD, operator }), signins: operator ? recentSignins(10) : [], codes: operator && signinRequired() ? codesSummary() : [], access: { required: signinRequired(), operator }, economics: economy });
 }));
 
 // The page reports its own failures here, so /check can show them afterwards.
@@ -217,7 +218,8 @@ app.post('/api/extract', wrap(async (req, res) => {
   const known = jobs.get(id, owner);
   if (known) { known.attach(openStream(req, res), req.body?.cursor); return; }
 
-  const apiKey = operatorKey();
+  // The listing's provider's key: OpenAI's, or DeepSeek's when the listing is there (server/deepseek.js).
+  const apiKey = listingKey();
   if (!hasPrompt('extract')) throw new ApiError(503, 'prompt_missing', 'The extraction prompt is not installed on this server.');
   const source = normalise(req.body?.text);
   if (source.chars < 20) throw new ApiError(400, 'too_short', 'Paste or upload more text; there is nothing to test yet.');
@@ -263,6 +265,9 @@ app.post('/api/extract', wrap(async (req, res) => {
     } catch (err) {
       economics.finishRun(id, { status: 'failed' });
       const safe = describeError(err);
+      // The provider's own words (a rejected key, a balance used up) are for /check; the page gets the code
+      // and FactEngine's own sentence for it, naming no provider and no key.
+      recordFailure({ where: 'server:listing', code: safe.code, message: safe.message, status: safe.status, detail: safe.detail || null });
       send({ t: 'error', code: safe.code, message: safe.message, status: safe.status });
     }
   }, { owner }).attach(openStream(req, res), 0);
@@ -422,7 +427,7 @@ function banner() {
   console.log(`prompts installed: ${mark('extract')} · ${mark('evaluate')} · challenge=${status.challenge}` + (config.challengeEnabled ? '' : ' (challenge API step withheld)'));
   const shape = requestShape();
   const placing = shape.extract.source === 'inserted' ? 'the prompt verbatim with the source in place of its final bracketed line, as the only message' : 'the prompt verbatim as instructions · the document whole as the only message';
-  console.log(`extraction requests carry: model ${shape.extract.model} · reasoning.effort ${shape.extract.effort}${shape.extract.mode ? ` · reasoning.mode ${shape.extract.mode}` : ''}${shape.extract.summary ? ` · reasoning.summary ${shape.extract.summary}` : ''} · web_search · ${placing} · nothing else${shape.extract.fallback ? '  (FALLBACK LIST SET)' : ''}`);
+  console.log(`extraction requests ${onDeepSeek() ? `go to ${deepseekHost()} (DeepSeek) and ` : ''}carry: model ${shape.extract.model} · reasoning.effort ${shape.extract.effort}${shape.extract.mode ? ` · reasoning.mode ${shape.extract.mode}` : ''}${shape.extract.summary ? ` · reasoning.summary ${shape.extract.summary}` : ''} · web_search · ${placing} · nothing else${shape.extract.fallback ? '  (FALLBACK LIST SET)' : ''}`);
   console.log(`determination requests carry: model ${shape.evaluate.model} · reasoning.effort ${shape.evaluate.effort}${shape.evaluate.mode ? ` · reasoning.mode ${shape.evaluate.mode}` : ''}${shape.evaluate.summary ? ` · reasoning.summary ${shape.evaluate.summary}` : ''} · web_search · the source as a message ahead of the prompt · the prompt verbatim with the claim's whole entry in its slot · nothing else${shape.evaluate.fallback ? '  (FALLBACK LIST SET)' : ''}`);
   if (config.openaiBaseUrl) console.log(`OpenAI base URL override: ${config.openaiBaseUrl}`);
 }

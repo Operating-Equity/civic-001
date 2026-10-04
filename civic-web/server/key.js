@@ -18,6 +18,8 @@
 // This keeps hosts working, where there is no settings file and the environment is the only source.
 // It makes an installed copy predictable: what the installer wrote is what runs. And when the two
 // disagree, FactEngine says so rather than choosing in silence.
+// The same rule serves every key FactEngine holds: OpenAI's (the default name below) and, since 4 October,
+// DeepSeek's for the listing (DEEPSEEK_API_KEY), so a stale shell can never beat either.
 import fs from 'node:fs';
 
 const NAME = 'OPENAI_API_KEY';
@@ -25,10 +27,10 @@ const NAME = 'OPENAI_API_KEY';
 /** What an HTTP header may carry. A key outside this cannot be sent at all. */
 export const HEADER_SAFE = /^[\x21-\x7E]+$/;
 
-function fromSettingsFile(file) {
+function fromSettingsFile(file, name = NAME) {
   try {
     for (const line of fs.readFileSync(file, 'utf8').split('\n')) {
-      const m = line.match(new RegExp(`^\\s*${NAME}\\s*=\\s*(.*)$`));
+      const m = line.match(new RegExp(`^\\s*${name}\\s*=\\s*(.*)$`));
       if (m) return m[1].trim().replace(/^["']|["']$/g, '');
     }
   } catch { /* no settings file, or unreadable: the environment is then the only source */ }
@@ -39,14 +41,15 @@ function fromSettingsFile(file) {
  * Decides the key and reports everything about the decision, so startup and the check page can
  * explain it rather than assert it.
  */
-export function resolveKey({ settingsFile, environment = process.env } = {}) {
-  const inFile = settingsFile ? fromSettingsFile(settingsFile) : '';
-  const inEnv = String(environment[NAME] || '').trim();
+export function resolveKey({ settingsFile, environment = process.env, name = NAME } = {}) {
+  const inFile = settingsFile ? fromSettingsFile(settingsFile, name) : '';
+  const inEnv = String(environment[name] || '').trim();
 
   const chosen = inFile || inEnv;
   const source = inFile ? 'the settings file next to FactEngine' : (inEnv ? 'this computer\'s environment' : 'nowhere');
 
   return {
+    name,
     value: chosen,
     source,
     fromFile: Boolean(inFile),
@@ -68,15 +71,15 @@ function offendingCharacter(key) {
 }
 
 /** Where a shell variable of this name is set, so a reader can go and remove it. */
-export function whereTheShellSetsIt(home = process.env.HOME || '') {
+export function whereTheShellSetsIt(home = process.env.HOME || '', name = NAME) {
   const found = [];
   if (!home) return found;
-  for (const name of ['.zshrc', '.zprofile', '.zshenv', '.bash_profile', '.bashrc', '.profile']) {
-    const file = `${home}/${name}`;
+  for (const rc of ['.zshrc', '.zprofile', '.zshenv', '.bash_profile', '.bashrc', '.profile']) {
+    const file = `${home}/${rc}`;
     try {
       const lines = fs.readFileSync(file, 'utf8').split('\n');
       lines.forEach((line, i) => {
-        if (new RegExp(`\\b${NAME}\\s*=`).test(line) && !line.trim().startsWith('#')) {
+        if (new RegExp(`\\b${name}\\s*=`).test(line) && !line.trim().startsWith('#')) {
           found.push({ file, line: i + 1 });
         }
       });

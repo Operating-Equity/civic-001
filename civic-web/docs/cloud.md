@@ -476,6 +476,29 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
   reader's code) was cut nineteen seconds in, before its listing finished, so nothing was recorded; the operator's
   next run is the first figure. One addition beyond the plan: the per-request claims cap became a setting
   (`CIVIC_MAX_CLAIMS`, 10 unless set), because the guard's twelve-claim request needed it and the figure was a constant.
+- **4 October: the listing on DeepSeek flash.** The operator: "I want use DeepSeek flash for the generating of
+  empirical claims. It is 10 times faster and better. I have an api key. Tell me where to put it and name." Read from
+  DeepSeek's own pages that day: DeepSeek answers OpenAI's Responses API at `https://api.deepseek.com` with the same
+  stream events, runs web search on its side, honours `reasoning.effort` (none, low, high, max), makes no reasoning
+  summary (it streams its whole chain of thought instead) and has no mode; `deepseek-flash` is DeepSeek-V4.1-Flash
+  (1M context); its price per million tokens is input $0.30, cached $0.006, output $1.20 at peak hours (01:00-04:00
+  and 06:00-10:00 UTC, Monday to Friday) and half otherwise; its limit is 2,500 requests in flight, answered with a
+  429 that names no wait; it closes a request not started within ten minutes. Its terms: data processed and stored in
+  the People's Republic of China under PRC law, and a small, de-identified part of user input may be used for
+  training unless opted out (privacy@deepseek.com). The operator's answers: effort **max**; the chain of thought
+  **kept off the page** (it restates the prompt's instructions in the model's words); the Privacy page **updated in
+  this release**. Built: `CIVIC_EXTRACT_PROVIDER` (openai unset, deepseek), `DEEPSEEK_API_KEY` (the operator's, pasted
+  in Render; the session's attempt to store it from chat was refused by the safety rules, so it is theirs to paste),
+  `CIVIC_DEEPSEEK_BASE_URL`; the listing's body on DeepSeek is the model, the prompt verbatim, `reasoning.effort`, one
+  `web_search` and `stream`, nothing else; the client takes nothing of OpenAI's from the environment; no gate for
+  DeepSeek (no per-minute figures to pace by), a 429 or a 503 goes again a second after the go began, an error event
+  mid-stream is read as the stream's own, a stream ended without its last event is a cut connection; a 401 or 402
+  shows the reader FactEngine's own sentence and /check DeepSeek's words; key refusals (OpenAI's too) no longer name a
+  provider or a key on the page; /check reads DeepSeek's key, model and balance without a token (the figures to the
+  operator alone); DeepSeek's prices with the hour; the Privacy page's model-provider line split in two (the
+  listing's provider processes data in China and its terms allow a small, de-identified use of inputs unless opted
+  out; the determinations' provider does not train on inputs), its transfer sentence names China, and the Terms say
+  "model providers". Guard: a DeepSeek section on a stand-in that speaks DeepSeek's dialect.
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 

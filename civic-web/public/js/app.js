@@ -1212,7 +1212,8 @@ function failRun(err) {
   const code = err?.code || '';
   let message;
   if (code === 'source_too_long') message = `${t('errors.sourceTooLong')} ${err?.message || ''}`;
-  else if (err?.status === 401 || code === 'invalid_key' || code === 'missing_key') message = t('errors.key');
+  // A rejected key, or a provider's account that can no longer pay (402): the operator's to look at; the page names neither.
+  else if (err?.status === 401 || err?.status === 402 || code === 'invalid_key' || code === 'missing_key' || code === 'balance_exhausted') message = t('errors.key');
   else if (code === 'key_not_sendable') message = t('errors.keyUnusable');
   else if (code === 'no_operator_key') message = t('errors.noKey');
   else if (err?.status === 429) message = t('errors.rate');
