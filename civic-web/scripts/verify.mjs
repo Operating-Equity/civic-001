@@ -2161,12 +2161,12 @@ async function fireworksChecks() {
           && !all.includes(COT) && !all.includes(ECHO) && !errText.includes(COT);
       })(), JSON.stringify(lines().filter((l) => l.kind === 'extract').slice(0, 1)));
 
-    // The price, in process, from Fireworks' page of 5 October: one price at every hour.
+    // The price, in process, from Fireworks' release note (its serverless price from 1 October 2026): one price at every hour.
     delete process.env.CIVIC_PRICING_JSON;
     const { estimateTextCost } = await import(`${pathToFileURL(path.join(root, 'server', 'pricing.js')).href}?fw=${stamp}`);
     const priced = (usage, iso) => estimateTextCost({ model: MODEL, usage, at: Date.parse(iso) }).usd;
-    check('Fireworks: a million tokens in and out cost $0.88 at any hour; a million cached $0.007',
-      priced({ input: 1_000_000, cached: 0, output: 1_000_000 }, '2026-10-05T02:00:00Z') === 0.88 && priced({ input: 1_000_000, cached: 0, output: 1_000_000 }, '2026-10-04T14:00:00Z') === 0.88 && priced({ input: 1_000_000, cached: 1_000_000, output: 0 }, '2026-10-05T02:00:00Z') === 0.007,
+    check('Fireworks: a million tokens in and out cost $1.50 at any hour; a million cached $0.006',
+      priced({ input: 1_000_000, cached: 0, output: 1_000_000 }, '2026-10-05T02:00:00Z') === 1.5 && priced({ input: 1_000_000, cached: 0, output: 1_000_000 }, '2026-10-04T14:00:00Z') === 1.5 && priced({ input: 1_000_000, cached: 1_000_000, output: 0 }, '2026-10-05T02:00:00Z') === 0.006,
       JSON.stringify({ any: priced({ input: 1_000_000, cached: 0, output: 1_000_000 }, '2026-10-05T02:00:00Z') }));
 
     // No key, no request: provider Fireworks with FIREWORKS_API_KEY unset refuses the listing before anything is sent.
