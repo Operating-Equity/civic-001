@@ -7,6 +7,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { config } from './config.js';
+import { dbOn } from './db.js';
 import { promptStatus, promptVersions, extractionShape } from './prompts.js';
 import { clientFor, describeError } from './openai.js';
 import { onDeepSeek, onFireworks, onOwnProvider, listingKey, listingClient, listingFailure, listingProviderName, listingHost } from './listing.js';
@@ -255,16 +256,14 @@ export async function selftest({ apiKey, build, operator = true }) {
     checks.push(ok('A link a site refuses is looked for elsewhere', `Through the search service at ${host}. The reader picks the copy to test; each search's cost is on the ledger.`));
   }
 
-  // The door's own settings, when the door is shut: said here so the operator sees them once.
-  if (config.accessCodes.length) {
-    if (!config.sessionSecret) {
-      checks.push(warn('The sign-in cookie is signed with a secret derived from the OpenAI key', 'A change of that key signs every reader out.',
-        'Set CIVIC_SESSION_SECRET to 32 random bytes so the two are independent. Setting it signs everyone out once.'));
-    }
-    if (!config.operatorCodes.length) {
-      checks.push(warn('Every code holder can see this page\'s sign-in list', 'The sign-ins and the runs per code are shown to anyone with a code.',
-        'Set CIVIC_OPERATOR_CODES to the codes that are yours; both are then shown to those alone.'));
-    }
+  // Accounts (server/accounts.js): where they are kept, the sign-up credit, the operator's link, and any code setting
+  // still on the service (nothing reads them; they are the operator's to delete in Render).
+  if (config.accounts) {
+    const where = dbOn() ? 'in Postgres, so they outlive every deploy' : 'in this instance\'s memory: they end when it stops';
+    checks.push((dbOn() || !process.env.RENDER ? ok : bad)('Readers sign in with an account', `Accounts are kept ${where}. A new account starts with ${(config.signupGrantCents / 100).toLocaleString('en-US', { style: 'currency', currency: config.currency })} of credit.`,
+      dbOn() || !process.env.RENDER ? undefined : 'Set DATABASE_URL to the service\'s Postgres.'));
+    const retired = ['CIVIC_ACCESS_CODES', 'CIVIC_OPERATOR_CODES', 'CIVIC_CODE_USES', 'CIVIC_USES_FILE', 'CIVIC_SIGNIN_LOG', 'CIVIC_SESSION_SECRET'].filter((n) => String(process.env[n] || '').trim());
+    if (retired.length) checks.push(warn('Settings from the access codes are still on the service', `Nothing reads them any more: ${retired.join(', ')}.`, 'Delete them in Render when convenient.'));
   }
 
   const failures = checks.filter((c) => c.state === 'bad');

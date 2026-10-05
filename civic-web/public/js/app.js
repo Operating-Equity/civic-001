@@ -60,6 +60,7 @@ const state = {
   evalStartedAt: 0,
   gate: null,          // the key's minute figures, from the server, once OpenAI has given them
   pricing: null,       // this run's prices, from the server: { tier, freeFacts, priceCents, currency, note }; null = nothing priced
+  creditStop: null,    // a claim the reader's credit or monthly limit could not cover: { code, balanceCents, priceCents, limitCents }; no more start
   status: { step1: null, step2: null },
 };
 
@@ -86,9 +87,12 @@ function cacheElements() {
     scoreInternal: $('#score-internal'), scoreCost: $('#score-cost'), report: $('#btn-report'),
     buildStamp: $('#build-stamp'),
     results: $('#results'), resetTop: $('#btn-reset-top'), reset: $('#btn-reset'),
-    langSelect: $('#lang-select'), signin: $('#btn-signin'), signup: $('#btn-signup'), signout: $('#btn-signout'), who: $('#nav-who'),
-    signinDialog: $('#signin-dialog'), signinForm: $('#signin-form'), signinEmail: $('#signin-email'), signinCode: $('#signin-code'),
-    signinNote: $('#signin-note'), signinSubmit: $('#signin-submit'), signinCancel: $('#signin-cancel'),
+    langSelect: $('#lang-select'), signin: $('#btn-signin'), signup: $('#btn-signup'), signout: $('#btn-signout'),
+    navBalance: $('#nav-balance'), navAccount: $('#nav-account'), balanceLine: $('#balance-line'),
+    accountBox: $('#account-box'), accountLede: $('#account-box-lede'), tabSignup: $('#tab-signup'), tabSignin: $('#tab-signin'),
+    formSignup: $('#form-signup'), signupEmail: $('#signup-email'), signupPassword: $('#signup-password'), signupPasswordHint: $('#signup-password-hint'),
+    signupAgree: $('#signup-agree'), signupAgreeText: $('#signup-agree-text'), signupNote: $('#signup-note'), signupSubmit: $('#signup-submit'),
+    formSignin: $('#form-signin'), signinEmail: $('#signin-email'), signinPassword: $('#signin-password'), signinNote: $('#signin-note'), signinSubmit: $('#signin-submit'),
     cardTpl: $('#tpl-card'),
   });
 }
@@ -137,8 +141,7 @@ async function boot() {
   document.addEventListener('civic:locale', refreshDynamicText);
 
   wireIntake();
-  wireSignIn();
-  ui.signup.addEventListener('click', () => toast(t('nav.soon')));
+  wireAccount();
   ui.resetTop.addEventListener('click', resetAll);
   ui.reset.addEventListener('click', resetAll);
   ui.selectAll.addEventListener('click', toggleSelectAll);
@@ -169,93 +172,227 @@ async function boot() {
   renderNav();
 }
 
-// ---------- sign-in by code -------------------------------------------------------------------
+// ---------- the account (5 October) -------------------------------------------------------------------
 
-// No accounts yet: a code from the operator's list opens the door, and the email address typed
-// beside it is kept with the sign-in. The dialog opens from the Sign in button, and from any
-// action the server refuses for want of a sign-in; that action then proceeds on its own.
-let pendingSignIn = null;   // { promise, resolve, reject } while refused actions wait on the dialog: one dialog, however many asked
+// Sign-up and sign-in (the operator: "We need to establish a sign-up and sign-on process first"). A reader
+// creates an account, or signs in, in a box on the page itself: a real form, never laid over anything, so a touch
+// screen reaches every field and a password manager offers to fill it. Any action the server refuses for want of a
+// sign-in opens the box, and goes on by itself once the reader has an account.
+let pendingSignIn = null;   // { promise, resolve, reject } while refused actions wait on the box: one box, however many asked
 
-function wireSignIn() {
+const required = () => Boolean(state.server?.access?.required);
+const grantCents = () => Number(state.server?.access?.grantCents) || 0;
+const minChars = () => Number(state.server?.access?.minChars) || 8;
+
+function wireAccount() {
   api.onSignInRequired(requireSignIn);
-  ui.signin.addEventListener('click', () => { if (state.server?.access?.required) openSignIn(); else toast(t('signin.open')); });
+  ui.signin.addEventListener('click', () => openAccountBox('signin'));
+  ui.signup.addEventListener('click', () => openAccountBox('signup'));
   ui.signout.addEventListener('click', signOut);
-  ui.signinForm.addEventListener('submit', submitSignIn);
-  ui.signinCancel.addEventListener('click', () => ui.signinDialog.close());
-  ui.signinDialog.addEventListener('close', () => {
-    const p = pendingSignIn;
-    pendingSignIn = null;
-    if (!p) return;
-    const e = new Error('sign-in abandoned'); e.name = 'AbortError'; p.reject(e);
-    // The action that needed the sign-in is abandoned with it: a run in progress stops, the text stays.
-    if (state.phase === 'extracting' || state.phase === 'evaluating') {
-      const text = ui.source.value;
-      resetAll();
-      ui.source.value = text;
-      updateSourceMeta();
-    }
-  });
+  ui.tabSignup.addEventListener('click', () => showAccountTab('signup'));
+  ui.tabSignin.addEventListener('click', () => showAccountTab('signin'));
+  ui.formSignup.addEventListener('submit', submitSignup);
+  ui.formSignin.addEventListener('submit', submitSignin);
+  for (const b of document.querySelectorAll('.show-password')) b.addEventListener('click', () => togglePassword(b));
+  for (const b of document.querySelectorAll('.account-later')) b.addEventListener('click', () => closeAccountBox({ abandon: true }));
+  document.addEventListener('civic:locale', renderAccountWords);
+  renderAccountWords();
 }
 
-function openSignIn() {
+/** The agreement, with its two links (opened in a new tab: leaving the page would stop a run), and the box's words. */
+function renderAccountWords() {
+  const link = (href, key) => el('a', { href, target: '_blank', rel: 'noopener', text: t(key) });
+  const parts = t('account.agree').split(/(\{terms\}|\{privacy\})/);
+  ui.signupAgreeText.replaceChildren(...parts.map((part) => (part === '{terms}' ? link('terms', 'account.terms') : part === '{privacy}' ? link('privacy', 'account.privacy') : document.createTextNode(part))));
+  ui.signupPasswordHint.textContent = t('account.passwordHint', { n: minChars() });
+  ui.signupPassword.minLength = minChars();
+  if (!ui.accountBox.hidden) ui.accountLede.textContent = t(ui.accountBox.dataset.reason === 'run' ? 'account.ledeRun' : 'account.lede', { amount: fmtMoney(grantCents()) });
+}
+
+function showAccountTab(tab) {
+  const signup = tab !== 'signin';
+  ui.formSignup.hidden = !signup;
+  ui.formSignin.hidden = signup;
+  ui.tabSignup.setAttribute('aria-selected', String(signup));
+  ui.tabSignin.setAttribute('aria-selected', String(!signup));
+  ui.tabSignup.classList.toggle('is-on', signup);
+  ui.tabSignin.classList.toggle('is-on', !signup);
+  ui.signupNote.hidden = true;
   ui.signinNote.hidden = true;
-  ui.signinCode.value = '';
-  if (!ui.signinDialog.open) ui.signinDialog.showModal();
-  (ui.signinEmail.value ? ui.signinCode : ui.signinEmail).focus();
+}
+
+/** Opens the box on one of its two forms. After a refused action the keyboard is not raised by the page (a touch screen
+    raises it only for a tap), so the box is brought into view and the field waits for the reader's tap. */
+function openAccountBox(tab, { reason = '' } = {}) {
+  if (!required()) { toast(t('account.open')); return; }
+  ui.accountBox.dataset.reason = reason;
+  showAccountTab(tab);
+  ui.accountBox.hidden = false;
+  renderAccountWords();
+  ui.accountBox.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  const first = tab === 'signin' ? (ui.signinEmail.value ? ui.signinPassword : ui.signinEmail) : ui.signupEmail;
+  try { first.focus({ preventScroll: true }); } catch { /* not important */ }
+}
+
+function closeAccountBox({ abandon = false } = {}) {
+  ui.accountBox.hidden = true;
+  const p = pendingSignIn;
+  pendingSignIn = null;
+  if (!p || !abandon) return;
+  const e = new Error('sign-in abandoned'); e.name = 'AbortError'; p.reject(e);
+  // The action that needed the account is abandoned with it: a run in progress stops, the text stays.
+  if (state.phase === 'extracting' || state.phase === 'evaluating') {
+    const text = ui.source.value;
+    resetAll();
+    ui.source.value = text;
+    updateSourceMeta();
+  }
 }
 
 /**
- * Called by the API client on a refusal for want of a sign-in; resolves once the reader has one.
- * Two actions refused at once (the extraction and the picture start together) wait on the same
- * promise and the same dialog, and both proceed on the one code; before 30 September the second
- * replaced the first, which then waited for ever.
+ * Called by the API client on a refusal for want of a sign-in, and by Test the facts before it asks the server;
+ * resolves once the reader has an account. Two actions refused at once (the extraction and the picture start together)
+ * wait on the same promise and the same box, and both go on after one sign-in.
  */
 function requireSignIn() {
   if (pendingSignIn) return pendingSignIn.promise;
   let resolve, reject;
   const promise = new Promise((res, rej) => { resolve = res; reject = rej; });
   pendingSignIn = { promise, resolve, reject };
-  openSignIn();
+  openAccountBox(ui.signinEmail.value ? 'signin' : 'signup', { reason: 'run' });
   return promise;
 }
 
-async function submitSignIn(event) {
+/** A refusal said in the reader's language, from its code and figures. */
+function accountWords(err) {
+  const minutes = Math.max(1, Math.ceil((Number(err?.waitSeconds) || 60) / 60));
+  switch (err?.code) {
+    case 'email_invalid': return t('account.err.email');
+    case 'password_short': return t('account.err.short', { n: minChars() });
+    case 'password_long': return t('account.err.long');
+    case 'terms_required': return t('account.err.terms');
+    case 'email_taken': return t('account.err.taken');
+    case 'wrong_password': return t('account.err.wrong');
+    case 'tries_wait': return t('account.err.wait', { m: minutes });
+    case 'signups_wait': return t('account.err.signupsWait', { m: minutes });
+    case 'account_closed': return t('account.err.closed');
+    default: return err instanceof TypeError ? t('errors.server') : (err?.message || t('errors.server'));
+  }
+}
+
+function noteOn(node, text) { node.textContent = text; node.hidden = !text; }
+
+/** Before a form goes, a password shown in clear goes back to dots (a password manager saves it then). */
+function hidePasswords(form) {
+  for (const input of form.querySelectorAll('input[data-shown="1"]')) { input.type = 'password'; input.dataset.shown = '0'; }
+  for (const b of form.querySelectorAll('.show-password')) b.textContent = t('account.show');
+}
+
+function togglePassword(button) {
+  const input = document.getElementById(button.dataset.for);
+  if (!input) return;
+  const show = input.type === 'password';
+  input.type = show ? 'text' : 'password';
+  input.dataset.shown = show ? '1' : '0';
+  button.textContent = t(show ? 'account.hide' : 'account.show');
+}
+
+async function submitSignup(event) {
+  event.preventDefault();
+  const email = ui.signupEmail.value.trim();
+  const password = ui.signupPassword.value;
+  if (!email) { noteOn(ui.signupNote, t('account.err.email')); ui.signupEmail.focus(); return; }
+  if ([...password].length < minChars()) { noteOn(ui.signupNote, t('account.err.short', { n: minChars() })); ui.signupPassword.focus(); return; }
+  if (!ui.signupAgree.checked) { noteOn(ui.signupNote, t('account.err.terms')); return; }
+  hidePasswords(ui.formSignup);
+  ui.signupSubmit.disabled = true;
+  try {
+    const out = await api.signup({ email, password, agree: true });
+    ui.signinEmail.value = email;
+    await signedIn(out.session);
+  } catch (err) {
+    noteOn(ui.signupNote, accountWords(err));
+    if (err?.code === 'email_taken') { ui.signinEmail.value = email; }
+  } finally {
+    ui.signupSubmit.disabled = false;
+  }
+}
+
+async function submitSignin(event) {
   event.preventDefault();
   const email = ui.signinEmail.value.trim();
-  const code = ui.signinCode.value.trim();
-  if (!code) { ui.signinCode.focus(); return; }
+  const password = ui.signinPassword.value;
+  if (!email) { noteOn(ui.signinNote, t('account.err.email')); ui.signinEmail.focus(); return; }
+  if (!password) { ui.signinPassword.focus(); return; }
+  hidePasswords(ui.formSignin);
   ui.signinSubmit.disabled = true;
   try {
-    const out = await api.signin({ email, code });
-    state.session = out.session || { email };
-    renderNav();
-    const p = pendingSignIn;
-    pendingSignIn = null;
-    ui.signinDialog.close();
-    p?.resolve();
+    const out = await api.signin({ email, password });
+    await signedIn(out.session);
   } catch (err) {
-    ui.signinNote.textContent = err?.code === 'code_not_listed' ? t('signin.notListed') : (err?.message || t('errors.server'));
-    ui.signinNote.hidden = false;
-    ui.signinCode.select();
+    noteOn(ui.signinNote, accountWords(err));
+    ui.signinPassword.select();
   } finally {
     ui.signinSubmit.disabled = false;
   }
 }
 
+/** The reader has an account: the box closes, the nav says so, and whatever waited on it goes on. */
+async function signedIn(session) {
+  state.session = session || null;
+  ui.signupPassword.value = '';
+  ui.signinPassword.value = '';
+  try {
+    const h = await api.health();
+    state.server = h;
+    state.session = h.access?.session || state.session;
+    state.accounting = Boolean(h.accounting);
+  } catch { /* the session stands; the line is read again later */ }
+  renderNav();
+  renderBeyondTools();
+  const p = pendingSignIn;
+  pendingSignIn = null;
+  ui.accountBox.hidden = true;
+  p?.resolve();
+}
+
 async function signOut() {
   try { await api.signout(); } catch { /* the cookie is gone either way */ }
   state.session = null;
+  state.accounting = false;
   renderNav();
+  renderBeyondTools();
 }
 
-/** The nav says who is signed in, when a sign-in is required; otherwise it is as it always was. */
+/** The balance after a hold, a charge or a release: the nav and the line under the claims say it. */
+function setBalance(cents) {
+  if (!state.session || !Number.isFinite(cents)) return;
+  state.session.balanceCents = cents;
+  renderNav();
+  renderBeyondTools();
+}
+
+let balanceTimer = null;
+/** The balance read again from the server (after a batch, a refusal): once, shortly, however many asked. */
+function refreshBalance() {
+  if (!state.session) return;
+  clearTimeout(balanceTimer);
+  balanceTimer = setTimeout(async () => {
+    try { const out = await api.account(); setBalance(out?.account?.balanceCents); } catch { /* the next one will */ }
+  }, 400);
+}
+
+/** The nav: Sign in and Sign up signed out; the balance, Account and Sign out signed in. With the door open, none. */
 function renderNav() {
-  const required = Boolean(state.server?.access?.required);
-  const signedIn = required && Boolean(state.session);
-  ui.signin.hidden = signedIn;
-  ui.signout.hidden = !signedIn;
-  ui.who.hidden = !signedIn;
-  ui.who.textContent = signedIn ? (state.session.email || t('signin.signedIn')) : '';
+  const signedInNow = required() && Boolean(state.session);
+  ui.signin.hidden = !required() || signedInNow;
+  ui.signup.hidden = !required() || signedInNow;
+  ui.signout.hidden = !signedInNow;
+  ui.navAccount.hidden = !signedInNow;
+  const bal = state.session?.balanceCents;
+  ui.navBalance.hidden = !signedInNow || !Number.isFinite(bal);
+  ui.navBalance.textContent = Number.isFinite(bal) ? fmtMoney(bal, state.server?.access?.currency) : '';
+  ui.navBalance.title = t('account.balanceTitle');
 }
 
 // ---------- access -------------------------------------------------------------------------
@@ -501,6 +638,12 @@ function hideCopies() {
 async function startRun() {
   if (!state.server) { toast(t('errors.server'), { error: true }); return; }
   hideCopies();
+  // An account comes before anything runs (the operator's answer of 5 October): the box opens here, and the run goes
+  // on by itself once the reader has one. Abandoning the box abandons the run.
+  if (required() && !state.session) {
+    if (ui.source.value.trim().length < 20 && !api.looksLikeUrl(ui.source.value)) { toast(t('intake.empty'), { error: true }); ui.source.focus(); return; }
+    try { await requireSignIn(); } catch { return; }
+  }
 
   // A web address in the box is read first, and its text replaces the address, so the reader sees
   // exactly what will be tested before a single claim is extracted.
@@ -552,6 +695,7 @@ function newResult() {
 
 function resetRunState() {
   state.failure = null;
+  state.creditStop = null;
   state.extractReasoning = '';
   state.extractSearches = 0;
   if (ui.step1Thinking) { ui.step1Thinking.hidden = true; ui.step1ThinkingBody.textContent = ''; ui.step1Thinking.open = false; }
@@ -674,9 +818,11 @@ function renderWarnings() {
     if (state.failure.detail && state.failure.detail !== state.failure.message) {
       li.append(el('span', { class: 'run-failure-detail', text: ` ${state.failure.detail}` }));
     }
-    const link = el('a', { text: t('errors.checkLink'), class: 'run-failure-link' });
-    link.href = 'check';
-    li.append(document.createTextNode(' '), link);
+    if (!required() || state.session?.operator) {
+      const link = el('a', { text: t('errors.checkLink'), class: 'run-failure-link' });
+      link.href = 'check';
+      li.append(document.createTextNode(' '), link);
+    }
     rows.push(li);
   }
   rows.push(...state.warnings.map((w) => {
@@ -949,12 +1095,40 @@ function renderBeyondTools() {
     const amount = fmtMoney(priced * price.priceCents, price.currency);
     ui.testSelected.textContent = freeN === 0 ? t('price.testPriced', { n: selected, amount }) : priced === 0 ? t('price.testFree', { n: selected }) : t('price.testMixed', { n: selected, free: freeN, amount });
   } else ui.testSelected.textContent = t('claims.testSelected', { n: selected });
+  renderBalanceLine(price, selected);
   let hint = '';
   if (busy) hint = t('claims.afterFirst');
   else if (price) hint = [t('price.hint', { amount: fmtMoney(price.priceCents, price.currency) }), price.freeFacts > 0 ? t('price.hintFree', { n: price.freeFacts }) : '', price.note || ''].filter(Boolean).join(' ');
   else if (state.accounting && averageCost() !== null) hint = t('claims.avgCost', { usd: fmtUsd(averageCost()) });
   ui.beyondHint.textContent = hint;
   renderPriceLabels();
+}
+
+/**
+ * The reader's balance under the claims, and what the selection would cost against it: a selection the balance cannot
+ * cover holds the button back with a sentence (the server refuses it anyway, before any model is asked).
+ */
+function renderBalanceLine(price, selected) {
+  const bal = required() && state.session ? state.session.balanceCents : null;
+  const show = Number.isFinite(bal) && Boolean(price);
+  ui.balanceLine.hidden = !show && !state.creditStop;
+  ui.balanceLine.classList.remove('is-over');
+  if (state.creditStop) {
+    const s = state.creditStop;
+    ui.balanceLine.classList.add('is-over');
+    ui.balanceLine.textContent = s.code === 'month_limit'
+      ? t('credit.stoppedLimit', { limit: fmtMoney(s.limitCents) })
+      : t('credit.stopped', { balance: fmtMoney(s.balanceCents), price: fmtMoney(s.priceCents) });
+    return;
+  }
+  if (!show) { ui.balanceLine.textContent = ''; return; }
+  const freeN = Math.min(freeRemaining(), selected);
+  const cost = (selected - freeN) * price.priceCents;
+  if (selected > 0 && cost > bal) {
+    ui.testSelected.disabled = true;
+    ui.balanceLine.classList.add('is-over');
+    ui.balanceLine.textContent = t('credit.over', { cost: fmtMoney(cost), balance: fmtMoney(bal) });
+  } else ui.balanceLine.textContent = t('credit.balance', { balance: fmtMoney(bal) });
 }
 
 // ---------- prices: what the server said this run's claims cost ---------------------------------------
@@ -1027,6 +1201,7 @@ async function testSelected() {
   if (state.phase === 'evaluating' || state.phase === 'extracting') return;
   const chosen = state.beyond.filter((b) => !b.tested && b.selected);
   if (!chosen.length) return;
+  state.creditStop = null;   // a new choice, perhaps after credit was added: tried again from the start
   for (const b of chosen) { b.tested = true; b.selected = false; }
   syncBeyondRows();
   // The whole selection is one batch, run at the server's pace (one claim per request, `inFlight`
@@ -1080,12 +1255,14 @@ async function runBatch(claims, nodes) {
   const queue = claims.map((_, k) => start + k);
   const settled = () => { state.batch.done++; updateEvalStatus(); renderScoreboard(); };
   const worker = async () => {
-    while (queue.length && !signal.aborted && state.phase === 'evaluating') {
+    while (queue.length && !signal.aborted && state.phase === 'evaluating' && !state.creditStop) {
       await runClaim(queue.shift(), signal, { keepGoing: () => state.phase === 'evaluating', onSettled: settled });
     }
   };
   try {
     await Promise.all(Array.from({ length: Math.min(inFlight, claims.length) }, worker));
+    // The credit or the monthly limit stopped the batch: the claims it never started are not run, and not charged.
+    while (state.creditStop && queue.length) { const k = queue.shift(); markNotRun(k, state.creditStop); settled(); }
     if (state.phase === 'evaluating') finishBatch({ ms: Date.now() - state.evalStartedAt });
   } finally {
     clearInterval(tick);
@@ -1109,6 +1286,7 @@ async function runClaim(i, signal, { keepGoing = () => true, onSettled = () => {
     let job = r.jobId;
     let settled = false;
     let runFailure = null;
+    let booksWait = false;
     const onEvent = (ev) => {
       if (ev.t === 'batch-start' || ev.t === 'batch-progress' || ev.t === 'complete') return;
       if (ev.t === 'error' && ev.i === undefined) { runFailure = ev; return; }
@@ -1130,10 +1308,21 @@ async function runClaim(i, signal, { keepGoing = () => true, onSettled = () => {
       });
     } catch (err) {
       if (err?.name === 'AbortError' || signal.aborted) return;
-      if (err instanceof api.ApiError) { failRun(err); return; }   // the server refused the request itself
+      if (err instanceof api.ApiError && (err.code === 'credit_short' || err.code === 'month_limit')) {
+        // Not run and not charged: the price was refused before any model was asked. No more claims start.
+        state.creditStop = { code: err.code, balanceCents: err.balanceCents ?? null, priceCents: err.priceCents ?? null, limitCents: err.limitCents ?? null };
+        if (Number.isFinite(err.balanceCents)) setBalance(err.balanceCents);
+        markNotRun(i, state.creditStop);
+        onSettled();
+        return;
+      }
+      if (err instanceof api.ApiError && err.code === 'already_tested') { markNotRun(i, { code: 'already_tested' }); onSettled(); return; }
+      if (err instanceof api.ApiError && err.code === 'books_wait') { booksWait = true; }   // FactEngine's records will answer: a wait
+      else if (err instanceof api.ApiError) { failRun(err); return; }   // the server refused the request itself
     } finally {
       releaseJob(job);
     }
+    if (booksWait) { booksWait = false; r.phase = 'reconnecting'; renderCardStatus(i); await new Promise((resolve) => setTimeout(resolve, 2000)); continue; }
     if (signal.aborted || !keepGoing()) return;
     if (runFailure) { failRun(runFailure); return; }
     if (settled) { onSettled(); return; }
@@ -1181,7 +1370,7 @@ function handleEvalEvent(ev, mapIndex) {
       scheduleEntryRender(i);
       break;
     case 'trail': r.trail.push(ev.step); renderCardStatus(i); break;
-    case 'quote': r.free = ev.free ?? null; r.priceCents = ev.priceCents ?? null; renderPriceLabel(i); renderBeyondTools(); break;   // free, or the price: the server's word
+    case 'quote': r.free = ev.free ?? null; r.priceCents = ev.priceCents ?? null; if (Number.isFinite(ev.balanceCents)) setBalance(ev.balanceCents); renderPriceLabel(i); renderBeyondTools(); break;   // free, or the price: the server's word, and the balance after its hold
     case 'source': r.sources.push(ev.source); break;
     case 'note': if (ev.code === 'no_reasoning_summary') r.noSummary = true; break;
     case 'retry':
@@ -1206,19 +1395,20 @@ function finishBatch(ev) {
   if (state.batch.start === 0) ui.report.hidden = false;   // the first ten are tested: the report can be asked for
   renderScoreboard();
   syncBeyondRows();
+  refreshBalance();
 }
 
 function failRun(err) {
   const code = err?.code || '';
   let message;
   if (code === 'source_too_long') message = `${t('errors.sourceTooLong')} ${err?.message || ''}`;
+  else if (code === 'signin_required') message = t('account.cookies');   // signed in, and still refused: the browser kept no cookie
   // A rejected key, or a provider's account that can no longer pay (402): the operator's to look at; the page names neither.
   else if (err?.status === 401 || err?.status === 402 || code === 'invalid_key' || code === 'missing_key' || code === 'balance_exhausted') message = t('errors.key');
   else if (code === 'key_not_sendable') message = t('errors.keyUnusable');
   else if (code === 'no_operator_key') message = t('errors.noKey');
   else if (err?.status === 429) message = t('errors.rate');
   else if (code === 'prompt_missing') message = t('errors.prompt');
-  else if (code === 'code_used_up') message = err.message;   // the server's own sentence: how many runs the code had, how many it allows
   else if (err instanceof TypeError) message = t('errors.server');
   else message = t('errors.generic', { message: err?.message || code || '' });
   toast(message, { error: true, ms: 9000 });
@@ -1486,14 +1676,29 @@ function renderCardFoot(i) {
   $('.btn-retry', card).hidden = r.status !== 'error';
 }
 
+/** A claim that was not run, and not charged: its price was more than the balance or the month's limit allows, or it was tested already. */
+function markNotRun(i, why) {
+  const r = state.results[i];
+  if (!r) return;
+  const words = why?.code === 'month_limit' ? t('card.notRunLimit', { limit: fmtMoney(why.limitCents) })
+    : why?.code === 'already_tested' ? t('card.alreadyTested')
+      : t('card.notRunCredit', { balance: fmtMoney(why?.balanceCents), price: fmtMoney(why?.priceCents) });
+  Object.assign(r, { status: 'error', phase: 'error', error: words, errorCode: why?.code || 'credit_short' });
+  setCardState(i, 'error');
+  renderCardStatus(i);
+  renderCardError(i);
+}
+
 function renderCardError(i) {
   const r = state.results[i];
   const card = cardOf(i);
   let msg = $('.card-error', card);
   if (!msg) { msg = el('p', { class: 'card-error' }); $('.card-head', card).after(msg); }
-  // Said in words first; the technical reason follows, so it can be reported.
+  // Said in words first; the technical reason follows, so it can be reported. A claim the credit could not cover says
+  // so in its own sentence, which is not a fault.
+  const own = r.errorCode === 'credit_short' || r.errorCode === 'month_limit' || r.errorCode === 'already_tested';
   const why = r.errorCode === 'quota_exhausted' ? `${t('card.quota')} (${r.error || ''})` : (r.error || '');
-  msg.replaceChildren(document.createTextNode(`${t('card.error')} ${why}`.trim()),
+  msg.replaceChildren(document.createTextNode(own ? why : `${t('card.error')} ${why}`.trim()),
     el('button', { type: 'button', class: 'btn btn-small btn-text', text: t('card.retryBtn'), onclick: () => retryClaim(i) }));
   $('.card-brief', card).hidden = true;
   const foot = $('.card-foot', card);
@@ -1507,6 +1712,7 @@ function renderCardError(i) {
 async function retryClaim(i) {
   const r = state.results[i];
   if (!r || r.status === 'running' || state.phase === 'evaluating') return;
+  state.creditStop = null;
   const card = cardOf(i);
   $('.card-error', card)?.remove();
   $('.card-brief', card).hidden = true;

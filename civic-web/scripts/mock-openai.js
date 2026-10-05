@@ -106,6 +106,12 @@ app.post('/v1/responses', async (req, res) => {
 
   // Exercise the case where a PARAMETER is unsupported: the server must surface this as an error,
   // never silently swap in a different, weaker model.
+  // A determination whose claim carries this text is refused as a bad request (the guard's way to make one test fail
+  // while the others pass, so the hold of the one that failed can be seen released). Only the claim's own message is
+  // read: the source travels ahead of it in every determination and must not fail them all.
+  if (process.env.MOCK_EVAL_FAIL_TEXT && isEvaluation && prompt.includes(process.env.MOCK_EVAL_FAIL_TEXT)) {
+    return res.status(400).json({ error: { message: 'The stand-in refuses this claim on purpose.', type: 'invalid_request_error', param: 'input', code: 'invalid_value' } });
+  }
   if (process.env.MOCK_BAD_EFFORT && body.reasoning?.effort === process.env.MOCK_BAD_EFFORT) {
     return res.status(400).json({ error: { message: `Unsupported value: 'reasoning.effort' does not support '${body.reasoning.effort}' with this model.`, type: 'invalid_request_error', param: 'reasoning.effort', code: 'unsupported_value' } });
   }

@@ -27,8 +27,11 @@ import { whereTheShellSetsIt } from './key.js';
 import { record as recordFailure } from './diagnostics.js';
 import { buildStamp } from './build.js';
 import { takeOverPort } from './port.js';
-import { gate, sessionOf, required as signinRequired, codes as accessCodes, normalise as normaliseCode, issue, setCookie, clearCookie, recordSignin, recentSignins, fingerprintOf, isOperator, operatorsConfigured } from './access.js';
-import { allowance as codeAllowance, used as codeUsed, recordUse, summary as codesSummary } from './uses.js';
+import { gate, required as signinRequired, isOperator } from './access.js';
+import * as accounts from './accounts.js';
+import * as credit from './credit.js';
+import { mountAccountRoutes } from './account-routes.js';
+import { dbOn, migrate } from './db.js';
 import { registry } from './tools/index.js';
 import { mountGateway } from './tools/gateway.js';
 import * as economics from './economics.js';
@@ -82,6 +85,12 @@ app.use((req, res, next) => {
   next();
 });
 
+// The door (server/access.js), before any body is read: a request without a session is refused on its headers alone, so
+// nobody without an account can make this instance read 64 MB. The account's own doors take a small body of their own.
+app.use('/api/account', express.json({ limit: '16kb' }));
+app.use('/api/operator', express.json({ limit: '16kb' }));
+app.use('/api', gate);
+
 // Big enough to carry a whole document; no limit of ours applies unless CIVIC_MAX_SOURCE_CHARS is set.
 app.use(express.json({ limit: '64mb' }));
 
@@ -98,57 +107,65 @@ const upload = multer({
 
 const wrap = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 
-// The door (server/access.js): with CIVIC_ACCESS_CODES set, every API route but the health line
-// and the sign-in itself needs the cookie a listed code earns. It is mounted on /api itself, so
-// what is under /api is Express's decision and the gate's alike, never two readings of one path.
 // FactEngine's tools for the model (server/tools): the gateway answers a provider's servers, OpenAI's with the pass
 // (CIVIC_TOOLS_PASS) and Fireworks' through a listing's own door (tools/doors.js), so it sits outside the sign-in
 // gate; with neither a pass set nor a door open, it answers no one.
 mountGateway(app, { registry, pass: config.toolsPass, version: BUILD });
-app.use('/api', gate);
 
-// Whose work a job is: the sign-in that started it (its code's fingerprint and its email), or
-// nobody's on an open door. A page attaches to, stops and lets go of its own jobs and no others.
-const ownerOf = (req) => { const s = sessionOf(req); return s ? `${fingerprintOf(s.code)}:${s.email}` : null; };
+// Whose work a job is: the account that started it, or nobody's on an open door (CIVIC_ACCOUNTS=off). A page attaches
+// to, stops and lets go of its own jobs and no others.
+const ownerOf = (req) => (req.account?.user ? `u:${req.account.user.id}` : null);
+// What a reader may see of the work: the operator sees FactEngine's own cost of each step; nobody else does.
+const seesCost = (req) => !signinRequired() || isOperator(req.account);
+const withoutCost = (ev) => {
+  if (!ev || typeof ev !== 'object') return ev;
+  if (ev.t === 'gate') return { t: 'gate', model: ev.model };
+  if (!('cost' in ev)) return ev;
+  const { cost, ...rest } = ev;
+  return rest;
+};
+// With accounts on, the books must be readable for anything to be held or run: a wait, never a free test.
+const booksWait = () => Object.assign(new ApiError(503, 'books_wait', 'FactEngine is waiting for its records. It will go on by itself.'), { expected: true });
+// Requests for one determination's id that arrive together: the second waits for the first's opening, then joins its job.
+const opening = new Map();
 
 // ---- API ---------------------------------------------------------------------------------
 
 app.get('/api/health', wrap(async (req, res) => {
-  const session = sessionOf(req);
+  const session = signinRequired() ? req.account || null : null;
+  const balanceCents = session ? await credit.balanceOf(session.user.id).catch(() => null) : null;
   // What the page shows of the prices (server/economics.js): the tier, the free count, the price and
   // the operator's note. Never a cost. Null when pricing is off, or when it cannot be read just now.
   const pricing = await economics.publicState().catch((err) => { console.error('[economics] the price could not be read:', err.message); return null; });
   res.json({
     ok: true, build: BUILD, ...publicConfig(promptStatus()), readUrl: true, acceptedSourceExt: ACCEPTED_SOURCE_EXT, acceptedChallengeExt: ACCEPTED_CHALLENGE_EXT,
     active: jobs.active(),                                              // runs in flight right now, whatever their connections are doing; an update waits for zero
-    access: { required: signinRequired(), session: session ? { email: session.email, operator: isOperator(session) } : null },
+    access: {
+      required: signinRequired(),
+      session: session ? { email: session.user.email, operator: isOperator(session), balanceCents, monthlyLimitCents: session.user.monthlyLimitCents } : null,
+      grantCents: config.signupGrantCents, minChars: config.passwordMinChars, currency: config.currency,
+    },
+    accounting: config.accounting && (!signinRequired() || isOperator(session)),   // FactEngine's own costs: the operator's alone
     pricing,
   });
 }));
 
-// Sign-in by code. The code is the only thing checked; the email is kept with the sign-in.
-app.post('/api/signin', (req, res) => {
-  const email = String(req.body?.email || '').trim().slice(0, 254);
-  const code = normaliseCode(req.body?.code);
-  if (!signinRequired()) return res.json({ ok: true, required: false, session: { email } });
-  if (!accessCodes().includes(code)) throw new ApiError(401, 'code_not_listed', 'That code is not on the list.');
-  setCookie(req, res, issue(email, code));
-  recordSignin(email, code);
-  res.json({ ok: true, required: true, session: { email } });
-});
-app.post('/api/signout', (req, res) => { clearCookie(req, res); res.json({ ok: true }); });
+// Accounts: sign up, sign in, sign out, a reset link, the operator's link, the account's page and the operator's tools
+// (server/account-routes.js).
+mountAccountRoutes(app, { wrap });
 
 // Is FactEngine able to work right now? Answered in plain language at /check, so a fault is never
 // something a reader has to catch as a message disappears.
 app.get('/api/selftest', wrap(async (req, res) => {
   res.setHeader('Cache-Control', 'no-store');
-  // Who signed in, and the runs per code, are the operator's to see: with CIVIC_OPERATOR_CODES set
-  // they go to those codes alone; unset, to every code holder, as before 30 September.
-  const operator = !operatorsConfigured() || isOperator(sessionOf(req));
+  // The check page is the operator's (5 October: once anyone can make an account, the key's source, the minute budget
+  // and FactEngine's costs are nobody else's business). On an open door (CIVIC_ACCOUNTS=off) it is everyone's, as before.
+  const operator = !signinRequired() || isOperator(req.account);
+  if (!operator) throw Object.assign(new ApiError(403, 'operator_only', 'That is for the operator\'s account.'), { expected: true });
   // The measurement (server/economics.js) is the operator's alone: the price and what it came from, the
   // tier clock, the guard, and the money per tier, per user and per window.
   const economy = operator && economics.enabled() ? await economics.report().catch((err) => ({ error: err.message })) : null;
-  res.json({ ...await selftest({ apiKey: operatorKey({ optional: true }), build: BUILD, operator }), signins: operator ? recentSignins(10) : [], codes: operator && signinRequired() ? codesSummary() : [], access: { required: signinRequired(), operator }, economics: economy });
+  res.json({ ...await selftest({ apiKey: operatorKey({ optional: true }), build: BUILD, operator }), access: { required: signinRequired(), operator, store: dbOn() ? 'postgres' : 'memory' }, economics: economy });
 }));
 
 // The page reports its own failures here, so /check can show them afterwards.
@@ -238,28 +255,27 @@ app.post('/api/extract', wrap(async (req, res) => {
     ? { code: 'source_truncated', omitted: source.omitted, read: source.chars, original: source.originalChars }
     : null;
 
-  // A run started is a use of the code that opened the door (server/uses.js): counted here, at the
-  // one request that starts the extraction, and refused when the code has used what it allows.
-  const session = sessionOf(req);
-  if (session) {
-    const used = codeUsed(session.code);
-    const allowed = codeAllowance(session.code);
-    if (used >= allowed) throw new ApiError(403, 'code_used_up', `This code has been used ${used} ${used === 1 ? 'time' : 'times'}; it allows ${allowed}.`);
-    recordUse(session.code, session.email, id);
-  }
-
   const meta = sourceMeta(req.body?.source);
   const text = source.text;
   // The run's row (server/economics.js): its tier and its window's price are fixed here and hold for
   // the document. The page is told them first of all, so the rows can show Free and the price.
-  // Bookkeeping never stops a run: a row that cannot be made is said in the log, and the run goes on.
-  const run = await economics.openRun({ id, owner, email: session?.email || null, codeFp: session ? fingerprintOf(session.code) : null, chars: text.length })
-    .catch((err) => { console.error('[economics] the run could not be recorded:', err.message); return null; });
+  // On an open door, bookkeeping never stops a run: a row that cannot be made is said in the log, and the run goes on. With
+  // accounts, the run's row is what its claims are held against, so it is a wait until the books can be written.
+  const user = req.account?.user || null;
+  const run = await economics.openRun({ id, owner, email: user?.email || null, userId: user?.id ?? null, chars: text.length })
+    .catch((err) => {
+      if (err?.expected) throw err;
+      if (signinRequired()) { console.error('[economics] the run could not be recorded:', err.message); throw booksWait(); }
+      console.error('[economics] the run could not be recorded:', err.message);
+      return null;
+    });
   const ctx = { runId: id, owner };
   // The row was awaited: a second request for this job meanwhile (a page coming back at once) joins it.
   const meanwhile = jobs.get(id, owner);
   if (meanwhile) { meanwhile.attach(openStream(req, res), req.body?.cursor); return; }
-  jobs.start(id, 'extraction', async ({ send, signal }) => {
+  const showCost = seesCost(req);
+  jobs.start(id, 'extraction', async ({ send: sendAll, signal }) => {
+    const send = showCost ? sendAll : (ev) => sendAll(withoutCost(ev));
     if (run) send({ t: 'pricing', tier: run.tier, freeFacts: run.freeAllowed, priceCents: run.priceCents, currency: config.currency, note: config.pricingNote || null });
     try {
       const result = await runExtraction({ apiKey, text, meta, send, signal, sourceWarning, ctx });
@@ -293,27 +309,59 @@ app.post('/api/evaluate', wrap(async (req, res) => {
 
   // Each claim's row (server/economics.js): the server decides, never the page, whether it is one of
   // the document's free ones or priced at the run's price, and the page is told before the model is
-  // asked. The page names its run and the claim's number; a request without them (an older page, the
-  // guard's own) is measured as a determination of no run, priced at nothing.
+  // asked. The page names its run and the claim's number. With accounts on, a request without them, or naming a run of
+  // another account's, is refused (run_required): no test is free by leaving the run out. With accounts off (a laptop,
+  // the guard's older checks) it is measured as a determination of no run, priced at nothing.
   const runId = typeof req.body?.runId === 'string' && /^[A-Za-z0-9_.:-]{8,128}$/.test(req.body.runId.trim()) ? req.body.runId.trim() : null;
   const n = Number.isInteger(req.body?.n) && req.body.n > 0 ? req.body.n : null;
   const detIds = claims.map((_, i) => (claims.length === 1 ? id : `${id}#${i + 1}`));
-  const quotes = [];
-  for (let i = 0; i < claims.length; i++) {
-    quotes.push(await economics.openDetermination({ id: detIds[i], runId, n: claims.length === 1 ? n : null, chars: claims[i].length })
-      .catch((err) => { console.error('[economics] the determination could not be recorded:', err.message); return null; }));
+  // Two requests for this id at once (a page coming straight back): the second waits for the first to open the claim,
+  // then joins its job, so one claim is never opened, held and started twice.
+  if (opening.has(id)) {
+    await opening.get(id).catch(() => {});
+    const joined = jobs.get(id, owner);
+    if (joined) { joined.attach(openStream(req, res), req.body?.cursor); return; }
   }
+  let opened;
+  opening.set(id, new Promise((resolve) => { opened = resolve; }));
+  const quotes = [];
+  const user = req.account?.user || null;
+  try {
+    for (let i = 0; i < claims.length; i++) {
+      quotes.push(await economics.openDetermination({
+        id: detIds[i], runId, n: claims.length === 1 ? n : null, chars: claims[i].length,
+        userId: user?.id ?? null, owner, limitCents: user?.monthlyLimitCents ?? null, requireRun: signinRequired(),
+      }).catch((err) => {
+        if (err?.expected) throw err;   // a refusal the reader must see: the credit, the limit, a run that is not theirs
+        console.error('[economics] the determination could not be recorded:', err.message);
+        if (signinRequired()) throw booksWait();
+        return null;
+      }));
+    }
+  } catch (err) {
+    // Nothing of a refused request stays held: the claims it had opened are closed, their holds released.
+    await economics.closeOpen(quotes.map((q, i) => (q ? { id: detIds[i], attempt: q.attempt } : null)).filter(Boolean), 'refused');
+    throw err;
+  } finally {
+    opening.delete(id);
+    opened();
+  }
+  const attempts = quotes.map((q, i) => (q ? { id: detIds[i], attempt: q.attempt } : null)).filter(Boolean);
   const ctx = { runId, owner, determinationIds: detIds, jobId: id };
   // The rows were awaited: a second request for this job meanwhile joins it rather than starting it twice.
   const meanwhile = jobs.get(id, owner);
-  if (meanwhile) { meanwhile.attach(openStream(req, res), req.body?.cursor); return; }
-  jobs.start(id, 'determination', async ({ send, signal }) => {
-    quotes.forEach((q, i) => { if (q) send({ t: 'quote', i, free: q.free, priceCents: q.priceCents, currency: config.currency }); });
-    // The books close with the claim's own end: done books its revenue at list; an error books nothing.
+  if (meanwhile) { meanwhile.attach(openStream(req, res), req.body?.cursor); return; }   // not reached while `opening` holds the id; kept as the safe answer
+  const showCost = seesCost(req);
+  jobs.start(id, 'determination', async ({ send: sendAll, signal }) => {
+    const send = showCost ? sendAll : (ev) => sendAll(withoutCost(ev));
+    quotes.forEach((q, i) => { if (q) send({ t: 'quote', i, free: q.free, priceCents: q.priceCents, currency: config.currency, ...(Number.isInteger(q.balanceCents) ? { balanceCents: q.balanceCents } : {}) }); });
+    // The books close with the claim's own end: done books its revenue at list and charges its hold; an error books
+    // nothing and releases it. Each attempt closes its own, never a later one's.
     const sendAndBook = (ev) => {
       send(ev);
-      if (ev.t === 'done' && ev.i !== undefined) economics.book(detIds[ev.i], { status: 'done', verdict: ev.verdict || null, model: ev.model || null });
-      else if (ev.t === 'error' && ev.i !== undefined) economics.book(detIds[ev.i], { status: 'failed', failure: ev.code || 'error' });
+      const q = ev.i !== undefined ? quotes[ev.i] : null;
+      if (ev.t === 'done' && ev.i !== undefined) economics.book(detIds[ev.i], { attempt: q?.attempt ?? null, status: 'done', verdict: ev.verdict || null, model: ev.model || null });
+      else if (ev.t === 'error' && ev.i !== undefined) economics.book(detIds[ev.i], { attempt: q?.attempt ?? null, status: 'failed', failure: ev.code || 'error' });
     };
     try {
       await runEvaluation({ apiKey, claims, document, send: sendAndBook, signal, ctx });
@@ -321,8 +369,8 @@ app.post('/api/evaluate', wrap(async (req, res) => {
       const safe = describeError(err);
       send({ t: 'error', code: safe.code, message: safe.message, status: safe.status });
     } finally {
-      // A claim the request ended without a result for (the page stopped the run, the request failed): failed, nothing booked.
-      await economics.closeOpen(detIds, signal.aborted ? 'cancelled' : 'ended');
+      // A claim the request ended without a result for (the page stopped the run, the request failed): failed, nothing booked, its hold released.
+      await economics.closeOpen(attempts, signal.aborted ? 'cancelled' : 'ended');
     }
   }, { owner }).attach(openStream(req, res), 0);
 }));
@@ -368,6 +416,7 @@ app.post('/api/challenge', upload.array('files', config.challengeMaxFiles), wrap
 app.get('/', sendIndex);
 app.get('/index.html', sendIndex);
 app.get('/check', (req, res) => { res.setHeader('Cache-Control', 'no-store'); res.sendFile(path.join(publicDir, 'check.html')); });
+app.get('/account', (req, res) => { res.setHeader('Cache-Control', 'no-store'); res.sendFile(path.join(publicDir, 'account.html')); });
 
 // The stamped copy. These addresses change whenever the files do, so they are safe to keep forever.
 app.use(`/b/${BUILD}`, express.static(publicDir, { index: false, immutable: true, maxAge: '365d' }));
@@ -395,10 +444,14 @@ app.use((err, req, res, next) => {
   if (err instanceof multer.MulterError) {
     return res.status(413).json({ error: { code: err.code, message: err.code === 'LIMIT_FILE_SIZE' ? 'That file is too large.' : err.message } });
   }
+  if (err?.type === 'entity.too.large') return res.status(413).json({ error: { code: 'too_large', message: 'That request is too large.' } });
+  if (err?.type === 'entity.parse.failed') return res.status(400).json({ error: { code: 'bad_body', message: 'That request could not be read.' } });
   const safe = err instanceof ApiError ? err : describeError(err);
-  recordFailure({ where: `server:${req.method} ${req.path}`, code: safe.code, message: safe.message, status: safe.status, detail: safe.detail || null });
+  // A refusal a reader is expected to meet (a sign-in, a wrong password, the credit, a limit) is not a fault: /check's
+  // list is kept for faults. Its figures travel with it, so the page can say them in the reader's language.
+  if (!err?.expected) recordFailure({ where: `server:${req.method} ${req.path}`, code: safe.code, message: safe.message, status: safe.status, detail: safe.detail || null });
   if (!(err instanceof ApiError)) console.error('[civic]', safe.status, safe.code);
-  res.status(safe.status || 500).json({ error: { code: safe.code, message: safe.message, ...(safe.site ? { site: safe.site } : {}) } });
+  res.status(safe.status || 500).json({ error: { code: safe.code, message: safe.message, ...(safe.site ? { site: safe.site } : {}), ...(err?.extra && typeof err.extra === 'object' ? err.extra : {}) } });
 });
 
 const server = http.createServer(app);
@@ -509,6 +562,10 @@ process.on('SIGTERM', () => {
 // schema that cannot be made stops this instance here, with the reason, and the host's health check
 // keeps the old one answering.
 try {
+  // Accounts live in Postgres on Render: in memory, every deploy would delete every account and its credit.
+  if (accounts.accountsOn() && !dbOn() && process.env.RENDER) throw new Error('accounts are on and DATABASE_URL is not set, so every account would end with this instance');
+  if (dbOn()) await migrate();
+  console.log(accounts.bootLine());
   await economics.boot();
 } catch (err) {
   console.error(`\nSTOPPED: the database could not be prepared, so this FactEngine did not start: ${err?.message || err}\n`);

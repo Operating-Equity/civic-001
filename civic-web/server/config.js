@@ -77,14 +77,6 @@ const PUBLIC_URL = env('RENDER_EXTERNAL_URL', '').trim().replace(/\/+$/, '');
 
 
 /** "ABCD234" or "ABCD234:150": the code as typed made canonical, and its own allowance of runs if given. */
-function parseCodes(entries) {
-  return entries.map((entry) => {
-    const [raw, uses] = String(entry).split(':');
-    const code = String(raw || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
-    const n = uses === undefined ? null : Number.parseInt(uses, 10);
-    return { code, allowance: Number.isFinite(n) && n >= 0 ? n : null };
-  }).filter((c) => c.code);
-}
 
 export const config = {
   port: int('PORT', 3000),
@@ -212,23 +204,23 @@ export const config = {
   // Optional: point the OpenAI client somewhere else (used by scripts/mock-openai.js in dev).
   openaiBaseUrl: env('OPENAI_BASE_URL', ''),
 
-  // Sign-in by code (server/access.js). Empty: the door is open, as on the operator's Mac. Set:
-  // every API route but the health line needs a cookie issued for one of these codes.
-  // An entry is a code, or a code with its own allowance of runs after a colon (ABCD234:150).
-  accessCodes: parseCodes(list('CIVIC_ACCESS_CODES', '')).map((c) => c.code),
-  accessAllowances: Object.fromEntries(parseCodes(list('CIVIC_ACCESS_CODES', '')).filter((c) => c.allowance !== null).map((c) => [c.code, c.allowance])),
-  // Runs a code allows unless its entry says otherwise: five, the operator's rule of 18 September.
-  codeUses: int('CIVIC_CODE_USES', 5),
-  // The sign-in cookie's own secret (server/access.js). Unset, the cookie is signed with a
-  // derivation from the OpenAI key, so a change of that key signs everyone out; set, the key plays
-  // no part. Setting it once signs everyone out once.
-  sessionSecret: env('CIVIC_SESSION_SECRET', ''),
-  // The codes whose holders are the operator: /check shows the sign-in list and the runs per code
-  // to them alone. Unset, every code holder sees both, as before 30 September.
-  operatorCodes: parseCodes(list('CIVIC_OPERATOR_CODES', '')).map((c) => c.code),
-  signinLog: env('CIVIC_SIGNIN_LOG', new URL('../data/signins.jsonl', import.meta.url).pathname),
-  // One line per run started under a code (server/uses.js); on a persistent disk in the cloud.
-  usesFile: env('CIVIC_USES_FILE', new URL('../data/uses.jsonl', import.meta.url).pathname),
+  // Accounts (server/accounts.js, server/access.js; the operator, 5 October: "Get rid of access codes … We need to
+  // establish a sign-up and sign-on process first, followed by payments … assume everyone who signs up gets $10 in
+  // their account"). On unless CIVIC_ACCOUNTS=off: a lost setting never opens the door. Off is for a laptop of one's
+  // own and the guard's older checks: then nothing needs a sign-in and nothing is charged to anyone.
+  accounts: !/^(off|false|0|no)$/i.test(env('CIVIC_ACCOUNTS', 'on').trim()),
+  // The operator's own address(es): reserved, so the open form cannot take them (no address is verified); the
+  // operator's account is made only through the one-time link whose SHA-256 is CIVIC_OPERATOR_CLAIM.
+  operatorEmails: list('CIVIC_OPERATOR_EMAILS', '').map((e) => e.toLowerCase()),
+  operatorClaim: env('CIVIC_OPERATOR_CLAIM', '').trim().toLowerCase(),
+  signupGrantCents: int('CIVIC_SIGNUP_GRANT_CENTS', 1000),      // "everyone who signs up gets $10"
+  passwordMinChars: int('CIVIC_PASSWORD_MIN_CHARS', 8),          // a flagged default
+  sessionDays: int('CIVIC_SESSION_DAYS', 400),                   // a flagged default: as long as the code cookie lasted
+  signinTries: int('CIVIC_SIGNIN_TRIES', 10),                    // wrong passwords per email an hour before a wait (a flagged default)
+  signinTriesPerAddress: int('CIVIC_SIGNIN_TRIES_PER_ADDRESS', 0),     // 0 = off
+  signupsPerAddressPerDay: int('CIVIC_SIGNUPS_PER_ADDRESS_PER_DAY', 0), // 0 = off
+  resetLinkHours: int('CIVIC_RESET_LINK_HOURS', 24),             // a flagged default
+  termsVersion: env('CIVIC_TERMS_VERSION', '2026-10-03'),        // the Terms an account agreed to: the operator's launch text of 3 October
 
   // Facts have a price, and every user is measured (server/economics.js; the operator's program of
   // 2 October). Listing the claims is always free; testing one is priced, and a run's tier says how

@@ -3,8 +3,9 @@
 # After the service exists, the two prompts go in as Secret Files named extract.txt and
 # evaluate.txt (mounted at /etc/secrets/, never in the repository), and the values marked
 # sync: false are set in Render and nowhere else: the operator's OpenAI key, the listing's key on
-# Fireworks (5 October; DeepSeek's own, 4 October, if the listing goes there instead), the access codes
-# that open the door (civic-web/server/access.js), and the database's address.
+# Fireworks (5 October; DeepSeek's own, 4 October, if the listing goes there instead), the operator's address and
+# the hash of the one-time link that makes the operator's account (civic-web/server/accounts.js), and the database's
+# address.
 services:
   - type: web
     name: civic
@@ -16,9 +17,8 @@ services:
     startCommand: npm start
     healthCheckPath: /api/health
     autoDeploy: true         # every merge to main deploys itself; a merge waits until /api/health reports no run in flight
-    # The one thing that outlives a deploy: the internal ledger, the sign-in log, the error log and
-    # the record of runs per code (server/uses.js) live here. A service with a disk is stopped
-    # before its next version starts, so a deploy is a minute of "cut · going again" on the page.
+    # The internal ledger and the error log live here, so they outlive a deploy. A service with a disk is
+    # stopped before its next version starts, so a deploy is a minute of "cut · going again" on the page.
     disk:
       name: civic-data
       mountPath: /var/data
@@ -32,20 +32,13 @@ services:
         value: /etc/secrets/evaluate.txt
       - key: CIVIC_LEDGER_FILE
         value: /var/data/civic-ledger.jsonl
-      - key: CIVIC_SIGNIN_LOG
-        value: /var/data/civic-signins.jsonl
       - key: CIVIC_ERROR_LOG
         value: /var/data/civic-errors.log
-      - key: CIVIC_USES_FILE
-        value: /var/data/civic-uses.jsonl
-      - key: CIVIC_CODE_USES
-        value: "5"           # runs a code allows unless its entry says otherwise (ABCD234:150), the operator's rule
       - key: CIVIC_MAX_UPLOAD_BYTES
         value: "67108864"    # 64 MB: an upload is held whole in memory and parsed there; Starter has 512 MB
       - key: CIVIC_ALLOW_PRIVATE_URLS
         value: "false"
-      # The operator's key and the access codes (a code, or a code with its own allowance after a
-      # colon): set in Render, never here.
+      # The operator's keys: set in Render, never here.
       - key: OPENAI_API_KEY
         sync: false
       - key: FIREWORKS_API_KEY     # the listing's key when CIVIC_EXTRACT_PROVIDER is fireworks
@@ -59,10 +52,20 @@ services:
         value: xhigh               # OpenAI's two steps, back to the setting before 21 September (5 October)
       - key: CIVIC_REASONING_MODE
         value: standard
-      - key: CIVIC_ACCESS_CODES
+      # Accounts (5 October: "Get rid of access codes"): on unless CIVIC_ACCOUNTS is off. The operator's address is
+      # reserved for the one-time link whose SHA-256 is CIVIC_OPERATOR_CLAIM, both set in Render; $10 of credit to
+      # start, the operator's figure ("assume everyone who signs up gets $10").
+      - key: CIVIC_ACCOUNTS
+        value: "on"
+      - key: CIVIC_OPERATOR_EMAILS
         sync: false
-      # The measurement of every run and determination (server/economics.js) lives in the Render
-      # Postgres named CIVIC; its internal connection string is set on the service in Render as
-      # DATABASE_URL (Render's own name for it), never here.
+      - key: CIVIC_OPERATOR_CLAIM
+        sync: false
+      - key: CIVIC_SIGNUP_GRANT_CENTS
+        value: "1000"
+      # The measurement of every run and determination (server/economics.js), and the accounts, their
+      # sessions and their credit (server/accounts.js, server/credit.js), live in the Render Postgres named
+      # CIVIC; its internal connection string is set on the service in Render as DATABASE_URL (Render's own
+      # name for it), never here. With accounts on and no DATABASE_URL, the service does not start.
       - key: DATABASE_URL
         sync: false
