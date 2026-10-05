@@ -3,6 +3,9 @@
 // be checked against the OpenAI pricing page before being relied on. Override with
 // CIVIC_PRICING_JSON='{"gpt-5.6-sol":{"input":4,"cached":0.4,"output":20}}'.
 // Sol's row is OpenAI's pricing page of 21 September 2026 (promotional through 21 November 2026).
+// DeepSeek's rows are its Models & Pricing page of 4 October 2026: a peak price, an off-peak price at half, and the
+// peak hours (01:00-04:00 and 06:00-10:00 UTC, Monday to Friday); a call is priced at the hour it went. An override
+// of a DeepSeek row in CIVIC_PRICING_JSON replaces the whole row, so it repeats `offPeak` and `peakUtc`.
 import { config } from './config.js';
 
 const DEFAULT_PRICES = {
@@ -12,7 +15,19 @@ const DEFAULT_PRICES = {
   'gpt-6-astra': { input: 10, cached: 1, output: 50 },
   'gpt-5-mini': { input: 0.25, cached: 0.025, output: 2 },
   'gpt-5-nano': { input: 0.05, cached: 0.005, output: 0.4 },
+  'deepseek-flash': { input: 0.30, cached: 0.006, output: 1.20, offPeak: { input: 0.15, cached: 0.003, output: 0.60 }, peakUtc: { days: [1, 2, 3, 4, 5], hours: [[1, 4], [6, 10]] } },
+  'deepseek-v4-pro': { input: 1.32, cached: 0.044, output: 3.96, offPeak: { input: 0.66, cached: 0.022, output: 1.98 }, peakUtc: { days: [1, 2, 3, 4, 5], hours: [[1, 4], [6, 10]] } },
 };
+
+/** Whether `at` falls in a row's peak hours (UTC). A row without peak hours has one price at every hour. */
+export function isPeak(row, at = Date.now()) {
+  const p = row?.peakUtc;
+  if (!p) return true;
+  const d = new Date(at ?? Date.now());
+  if (!(p.days || []).includes(d.getUTCDay())) return false;
+  const h = d.getUTCHours() + d.getUTCMinutes() / 60 + d.getUTCSeconds() / 3600;
+  return (p.hours || []).some(([from, to]) => h >= from && h < to);
+}
 
 let prices = { ...DEFAULT_PRICES };
 if (process.env.CIVIC_PRICING_JSON) {
@@ -28,8 +43,9 @@ function priceFor(model) {
 }
 
 /** Estimated cost of one text call. Returns { usd, priced } — priced=false when the model is not in the table. */
-export function estimateTextCost({ model, usage, searches = 0 }) {
-  const p = priceFor(model);
+export function estimateTextCost({ model, usage, searches = 0, at = null }) {
+  const row = priceFor(model);
+  const p = row && row.offPeak && !isPeak(row, at ?? Date.now()) ? { ...row, ...row.offPeak } : row;
   const searchUsd = searches * config.webSearchUsdPerCall;
   if (!p || !usage) return { usd: searchUsd, priced: false };
   const cached = usage.cached || 0;

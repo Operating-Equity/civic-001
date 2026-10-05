@@ -27,6 +27,13 @@ app.use((req, res, next) => {
   if (req.method === 'POST' && !req.is('multipart/form-data')) recordRequest(req, req.body);
   next();
 });
+// Every request to the DeepSeek stand-in (below) is recorded with its method, its key and the names of its
+// headers, before any check of the key: the guard proves that nothing reaches DeepSeek without DeepSeek's key,
+// and that none of OpenAI's settings (organisation, project, custom headers) travels with it.
+app.use('/deepseek', (req, res, next) => {
+  if (process.env.MOCK_RECORD) fs.appendFileSync(process.env.MOCK_RECORD, JSON.stringify({ ts: Date.now(), deepseek: true, method: req.method, path: req.originalUrl.split('?')[0], auth: req.get('authorization') || '', headers: Object.keys(req.headers) }) + '\n');
+  next();
+});
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms * SPEED));
 // The calls the stand-in makes to CIVIC's gateway when a request names it (see the Responses route).
@@ -290,6 +297,91 @@ app.post('/v1/images/edits', form.any(), async (req, res) => {
 });
 
 app.get('/v1/mock/stats', (req, res) => res.json({ ...stats, tokens: { limit: TOKENS.limit, level: Math.floor(levelOf(TOKENS)) }, requests: REQUESTS ? { limit: REQUESTS.limit, level: Math.floor(levelOf(REQUESTS)) } : null, windowMs: WINDOW, costs: COSTS }));
+
+// ---- DeepSeek ----------------------------------------------------------------------------
+// The listing on DeepSeek (server/deepseek.js) talks to this when CIVIC_DEEPSEEK_BASE_URL points here
+// (http://localhost:<port>/deepseek). It speaks DeepSeek's dialect of the Responses API as its pages describe it:
+// a chain of thought streamed as reasoning_text (carrying a marker the guard looks for wherever it must not be),
+// no reasoning summary, web search run on its own side, usage in OpenAI's shape, no x-ratelimit headers, and its
+// own refusals: 429 with no wait figure, 503 overloaded, 402 balance used up; keep-alive comments while queued,
+// a stream closed with no event at all (what DeepSeek does to a request not started inside ten minutes), and an
+// `error` event in the middle of a stream. Each knob lists the request ordinals it applies to (1-based).
+const DS_MODELS = ['deepseek-flash', 'deepseek-v4-pro'];
+const DS_EFFORTS = new Set(['none', 'low', 'high', 'max', 'minimal', 'medium', 'xhigh']);
+const dsSet = (name) => new Set(String(process.env[name] || '').split(',').map(Number).filter(Boolean));
+const DS_429 = dsSet('MOCK_DS_429'), DS_503 = dsSet('MOCK_DS_503'), DS_402 = dsSet('MOCK_DS_402'), DS_CLOSE = dsSet('MOCK_DS_CLOSE'), DS_ERROR_EVENT = dsSet('MOCK_DS_ERROR_EVENT');
+const DS_KEEPALIVE_MS = Number(process.env.MOCK_DS_KEEPALIVE_MS || 0);
+const DS_COT = 'DSCOT-7f3a';   // the chain of thought's marker: never on a page, a replay, a ledger line or a failure record
+const dsStats = { requests: 0, streams: 0, inFlight: 0, maxInFlight: 0 };
+let dsOrdinal = 0;
+
+app.get('/deepseek/models', (req, res) => res.json({ object: 'list', data: DS_MODELS.map((id) => ({ id, object: 'model', owned_by: 'deepseek' })) }));
+app.get('/deepseek/user/balance', (req, res) => res.json({
+  is_available: process.env.MOCK_DS_BALANCE_EMPTY !== '1',
+  balance_infos: [{ currency: 'USD', total_balance: process.env.MOCK_DS_BALANCE_EMPTY === '1' ? '0.00' : '12.34', granted_balance: '0.00', topped_up_balance: process.env.MOCK_DS_BALANCE_EMPTY === '1' ? '0.00' : '12.34' }],
+}));
+app.get('/deepseek/mock/stats', (req, res) => res.json(dsStats));
+
+app.post('/deepseek/responses', async (req, res) => {
+  const body = req.body || {};
+  const ordinal = ++dsOrdinal;
+  dsStats.requests = ordinal;
+  if (!DS_MODELS.includes(body.model)) return res.status(400).json({ error: { message: 'Model Not Exist', type: 'invalid_request_error' } });
+  if (body.reasoning?.effort !== undefined && !DS_EFFORTS.has(body.reasoning.effort)) return res.status(400).json({ error: { message: `Invalid reasoning effort: ${body.reasoning.effort}`, type: 'invalid_request_error' } });
+  if (DS_402.has(ordinal)) return res.status(402).json({ error: { message: 'Insufficient Balance', type: 'unknown_error' } });
+  if (DS_429.has(ordinal)) return res.status(429).json({ error: { message: 'Rate Limit Reached', type: 'rate_limit_reached' } });
+  if (DS_503.has(ordinal)) return res.status(503).json({ error: { message: 'Server Overloaded', type: 'server_overloaded' } });
+  dsStats.streams++;
+  dsStats.inFlight++;
+  dsStats.maxInFlight = Math.max(dsStats.maxInFlight, dsStats.inFlight);
+  res.on('close', () => { dsStats.inFlight = Math.max(0, dsStats.inFlight - 1); });
+  res.status(200);
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.flushHeaders();
+  if (DS_KEEPALIVE_MS > 0) {
+    const until = Date.now() + DS_KEEPALIVE_MS * SPEED;
+    while (Date.now() < until && !res.destroyed) { res.write(': keep-alive\n\n'); await sleep(100); }
+  }
+  if (DS_CLOSE.has(ordinal)) { res.end(); return; }
+  let seq = 0;
+  const send = (event) => res.write(`event: ${event.type}\ndata: ${JSON.stringify({ ...event, sequence_number: seq++ })}\n\n`);
+  const id = 'resp_ds_' + Math.random().toString(36).slice(2);
+  send({ type: 'response.created', response: { id, object: 'response', status: 'in_progress', model: body.model } });
+  send({ type: 'response.output_item.added', output_index: 0, item: { type: 'reasoning', id: 'rs_1', status: 'in_progress', content: [] } });
+  const thought = [`${DS_COT} reading the instructions and the document. `, 'Listing every empirical claim in order. ', `${DS_COT} done.`];
+  for (const delta of thought) { send({ type: 'response.reasoning_text.delta', item_id: 'rs_1', output_index: 0, content_index: 0, delta }); await sleep(20); }
+  send({ type: 'response.reasoning_text.done', item_id: 'rs_1', output_index: 0, content_index: 0, text: thought.join('') });
+  send({ type: 'response.output_item.done', output_index: 0, item: { type: 'reasoning', id: 'rs_1', status: 'completed', content: [{ type: 'reasoning_text', text: thought.join('') }], summary: [] } });
+  if (DS_ERROR_EVENT.has(ordinal)) {
+    res.write(`event: error\ndata: ${JSON.stringify({ type: 'error', error: { message: 'Server Overloaded', code: 'server_overloaded' } })}\n\n`);
+    res.end();
+    return;
+  }
+  if ((body.tools || []).some((t) => t.type === 'web_search')) {
+    send({ type: 'response.web_search_call.in_progress', output_index: 1, item_id: 'ws_1' });
+    send({ type: 'response.output_item.done', output_index: 1, item: { type: 'web_search_call', id: 'ws_1', status: 'completed', action: { type: 'search', query: 'the document\'s first claim' } } });
+  }
+  const text = inputText(body);
+  const cut = text.lastIndexOf('\n\n');
+  const output = mockClaims(body.instructions || cut < 0 ? text : text.slice(cut + 2).replace(/^[^\n]*:[ \t]*\n/, ''));
+  send({ type: 'response.output_item.added', output_index: 2, item: { type: 'message', id: 'msg_1', status: 'in_progress', role: 'assistant', content: [] } });
+  for (const delta of output.match(/[\s\S]{1,28}/g) || []) {
+    if (res.writableEnded || res.destroyed) return;
+    send({ type: 'response.output_text.delta', item_id: 'msg_1', output_index: 2, content_index: 0, delta });
+    await sleep(10);
+  }
+  send({ type: 'response.output_text.done', item_id: 'msg_1', output_index: 2, content_index: 0, text: output });
+  send({ type: 'response.output_item.done', output_index: 2, item: { type: 'message', id: 'msg_1', status: 'completed', role: 'assistant', content: [{ type: 'output_text', text: output, annotations: [] }] } });
+  send({
+    type: 'response.completed',
+    response: {
+      id, object: 'response', status: 'completed', model: body.model, store: false, error: null, incomplete_details: null,
+      usage: { input_tokens: Math.round(text.length / 4), input_tokens_details: { cached_tokens: 0 }, output_tokens: Math.round(output.length / 4) + 50, output_tokens_details: { reasoning_tokens: 50 }, total_tokens: 0 },
+    },
+  });
+  res.end();
+});
 
 app.use((req, res) => res.status(404).json({ error: { message: `mock: no route ${req.method} ${req.path}` } }));
 

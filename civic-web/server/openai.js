@@ -8,10 +8,13 @@ import { gateFor, parseRefusal } from './gate.js';
 import { noteReply } from './reach.js';
 
 export class ApiError extends Error {
-  constructor(status, code, message) {
+  // `message` is what a reader may see under FactEngine's own sentence; `detail` is for the record on
+  // /check alone (the provider, the setting, the cause), never sent to the page.
+  constructor(status, code, message, detail = null) {
     super(message);
     this.status = status;
     this.code = code;
+    this.detail = detail;
   }
 }
 
@@ -22,7 +25,8 @@ function assertSendable(key, where) {
   // Without this the key reaches the HTTP library, which refuses it with a message about
   // ByteStrings and character codes: true, and useless to the person reading it.
   const bad = [...key].find((c) => c.codePointAt(0) > 126 || c.codePointAt(0) < 33);
-  throw new ApiError(400, 'key_not_sendable',
+  // The page shows its own sentence for this code; the specifics are for /check (no key on the page).
+  throw new ApiError(400, 'key_not_sendable', '',
     `The OpenAI key from ${where} contains a character that cannot be sent in a request` +
     (bad ? ` (${JSON.stringify(bad)})` : '') +
     '. It was probably copied from somewhere that shortened it for display. Open /check for what to do.');
@@ -42,7 +46,7 @@ function assertSendable(key, where) {
 export function operatorKey({ optional = false } = {}) {
   if (!config.serverKey) {
     if (optional) return ''; // the self-check reports a missing key rather than refusing
-    throw new ApiError(503, 'no_operator_key',
+    throw new ApiError(503, 'no_operator_key', '',
       'This FactEngine has no OpenAI key of its own, and it will not run on anyone else\'s. ' +
       'The operator sets OPENAI_API_KEY in the settings file beside the server. Open /check.');
   }
@@ -62,6 +66,8 @@ export function clientFor(apiKey) {
 
 /** Translates SDK/HTTP errors into something safe to show. Never echoes request content. */
 export function describeError(err) {
+  // Ours already: its words were chosen for the page and its detail for /check.
+  if (err instanceof ApiError) return err;
   const status = err?.status ?? err?.statusCode ?? 500;
   const code = err?.code || err?.error?.code || err?.error?.type || 'openai_error';
   let message = err?.error?.message || err?.message || 'The request to OpenAI failed.';
@@ -73,7 +79,8 @@ export function describeError(err) {
   }
   // An API can quote part of a request back in an error. Nothing of the prompt leaves this way.
   message = redactPrompts(String(message)).slice(0, 2000);
-  if (status === 401) return new ApiError(401, 'invalid_key', 'OpenAI rejected the API key.');
+  // The page shows its own sentence for a 401 and names no provider and no key (the rule of 3 October).
+  if (status === 401) return new ApiError(401, 'invalid_key', '', 'OpenAI rejected the API key (401).');
   if (status === 429) return isRateLimit(err) ? new ApiError(429, 'rate_limited', message) : new ApiError(429, 'quota_exhausted', message);
   if (status === 404 && /model/i.test(message)) return new ApiError(404, 'model_not_found', message);
   if (isConnectionDrop(err)) return new ApiError(502, 'connection_dropped', message);

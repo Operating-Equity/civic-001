@@ -1,9 +1,10 @@
 # Hosting on Render (render.com). Render reads this file from the repository (New → Blueprint) and
 # creates the CIVIC web service; a service created through Render's API carries the same settings.
 # After the service exists, the two prompts go in as Secret Files named extract.txt and
-# evaluate.txt (mounted at /etc/secrets/, never in the repository), and the two values marked
-# sync: false are set in Render and nowhere else: the operator's OpenAI key, and the access codes
-# that open the door (civic-web/server/access.js).
+# evaluate.txt (mounted at /etc/secrets/, never in the repository), and the values marked
+# sync: false are set in Render and nowhere else: the operator's OpenAI key, DeepSeek's key for the
+# listing (4 October), the access codes that open the door (civic-web/server/access.js), and the
+# database's address.
 services:
   - type: web
     name: civic
@@ -47,6 +48,10 @@ services:
       # colon): set in Render, never here.
       - key: OPENAI_API_KEY
         sync: false
+      - key: DEEPSEEK_API_KEY      # the listing's key when CIVIC_EXTRACT_PROVIDER is deepseek
+        sync: false
+      - key: CIVIC_EXTRACT_PROVIDER
+        value: deepseek            # the operator's choice of 4 October: the listing on DeepSeek flash
       - key: CIVIC_ACCESS_CODES
         sync: false
       # The measurement of every run and determination (server/economics.js) lives in the Render

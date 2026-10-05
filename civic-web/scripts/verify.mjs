@@ -62,8 +62,11 @@ const ALLOWED = {
 };
 
 const children = [];
+// Every child starts with the listing on OpenAI and DeepSeek out of reach (an address on a closed port, no key),
+// unless a check says otherwise: a developer's shell can never send the guard's prompts to the real DeepSeek.
+const DEEPSEEK_OFF = { CIVIC_EXTRACT_PROVIDER: '', DEEPSEEK_API_KEY: '', CIVIC_DEEPSEEK_BASE_URL: 'http://127.0.0.1:9/deepseek' };
 const start = (args, extraEnv) => {
-  const child = spawn(process.execPath, args, { cwd: root, env: { ...process.env, ...extraEnv }, stdio: ['ignore', 'pipe', 'pipe'] });
+  const child = spawn(process.execPath, args, { cwd: root, env: { ...process.env, ...DEEPSEEK_OFF, ...extraEnv }, stdio: ['ignore', 'pipe', 'pipe'] });
   child.stdout.on('data', () => {});
   child.stderr.on('data', (d) => process.stderr.write(`  [${path.basename(args[0])}] ${d}`));
   children.push(child);
@@ -1761,6 +1764,186 @@ async function takeoverChecks() {
 }
 await takeoverChecks();
 
+// ---- The listing on DeepSeek (4 October) ------------------------------------------------------------------
+// The operator: "I want use DeepSeek flash for the generating of empirical claims." The listing goes to DeepSeek's
+// deepseek-flash at effort max; the determinations stay on OpenAI. A stand-in DeepSeek (the /deepseek routes of
+// scripts/mock-openai.js) answers as DeepSeek's own pages describe it, refusals included. Proved here: the right key
+// to the right provider and no OpenAI setting at DeepSeek; DeepSeek's body exactly; the prompt verbatim; the chain
+// of thought on no page, replay, ledger line or failure record; every refusal a wait or the operator's sentence;
+// /check's rows and the balance for the operator alone; the price by the hour; no key anywhere it could be read.
+async function deepseekChecks() {
+  const DMOCK = MOCK_PORT + 80;
+  const DSKEY = 'sk-dsverify00000000000000000000000';
+  const COT = 'DSCOT-7f3a';   // the stand-in's chain-of-thought marker
+  const PASS = `verify-gateway-pass-${Date.now()}`;
+  const stamp = Date.now();
+  const rec = path.join(os.tmpdir(), `civic-verify-ds-${stamp}.jsonl`);
+  const ledger = path.join(os.tmpdir(), `civic-verify-ds-ledger-${stamp}.jsonl`);
+  const errlog = path.join(os.tmpdir(), `civic-verify-ds-errors-${stamp}.log`);
+  fs.writeFileSync(rec, '');
+  const records = () => fs.readFileSync(rec, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l));
+  const dsEntries = () => records().filter((r) => r.deepseek);
+  const dsBodies = () => records().filter((r) => r.path === '/deepseek/responses' && r.body);
+  const dsStats = async () => (await fetch(`http://localhost:${DMOCK}/deepseek/mock/stats`, { headers: { authorization: `Bearer ${KEY}` } })).json();
+  const procs = [];
+  const output = [];
+  const serve = (port, env) => {
+    const child = start([path.join(root, 'server', 'index.js')], {
+      PORT: String(port), OPENAI_BASE_URL: `http://localhost:${DMOCK}/v1`, OPENAI_API_KEY: KEY, CIVIC_IMAGE_ENABLED: 'false',
+      CIVIC_LEDGER_FILE: ledger, CIVIC_ERROR_LOG: errlog, CIVIC_ACCESS_CODES: '', CIVIC_OPERATOR_CODES: '', DATABASE_URL: '',
+      CIVIC_EXTRACT_PROVIDER: 'deepseek', DEEPSEEK_API_KEY: DSKEY, CIVIC_DEEPSEEK_BASE_URL: `http://localhost:${DMOCK}/deepseek`, ...env,
+    });
+    child.stdout.on('data', (d) => output.push(String(d)));
+    child.stderr.on('data', (d) => output.push(String(d)));
+    procs.push(child);
+    return `http://localhost:${port}`;
+  };
+  // Request ordinals at the stand-in DeepSeek: 1 clean; 2 a 429 with no wait, 3 clean; 4 a 503, 5 clean; 6 an error
+  // event mid-stream, 7 clean; 8 a stream closed with no event, 9 clean; 10 a 402. Every stream opens with keep-alives.
+  start([path.join(root, 'scripts', 'mock-openai.js')], {
+    MOCK_PORT: String(DMOCK), MOCK_RECORD: rec, MOCK_SPEED: '0.2', MOCK_EVAL_MARK: process.env.MOCK_EVAL_MARK_FOR_GATE || '',
+    MOCK_DS_429: '2', MOCK_DS_503: '4', MOCK_DS_ERROR_EVENT: '6', MOCK_DS_CLOSE: '8', MOCK_DS_402: '10', MOCK_DS_KEEPALIVE_MS: '400',
+  });
+  try {
+    await wait(`http://localhost:${DMOCK}/v1/responses`, 15000, { anyResponse: true });
+    // OpenAI's own settings in this server's environment, which none may carry to DeepSeek; the gateway's
+    // address and pass too, which must never go to DeepSeek.
+    const base = serve(PORT + 80, { OPENAI_ORG_ID: 'org-verify-ds', OPENAI_PROJECT_ID: 'proj-verify-ds', OPENAI_CUSTOM_HEADERS: 'X-Verify-Leak: yes', CIVIC_TOOLS_URL: `http://localhost:${PORT + 80}/mcp`, CIVIC_TOOLS_PASS: PASS });
+    await wait(`${base}/api/health`);
+    const health = await (await fetch(`${base}/api/health`)).json();
+    const sx = health.request?.extract || {};
+    const wantKeys = [...(slot ? ['model', 'input'] : ['model', 'instructions', 'input']), 'reasoning', 'tools', 'stream'];
+    check('DeepSeek: the health line says the listing goes to DeepSeek\'s deepseek-flash at effort max with no mode and no summary, and lists its keys (no store); the determinations stay on OpenAI',
+      sx.provider === 'deepseek' && sx.model === 'deepseek-flash' && sx.effort === 'max' && sx.mode === null && sx.summary === null && JSON.stringify(health.request?.keys?.extract) === JSON.stringify(wantKeys) && health.request?.evaluate?.model === config.evalModels[0],
+      JSON.stringify({ extract: sx, keys: health.request?.keys?.extract }));
+
+    const source = 'The Eiffel Tower stands about 330 metres tall. Water boils at 100 degrees Celsius at sea level. Mount Everest is 8,849 metres above sea level.';
+    const jobA = `ds-a-${stamp}`;
+    const a = await stream(`${base}/api/extract`, { text: source, jobId: jobA });
+    const doneA = a.find((e) => e.t === 'done');
+    const bodyA = dsBodies()[0]?.body;
+    check('DeepSeek: a listing completes with its claims, on deepseek-flash at effort max, no mode, its web search on the trail',
+      Boolean(doneA) && doneA.total >= 3 && doneA.model === 'deepseek-flash' && doneA.effort === 'max' && doneA.mode === null && (doneA.trail || []).some((t) => t.kind === 'search') && !a.some((e) => e.t === 'error'),
+      JSON.stringify(doneA && { total: doneA.total, model: doneA.model, effort: doneA.effort, mode: doneA.mode, trail: doneA.trail }));
+    check('DeepSeek: the listing\'s body carries exactly the model, the prompt, reasoning {effort: max}, web search and stream; no store, mode or summary, and not CIVIC\'s own tools though the gateway is set',
+      Boolean(bodyA) && JSON.stringify(Object.keys(bodyA).sort()) === JSON.stringify([...wantKeys].sort()) && JSON.stringify(bodyA.reasoning) === JSON.stringify({ effort: 'max' })
+        && JSON.stringify(bodyA.tools) === JSON.stringify([{ type: 'web_search' }]) && bodyA.stream === true && bodyA.model === 'deepseek-flash' && !JSON.stringify(bodyA).includes(PASS),
+      JSON.stringify(bodyA && { keys: Object.keys(bodyA), reasoning: bodyA.reasoning, tools: bodyA.tools }));
+    const textA = bodyA?.input?.[0]?.content?.[0]?.text;
+    if (slot) {
+      const expected = extractPrompt.slice(0, slot.start) + sourceBlock(source, { kind: 'text' }) + extractPrompt.slice(slot.end);
+      check('DeepSeek: the prompt sent verbatim with the source in place of its final bracketed line, as the only message', bodyA?.instructions === undefined && bodyA?.input?.length === 1 && textA === expected, `${textA?.length} vs ${expected.length} chars`);
+    } else {
+      check('DeepSeek: the prompt sent verbatim as the instructions, the document whole as the only message', bodyA?.instructions === extractPrompt && bodyA?.input?.length === 1 && textA === source, `${bodyA?.instructions?.length} vs ${extractPrompt.length} chars`);
+    }
+    const replay = await stream(`${base}/api/extract`, { text: source, jobId: jobA, cursor: 0 });
+    check('DeepSeek: the chain of thought reaches no page: no reasoning event on the stream or in its replay from the start, nothing of it in done',
+      a.length > 0 && replay.length > 0 && ![...a, ...replay].some((e) => e.t === 'reasoning') && ![...a, ...replay].some((e) => JSON.stringify(e).includes(COT)) && doneA?.reasoning === null,
+      JSON.stringify([...a, ...replay].filter((e) => e.t === 'reasoning').slice(0, 2)));
+
+    // A determination of the first claim: OpenAI, with OpenAI's key.
+    const entry = doneA?.claims?.[0]?.entry || 'The Eiffel Tower stands about 330 metres tall.';
+    const ev = await stream(`${base}/api/evaluate`, { claims: [entry], text: source, source: { kind: 'text' } });
+    check('DeepSeek: the determination still runs on OpenAI and completes', ev.some((e) => e.t === 'done') && !ev.some((e) => e.t === 'error'), JSON.stringify(ev.filter((e) => e.t === 'error')));
+    const openaiRecs = records().filter((r) => r.path === '/v1/responses');
+    const dsRecs = dsEntries();
+    check('DeepSeek: the listing went to DeepSeek with DeepSeek\'s key and never OpenAI\'s; the determination went to OpenAI with OpenAI\'s key and never DeepSeek\'s',
+      dsRecs.length >= 1 && dsRecs.every((r) => r.auth === `Bearer ${DSKEY}`) && openaiRecs.length === 1 && openaiRecs.every((r) => r.auth === `Bearer ${KEY}`) && !records().some((r) => (r.auth || '').includes(READER_KEY)),
+      JSON.stringify({ deepseek: [...new Set(dsRecs.map((r) => r.auth))].map((x) => x.replace(DSKEY, 'DSKEY').replace(KEY, 'OPENAI KEY')), openai: openaiRecs.length }));
+    check('DeepSeek: none of OpenAI\'s settings travelled to DeepSeek (no organisation, project or custom header)',
+      dsRecs.length >= 1 && dsRecs.every((r) => !r.headers.includes('openai-organization') && !r.headers.includes('openai-project') && !r.headers.includes('x-verify-leak')),
+      JSON.stringify([...new Set(dsRecs.flatMap((r) => r.headers))]));
+
+    // The refusals, one listing each, in the order the stand-in was told.
+    const run = async (label) => { const before = (await dsStats()).requests; const evs = await stream(`${base}/api/extract`, { text: source, jobId: `ds-${label}-${stamp}` }); return { evs, sends: (await dsStats()).requests - before }; };
+    const b = await run('429');
+    const r429 = b.evs.find((e) => e.t === 'retry');
+    check('DeepSeek: a 429 that names no wait is a wait of about a second, then the listing completes (two sends, no loop)',
+      r429?.reason === 'rate_limit' && r429.waitMs >= 600 && r429.waitMs <= 1000 && b.sends === 2 && b.evs.some((e) => e.t === 'done'), JSON.stringify({ retry: r429, sends: b.sends }));
+    const c = await run('503');
+    check('DeepSeek: an overloaded answer (503) goes again a second later and the listing completes',
+      c.evs.some((e) => e.t === 'retry' && e.reason === 'error' && e.waitMs >= 600) && c.sends === 2 && c.evs.some((e) => e.t === 'done'), JSON.stringify({ retries: c.evs.filter((e) => e.t === 'retry'), sends: c.sends }));
+    const d = await run('error-event');
+    check('DeepSeek: an error event in the middle of a stream is read as the stream\'s failure and goes again; the listing completes',
+      d.evs.some((e) => e.t === 'retry') && d.sends === 2 && d.evs.some((e) => e.t === 'done') && !d.evs.some((e) => e.t === 'error'), JSON.stringify({ retries: d.evs.filter((e) => e.t === 'retry'), sends: d.sends }));
+    const e = await run('closed');
+    const doneE = e.evs.find((x) => x.t === 'done');
+    check('DeepSeek: a stream closed with no event is a cut connection and goes again; never a listing of no claims',
+      e.evs.some((x) => x.t === 'retry' && x.reason === 'connection') && e.sends === 2 && doneE?.total >= 3, JSON.stringify({ retries: e.evs.filter((x) => x.t === 'retry'), sends: e.sends, total: doneE?.total }));
+    const f = await run('402');
+    const errF = f.evs.find((x) => x.t === 'error');
+    const failures = (await (await fetch(`${base}/api/selftest`)).json()).recentFailures || [];
+    const rec402 = failures.find((x) => x.where === 'server:listing' && x.code === 'balance_exhausted');
+    check('DeepSeek: a balance used up (402) reaches the page as its status and code with no words of the provider\'s, and /check records DeepSeek\'s own',
+      errF?.status === 402 && errF.code === 'balance_exhausted' && errF.message === '' && /DeepSeek answered 402 \(Insufficient Balance\)/.test(rec402?.detail || ''),
+      JSON.stringify({ error: errF, record: rec402 }));
+
+    const st = await (await fetch(`${base}/api/selftest`)).json();
+    const row = (re) => (st.checks || []).find((x) => re.test(x.title));
+    check('DeepSeek: /check accepts the listing\'s key and model without spending a token, shows the balance to the operator, and is ready',
+      st.ready === true && row(/^A DeepSeek key is configured/)?.state === 'ok' && row(/^DeepSeek accepts this key for deepseek-flash/)?.state === 'ok'
+        && /Balance 12\.34 USD/.test(row(/DeepSeek account can pay/)?.detail || '') && row(/^OpenAI accepts this key for/)?.title === `OpenAI accepts this key for ${config.evalModels[0]}`
+        && st.settings?.listingProvider === 'DeepSeek' && st.settings?.listingModel === 'deepseek-flash' && st.settings?.listingEffort === 'max',
+      JSON.stringify((st.checks || []).filter((x) => /DeepSeek|OpenAI/.test(x.title)).map((x) => `${x.state}:${x.title}`)));
+    check('DeepSeek: the listing\'s price is DeepSeek\'s at the hour it went, its ledger line says DeepSeek, and the chain of thought is in no ledger line and no failure record',
+      (() => {
+        const lines = fs.readFileSync(ledger, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)).filter((l) => l.kind === 'extract');
+        const errText = fs.existsSync(errlog) ? fs.readFileSync(errlog, 'utf8') : '';
+        return lines.length >= 5 && lines.every((l) => l.provider === 'deepseek' && l.model === 'deepseek-flash' && l.priced === true && l.usd > 0) && !fs.readFileSync(ledger, 'utf8').includes(COT) && !errText.includes(COT);
+      })(), '');
+
+    // The price by the hour, in process, from DeepSeek's page: peak Monday to Friday 01-04 and 06-10 UTC, half otherwise.
+    delete process.env.CIVIC_PRICING_JSON;
+    const { estimateTextCost } = await import(`${pathToFileURL(path.join(root, 'server', 'pricing.js')).href}?ds=${stamp}`);
+    const u = { input: 1_000_000, cached: 0, output: 1_000_000 };
+    const at = (iso) => estimateTextCost({ model: 'deepseek-flash', usage: u, at: Date.parse(iso) }).usd;
+    check('DeepSeek: a million tokens in and out cost $1.50 at a peak hour (Monday 02:00 UTC) and $0.75 off-peak (Monday 05:00, Monday 10:00, Sunday 02:00); cached input at its own price',
+      at('2026-10-05T02:00:00Z') === 1.5 && at('2026-10-05T05:00:00Z') === 0.75 && at('2026-10-05T10:00:00Z') === 0.75 && at('2026-10-04T02:00:00Z') === 0.75
+        && estimateTextCost({ model: 'deepseek-flash', usage: { input: 1_000_000, cached: 1_000_000, output: 0 }, at: Date.parse('2026-10-05T02:00:00Z') }).usd === 0.006,
+      JSON.stringify({ peak: at('2026-10-05T02:00:00Z'), off: at('2026-10-05T05:00:00Z') }));
+
+    // The operator's figures stay the operator's: a reader's /check says whether the account can pay, never how much.
+    const readerCode = generateCode();
+    const operatorCode = generateCode();
+    const base2 = serve(PORT + 81, { CIVIC_ACCESS_CODES: `${readerCode},${operatorCode}`, CIVIC_OPERATOR_CODES: operatorCode, CIVIC_SESSION_SECRET: 'b'.repeat(64) });
+    await wait(`${base2}/api/health`);
+    const signIn = async (code) => { const r = await fetch(`${base2}/api/signin`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: 'guard@example.com', code }) }); return (r.headers.get('set-cookie') || '').split(';')[0]; };
+    const balanceRow = async (cookie) => ((await (await fetch(`${base2}/api/selftest`, { headers: { cookie } })).json()).checks || []).find((x) => /DeepSeek account can pay/.test(x.title));
+    const asReader = await balanceRow(await signIn(readerCode));
+    const asOperator = await balanceRow(await signIn(operatorCode));
+    check('DeepSeek: a reader\'s /check says the listing\'s account can pay, with no figure; the operator\'s shows the balance',
+      asReader?.state === 'ok' && !/\d/.test(asReader.detail || '') && /Balance 12\.34 USD/.test(asOperator?.detail || ''), JSON.stringify({ reader: asReader, operator: asOperator }));
+
+    // No key, no request: provider DeepSeek with DEEPSEEK_API_KEY unset refuses the listing before anything is sent.
+    const before = dsEntries().length;
+    const base3 = serve(PORT + 82, { DEEPSEEK_API_KEY: '' });
+    await wait(`${base3}/api/health`);
+    const noKey = await fetch(`${base3}/api/extract`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text: source, jobId: `ds-nokey-${stamp}` }) });
+    const noKeyBody = await noKey.json().catch(() => ({}));
+    const st3 = await (await fetch(`${base3}/api/selftest`)).json();
+    check('DeepSeek: with no DeepSeek key the listing is refused before any request (the page\'s own sentence, no words of ours), /check says which setting is missing and is not ready, and nothing reaches DeepSeek',
+      noKey.status === 503 && noKeyBody?.error?.code === 'no_operator_key' && noKeyBody.error.message === '' && st3.ready === false
+        && (st3.checks || []).some((x) => x.state === 'bad' && x.title === 'No DeepSeek key for the listing' && /DEEPSEEK_API_KEY/.test(x.detail)) && dsEntries().length === before,
+      JSON.stringify({ status: noKey.status, body: noKeyBody, sent: dsEntries().length - before }));
+
+    // The key, nowhere it could be read.
+    const health2 = await (await fetch(`${base}/api/health`)).text();
+    const check2 = await (await fetch(`${base}/api/selftest`)).text();
+    const pageHtml = await (await fetch(`${base}/`)).text();
+    const ledgerText = fs.readFileSync(ledger, 'utf8');
+    const errText = fs.existsSync(errlog) ? fs.readFileSync(errlog, 'utf8') : '';
+    const said = output.join('');
+    check('DeepSeek: neither key appears in the health line, the check data, the page, the ledger, the failure records or the server\'s own output',
+      ![health2, check2, pageHtml, ledgerText, errText, said].some((t) => t.includes(DSKEY) || t.includes(KEY)) && said.includes('extraction requests go to localhost (DeepSeek) and carry: model deepseek-flash'),
+      [['health', health2], ['check', check2], ['page', pageHtml], ['ledger', ledgerText], ['errors', errText], ['output', said]].filter(([, t]) => t.includes(DSKEY) || t.includes(KEY)).map(([n]) => n).join(', '));
+  } catch (err) {
+    check('DeepSeek checks completed', false, err.message);
+  } finally {
+    for (const p of procs) { try { p.kill('SIGTERM'); } catch {} }
+  }
+}
+await deepseekChecks();
+
 // ---- the pages a commercial service owes: the texts are served, whole, English, with no script but the field ----
 // Terms, Privacy, Refunds and Contact are static files (public/*.html) served at /terms, /privacy, /refunds and
 // /contact by the extensionless rule; each carries its heading, the support address and the text in .prose, names no
@@ -1781,7 +1964,7 @@ async function pagesChecks() {
       ['/refunds', 'Refund and Dispute Policy', /A test that fails is never charged\./],
       ['/contact', 'Contact', /Arbitration opt-out/],
     ];
-    const vendors = /\b(OpenAI|Exa|Supadata|YouTube|Render|Stripe|Google|Resend|Cloudflare)\b/;
+    const vendors = /\b(OpenAI|DeepSeek|Exa|Supadata|YouTube|Render|Stripe|Google|Resend|Cloudflare)\b/;
     for (const [p, heading, mark] of PAGES) {
       const r = await page(p);
       const scripts = r.text.match(/<script[^>]*>/g) || [];
@@ -1794,6 +1977,13 @@ async function pagesChecks() {
       check(`${p}: links the other three pages and marks itself`,
         r.text.includes('class="plain-nav"') && ['terms', 'privacy', 'refunds', 'contact'].every((q) => r.text.includes(`href="${q}"`)) && r.text.includes(`href="${p.slice(1)}" aria-current="page"`), '');
     }
+    // The listing's provider processes data in China (4 October): the Privacy page says so, and says which provider's
+    // terms allow a use of inputs to improve its models, naming none.
+    const privacy = await page('/privacy');
+    check('/privacy: the listing\'s provider is described as processing data in China, with its terms on inputs, and the transfer sentence names China',
+      privacy.text.includes('A model provider that lists the claims in what you submit') && privacy.text.includes('It processes data in China, and its terms allow it to use a small part of the inputs it receives, de-identified, to improve its models unless we opt out.')
+        && privacy.text.includes('A model provider that produces the determinations') && privacy.text.includes('the model provider that lists claims processes data in China; by using the Service you understand your information is transferred to those countries'),
+      '');
     const home = await page('/');
     const footer = (home.text.match(/<footer class="footer">[\s\S]*?<\/footer>/) || [''])[0];
     check('the page\'s footer links Terms, Privacy, Refunds and Contact in a new tab and names Fact Engine LLC, an Operating Equity company',

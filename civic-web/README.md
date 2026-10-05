@@ -344,6 +344,26 @@ source are printed by `npm run tools`; they are the operator's text, like the pr
 Every request to OpenAI carries the operator's tested configuration and nothing else. There is no
 number in this program in the path of a determination that the operator did not set.
 
+**The listing on DeepSeek** (`CIVIC_EXTRACT_PROVIDER=deepseek`; the operator's choice of 4 October, "I want use
+DeepSeek flash for the generating of empirical claims. It is 10 times faster and better."): the extraction goes to
+DeepSeek's `deepseek-flash` through DeepSeek's own Responses API (`https://api.deepseek.com`, `POST /responses`),
+with DeepSeek's key (`DEEPSEEK_API_KEY`) and carries `model`, `input` (or `instructions` and `input`, as below),
+`reasoning.effort` (`max`, the operator's answer; `CIVIC_EXTRACT_EFFORT`, never inherited from `CIVIC_EFFORT`),
+`tools` (one `web_search`, which DeepSeek runs on its side) and `stream`: nothing else. DeepSeek has no reasoning
+mode, makes no summary and keeps nothing, so no `reasoning.mode`, `reasoning.summary` or `store` goes; FactEngine's
+own tools never go to DeepSeek (their pass is for OpenAI). DeepSeek streams its whole chain of thought instead of a
+summary: it is neither sent to the page nor kept anywhere, because it restates the prompt's instructions in the
+model's words (the operator's answer of 4 October). The client is built only with DeepSeek's own key and takes none
+of OpenAI's settings from the environment (key, organisation, project, admin key, custom headers). DeepSeek sends no
+per-minute figures, so the listing on DeepSeek does not go through the gate; its limit is 2,500 requests in flight
+per account, and its 429 names no wait, so the listing goes again a second after the refused go began, as long as it
+takes. A 503 and an error in the middle of a stream are retried the same way; a stream that ends without its last
+event (DeepSeek closes a request not started within ten minutes) is a cut connection and goes again, never a listing
+of no claims. A key DeepSeek rejects (401) or a balance used up (402) is shown to the reader as FactEngine's own
+sentence, and DeepSeek's words go to the record on /check, which also reads DeepSeek's key, model and balance (`GET
+/models`, `GET /user/balance`, no tokens; the figures to the operator alone). The determinations stay on OpenAI as
+below. `CIVIC_EXTRACT_PROVIDER=openai` (or unset) puts the listing back on OpenAI exactly as before.
+
 **Extraction request:** `model`, `input` (the extraction prompt, verbatim, with the source in
 place of its final bracketed line, as the only message), `reasoning.effort`, `reasoning.mode`, `reasoning.summary`,
 `tools` (one `web_search`, no options; and, when the gateway is set, one `mcp` entry naming it, with `server_label`, `server_url`, `headers` carrying the pass and `require_approval: never`, nothing else), `stream`, `store`. The source goes into that slot with
@@ -368,6 +388,7 @@ truncation setting. No fallback model. No size limit of ours on the document.
 | Setting | Value | Set by |
 |---|---|---|
 | Model, both steps | `gpt-5.6-sol` | Operator, tested |
+| The listing's provider | `CIVIC_EXTRACT_PROVIDER`: `openai` (unset) or `deepseek`, which sends the listing to `deepseek-flash` (`CIVIC_EXTRACT_MODELS` to change) at effort `max` (`CIVIC_EXTRACT_EFFORT`) on `DEEPSEEK_API_KEY`, which the operator pastes in Render. `CIVIC_DEEPSEEK_BASE_URL` is DeepSeek's address (only the guard changes it). Determinations stay on OpenAI. | Operator, 4 October |
 | Reasoning effort, both steps | `max` | Operator, 21 September: the model's maximum power below GPT-6 (tested at `xhigh` before that) |
 | Reasoning mode, both steps | `pro` | Operator, 21 September: GPT-5.6's pro mode, OpenAI's "highest-intelligence API option" short of GPT-6; more model work per answer at the same per-token rates. `standard` or blank sends no mode key. |
 | Web search | on, both steps, not configurable | The prompts were tested in a UI where search is available to every prompt. A request without it is not what was tested. |
@@ -382,7 +403,8 @@ truncation setting. No fallback model. No size limit of ours on the document.
 
 Environment variables: `CIVIC_MODEL`, `CIVIC_EFFORT` (both steps), or per step
 `CIVIC_EXTRACT_MODELS`, `CIVIC_EXTRACT_EFFORT`, `CIVIC_EVAL_MODELS`, `CIVIC_EVAL_EFFORT`,
-`CIVIC_EXTRACT_REASONING_SUMMARY`, `CIVIC_EVAL_REASONING_SUMMARY`. There is no setting that
+`CIVIC_EXTRACT_REASONING_SUMMARY`, `CIVIC_EVAL_REASONING_SUMMARY`; for the listing's provider,
+`CIVIC_EXTRACT_PROVIDER`, `DEEPSEEK_API_KEY` and `CIVIC_DEEPSEEK_BASE_URL`. There is no setting that
 removes web search.
 The server prints the exact shape of both requests at startup.
 
@@ -455,7 +477,7 @@ When accounts arrive, the prompts should move to a secrets manager rather than f
 
 | Step | Default | Why |
 |---|---|---|
-| Extraction | `gpt-5.6-sol`, effort `max`, mode `pro`, web search on | The operator's configuration, the same as for determination. |
+| Extraction | `gpt-5.6-sol`, effort `max`, mode `pro`, web search on; with `CIVIC_EXTRACT_PROVIDER=deepseek`, DeepSeek's `deepseek-flash`, effort `max`, web search on | The operator's configuration; DeepSeek flash on the operator's word of 4 October ("10 times faster and better"). DeepSeek's price per million tokens (its page, 4 October): input $0.30, cached input $0.006, output $1.20 at peak hours (01:00-04:00 and 06:00-10:00 UTC, Monday to Friday), half at every other hour; FactEngine prices each listing at the hour it went. A `CIVIC_PRICING_JSON` override of a DeepSeek row replaces the whole row, so it repeats `offPeak` and `peakUtc`. |
 | Determination | `gpt-5.6-sol`, effort `max`, mode `pro`, web search on | As requested. Web search lets the inspector reach primary sources, and every query and citation is shown. |
 | Art direction | `gpt-5.6-luna`, effort `low` | Reads the document and writes a concrete photographic brief for the echo. About two seconds. |
 | Visual echo | `gpt-image-2.5-flare`, quality `high` | OpenAI's fastest image model. Quality is `high`, not `low`: the speed comes from the model, not from starving it. |

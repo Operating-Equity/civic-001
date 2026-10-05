@@ -29,7 +29,7 @@ function renderChecks(checks) {
   }
 }
 
-/** The gate's figures, in OpenAI's own numbers: what the key's minute holds and what each request costs. */
+/** The gate's figures, in the provider's own numbers: what the key's minute holds and what each request costs. */
 function pacingRows(pacing) {
   const rows = [];
   const n = (v) => Number(v).toLocaleString('en-US');
@@ -37,7 +37,7 @@ function pacingRows(pacing) {
     const parts = [];
     if (g.tokens?.limit) parts.push(`${n(g.tokens.limit)} tokens a minute`);
     if (g.requests?.limit) parts.push(`${n(g.requests.limit)} requests a minute`);
-    for (const [kind, cost] of Object.entries(g.costs || {})) parts.push(`OpenAI has counted up to ${n(cost)} for one ${kind}`);
+    for (const [kind, cost] of Object.entries(g.costs || {})) parts.push(`counted up to ${n(cost)} for one ${kind}`);
     if (g.tokens?.available !== null && g.tokens?.available !== undefined) parts.push(`${n(g.tokens.available)} tokens available now`);
     const air = g.pending ? ` (${g.pending} sent and awaiting ${g.pending === 1 ? 'its' : 'their'} headers, ${n(g.reserved || 0)} tokens reserved for ${g.pending === 1 ? 'it' : 'them'})` : '';
     const byKind = Object.entries(g.waitingByKind || {}).map(([k, c]) => `${c} ${k === 'extraction' ? (c === 1 ? 'listing' : 'listings') : k === 'determination' ? (c === 1 ? 'determination' : 'determinations') : k}`).join(', ');
@@ -51,8 +51,9 @@ function pacingRows(pacing) {
 
 function renderSettings(s, build, pacing, silent, tools, readers) {
   const rows = [
-    ['Model', s.model],
-    ['Reasoning effort', s.effort],
+    ...((s.listingModel && s.listingModel !== s.model) || (s.listingProvider && s.listingProvider !== 'OpenAI')
+      ? [['Listing', `${s.listingModel} on ${s.listingProvider}, effort ${s.listingEffort}`], ['Determinations', `${s.model} on OpenAI, effort ${s.effort}`]]
+      : [['Model', s.model], ['Reasoning effort', s.effort]]),
     ['Web search', s.webSearch ? 'on, for both steps' : 'off'],
     ['Claims per run', String(s.claimsPerRun)],
     ['Key comes from', s.keySource],
@@ -154,7 +155,7 @@ function renderEconomics(e) {
   box.append(e.byWindow.length
     ? table(['Window (UTC)', 'Tier', 'Price', 'Users', 'Runs', 'Determinations', 'Failed', 'Free given', 'Cost', 'Listing cost', 'Revenue at list', 'Margin', 'Margin per user', 'Coverage'], e.byWindow.map((x) => [x.windowStart ? x.windowStart.slice(0, 16).replace('T', ' ') : '—', x.tier, cents(x.priceCents, c), ...row(x)]))
     : el('p', 'check-detail', 'No window has had a run yet.'));
-  box.append(el('p', 'check-detail', 'Cost is each determination\'s own ledger line (OpenAI\'s token counts at the price table, plus its searches); the listing cost is each run\'s extraction, kept apart. Margin is revenue at list less the determinations\' cost. Coverage is revenue against cost plus the markup: 1.00 means the tokens and the markup are both covered. A free determination counts as given; a failed one keeps its cost and books nothing.'));
+  box.append(el('p', 'check-detail', 'Cost is each determination\'s own ledger line (the provider\'s token counts at the price table, plus its searches); the listing cost is each run\'s extraction, kept apart. Margin is revenue at list less the determinations\' cost. Coverage is revenue against cost plus the markup: 1.00 means the tokens and the markup are both covered. A free determination counts as given; a failed one keeps its cost and books nothing.'));
 }
 
 function renderFailures(list) {
