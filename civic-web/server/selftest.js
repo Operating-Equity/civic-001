@@ -20,7 +20,8 @@ import { readers as readersNow } from './jobs.js';
 import { silentSites } from './fetchurl.js';
 import { searchOn } from './copies.js';
 import { registry } from './tools/index.js';
-import { toolsOn, gatewayTools } from './tools/request.js';
+import { toolsOn, gatewayOn } from './tools/request.js';
+import { openDoor, doorsOpen } from './tools/doors.js';
 
 const ok = (title, detail = '') => ({ state: 'ok', title, detail });
 const bad = (title, detail = '', fix = '') => ({ state: 'bad', title, detail, fix });
@@ -161,25 +162,41 @@ async function checkListing({ operator }) {
 
 /**
  * The listing on Fireworks searches through FactEngine's tool server: Fireworks' servers call it at the address the
- * listing's request gives. Asked here as they would ask it, but without the pass: an answer of 401 says it is there and
- * keeps its door. The pass itself is never shown.
+ * listing's request gives, through a door opened for that listing alone (tools/doors.js). Asked here as they ask it: a
+ * door is opened for this check, the tool server is asked for its tools at its public address through that door, and
+ * the door is closed; then the same address must be refused, as each listing's is when it ends. No tool is called and
+ * nothing is spent.
  */
 async function checkToolServer() {
   const checks = [];
-  if (!gatewayTools().length) {
+  if (!gatewayOn()) {
     checks.push(warn('The listing on Fireworks cannot search or read pages', 'FactEngine\'s tool server has no public address: neither CIVIC_TOOLS_URL nor RENDER_EXTERNAL_URL is set. The listing reads the document alone.',
       'On Render the address is the service\'s own and is set by Render; elsewhere set CIVIC_TOOLS_URL to this server\'s public address followed by /mcp.'));
     return checks;
   }
   let at = config.gatewayUrl;
   try { at = new URL(config.gatewayUrl).host; } catch { /* the setting as written */ }
+  const door = openDoor();
+  const ask = async () => {
+    const r = await siteFetch(`${config.gatewayUrl}/t/${door.id}`, { method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} }) });
+    let json = null;
+    try { json = JSON.parse(await r.text()); } catch { /* not the tool server's answer */ }
+    return { status: r.status, names: (json?.result?.tools || []).map((t) => t.name) };
+  };
   try {
-    const r = await siteFetch(config.gatewayUrl, { method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} }) });
-    await r.text().catch(() => '');
-    if (r.status === 401) checks.push(ok(`FactEngine's tool server answers at ${at}`, 'Fireworks reaches it there during a listing, with a pass only the listing\'s requests carry.'));
-    else checks.push(warn(`FactEngine's tool server did not answer as expected at ${at}`, `Without the pass it answered ${r.status}, not 401.`));
+    const open = await ask();
+    door.close();
+    const shut = await ask();
+    if (open.status === 200 && open.names.length > 0 && shut.status === 401) {
+      checks.push(ok(`FactEngine's tool server answers at ${at}`, `Through a door opened for this check it listed ${open.names.join(', ')}, and refused the same door once closed. Fireworks reaches it the same way during a listing, through a door of that listing's own.`));
+    } else {
+      checks.push(warn(`FactEngine's tool server did not answer as expected at ${at}`, `Through an open door it answered ${open.status}${open.status === 200 ? ` and listed ${open.names.length ? open.names.join(', ') : 'no tools'}` : ''}; through the same door closed, ${shut.status} rather than 401.`,
+        'Fireworks will not be able to use it either: the listing would read the document alone.'));
+    }
   } catch (err) {
     checks.push(warn(`FactEngine's tool server could not be reached at ${at}`, String(err?.cause?.code || err?.message || err), 'Fireworks will not be able to reach it either: the listing would read the document alone.'));
+  } finally {
+    door.close();
   }
   if (!registry.summary().verbs.includes('search_web')) {
     checks.push(warn('The listing on Fireworks cannot search the web', 'The search service is not set (CIVIC_SEARCH_URL and CIVIC_SEARCH_KEY); the model can still read a page or a video\'s transcript.'));
@@ -272,8 +289,9 @@ export async function selftest({ apiKey, build, operator = true }) {
     readers: readersNow(),   // readers with work in flight on this instance right now
     silentSites: silentSites(),
     // The sources the model can reach for, and which requests name the gateway: OpenAI's two when its address and pass
-    // are both set, the listing's on Fireworks whenever the tool server has an address.
-    tools: { reachable: toolsOn() || (onFireworks() && gatewayTools().length > 0), requests: { determinations: toolsOn(), listing: onFireworks() ? gatewayTools().length > 0 : toolsOn() }, ...registry.summary() },
+    // are both set, the listing's on Fireworks whenever the tool server has an address; and how many listings' doors
+    // are open now (one for each listing on Fireworks in flight).
+    tools: { reachable: toolsOn() || (onFireworks() && gatewayOn()), requests: { determinations: toolsOn(), listing: onFireworks() ? gatewayOn() : toolsOn() }, doors: doorsOpen(), ...registry.summary() },
     recentFailures: recent(10),
   };
 }

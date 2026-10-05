@@ -5,7 +5,6 @@
 // It also runs the prompt leak guard: no committed file may contain a fragment of the prompts.
 // Run before every deploy: `npm run verify`. A non-zero exit is a defect.
 import { spawn, spawnSync } from 'node:child_process';
-import crypto from 'node:crypto';
 import fs from 'node:fs';
 import http from 'node:http';
 import net from 'node:net';
@@ -500,9 +499,13 @@ async function gateChecks() {
     const r = await gateRun(12, { MOCK_TPM: String(reserve * 3), MOCK_RESERVE: String(reserve), MOCK_WINDOW_MS: '3000', MOCK_STREAM_RATE_LIMIT_REQUESTS: '3', MOCK_STREAM_REQUESTED: '90000' }, { serverEnv: twenty });
     const ev = r.events;
     const retry = ev.find((e) => e.t === 'retry' && e.reason === 'rate_limit');
-    check('a claim refused inside its stream waits OpenAI\'s figure, rejoins behind its reader\'s other claims (its second start after the sixth claim\'s), finishes, and the gate learns the later call\'s charge',
-      !r.failure && r.stats?.refusedInStream === 1 && retry && retry.i === 2 && startAt(ev, 2, 1) > startAt(ev, 5) && done(r) === 6 && r.pacing?.costs?.determination === 90000,
-      `${r.failure} inStream=${r.stats?.refusedInStream} retry=${JSON.stringify(retry)} second=${startAt(ev, 2, 1)} sixth=${startAt(ev, 5)} done=${done(r)} costs=${JSON.stringify(r.pacing?.costs)}`);
+    // The stand-in refuses its third request, whichever claim that carries: claims can reach the gate a moment out of
+    // order, so the refused claim is the one the retry names.
+    const ri = retry?.i;
+    const others = [0, 1, 2, 3, 4, 5].filter((j) => j !== ri).map((j) => startAt(ev, j));
+    check('a claim refused inside its stream waits OpenAI\'s figure, rejoins behind its reader\'s other claims (its second start after every other claim\'s first), finishes, and the gate learns the later call\'s charge',
+      !r.failure && r.stats?.refusedInStream === 1 && Number.isInteger(ri) && others.every((t) => t !== undefined && startAt(ev, ri, 1) > t) && done(r) === 6 && r.pacing?.costs?.determination === 90000,
+      `${r.failure} inStream=${r.stats?.refusedInStream} retry=${JSON.stringify(retry)} second=${startAt(ev, ri, 1)} others=${JSON.stringify(others)} done=${done(r)} costs=${JSON.stringify(r.pacing?.costs)}`);
   }
   // 11. The pacing row mid-run: sent and awaiting headers, reserved tokens, waiting by kind and by reader; nothing of it on /api/health.
   {
@@ -1966,7 +1969,6 @@ async function fireworksChecks() {
   const FWKEY = 'fw_verify0000000000000000000000';
   const SKEY = 'search-key-fw-verify-5d2a';
   const SECRET = 'd'.repeat(64);
-  const PASS = crypto.createHmac('sha256', SECRET).update('civic-tools-pass').digest('hex');   // the pass the service derives
   const COT = 'FWCOT-2c9d', ECHO = 'FWUSER-8b1e';   // the stand-in's reasoning and input-echo markers
   const MODEL = 'accounts/fireworks/models/deepseek-v4p1-flash';
   const stamp = Date.now();
@@ -2042,11 +2044,24 @@ async function fireworksChecks() {
       Boolean(doneA) && doneA.total === 3 && JSON.stringify(doneA.claims.map((c) => c.text)) === JSON.stringify(sentences) && doneA.model === MODEL && doneA.effort === 'max' && doneA.mode === null
         && toolStepsA.length === 2 && toolStepsA[0].name === 'search_web' && toolStepsA[0].query === 'height of the Eiffel Tower' && toolStepsA[0].status === 'completed' && toolStepsA[1].name === 'read_page' && toolStepsA[1].url === `http://localhost:${SITE}/tower` && !a.some((e) => e.t === 'error'),
       JSON.stringify(doneA && { total: doneA.total, claims: doneA.claims.map((c) => c.text), model: doneA.model, trail: doneA.trail }));
-    const expectedMcp = { type: 'mcp', server_label: 'civic', server_url: `${base}/mcp`, headers: { authorization: `Bearer ${PASS}` }, require_approval: 'never' };
-    check('Fireworks: the listing\'s body carries exactly the model, the prompt, reasoning {effort: max}, the one entry naming FactEngine\'s tool server at the service\'s own address with the pass derived from its secret, stream, and store: false; no web search, mode or summary',
+    // The tool server is named at a door of the listing's own, in the address: Fireworks forwards no header of the entry's.
+    const doorOf = (b) => new RegExp(`^${base.replace(/[.]/g, '\\.')}/mcp/t/([0-9a-f]{48})$`).exec(String(b?.tools?.[0]?.server_url || ''))?.[1] || null;
+    const entryA = bodyA?.tools?.[0];
+    const doorA = doorOf(bodyA);
+    check('Fireworks: the listing\'s body carries exactly the model, the prompt, reasoning {effort: max}, the one entry naming FactEngine\'s tool server at the service\'s own address through a door of the listing\'s own and with no header (no pass goes to Fireworks), stream, and store: false; no web search, mode or summary',
       Boolean(bodyA) && JSON.stringify(Object.keys(bodyA).sort()) === JSON.stringify([...wantKeys].sort()) && JSON.stringify(bodyA.reasoning) === JSON.stringify({ effort: 'max' })
-        && JSON.stringify(bodyA.tools) === JSON.stringify([expectedMcp]) && bodyA.store === false && bodyA.stream === true && bodyA.model === MODEL,
-      JSON.stringify(bodyA && { keys: Object.keys(bodyA), reasoning: bodyA.reasoning, store: bodyA.store, tools: (bodyA.tools || []).map((t) => ({ ...t, headers: t.headers && (t.headers.authorization === `Bearer ${PASS}` ? 'the derived pass' : 'another') })) }));
+        && bodyA.tools.length === 1 && JSON.stringify(Object.keys(entryA)) === JSON.stringify(['type', 'server_label', 'server_url', 'require_approval'])
+        && entryA.type === 'mcp' && entryA.server_label === 'civic' && entryA.require_approval === 'never' && Boolean(doorA)
+        && bodyA.store === false && bodyA.stream === true && bodyA.model === MODEL,
+      JSON.stringify(bodyA && { keys: Object.keys(bodyA), reasoning: bodyA.reasoning, store: bodyA.store, tools: (bodyA.tools || []).map((t) => ({ ...t, server_url: String(t.server_url || '').replace(/[0-9a-f]{48}$/, '<door>') })) }));
+    // As Fireworks' servers do, the stand-in called that address with no header at all; once the listing ended, the door is shut.
+    const knock = async (url) => (await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} }) })).status;
+    const callsA = records().filter((r) => r.path === '/mcp-client' && r.style === 'fireworks').slice(0, 3);
+    const afterA = { door: await knock(entryA?.server_url || `${base}/mcp/t/none`), never: await knock(`${base}/mcp/t/${'0'.repeat(48)}`), bare: await knock(`${base}/mcp`) };
+    check('Fireworks: the stand-in Fireworks reached the tool server through the listing\'s door with no header at all and was answered; once the listing ended that door is refused (401), as are a door never opened and /mcp itself (no pass is set)',
+      callsA.length === 3 && callsA.every((r) => r.url === entryA?.server_url && r.headers?.length === 0 && r.status === 200) && callsA[0].initialize === 200
+        && afterA.door === 401 && afterA.never === 401 && afterA.bare === 401,
+      JSON.stringify({ calls: callsA.map((r) => ({ status: r.status, headers: r.headers, sameDoor: r.url === entryA?.server_url })), afterA }));
     const textA = bodyA?.input?.[0]?.content?.[0]?.text;
     if (slot) {
       const expected = extractPrompt.slice(0, slot.start) + sourceBlock(source, { kind: 'text' }) + extractPrompt.slice(slot.end);
@@ -2120,6 +2135,15 @@ async function fireworksChecks() {
       err402?.status === 402 && err402.code === 'balance_exhausted' && err402.message === '' && /Fireworks answered 402 \(Your account is out of credits/.test(rec402?.detail || ''),
       JSON.stringify({ error: err402, record: rec402 }));
 
+    // Every go had a door of its own, and every door is shut now: the refused sends (429, 503, 402), the stream that
+    // failed, the one that closed early and the ones that completed alike.
+    const doors = fwBodies().map((r) => doorOf(r.body));
+    const knocks = await Promise.all(doors.filter(Boolean).map((d) => knock(`${base}/mcp/t/${d}`)));
+    const stDoors = await (await fetch(`${base}/api/selftest`)).json();
+    check('Fireworks: each request to Fireworks named a door of its own, and once the listings ended every door is shut, whether its send was refused, its stream failed or closed early, or it completed; /check counts none open',
+      doors.length >= 12 && doors.every(Boolean) && new Set(doors).size === doors.length && knocks.every((x) => x === 401) && stDoors.tools?.doors === 0,
+      JSON.stringify({ sends: doors.length, named: doors.filter(Boolean).length, distinct: new Set(doors).size, open: knocks.filter((x) => x !== 401).length, counted: stDoors.tools?.doors }));
+
     const st = await (await fetch(`${base}/api/selftest`)).json();
     const row = (re) => (st.checks || []).find((x) => re.test(x.title));
     check('Fireworks: /check accepts the listing\'s key and model without spending a token, finds the tool server answering at its public address, checks OpenAI for the determinations\' model alone, shows Fireworks\' own echo of the effort it took, and is ready',
@@ -2177,10 +2201,11 @@ async function fireworksChecks() {
     const ledgerText = fs.readFileSync(ledger, 'utf8');
     const errText = fs.existsSync(errlog) ? fs.readFileSync(errlog, 'utf8') : '';
     const said = output.join('');
-    check('Fireworks: neither key nor the tool server\'s pass appears in the health line, the check data, the page, the ledger, the failure records or the server\'s own output; the startup line says where the listing goes and what it carries',
-      ![health2, check2, pageHtml, ledgerText, errText, said].some((t) => t.includes(FWKEY) || t.includes(KEY) || t.includes(PASS))
-        && said.includes(`extraction requests go to localhost (Fireworks) and carry: model ${MODEL} · reasoning.effort max · FactEngine's tool server (search_web, read_page, get_transcript) · store false`),
-      [['health', health2], ['check', check2], ['page', pageHtml], ['ledger', ledgerText], ['errors', errText], ['output', said]].filter(([, t]) => t.includes(FWKEY) || t.includes(KEY) || t.includes(PASS)).map(([n]) => n).join(', ') || said.split('\n').find((l) => l.startsWith('extraction requests')));
+    const secretIn = (t) => t.includes(FWKEY) || t.includes(KEY) || fwBodies().map((r) => doorOf(r.body)).filter(Boolean).some((d) => t.includes(d));
+    check('Fireworks: neither key nor any listing\'s door appears in the health line, the check data, the page, the ledger, the failure records or the server\'s own output; the startup line says where the listing goes and what it carries',
+      ![health2, check2, pageHtml, ledgerText, errText, said].some(secretIn)
+        && said.includes(`extraction requests go to localhost (Fireworks) and carry: model ${MODEL} · reasoning.effort max · FactEngine's tool server (search_web, read_page, get_transcript) through a door opened for that listing alone · store false`),
+      [['health', health2], ['check', check2], ['page', pageHtml], ['ledger', ledgerText], ['errors', errText], ['output', said]].filter(([, t]) => secretIn(t)).map(([n]) => n).join(', ') || said.split('\n').find((l) => l.startsWith('extraction requests')));
   } catch (err) {
     check('Fireworks checks completed', false, err.message);
   } finally {

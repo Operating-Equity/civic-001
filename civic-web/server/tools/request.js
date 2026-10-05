@@ -7,19 +7,24 @@
 // calls it is the model's decision. `npm run verify` inspects this entry and fails on any other key.
 //
 // Fireworks has no web search of its own, so a listing there names the gateway alone, at the service's
-// own address with a pass derived from its secret unless the two settings say otherwise (config.js): the
-// model searches, reads a page or a transcript through FactEngine, as it searched through OpenAI.
+// own address (config.js), through a door opened for that listing (doors.js): the model searches, reads a
+// page or a transcript through FactEngine, as it searched through OpenAI. Fireworks forwards no header of
+// the entry's, so its entry carries none and no pass goes to Fireworks.
 import { config } from '../config.js';
 
 export const toolsOn = () => Boolean(config.toolsUrl && config.toolsPass);
 
-/** The one entry that names FactEngine's tool server in a request. */
-function gatewayEntry(url, pass) {
+/** The listing on Fireworks can reach the tool server: it has a public address (config.js). */
+export const gatewayOn = () => Boolean(config.gatewayUrl);
+
+/** The one entry that names FactEngine's tool server in a request: with the pass in its headers (OpenAI's), or with
+ *  the door in its address and no header at all (Fireworks'). */
+function gatewayEntry(url, pass = '') {
   return {
     type: 'mcp',
     server_label: 'civic',
     server_url: url,
-    headers: { authorization: `Bearer ${pass}` },
+    ...(pass ? { headers: { authorization: `Bearer ${pass}` } } : {}),
     require_approval: 'never', // the model's call is answered at once; there is no one to ask
   };
 }
@@ -30,9 +35,10 @@ export function requestTools() {
   return tools;
 }
 
-/** A listing on Fireworks: the tool server alone, when it has an address and a pass; else nothing (said on /check). */
-export function gatewayTools() {
-  return config.gatewayUrl && config.gatewayPass ? [gatewayEntry(config.gatewayUrl, config.gatewayPass)] : [];
+/** A listing on Fireworks: the tool server alone, at the address of the door opened for this listing; with no public
+ *  address (or no door), nothing (said on /check). */
+export function gatewayTools(door) {
+  return gatewayOn() && door ? [gatewayEntry(`${config.gatewayUrl}/t/${door}`)] : [];
 }
 
 /** The trail step for an `mcp_call` output item: the verb, what it was asked, and how it ended. Fireworks may

@@ -274,13 +274,15 @@ app.get('/v1/mock/stats', (req, res) => res.json({ ...stats, tokens: { limit: TO
 
 // ---- A provider's servers as a client of FactEngine's tool server ----------------------------
 // What OpenAI's servers (and Fireworks') do with an `mcp` entry: as a client of the gateway at the entry's address,
-// with the entry's headers, list the tools, make the calls given (JSON: [{ name, arguments }]) and stream each as that
-// provider does. OpenAI's style: mcp_list_tools and mcp_call items with the call's name and arguments on the item.
-// Fireworks' style: mcp_call items carrying the call inside an `mcp` object, and a tool_output item after each.
-// What the gateway answered is recorded (MOCK_RECORD) for the guard.
+// list the tools, make the calls given (JSON: [{ name, arguments }]) and stream each as that provider does. OpenAI's
+// style: the entry's headers sent, mcp_list_tools and mcp_call items with the call's name and arguments on the item.
+// Fireworks' style: no header of the entry's sent (its servers forward none: ten calls to /mcp without the pass in the
+// first live listing, 5 October), mcp_call items carrying the call inside an `mcp` object, a tool_output item after
+// each. What the gateway answered is recorded (MOCK_RECORD) for the guard, with the address it was asked at.
 async function playMcp(mcp, send, calls, { style = 'openai' } = {}) {
+  const forwarded = style === 'fireworks' ? {} : (mcp.headers || {});
   const rpc = async (method, params, rpcId) => {
-    const r = await fetch(mcp.server_url, { method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', ...(mcp.headers || {}) }, body: JSON.stringify({ jsonrpc: '2.0', id: rpcId, method, params }) });
+    const r = await fetch(mcp.server_url, { method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', ...forwarded }, body: JSON.stringify({ jsonrpc: '2.0', id: rpcId, method, params }) });
     const raw = await r.text();
     let json = null; try { json = JSON.parse(raw); } catch {}
     return { status: r.status, json };
@@ -294,7 +296,7 @@ async function playMcp(mcp, send, calls, { style = 'openai' } = {}) {
     send({ type: 'response.mcp_list_tools.completed', item_id: 'mcpl_1', output_index: 10 });
     send({ type: 'response.output_item.done', output_index: 10, item: { id: 'mcpl_1', type: 'mcp_list_tools', server_label: mcp.server_label, tools: tools.map((t) => ({ name: t.name, description: t.description, input_schema: t.inputSchema })) } });
   }
-  recordMcp({ step: 'list', style, initialize: init.status, status: list.status, names: tools.map((t) => t.name), tools });
+  recordMcp({ step: 'list', style, url: mcp.server_url, headers: Object.keys(forwarded), initialize: init.status, status: list.status, names: tools.map((t) => t.name), tools });
   for (const [k, c] of calls.entries()) {
     const itemId = `mcp_${k}`, index = 20 + k, args = JSON.stringify(c.arguments || {});
     if (style === 'openai') {
@@ -316,7 +318,7 @@ async function playMcp(mcp, send, calls, { style = 'openai' } = {}) {
       send({ type: 'response.output_item.done', output_index: index, item: { id: itemId, type: 'mcp_call', name: null, arguments: null, status: failed ? 'incomplete' : 'completed', mcp: { name: c.name, arguments: args, server_label: mcp.server_label }, ...(failed ? { error: outText || `the gateway answered ${r.status}` } : {}) } });
       send({ type: 'response.output_item.done', output_index: index + 50, item: { type: 'tool_output', tool_call_id: itemId, output: outText } });
     }
-    recordMcp({ step: 'call', style, call: c, status: r.status, failed, output: outText.slice(0, 6000) });
+    recordMcp({ step: 'call', style, url: mcp.server_url, headers: Object.keys(forwarded), call: c, status: r.status, failed, output: outText.slice(0, 6000) });
   }
 }
 
