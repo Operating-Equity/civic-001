@@ -650,6 +650,14 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
   - Retired, read by nothing, named by the startup line and /check while still set: `CIVIC_ACCESS_CODES`,
     `CIVIC_OPERATOR_CODES`, `CIVIC_CODE_USES`, `CIVIC_USES_FILE`, `CIVIC_SIGNIN_LOG`, `CIVIC_SESSION_SECRET`. They are the
     operator's to delete in Render when convenient.
+  - **Live:** PR #68 squash d58e27c, deploy dep-db236ebl550s73c05prg at 23:31 UTC, build 9aa072404352. The guard passed
+    325/325 with the real prompts on Postgres, and CI was green in both shapes.
+    - The startup line reads: accounts kept in Postgres, 1000 cents to start, the operator's link set, and the six
+      retired settings named.
+    - Live proof 12/12 (`scratchpad/live-accounts.mjs`). A check account signed up with $10.00 (cookie HttpOnly, Secure,
+      SameSite=Lax), was refused /check and the operator's tools, and was refused from another site. It signed out and
+      in, ran one three-sentence listing (12 s) with its balance unchanged, and deleted itself.
+    - The operator's one-time link went to them as a private file.
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 
