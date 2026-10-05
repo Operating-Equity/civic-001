@@ -606,7 +606,10 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
     - the three-sentence listing took 14 s and $0.0019 (58 s on Fireworks at high, 136 s at max), with its three claims
       and no reasoning text.
 
-    Rollback: `CIVIC_EXTRACT_PROVIDER=fireworks` and a deploy.
+    Rollback: `CIVIC_EXTRACT_PROVIDER=openai` and a deploy. Never Fireworks again: the operator, 5 October, 18:3x UTC,
+    "Never go back to fireworks. That's like killing users by making them watch paint dry for 48 hours." The Fireworks
+    code stays inert (it runs only on `CIVIC_EXTRACT_PROVIDER=fireworks`), and `FIREWORKS_API_KEY` stays in Render until
+    the operator deletes it there.
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 
