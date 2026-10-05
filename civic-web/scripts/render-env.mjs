@@ -17,7 +17,7 @@
 // overrides it for a second service later.
 const KEY = process.env.RENDER_API_KEY;
 const SVC = process.env.CIVIC_RENDER_SERVICE || 'srv-dam9vlrm8hqs73d28tk0';
-const SECRET = /KEY|PASS|SECRET|TOKEN|PASSWORD|CODES/;
+const SECRET = /KEY|PASS|SECRET|TOKEN|PASSWORD|CODES/i;   // whatever its capitals: DEEPSEEK_API_Key is a key too
 
 if (!KEY) {
   console.error('No RENDER_API_KEY in the environment. This script reads it from there and never from a file.');

@@ -28,6 +28,22 @@ const NAME = 'OPENAI_API_KEY';
 /** What an HTTP header may carry. A key outside this cannot be sent at all. */
 export const HEADER_SAFE = /^[\x21-\x7E]+$/;
 
+/**
+ * A key from the environment under its name, or else under a name that differs from it only in capitals: the operator
+ * saved DeepSeek's key in Render as DEEPSEEK_API_Key on 5 October (and the transcript key as CIVIC_TRANSCRIPT_KEy on
+ * 22 September), and names are case-sensitive. The exact name wins. Spellings that hold different keys are not
+ * guessed between: no key, and the names are reported so /check can say which to keep.
+ */
+export function envByName(environment, name) {
+  const exact = String(environment[name] || '').trim();
+  if (exact) return { value: exact, savedAs: name, ambiguous: [] };
+  const upper = name.toUpperCase();
+  const spellings = Object.keys(environment).filter((k) => k !== name && k.toUpperCase() === upper && String(environment[k] || '').trim());
+  const values = new Set(spellings.map((k) => String(environment[k]).trim()));
+  if (values.size === 1) return { value: [...values][0], savedAs: spellings.sort()[0], ambiguous: [] };
+  return { value: '', savedAs: null, ambiguous: values.size > 1 ? spellings.sort() : [] };
+}
+
 function fromSettingsFile(file, name = NAME) {
   try {
     for (const line of fs.readFileSync(file, 'utf8').split('\n')) {
@@ -44,15 +60,21 @@ function fromSettingsFile(file, name = NAME) {
  */
 export function resolveKey({ settingsFile, environment = process.env, name = NAME } = {}) {
   const inFile = settingsFile ? fromSettingsFile(settingsFile, name) : '';
-  const inEnv = String(environment[name] || '').trim();
+  const env = envByName(environment, name);
+  const inEnv = env.value;
 
   const chosen = inFile || inEnv;
-  const source = inFile ? 'the settings file next to FactEngine' : (inEnv ? 'this computer\'s environment' : 'nowhere');
+  const source = inFile ? 'the settings file next to FactEngine'
+    : (inEnv ? (env.savedAs === name ? 'this computer\'s environment' : `this computer's environment, saved as ${env.savedAs}`) : 'nowhere');
 
   return {
     name,
     value: chosen,
     source,
+    // The name the key was saved under when it is not `name` exactly (its capitals differ), and the spellings that
+    // disagree when more than one holds a key.
+    savedAs: !inFile && inEnv && env.savedAs !== name ? env.savedAs : null,
+    ambiguous: !inFile && !inEnv ? env.ambiguous : [],
     fromFile: Boolean(inFile),
     // Both exist and differ: the reader has two answers to one question and deserves to be told.
     conflict: Boolean(inFile && inEnv && inFile !== inEnv),

@@ -107,6 +107,12 @@ async function checkListing({ operator }) {
   const model = config.extractModels[0];
   const key = listingKey({ optional: true });
   if (!key) {
+    const spellings = keyInfo?.ambiguous || [];
+    if (spellings.length) {
+      checks.push(bad(`Two settings hold the ${who} key, with different values`, `${spellings.join(' and ')} differ only in capitals and hold different keys, so FactEngine uses neither. Nothing is sent to ${who}.`,
+        `In Render, keep one of them, named ${keyName}, and delete the other.`));
+      return checks;
+    }
     checks.push(bad(`No ${who} key for the listing`, `The listing is set to run on ${who} (CIVIC_EXTRACT_PROVIDER=${config.extractProvider}) and ${keyName} is not set. Nothing is sent to ${who} without it.`,
       `Paste the key in Render: the civic service, Environment, ${keyName}, then deploy. Or set CIVIC_EXTRACT_PROVIDER=openai to list on OpenAI.`));
     return checks;
@@ -118,7 +124,7 @@ async function checkListing({ operator }) {
       `Paste the key alone in ${keyName}: no space, no line break, nothing before or after it.`));
     return checks;
   }
-  checks.push(ok(`A ${who} key is configured for the listing`, `It ends ${key.slice(-4)} and is ${key.length} characters long.`));
+  checks.push(ok(`A ${who} key is configured for the listing`, `It ends ${key.slice(-4)} and is ${key.length} characters long.${keyInfo?.savedAs ? ` It is saved in Render as ${keyInfo.savedAs}, which differs from ${keyName} only in capitals; FactEngine reads it under that name.` : ''}`));
   const client = listingClient(key);
   const started = Date.now();
   try {
