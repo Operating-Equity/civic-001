@@ -5,7 +5,7 @@ import { extractionRequest, extractionShape } from './prompts.js';
 import { sourceBlock } from './source.js';
 import { withModelFallback, usageOf, isRetryable, isRateLimit, isConnectionDrop, connectionWait, rateLimitWaitMs, sleep, throughGate, streamFailure, CONNECTION_RETRY_MS } from './openai.js';
 import { onDeepSeek, onFireworks, onOwnProvider, listingClient, listingFailure, listingHost, listingProviderName, openaiHost } from './listing.js';
-import { ThoughtCut, usageFrom } from './fireworks.js';
+import { ThoughtCut, usageFrom, noteEcho } from './fireworks.js';
 import { noteFailure, noteReply } from './reach.js';
 import { gateFor, parseRefusal } from './gate.js';
 import { estimateTextCost } from './pricing.js';
@@ -159,6 +159,7 @@ export async function runExtraction({ apiKey, text, meta, send, signal, sourceWa
             take(cut.end(event.item.id));
           } else if (cut && event.type === 'response.created') {
             reasoningEcho = event.response?.reasoning ?? null;
+            noteEcho(reasoningEcho);
           } else if (cut && /reasoning/.test(String(event.type))) {
             // Fireworks' reasoning sent apart, in whatever form: neither sent nor kept.
           } else if (event.type === 'response.reasoning_summary_text.delta') {

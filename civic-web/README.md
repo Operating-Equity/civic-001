@@ -385,7 +385,8 @@ marker, drops everything before it, and passes only what follows, so the reasoni
 reaches the page, the job's replay, the raw listing, the ledger or a failure record; text with no marker is the
 answer whole, and reasoning sent apart is dropped as DeepSeek's is. Fireworks counts tokens as `prompt_tokens` and
 `completion_tokens`, read into the price table's shape; the ledger line keeps Fireworks' own echo of the effort it was
-asked for. The client takes none of OpenAI's settings; the listing does not go through OpenAI's gate; a 429 is a wait
+asked for, and /check shows it (Fireworks documents no effort key of its own, so its echo is the proof that `max`
+reaches the model). The client takes none of OpenAI's settings; the listing does not go through OpenAI's gate; a 429 is a wait
 (Fireworks' retry-after, else a second), a 5xx and an error mid-stream are retried, an early end goes again. A key
 Fireworks rejects (401) or an account that cannot pay (402) is FactEngine's own sentence on the page, Fireworks' words
 on /check, which also reads the key and the model (`GET /models`, no tokens) and whether the tool server answers at its

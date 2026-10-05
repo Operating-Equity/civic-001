@@ -71,6 +71,12 @@ export function failure(err) {
   return new ApiError(safe.status, safe.code, safe.message, `Fireworks: ${words || safe.code}`);
 }
 
+// Fireworks' own echo of the reasoning it was asked for, from the last listing's response.created: the proof, on /check,
+// that the effort FactEngine sends is the effort Fireworks applies (its Responses API documents no effort key of its own).
+let echo = null;
+export function noteEcho(reasoning) { echo = { at: new Date().toISOString(), reasoning: reasoning ?? null }; }
+export const lastEcho = () => echo;
+
 /** Fireworks' token counts in the shape the price table reads ({ input, cached, output }), whichever names it uses. */
 export function usageFrom(response) {
   const u = response?.usage;

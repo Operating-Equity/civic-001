@@ -2122,9 +2122,10 @@ async function fireworksChecks() {
 
     const st = await (await fetch(`${base}/api/selftest`)).json();
     const row = (re) => (st.checks || []).find((x) => re.test(x.title));
-    check('Fireworks: /check accepts the listing\'s key and model without spending a token, finds the tool server answering at its public address, checks OpenAI for the determinations\' model alone, and is ready',
+    check('Fireworks: /check accepts the listing\'s key and model without spending a token, finds the tool server answering at its public address, checks OpenAI for the determinations\' model alone, shows Fireworks\' own echo of the effort it took, and is ready',
       st.ready === true && row(/^A Fireworks key is configured/)?.state === 'ok' && row(new RegExp(`^Fireworks accepts this key for ${MODEL.replace(/[.]/g, '\\.')}`))?.state === 'ok'
         && row(/^FactEngine's tool server answers at localhost/)?.state === 'ok' && row(/^OpenAI accepts this key for/)?.title === `OpenAI accepts this key for ${config.evalModels[0]}` && !(st.checks || []).some((x) => x.title === `OpenAI accepts this key for ${MODEL}`)
+        && row(/^Fireworks took the listing's effort as max$/)?.state === 'ok'
         && st.settings?.listingProvider === 'Fireworks' && st.settings?.listingModel === MODEL && st.settings?.listingEffort === 'max' && st.tools?.requests?.listing === true && st.tools?.requests?.determinations === false,
       JSON.stringify((st.checks || []).filter((x) => /Fireworks|OpenAI|tool server/.test(x.title)).map((x) => `${x.state}:${x.title}`)));
     check('Fireworks: the listing\'s ledger lines say Fireworks, are priced at its rates from its own token counts (cached apart), and keep Fireworks\' echo of the effort it was asked for; the chain of thought is in no ledger line and no failure record',

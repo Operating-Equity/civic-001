@@ -12,6 +12,7 @@ import { clientFor, describeError } from './openai.js';
 import { onDeepSeek, onFireworks, onOwnProvider, listingKey, listingClient, listingFailure, listingProviderName, listingHost } from './listing.js';
 import { HEADER_SAFE } from './key.js';
 import { siteFetch } from './http.js';
+import { lastEcho } from './fireworks.js';
 import { recent } from './diagnostics.js';
 import { whereTheShellSetsIt } from './key.js';
 import { gateStates } from './gate.js';
@@ -145,7 +146,16 @@ async function checkListing({ operator }) {
       checks.push(warn('DeepSeek\'s balance could not be read', safe.detail || safe.message));
     }
   }
-  if (onFireworks()) checks.push(...await checkToolServer());
+  if (onFireworks()) {
+    checks.push(...await checkToolServer());
+    // What Fireworks says it applied, from its own echo of the last listing's request (none yet: no row).
+    const e = lastEcho();
+    if (e) {
+      const when = `${e.at.slice(0, 16).replace('T', ' ')} UTC`;
+      if (e.reasoning?.effort === config.extractEffort) checks.push(ok(`Fireworks took the listing's effort as ${config.extractEffort}`, `Its own echo of the last listing's request, at ${when}.`));
+      else checks.push(warn('Fireworks did not echo the listing\'s effort as sent', `FactEngine sent effort ${config.extractEffort}; Fireworks echoed ${JSON.stringify(e.reasoning)} for the last listing, at ${when}.`, 'The effort may not be reaching the model. Nothing else is affected.'));
+    }
+  }
   return checks;
 }
 
