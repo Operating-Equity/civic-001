@@ -498,7 +498,13 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
   operator alone); DeepSeek's prices with the hour; the Privacy page's model-provider line split in two (the
   listing's provider processes data in China and its terms allow a small, de-identified use of inputs unless opted
   out; the determinations' provider does not train on inputs), its transfer sentence names China, and the Terms say
-  "model providers". Guard: a DeepSeek section on a stand-in that speaks DeepSeek's dialect.
+  "model providers". Guard: a DeepSeek section on a stand-in that speaks DeepSeek's dialect. **Live** (PR #62 squash
+  5444a9f, deploy dep-db1enh2vcj2c73a6eprg at 00:14 UTC on 5 October, build 494d2d74792d; guard 241/241 with the real
+  prompts; CI green in both shapes; browser 5/5): the health line names the listing's provider, OpenAI until the
+  switch; the Privacy and Terms pages carry the new sentences; the served page shows a 402 as the operator's sentence;
+  the operator's /check is ready (7/7, scratchpad/live-deepseek.mjs). The switch waits for the key: when
+  `DEEPSEEK_API_KEY` is on the service, `CIVIC_EXTRACT_PROVIDER=deepseek` is written and a deploy carries both; then
+  `live-deepseek.mjs after` and one short listing are the proof.
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 
