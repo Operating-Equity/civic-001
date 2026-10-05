@@ -174,31 +174,85 @@ function renderFailures(list) {
   box.append(ul);
 }
 
-/** Who signed in, most recent first, when a sign-in is required. */
-function renderSignins(data) {
-  let box = $('#signins');
-  if (!box) { box = el('div', 'check-failures'); box.id = 'signins'; $('#failures').after(box); }
-  box.textContent = '';
-  if (!data.access?.required) return;
-  box.append(el('h2', null, 'Recent sign-ins'));
-  if (!data.signins?.length) { box.append(el('p', 'check-detail', 'Nobody has signed in since this FactEngine started.')); return; }
-  const ul = el('ul');
-  for (const s of data.signins) {
-    const li = document.createElement('li');
-    li.append(el('time', null, new Date(s.at).toLocaleString()), document.createTextNode(` · ${s.email || 'no email given'} · code ending ${s.code}`));
-    ul.append(li);
-  }
-  box.append(ul);
-  renderCodes(data, box);
+// ---- the accounts (5 October): the operator's table, and what they can do from it -------------------------------------
+const amount = (c, currency) => money((Number(c) || 0) / 100, currency);
+
+async function post(url, body) {
+  const res = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  let out = null; try { out = await res.json(); } catch { /* none */ }
+  if (!res.ok) throw new Error(out?.error?.message || `the server answered ${res.status}`);
+  return out;
 }
 
-/** Each listed code, by its last two characters: the runs it has started and the runs it allows. */
-function renderCodes(data, after) {
-  if (!data.codes?.length) return;
-  after.append(el('h2', null, 'Runs per code'));
-  const ul = el('ul');
-  for (const c of data.codes) ul.append(el('li', null, `code ending ${c.ending} · ${c.used} of ${c.allowed} runs used`));
-  after.append(ul);
+/** Every account, newest first, with its balance, this month's spend and its charged tests; and the operator's tools. */
+async function renderAccounts(data) {
+  let box = $('#accounts');
+  if (!box) { box = el('div', 'check-failures'); box.id = 'accounts'; $('#failures').after(box); }
+  box.textContent = '';
+  if (!data.access?.required) return;
+  let out;
+  try {
+    const res = await fetch('api/operator/accounts', { cache: 'no-store' });
+    if (!res.ok) return;
+    out = await res.json();
+  } catch { return; }
+  const c = out.currency;
+  box.append(el('h2', null, 'Accounts'));
+  const t = out.totals || {};
+  box.append(el('p', 'check-detail', `Credit given: ${amount(t.grantedCents, c)} to ${t.accounts ?? 0} ${t.accounts === 1 ? 'account' : 'accounts'} · spent from credit: ${amount(t.spentCents, c)} · collected: ${amount(t.collectedCents, c)} (payments are not live yet).`));
+  if (!out.claimUsed) box.append(el('p', 'check-detail', out.claimSet ? 'The operator\'s one-time link is set and not used yet.' : 'No operator link is set (CIVIC_OPERATOR_CLAIM).'));
+  if (!out.accounts.length) { box.append(el('p', 'check-detail', 'Nobody has an account yet.')); return; }
+  const wrap = el('div', 'check-scroll');
+  const table = el('table', 'check-settings');
+  const head = el('tr');
+  for (const h of ['Email', 'Made', 'Balance', 'This month', 'Tests charged', 'Status', '']) head.append(el('th', null, h));
+  table.append(head);
+  for (const a of out.accounts) {
+    const tr = el('tr');
+    const status = a.deleted ? 'deleted' : a.blocked ? 'closed' : a.operator ? 'operator' : 'open';
+    for (const v of [a.email || '(deleted)', new Date(a.createdAt).toLocaleDateString(), amount(a.balanceCents, c), amount(a.monthCents, c), String(a.tests), status]) tr.append(el('td', null, v));
+    const tools = el('td');
+    if (!a.deleted) {
+      const btn = (label, fn) => { const b = el('button', 'btn btn-text btn-small', label); b.type = 'button'; b.addEventListener('click', fn); tools.append(b); return b; };
+      btn('Add credit', async () => {
+        const raw = prompt(`Credit to add to ${a.email}, in ${c} (a minus sign takes it back):`, '10.00');
+        if (raw === null) return;
+        const v = Math.round(Number(String(raw).replace(',', '.')) * 100);
+        if (!Number.isInteger(v) || v === 0) return;
+        const noteText = prompt('A note for the account\'s activity (optional):', '') || '';
+        try { await post('api/operator/credit', { userId: a.id, cents: v, note: noteText }); await renderAccounts(data); } catch (err) { alert(err.message); }
+      });
+      btn('Reset link', async () => {
+        try {
+          const r = await post('api/operator/reset-link', { userId: a.id });
+          const shown = el('p', 'check-detail', `A link for ${r.email}, good once until ${new Date(r.expiresAt).toLocaleString()}: `);
+          const input = el('input', 'input');
+          input.readOnly = true; input.value = r.link; input.style.marginTop = '.4rem';
+          const copy = el('button', 'btn btn-outline btn-small', 'Copy');
+          copy.type = 'button';
+          copy.addEventListener('click', async () => { try { await navigator.clipboard.writeText(r.link); copy.textContent = 'Copied'; } catch { input.select(); } });
+          shown.append(input, copy);
+          const row = el('tr');
+          const cell = el('td');
+          cell.colSpan = 7;
+          cell.append(shown);
+          row.append(cell);
+          tr.after(row);
+        } catch (err) { alert(err.message); }
+      });
+      if (!a.operator) {
+        btn(a.blocked ? 'Open' : 'Close', async () => { try { await post('api/operator/block', { userId: a.id, blocked: !a.blocked }); await renderAccounts(data); } catch (err) { alert(err.message); } });
+        btn('Delete', async () => {
+          if (!confirm(`Delete the account of ${a.email}? Its email and password go, and its sessions end. This cannot be undone.`)) return;
+          try { await post('api/operator/delete', { userId: a.id }); await renderAccounts(data); } catch (err) { alert(err.message); }
+        });
+      }
+    }
+    tr.append(tools);
+    table.append(tr);
+  }
+  wrap.append(table);
+  box.append(wrap);
 }
 
 function asText(data) {
@@ -222,12 +276,6 @@ function asText(data) {
     lines.push('', 'Recent failures');
     for (const f of data.recentFailures) lines.push(`  ${f.at} ${f.where} ${f.code || ''} ${f.message}`);
   }
-  if (data.access?.required) {
-    lines.push('', 'Recent sign-ins');
-    for (const s of data.signins || []) lines.push(`  ${s.at} ${s.email || 'no email given'} code ending ${s.code}`);
-    lines.push('', 'Runs per code');
-    for (const c of data.codes || []) lines.push(`  code ending ${c.ending}: ${c.used} of ${c.allowed} runs used`);
-  }
   return lines.join('\n');
 }
 
@@ -247,11 +295,11 @@ async function run() {
         + 'it is serving. An older FactEngine window is still holding the port.';
       return;
     }
-    if (res.status === 401) {
-      // The door is locked and this browser has not signed in: the main page's Sign in opens it.
+    if (res.status === 401 || res.status === 403) {
+      // The check page is the operator's (5 October): signed out, or signed in with a reader's account.
       verdict.className = 'check-verdict is-blocked';
-      verdict.textContent = 'Sign in on the main page first, then check again.';
-      $('#report').value = 'This FactEngine needs a sign-in. Open the main page, sign in with an access code, then come back here.';
+      verdict.textContent = res.status === 401 ? 'Sign in on the main page with the operator\'s account, then check again.' : 'This page is for the operator\'s account.';
+      $('#report').value = verdict.textContent;
       return;
     }
     if (!res.ok) throw new Error(`the server answered ${res.status}`);
@@ -262,7 +310,7 @@ async function run() {
     renderSettings(data.settings, data.build, data.pacing, data.silentSites, data.tools, data.readers);
     renderEconomics(data.economics);
     renderFailures(data.recentFailures);
-    renderSignins(data);
+    await renderAccounts(data);
     $('#report').value = asText(data);
   } catch (err) {
     verdict.className = 'check-verdict is-blocked';

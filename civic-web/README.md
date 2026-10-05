@@ -142,12 +142,6 @@ How many claims run without a press is `CIVIC_AUTO_TEST_FIRST` (10 unless set). 
 chooses which to test; **Test N selected claims** runs the whole selection as one batch, ten at a time (`CIVIC_EVAL_CONCURRENCY`), the next claim starting as one ends. With the setting at 0 nothing
 runs by itself: every claim found is shown with its checkbox, numbered from one, and the page's own sentences say so.
 
-Each sign-in code allows a number of runs: `CIVIC_CODE_USES` (five) unless the code's own entry
-in `CIVIC_ACCESS_CODES` names one (`ABCD234:150`). A run is counted when its extraction starts;
-past the allowance the run is refused with the figures, in a sentence on the page. The count is
-a file (`CIVIC_USES_FILE`), read at start, so a restart or a deploy forgets nothing when the file
-is on a persistent disk; /check lists each code's runs used and allowed.
-
 ## Facts have a price; every user is measured
 
 The operator's program of 2 October, in their words: "All empirical facts are parsed and listed for Free,
@@ -195,6 +189,69 @@ to test, measure, and optimize." `server/economics.js` does exactly that and not
 - `CIVIC_PRICING_ENABLED=false` is the rollback: the page as before, nothing priced or measured beyond
   the ledger. `npm run verify` proves all of it on a real Postgres (a cluster of its own here; a service
   container in CI, where `CIVIC_VERIFY_REQUIRE_DATABASE=1` makes a missing database a failure).
+
+## Accounts and credit
+
+The operator, 5 October: "Get rid of access codes … We need to establish a sign-up and sign-on process first, followed
+by payments. We don't need to worry about account funds; assume everyone who signs up gets $10 in their account." So
+the door is an account, and a test is paid from the account's credit; payments, the last step, are not built.
+
+- **Sign up and sign in** with an email address and a password, in a box on the page itself: no pop-up, and real form
+  fields, so a password manager offers to save and fill them. An account comes before anything runs, the listing
+  included. A refused press of Test the facts opens the box on Create account; the text stays in its box, and the run
+  starts by itself once the account exists. No email is sent, so no address is verified, and nothing needs a domain.
+- **Passwords** are kept only as scrypt hashes (N 2^14, r 8, p 5, a 16-byte salt: 16 MiB a hash, safe on Starter's
+  512 MB), compared in constant time. An unknown email costs the same time as a wrong password and gets the same
+  sentence. Wrong passwords are counted in memory per email (`CIVIC_SIGNIN_TRIES`, 10 an hour, then a wait until the
+  hour has passed), and per address only when `CIVIC_SIGNIN_TRIES_PER_ADDRESS` is set; sign-ups per address a day only
+  when `CIVIC_SIGNUPS_PER_ADDRESS_PER_DAY` is set. No address is stored.
+- **Sessions:** the cookie `fe_session` carries 32 random bytes (HttpOnly, SameSite=Lax, Secure over HTTPS, for
+  `CIVIC_SESSION_DAYS`, 400). The database keeps only the token's SHA-256, with its account, when it was made, when it
+  was last seen (moved forward at most once an hour) and when it ends. Sign-out ends the session; a password change, a
+  reset link and a block end every other one.
+- **The door** (`server/access.js`): open are `/api/health` and the account's own doors (sign up, sign in, sign out, a
+  reset link, the operator's link). Everything else needs a session (401 `signin_required`), and `/api/operator/*` the
+  operator's (403). A request without a session is refused on its headers, before any body is read. A request another
+  site's page makes is refused (Sec-Fetch-Site, or an Origin naming another host), and the account's and the operator's
+  doors take JSON alone. `CIVIC_ACCOUNTS=off` opens the door, for a laptop of one's own and the guard's older checks;
+  any other value, or none, keeps it shut, so a lost setting never opens it. On Render, accounts need `DATABASE_URL`:
+  without it the service does not start, since accounts in memory would vanish at every deploy.
+- **The operator's account** is made through a one-time link. The address in `CIVIC_OPERATOR_EMAILS` cannot be taken
+  through the open form (it answers as any taken address does), because no address is verified; the link, whose SHA-256
+  is `CIVIC_OPERATOR_CLAIM`, opens /account, makes the account with the operator's mark, and then opens nothing.
+  /check, its data and `/api/operator/*` are that account's alone; another account's /check is refused. FactEngine's
+  own costs (the cost chips, a job's cost line) reach the operator alone.
+- **Credit** (`server/credit.js`) is an append-only ledger, and the balance is its sum. A new account's grant
+  (`CIVIC_SIGNUP_GRANT_CENTS`, 1000: $10) is written with the account. A priced test's price is held when it starts,
+  in the same transaction that decides whether it is free, under a lock on the account, so two tabs cannot spend one
+  balance twice. It is charged when its determination is delivered, and released when the test fails, is stopped, or
+  is cut by a deploy; a hold settles once (a unique index). A test the balance cannot cover, or that would take this
+  month's tests past the reader's own limit, is refused before any model is asked (402 `credit_short` or
+  `month_limit`, with the figures), and the page says so under the button and starts no further claim. With accounts
+  on, a determination must name a run of the requester's (400 `run_required`), so no test is free by leaving the run
+  out. The same claim coming back on another instance after a deploy is a new attempt, held again, and only the newest
+  attempt can be charged, so the reader pays once; a claim already delivered and asked for again runs once more, free,
+  and then answers 409. At boot every hold left unsettled is settled by its row. Records that cannot be written are a
+  wait (503 `books_wait`, which the page rides out), never a free test.
+- **The Account page** (/account, four languages): the balance and its history, Add credit (it opens with payments), a
+  monthly limit of the reader's own (this month's spend and the day it resets, the 1st, UTC), the activity (each test
+  with its date, claim number, verdict and amount; a free one reads Free, one that failed Not charged), a password
+  change, sign out everywhere, and deleting the account. It also takes the reset link (`#reset=`) and the operator's
+  link (`#claim=`); the token after `#` never reaches a server or its log.
+- **A forgotten password:** the reader writes to support from the account's address; the operator makes a one-time link
+  on /check (it lasts `CIVIC_RESET_LINK_HOURS`, 24) and sends it. When email sending arrives with the domain, the link
+  is sent by itself.
+- **The operator's table on /check:** every account with its balance, this month, its tests and its state; add credit
+  (an adjustment, with a note), a reset link (shown once, with Copy), close and open, delete (the email and the password
+  wiped and the sessions ended; the amounts stay for the accounts). A line under the measurement adds up the credit
+  given and spent, and that nothing is collected while payments are not live.
+- **Payments**, the last step: Stripe's hosted Checkout for Add credit (its webhook writing a `purchase` row),
+  auto-reload, and Stripe's Customer Portal. Nothing of it is built; it needs the Stripe account, which needs the domain.
+
+The access codes of 17 September, their allowance of runs, the sign-in log and the cookie's secret are gone. Their
+settings (`CIVIC_ACCESS_CODES`, `CIVIC_OPERATOR_CODES`, `CIVIC_CODE_USES`, `CIVIC_USES_FILE`, `CIVIC_SIGNIN_LOG`,
+`CIVIC_SESSION_SECRET`) are read by nothing; the startup line and /check name any still set, for the operator to
+delete in Render when convenient.
 
 ## Reading a link
 
@@ -430,7 +487,7 @@ truncation setting. No fallback model. No size limit of ours on the document.
 | Reasoning summary | `auto` | Display only: the model's own account of its reasoning, shown on the card. Does not change the answer. Blank to turn off. |
 | Claims run automatically | `CIVIC_AUTO_TEST_FIRST` of them (10 unless set; 0 = none: every claim found waits for the reader's checkbox and runs when chosen), ten at a time (`CIVIC_EVAL_CONCURRENCY`, the operator's figure of 3 October on a minute budget of 40,000,000 tokens), each on its own request, the whole selection in one batch. The page is told both figures by the server (`autoTestFirst` and `inFlight` on `/api/health`), so what runs and how fast change with one setting and no release. The intake sentences follow the figures too. | Operator's rule; 0 since 1 October |
 | Prices and tiers | Listing free; a determination at one price for everyone (the measured average cost × 1.25, or `CIVIC_PRICE_START_CENTS` until twenty are measured; nothing priced until either exists); a run's tier (1: nothing free; 2, 3, 4: one, two, three of the reader's choices free per document) rotating every six hours with a daily shift; a loss guard to tier 1 when a window loses more than `CIVIC_TIER_LOSS_GUARD_USD`; revenue at list, not collected; every user measured in Postgres. See "Facts have a price". | Operator's program, 2 October; every figure theirs |
-| Sign-in | Off unless `CIVIC_ACCESS_CODES` is set (comma-separated seven-character codes). Then every API route but the health line needs the cookie a listed code earns: the page's Sign in opens a dialog for an email address and a code; only the code is checked, the email is kept with the sign-in and listed on /check. A cookie is bound to the code it was issued under, so taking a code off the list signs out its holders and nobody else. Nothing is counted and nothing locks. Since 30 September: the cookie is signed with `CIVIC_SESSION_SECRET` when set (unset, with a derivation from the OpenAI key, which /check flags, because a change of that key then signs everyone out); a job belongs to the sign-in that started it, so another code cannot attach to, stop or let go of it; `CIVIC_OPERATOR_CODES` names the codes that see the sign-in list and the runs per code on /check (unset, every code holder does); routes match their case exactly and the gate sits on `/api` itself, so `/API/extract` is nobody's route; a request the browser marks as another site's is refused. | Operator's rule; accounts come later |
+| Accounts and credit | On unless `CIVIC_ACCOUNTS=off`: an account by email and password before anything runs; the operator's account only through the one-time link (`CIVIC_OPERATOR_CLAIM`, its SHA-256; `CIVIC_OPERATOR_EMAILS`, the reserved address); `CIVIC_SIGNUP_GRANT_CENTS` (1000) of credit to start; a test's price held when it starts, charged when it is delivered, released when it is not; a monthly limit of the reader's own. Flagged defaults, the operator's to change: `CIVIC_PASSWORD_MIN_CHARS` 8, `CIVIC_SESSION_DAYS` 400, `CIVIC_SIGNIN_TRIES` 10 an hour, `CIVIC_RESET_LINK_HOURS` 24; off unless set: `CIVIC_SIGNIN_TRIES_PER_ADDRESS`, `CIVIC_SIGNUPS_PER_ADDRESS_PER_DAY`. See "Accounts and credit". | Operator, 5 October |
 | Pacing | OpenAI keeps a bucket of the key's minute limit that refills continuously at that limit per minute; each request costs what OpenAI estimates for it, and a request the bucket cannot hold is refused with exactly the wait that refills the difference (its refusals say so, to the millisecond). FactEngine reads those figures from every reply and every refusal. A request goes when the bucket, less what is reserved by the sends whose headers have not yet arrived (each at what OpenAI has shown for its kind), holds its cost; when the headers arrive their figure replaces the reservation. So many readers' requests leave together, bounded by the bucket, instead of one after another. The first request ever, and the first of each kind of request (a listing, a determination), goes alone into a full minute so its reply shows its cost exactly; a refusal's Requested figure is learned too, so a larger cost is met once and never twice. The line is an order, not a figure: listings before determinations (listing is the free first step), and among determinations the readers take turns, so one reader's thirty queued claims never starve another's first three; a request OpenAI turns back waits exactly what OpenAI asked and goes again first. The check page's pacing row shows the key's figures, what is in the air with its reservations, what waits by kind and by reader, and the refusals. | Built from OpenAI's refusals of 16 September; parallel sends, the order and the turns on 3 October |
 | Rate limits | Never a failure, never an error on a row. A refusal at the door sets the bucket to OpenAI's figures; the refused request waits exactly what OpenAI asked and goes first. A refusal can also arrive inside a running reply, when the response's own later call (after a web search) finds the minute short and OpenAI ends the response with its figures in an error event: it is read the same way, the claim waits exactly what OpenAI asked, and goes again whole. This is why the pace per reader is a figure rather than everything at once: a running reply is charged again at each of its later calls (67,000 to 89,000 each in September's readings), by far more than its admission showed, and the gate cannot see those charges, so many parallel claims can starve one another; the limits are per organization and model, so every reader shares the key's minute. The key's minute read 500,000 tokens on 16 September, 2,000,000 on 18 September and 40,000,000 on 3 October (the check page's pacing row is the authoritative reading), so the pace went one, two, three, four, three, and ten on 3 October on the operator's word; a larger budget still is OpenAI's to grant on request. The figure is a setting, so it moves without a release. A used-up quota is reported in words. | OpenAI's own numbers |
 | Retries | None counted on a connection that could not be made or was cut: that is the operating system's report ("no route to host", "connection refused", "connection reset"), never OpenAI's, and nothing was decided by it. The claim waits for the connection and goes again a second after the failed go began, however long the route is missing; a go that finds no route costs nothing. The row says why it waits, in the system's words, and /check records the outage with its start, its cause, its length and the machine's addresses at the time. 8 on a 5xx, which costs nothing. No back-off of ours: a failed attempt rejoins the line at the gate, and OpenAI's own retry-after, when given, comes first. | Never on a model or parameter error |
@@ -554,14 +611,16 @@ Render's API with the settings below, and it redeploys from `main`. To create it
 3. Open the service → Environment. Under Secret Files add `extract.txt` (the extraction prompt)
    and `evaluate.txt` (the evaluation prompt, which must contain the token `{{CLAIM}}`). Under
    Environment Variables set `OPENAI_API_KEY` (the operator's key, the only one the service will
-   ever use), `CIVIC_ACCESS_CODES` (the codes that open the door, comma-separated), `CIVIC_SESSION_SECRET`
-   (32 random bytes: the cookie's own secret) and `CIVIC_OPERATOR_CODES` (which of the codes are yours). Save.
-4. Deploy. The service gets an address like `https://civic-xxxx.onrender.com`. Open it, press
-   Sign in, enter a code, paste a document, press Test the facts.
+   ever use), `DATABASE_URL` (a Render Postgres's internal address: accounts, sessions, credit and the measurement
+   live there), `CIVIC_OPERATOR_EMAILS` (your address) and `CIVIC_OPERATOR_CLAIM` (the SHA-256 of a one-time link's
+   token of your own). Save.
+4. Deploy. The service gets an address like `https://civic-xxxx.onrender.com`. Open
+   `…/account#claim=<the token>&email=<your address>`, choose a password, and your account is the operator's. Then
+   paste a document and press Test the facts.
 
 The prompts live only in Render's secret store and the server's memory; they are never in the
-repository. The internal ledger and the sign-in log are written to a temporary disk and do not
-persist between deploys; Render's own log stream keeps the sign-in lines.
+repository. The internal ledger is written to a temporary disk and does not persist between deploys;
+accounts, sessions, credit and the measurement are in Postgres and do.
 
 Each claim is tested on its own request, so no response outlasts one claim (Render allows a
 response 100 minutes). The work itself belongs to the server, not to the connection

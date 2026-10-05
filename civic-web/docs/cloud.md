@@ -610,6 +610,46 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
     "Never go back to fireworks. That's like killing users by making them watch paint dry for 48 hours." The Fireworks
     code stays inert (it runs only on `CIVIC_EXTRACT_PROVIDER=fireworks`), and `FIREWORKS_API_KEY` stays in Render until
     the operator deletes it there.
+- **5 October, the code box takes typing again.** The operator, about 21:00 UTC: "I tried to enter one, but I couldn't
+  enter anything." Render's log showed their iPad asking to read a link at 20:55 and 20:57 UTC, refused both times for want
+  of a sign-in, and no sign-in ever sent.
+  - The cause: the dialog's two fields sat in `<label class="field">`. Since the background layer arrived on 2 October
+    (5fd7a24), `.field` is that layer's class: fixed over the whole screen, letting every tap through, in the ground's
+    colour. So both labels lay over the dialog in the background's colour and took no tap.
+  - The browser checks had typed with Playwright's `fill`, which never asks what is under the finger. The new check taps
+    each field (an iPad emulated with touch, and a desktop) and asks the browser which element is under the tap.
+  - The labels became `form-field` (`display: block`, the labels' rule before 2 October). **Live** (PR #67 squash
+    f087653): the served page carries the two `form-field` labels and the CSS its rule (read at 22:46 UTC on build
+    3d77428713cb).
+- **5 October, accounts and credit.** The operator: "Get rid of access codes … We need to establish a sign-up and
+  sign-on process first, followed by payments. We don't need to worry about account funds; assume everyone who signs up
+  gets $10 in their account. Only potential investors know this app is available. … The goal is to move this as far
+  toward a commercial service as possible so we can execute it now, while still leaving the final step of payment
+  integration."
+  - Their answers: sign-in by email and password; the operator's account is their own address (in Render as
+    `CIVIC_OPERATOR_EMAILS`, kept out of this public repository); an account before anything runs, the listing included.
+  - What was planned before: the credit ledger with holds (29 September), the pages only sketched, the requirements of
+    3 October recorded. Stripe's own hosted pages carry most of the payment interface (the card form, receipts, saved
+    cards), so this release builds everything but Stripe, and payments stay the last step (task #47).
+  - Built: accounts (`server/accounts.js`: scrypt passwords, sessions kept as hashes, the sign-up grant, reset links, the
+    operator's one-time link); the door (`server/access.js`); the credit ledger (`server/credit.js`) and the holds in
+    `server/economics.js`; the account box on the page; the Account page (/account); the Accounts table on /check; the
+    approved sentences in the Terms (§4 "Your account", §5's credit sentence), the Privacy Policy and the Refunds page.
+  - Closed on the way, each a free test once credit is real: bookkeeping that failed open (a wait now, 503
+    `books_wait`); a determination naming no run, or another account's (400 `run_required`); a known id run again
+    after a deploy (an attempt of its own, held again, charged once); the page showing every 402 as the operator's
+    fault; pricing off skipping the migrations.
+  - The operator's account cannot be taken through the open form, since no address is verified: it is made through a
+    one-time link whose SHA-256 is `CIVIC_OPERATOR_CLAIM` (written with `render-env.mjs`, a hash and not a secret); the
+    link itself goes to the operator as a private file, never in chat.
+  - Settings written before the merge: `CIVIC_ACCOUNTS=on`, `CIVIC_OPERATOR_EMAILS`, `CIVIC_OPERATOR_CLAIM`,
+    `CIVIC_SIGNUP_GRANT_CENTS=1000`. Flagged defaults, the operator's to change: `CIVIC_PASSWORD_MIN_CHARS` 8 (Render
+    takes it from the dashboard only: `render-env.mjs` refuses a name with PASSWORD in it), `CIVIC_SESSION_DAYS` 400,
+    `CIVIC_SIGNIN_TRIES` 10 an hour, `CIVIC_RESET_LINK_HOURS` 24; off unless set, `CIVIC_SIGNIN_TRIES_PER_ADDRESS` and
+    `CIVIC_SIGNUPS_PER_ADDRESS_PER_DAY`.
+  - Retired, read by nothing, named by the startup line and /check while still set: `CIVIC_ACCESS_CODES`,
+    `CIVIC_OPERATOR_CODES`, `CIVIC_CODE_USES`, `CIVIC_USES_FILE`, `CIVIC_SIGNIN_LOG`, `CIVIC_SESSION_SECRET`. They are the
+    operator's to delete in Render when convenient.
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 

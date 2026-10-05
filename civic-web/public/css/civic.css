@@ -550,14 +550,30 @@ body {
 
 .intake-slow { margin: .6rem 0 0; max-width: 46rem; }
 
-/* Sign-in by code: a small rounded dialog, as every box is. It is glass too, and what it dims is light, not
-   darkness: the page behind it blurs and brightens. */
-dialog.signin { border: 1px solid var(--glass-edge); border-radius: var(--radius); padding: 26px 26px 20px; width: min(420px, calc(100vw - 32px)); background: var(--glass-sheen), var(--glass-strong); -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur); color: var(--ink); box-shadow: 0 24px 60px rgba(21, 24, 29, 0.18), var(--glass-shine); }
-dialog.signin::backdrop { background: rgba(238, 243, 247, 0.5); -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); }
-.signin-form { display: grid; gap: 14px; }
-.signin-title { margin: 0; font-size: 22px; }
-.signin-lede { margin: 0; color: var(--ink-2); font-size: 14px; line-height: 1.45; }
-.signin-code { font-family: var(--font-mono); font-size: 20px; letter-spacing: 0.18em; text-transform: uppercase; }
-.signin-note { margin: 0; color: var(--false); font-size: 14px; }
-.signin-actions { display: flex; justify-content: flex-end; gap: 8px; margin-block-start: 4px; }
-.nav-who { font-size: 14px; color: var(--ink-2); max-width: 24ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The account box (5 October): in the page's own flow, never a pop-up, never laid over anything, so a touch screen
+   reaches every field. Fields are 16 px (a phone does not zoom into them) and every target is at least 44 px tall. */
+.account-box { padding: 26px 28px 22px; display: grid; gap: 14px; scroll-margin: 24px; }
+.account-box-title { margin: 0; font-size: 24px; }
+.account-box-lede { margin: 0; color: var(--ink-2); font-size: 15px; line-height: 1.5; max-width: 40rem; }
+.account-tabs { display: flex; gap: 6px; flex-wrap: wrap; }
+.account-tab { font: inherit; font-weight: 600; font-size: 15px; min-height: 44px; padding: 10px 18px; border-radius: 999px; border: 1px solid var(--line); background: rgba(255, 255, 255, 0.45); color: var(--ink-2); cursor: pointer; touch-action: manipulation; }
+.account-tab.is-on { background: var(--ink); border-color: var(--ink); color: #fff; }
+.account-tab:focus-visible { outline: 2px solid var(--blue); outline-offset: 3px; }
+.account-form { display: grid; gap: 14px; max-width: 30rem; }
+.account-form .input { font-size: 16px; min-height: 44px; touch-action: manipulation; }
+.password-row { display: flex; gap: 8px; align-items: center; }
+.password-row .input { flex: 1 1 auto; min-width: 0; }
+.password-row .btn { min-height: 44px; }
+.account-agree { display: flex; gap: 10px; align-items: flex-start; font-size: 14.5px; line-height: 1.5; color: var(--ink-2); cursor: pointer; }
+.account-agree input { width: 22px; height: 22px; flex: none; margin-block-start: 1px; }
+.account-agree a { color: var(--blue-deep); }
+.account-note { margin: 0; color: var(--false); font-size: 14.5px; line-height: 1.45; }
+.account-actions { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
+.account-actions .btn { min-height: 44px; touch-action: manipulation; }
+.account-forgot summary { cursor: pointer; color: var(--ink-2); font-size: 14.5px; min-height: 32px; }
+.account-forgot p { margin: 6px 0 0; }
+.nav-balance { font-weight: 600; font-size: 15px; color: var(--ink); text-decoration: none; padding: 8px 12px; border-radius: 999px; background: rgba(255, 255, 255, 0.6); border: 1px solid var(--line); }
+.nav-balance:hover { border-color: var(--ink-3); }
+.balance-line { margin: 6px 0 0; font-size: 14.5px; color: var(--ink-2); }
+.balance-line.is-over { color: var(--false); }
+@media (max-width: 560px) { .account-box { padding: 20px 18px 18px; } .account-actions { justify-content: stretch; } .account-actions .btn { flex: 1 1 auto; justify-content: center; } }

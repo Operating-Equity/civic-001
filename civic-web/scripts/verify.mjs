@@ -5,6 +5,7 @@
 // It also runs the prompt leak guard: no committed file may contain a fragment of the prompts.
 // Run before every deploy: `npm run verify`. A non-zero exit is a defect.
 import { spawn, spawnSync } from 'node:child_process';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import http from 'node:http';
 import net from 'node:net';
@@ -18,7 +19,6 @@ import { linkWords, publisherOf } from '../server/copies.js';
 import { Bucket, RateGate, parseRefusal } from '../server/gate.js';
 import { parseEntry } from '../server/verdict.js';
 import { isConnectionDrop, connectionWait, describeError } from '../server/openai.js';
-import { generateCode, normalise, ALPHABET } from '../server/access.js';
 import { validateStandIn } from '../server/tools/contract.js';
 import { config, requestShape } from '../server/config.js';
 import { tierAt, windowStartAt, freeFor, priceFromAverage } from '../server/economics.js';
@@ -67,8 +67,11 @@ const children = [];
 // Fireworks. No public address of Render's either, so the tool server's address is only ever one a check gives.
 const DEEPSEEK_OFF = { CIVIC_EXTRACT_PROVIDER: '', DEEPSEEK_API_KEY: '', CIVIC_DEEPSEEK_BASE_URL: 'http://127.0.0.1:9/deepseek' };
 const FIREWORKS_OFF = { FIREWORKS_API_KEY: '', CIVIC_FIREWORKS_BASE_URL: 'http://127.0.0.1:9/fireworks', RENDER_EXTERNAL_URL: '' };
+// And with accounts off (the door open, as on a laptop of one's own) unless a check turns them on: since 5 October they are
+// on wherever CIVIC_ACCOUNTS is not "off". No database from the shell either, and none of the access codes' retired settings.
+const ACCOUNTS_OFF = { CIVIC_ACCOUNTS: 'off', DATABASE_URL: '', CIVIC_OPERATOR_EMAILS: '', CIVIC_OPERATOR_CLAIM: '', CIVIC_ACCESS_CODES: '', CIVIC_OPERATOR_CODES: '', CIVIC_CODE_USES: '', CIVIC_USES_FILE: '', CIVIC_SIGNIN_LOG: '', CIVIC_SESSION_SECRET: '' };
 const start = (args, extraEnv) => {
-  const child = spawn(process.execPath, args, { cwd: root, env: { ...process.env, ...DEEPSEEK_OFF, ...FIREWORKS_OFF, ...extraEnv }, stdio: ['ignore', 'pipe', 'pipe'] });
+  const child = spawn(process.execPath, args, { cwd: root, env: { ...process.env, ...DEEPSEEK_OFF, ...FIREWORKS_OFF, ...ACCOUNTS_OFF, ...extraEnv }, stdio: ['ignore', 'pipe', 'pipe'] });
   child.stdout.on('data', () => {});
   child.stderr.on('data', (d) => process.stderr.write(`  [${path.basename(args[0])}] ${d}`));
   children.push(child);
@@ -107,6 +110,7 @@ async function stream(url, body) {
 const results = [];
 const check = (name, ok, detail = '') => { results.push({ name, ok, detail }); };
 const extraKeys = (obj, allowed) => Object.keys(obj || {}).filter((k) => !allowed.includes(k));
+const dbQuery = async (url, sql, params = []) => { const c = new pg.Client({ connectionString: url }); await c.connect(); try { return await c.query(sql, params); } finally { await c.end(); } };
 
 try {
   fs.writeFileSync(record, '');
@@ -648,224 +652,430 @@ async function continuationChecks() {
 }
 await continuationChecks();
 
-// The door. With codes set, the API needs the cookie a listed code earns; the page, the health line
-// and the sign-in itself stay open. A cookie is bound to the code it was issued under: taking that
-// code off the list signs out its holders and nobody else. The health line counts runs in flight.
-const seen = new Set(Array.from({ length: 200 }, generateCode));
-check('a generated code is seven characters from the alphabet without look-alikes, and two hundred of them are all different',
-  seen.size === 200 && [...seen].every((c) => new RegExp(`^[${ALPHABET}]{7}$`).test(c)) && !/[01OIL]/.test(ALPHABET), [...seen].slice(0, 3).join(' '));
-check('a code typed in lower case with spaces and dashes is read as the listed one', normalise(' ab cd-234 ') === 'ABCD234', normalise(' ab cd-234 '));
-async function accessChecks() {
-  const MOCK2 = MOCK_PORT + 15, PORT2 = PORT + 15, PORT3 = PORT + 16;
-  const mock = start([path.join(root, 'scripts', 'mock-openai.js')], { MOCK_PORT: String(MOCK2), MOCK_SPEED: '0.2', MOCK_EVAL_MARK: process.env.MOCK_EVAL_MARK_FOR_GATE || '' });
-  await wait(`http://localhost:${MOCK2}/v1/mock/stats`, 15000, { anyResponse: true });
-  // Its own uses file: the run counted here must not accumulate across guard runs (the default file
-  // under data/ did, and the sixth run of a day was refused as a code used up).
-  const usesFile = path.join(os.tmpdir(), `civic-verify-access-uses-${Date.now()}.jsonl`);
-  const env = { OPENAI_BASE_URL: `http://localhost:${MOCK2}/v1`, OPENAI_API_KEY: KEY, CIVIC_IMAGE_ENABLED: 'false', CIVIC_LEDGER_FILE: path.join(os.tmpdir(), 'civic-verify-ledger.jsonl'), CIVIC_SIGNIN_LOG: path.join(os.tmpdir(), 'civic-verify-signins.jsonl'), CIVIC_USES_FILE: usesFile };
-  const server = start([path.join(root, 'server', 'index.js')], { ...env, PORT: String(PORT2), CIVIC_ACCESS_CODES: 'ABCD234,EFGH567' });
-  const other = start([path.join(root, 'server', 'index.js')], { ...env, PORT: String(PORT3), CIVIC_ACCESS_CODES: 'EFGH567' });
-  await wait(`http://localhost:${PORT2}/api/health`);
-  await wait(`http://localhost:${PORT3}/api/health`);
-  const base = `http://localhost:${PORT2}`;
-  const json = async (url, init) => { const r = await fetch(url, init); let body = null; try { body = await r.json(); } catch {} return { status: r.status, body, cookie: (r.headers.get('set-cookie') || '').split(';')[0] }; };
-  const post = (url, body, headers = {}) => json(url, { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify(body) });
-  const text = 'The Eiffel Tower stands about 330 metres tall. Water boils at 100 degrees Celsius at sea level.';
-  try {
-    const health = await json(`${base}/api/health`);
-    check('the health line stays open with codes set, says a sign-in is required, names no session, and counts no run in flight',
-      health.status === 200 && health.body?.access?.required === true && health.body?.access?.session === null && health.body?.active === 0, JSON.stringify({ status: health.status, access: health.body?.access, active: health.body?.active }));
-    const refused = await post(`${base}/api/extract`, { text });
-    check('without a sign-in the API refuses with signin_required', refused.status === 401 && refused.body?.error?.code === 'signin_required', JSON.stringify(refused));
-    const wrong = await post(`${base}/api/signin`, { email: 'x@example.com', code: 'ZZZZ999' });
-    check('a code not on the list is refused in those words, and no cookie is set', wrong.status === 401 && wrong.body?.error?.code === 'code_not_listed' && !wrong.cookie, JSON.stringify(wrong));
-    const ok = await post(`${base}/api/signin`, { email: 'reader@example.com', code: 'abcd-234' });
-    check('a listed code, typed in lower case with a dash, signs in and sets the cookie', ok.status === 200 && ok.body?.session?.email === 'reader@example.com' && ok.cookie.startsWith('civic_access='), JSON.stringify(ok));
-    const cookie = ok.cookie;
-    const named = await json(`${base}/api/health`, { headers: { cookie } });
-    check('the health line then names the session', named.body?.access?.session?.email === 'reader@example.com', JSON.stringify(named.body?.access));
-    const res = await fetch(`${base}/api/extract`, { method: 'POST', headers: { 'content-type': 'application/json', cookie }, body: JSON.stringify({ text }) });
-    const during = await json(`${base}/api/health`);
-    const streamed = await res.text();
-    const after = await json(`${base}/api/health`);
-    check('with the cookie the extraction streams and completes; while it streams the health line counts one run in flight, and none after',
-      res.status === 200 && /"t":"done"/.test(streamed) && during.body?.active === 1 && after.body?.active === 0, `status=${res.status} during=${during.body?.active} after=${after.body?.active}`);
-    const selftestNo = await json(`${base}/api/selftest`);
-    const selftest = await json(`${base}/api/selftest`, { headers: { cookie } });
-    check('the check page\'s data needs the cookie, and then lists the sign-in with its email',
-      selftestNo.status === 401 && selftest.status === 200 && selftest.body?.signins?.[0]?.email === 'reader@example.com' && selftest.body?.access?.required === true, JSON.stringify({ without: selftestNo.status, with: selftest.status, signins: selftest.body?.signins }));
-    const revoked = await json(`http://localhost:${PORT3}/api/health`, { headers: { cookie } });
-    const okB = await post(`${base}/api/signin`, { email: 'b@example.com', code: 'EFGH567' });
-    const stillIn = await json(`http://localhost:${PORT3}/api/health`, { headers: { cookie: okB.cookie } });
-    check('taking a code off the list signs out exactly its holders: on a FactEngine without ABCD234 the cookie issued under it proves nothing, and one issued under EFGH567 is honoured',
-      revoked.body?.access?.session === null && stillIn.body?.access?.session?.email === 'b@example.com', JSON.stringify({ revoked: revoked.body?.access, stillIn: stillIn.body?.access }));
-    const out = await post(`${base}/api/signout`, {}, { cookie });
-    check('signing out clears the cookie', out.status === 200 && out.cookie === 'civic_access=', JSON.stringify(out));
-  } catch (err) {
-    check('the door\'s checks completed', false, err.message);
-  }
-  try { server.kill('SIGTERM'); } catch {}
-  try { other.kill('SIGTERM'); } catch {}
-  try { mock.kill('SIGTERM'); } catch {}
-  try { fs.unlinkSync(usesFile); } catch {}
-}
-await accessChecks();
+// Accounts and credit (5 October). The operator: "Get rid of access codes … We need to establish a sign-up and sign-on
+// process first, followed by payments … assume everyone who signs up gets $10 in their account." A reader signs up and
+// signs in with an email and a password; the cookie carries a session's random token, the server keeps its hash; the
+// door refuses every route that spends without a session; the operator's account is made through a one-time link and
+// sees /check alone; a test's price is held from the reader's credit when it starts, charged when it is delivered and
+// released when it is not. Proved on memory and, when a Postgres is to hand, on Postgres too.
+const PASSWORD = 'correct horse battery';
+const ACCT_TEXT = 'The Eiffel Tower stands about 330 metres tall. Water boils at 100 degrees Celsius at sea level. Mount Everest is 8,849 metres above sea level. The Pacific is the largest ocean on Earth. Light from the Sun takes about eight minutes to reach the Earth.';
+const CLAIM_TOKEN = 'verify-operator-claim-token-0123456789abcdef';
+const claimHash = () => crypto.createHash('sha256').update(CLAIM_TOKEN).digest('hex');
 
-// The door's locks of 30 September (server/access.js, server/jobs.js, server/index.js). Routes
-// match their case exactly and the gate sits on /api itself, so /API/extract is nobody's route;
-// a job belongs to the sign-in that started it; an id of up to 128 characters is kept as given
-// and a longer one is replaced by the server's, which the first event names; the cookie's secret
-// is the operator's own when set; the sign-in list is the operator's to see; a request the
-// browser marks as another site's is refused.
-async function securityChecks() {
-  const MOCK2 = MOCK_PORT + 31, PORT2 = PORT + 31, PORT3 = PORT + 32, PORT4 = PORT + 33;
-  const mock = start([path.join(root, 'scripts', 'mock-openai.js')], { MOCK_PORT: String(MOCK2), MOCK_SPEED: '0.2', MOCK_EVAL_MARK: process.env.MOCK_EVAL_MARK_FOR_GATE || '' });
-  await wait(`http://localhost:${MOCK2}/v1/mock/stats`, 15000, { anyResponse: true });
-  const stamp = Date.now();
-  const files = (tag) => ({ CIVIC_LEDGER_FILE: path.join(os.tmpdir(), 'civic-verify-ledger.jsonl'), CIVIC_SIGNIN_LOG: path.join(os.tmpdir(), `civic-verify-sec-signins-${tag}-${stamp}.jsonl`), CIVIC_USES_FILE: path.join(os.tmpdir(), `civic-verify-sec-uses-${tag}-${stamp}.jsonl`) });
-  const env = { OPENAI_BASE_URL: `http://localhost:${MOCK2}/v1`, CIVIC_IMAGE_ENABLED: 'false', CIVIC_ACCESS_CODES: 'ABCD234,EFGH567', CIVIC_OPERATOR_CODES: 'ABCD234' };
-  const SECRET = 'verify-session-secret-of-thirty-two-bytes';
-  const a = start([path.join(root, 'server', 'index.js')], { ...env, ...files('a'), PORT: String(PORT2), OPENAI_API_KEY: KEY, CIVIC_SESSION_SECRET: SECRET });
-  const b = start([path.join(root, 'server', 'index.js')], { ...env, ...files('b'), PORT: String(PORT3), OPENAI_API_KEY: `${KEY}-other`, CIVIC_SESSION_SECRET: SECRET });   // another key, the same secret
-  const c = start([path.join(root, 'server', 'index.js')], { ...env, ...files('c'), PORT: String(PORT4), OPENAI_API_KEY: `${KEY}-other` });                                 // another key, no secret
-  await wait(`http://localhost:${PORT2}/api/health`);
-  await wait(`http://localhost:${PORT3}/api/health`);
-  await wait(`http://localhost:${PORT4}/api/health`);
-  const base = `http://localhost:${PORT2}`;
-  const json = async (url, init) => { const r = await fetch(url, init); let body = null; try { body = await r.json(); } catch {} return { status: r.status, body, cookie: (r.headers.get('set-cookie') || '').split(';')[0] }; };
-  const post = (url, body, headers = {}) => json(url, { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify(body) });
-  const streamWith = async (url, body, headers = {}) => {
-    const res = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify(body) });
-    if (!res.ok) return { status: res.status, body: await res.json().catch(() => null), events: [] };
-    const events = (await res.text()).split('\n').filter(Boolean).map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
-    return { status: res.status, events };
+function accountClient(base) {
+  const json = async (pathname, { method = 'GET', body, cookie, headers = {} } = {}) => {
+    const r = await fetch(base + pathname, { method, headers: { ...(body !== undefined ? { 'content-type': 'application/json' } : {}), ...(cookie ? { cookie } : {}), ...headers }, body: body !== undefined ? JSON.stringify(body) : undefined });
+    const setCookies = r.headers.getSetCookie?.() || [];
+    let parsed = null;
+    try { parsed = await r.json(); } catch { /* none */ }
+    return { status: r.status, body: parsed, cookie: (setCookies.find((c) => c.startsWith('fe_session=')) || '').split(';')[0], setCookies };
   };
-  const att = (r) => r.events.find((e) => e.t === 'attached');
-  const done = (r) => r.events.some((e) => e.t === 'done');
-  const text = 'The Eiffel Tower stands about 330 metres tall. Water boils at 100 degrees Celsius at sea level.';
-  const signin = async (port, code, email) => (await post(`http://localhost:${port}/api/signin`, { email, code })).cookie;
+  const stream = async (pathname, body, cookie, headers = {}) => {
+    const r = await fetch(base + pathname, { method: 'POST', headers: { 'content-type': 'application/json', ...(cookie ? { cookie } : {}), ...headers }, body: JSON.stringify(body) });
+    if (!r.ok) return { status: r.status, body: await r.json().catch(() => null), events: [] };
+    return { status: r.status, events: (await r.text()).split('\n').filter(Boolean).map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean) };
+  };
+  const signup = (email, password = PASSWORD, agree = true) => json('/api/account/signup', { method: 'POST', body: { email, password, agree } });
+  const signin = (email, password = PASSWORD) => json('/api/account/signin', { method: 'POST', body: { email, password } });
+  const balance = async (cookie) => (await json('/api/account', { cookie })).body?.account?.balanceCents;
+  return { json, stream, signup, signin, balance };
+}
+
+/** A server with accounts on, its output kept (so the guard can say no password, hash or token ever reaches it). */
+function accountServer(port, mockPort, env = {}) {
+  const out = [];
+  const child = spawn(process.execPath, [path.join(root, 'server', 'index.js')], {
+    cwd: root, stdio: ['ignore', 'pipe', 'pipe'],
+    env: { ...process.env, ...DEEPSEEK_OFF, ...FIREWORKS_OFF, ...ACCOUNTS_OFF, CIVIC_ACCOUNTS: 'on', PORT: String(port), OPENAI_BASE_URL: `http://localhost:${mockPort}/v1`, OPENAI_API_KEY: KEY, CIVIC_IMAGE_ENABLED: 'false', CIVIC_LEDGER_FILE: path.join(os.tmpdir(), `civic-verify-accounts-ledger-${port}.jsonl`), ...env },
+  });
+  child.stdout.on('data', (d) => out.push(String(d)));
+  child.stderr.on('data', (d) => out.push(String(d)));
+  children.push(child);
+  return { child, output: () => out.join('') };
+}
+
+async function accountChecks(label, dbUrl) {
+  const MOCK2 = MOCK_PORT + (dbUrl ? 63 : 62), P = PORT + (dbUrl ? 66 : 62);
+  const mock = start([path.join(root, 'scripts', 'mock-openai.js')], { MOCK_PORT: String(MOCK2), MOCK_SPEED: '0.2', MOCK_EVAL_MARK: process.env.MOCK_EVAL_MARK_FOR_GATE || '' });
+  await wait(`http://localhost:${MOCK2}/v1/mock/stats`, 15000, { anyResponse: true });
+  const env = { DATABASE_URL: dbUrl || '', CIVIC_SIGNUP_GRANT_CENTS: '1000', CIVIC_SIGNIN_TRIES: '3', CIVIC_OPERATOR_EMAILS: 'op@example.com', CIVIC_OPERATOR_CLAIM: claimHash(), CIVIC_ACCESS_CODES: 'ABCD234' };
+  let s1 = accountServer(P, MOCK2, env);
+  const servers = [s1];
+  await wait(`http://localhost:${P}/api/health`, 20000);
+  const base = `http://localhost:${P}`;
+  const c = accountClient(base);
+  const reqs = async () => (await (await fetch(`http://localhost:${MOCK2}/v1/mock/stats`)).json()).admitted;
   try {
-    const op = await signin(PORT2, 'ABCD234', 'op@example.com');
-    const rd = await signin(PORT2, 'EFGH567', 'reader@example.com');
+    const h0 = await c.json('/api/health');
+    check(`accounts (${label}): the health line is open, says an account is needed, names no session and the credit a new account starts with`,
+      h0.status === 200 && h0.body?.access?.required === true && h0.body.access.session === null && h0.body.access.grantCents === 1000 && h0.body.accounting === false, JSON.stringify(h0.body?.access));
 
-    const upper = await post(`${base}/API/extract`, { text });
-    const mixed = await post(`${base}/Api/Extract`, { text });
-    const upperWith = await post(`${base}/API/extract`, { text }, { cookie: op });
-    const selfUpper = await json(`${base}/API/selftest`);
-    check('/API/extract, /Api/Extract and /API/selftest are nobody\'s route: none answers 200, with a cookie or without (routes match their case, and the gate sits on /api itself)',
-      upper.status !== 200 && mixed.status !== 200 && upperWith.status !== 200 && selfUpper.status !== 200, JSON.stringify({ upper: upper.status, mixed: mixed.status, upperWith: upperWith.status, selfUpper: selfUpper.status }));
+    const before = await reqs();
+    const refused = await Promise.all([
+      c.json('/api/extract', { method: 'POST', body: { text: ACCT_TEXT } }), c.json('/api/evaluate', { method: 'POST', body: { claims: ['x'] } }),
+      c.json('/api/read-url', { method: 'POST', body: { url: 'https://example.com/' } }), c.json('/api/find-copies', { method: 'POST', body: { url: 'https://example.com/' } }),
+      c.json('/api/illustrate', { method: 'POST', body: { text: ACCT_TEXT } }), c.json('/api/challenge', { method: 'POST', body: {} }), c.json('/api/parse', { method: 'POST', body: {} }),
+      c.json('/api/selftest'), c.json('/api/account'), c.json('/api/operator/accounts'), c.json('/api/cancel', { method: 'POST', body: { jobIds: ['x'] } }),
+    ]);
+    check(`accounts (${label}): without a session every route that spends or shows anything is refused (401 signin_required), and nothing reaches the model`,
+      refused.every((r) => r.status === 401 && r.body?.error?.code === 'signin_required') && (await reqs()) === before, JSON.stringify(refused.map((r) => r.status)));
 
-    const cross = await post(`${base}/api/extract`, { text }, { cookie: op, 'sec-fetch-site': 'cross-site' });
-    const same = await streamWith(`${base}/api/extract`, { text, jobId: 'verify-sec-same-origin-1' }, { cookie: op, 'sec-fetch-site': 'same-origin' });
-    check('a request the browser marks as another site\'s is refused (403 cross_site) whatever cookie it carries, and one marked same-origin runs to its end',
-      cross.status === 403 && cross.body?.error?.code === 'cross_site' && same.status === 200 && done(same), JSON.stringify({ cross: { status: cross.status, code: cross.body?.error?.code }, same: same.status }));
+    const up = await c.signup('Reader@Example.com');
+    const flags = up.setCookies.find((x) => x.startsWith('fe_session=')) || '';
+    check(`accounts (${label}): sign-up answers with a session cookie that is HttpOnly, SameSite=Lax, for the whole site and 400 days, clears the codes' old cookie, and the account starts with $10.00`,
+      up.status === 200 && /HttpOnly/.test(flags) && /SameSite=Lax/.test(flags) && /Path=\//.test(flags) && /Max-Age=34560000/.test(flags) && up.setCookies.some((x) => /^civic_access=;.*Max-Age=0/.test(x)) && up.body?.session?.balanceCents === 1000,
+      JSON.stringify({ status: up.status, flags, cookies: up.setCookies, session: up.body?.session }));
+    const reader = up.cookie;
+    const h1 = await c.json('/api/health', { cookie: reader });
+    check(`accounts (${label}): the health line then names the reader, their balance and that they are not the operator, and shows a reader no costs`,
+      h1.body?.access?.session?.email === 'Reader@Example.com' && h1.body.access.session.balanceCents === 1000 && h1.body.access.session.operator === false && h1.body.accounting === false, JSON.stringify(h1.body?.access));
 
-    const own = await streamWith(`${base}/api/extract`, { text, jobId: 'verify-sec-owner-1' }, { cookie: op });
-    const foreign = await post(`${base}/api/extract`, { jobId: 'verify-sec-owner-1', cursor: 0 }, { cookie: rd });
-    const foreignCancel = await post(`${base}/api/cancel`, { jobIds: ['verify-sec-owner-1'] }, { cookie: rd });
-    const foreignRelease = await post(`${base}/api/release`, { jobIds: ['verify-sec-owner-1'] }, { cookie: rd });
-    const ownRelease = await post(`${base}/api/release`, { jobIds: ['verify-sec-owner-1'] }, { cookie: op });
-    check('a job belongs to the sign-in that started it: another code\'s cookie cannot attach to it (403 not_your_job), its cancel and release count nothing, and the owner\'s release lets it go',
-      own.status === 200 && done(own) && foreign.status === 403 && foreign.body?.error?.code === 'not_your_job' && foreignCancel.body?.cancelled === 0 && foreignRelease.body?.released === 0 && ownRelease.body?.released === 1,
-      JSON.stringify({ own: own.status, foreign: foreign.status, code: foreign.body?.error?.code, foreignCancel: foreignCancel.body, foreignRelease: foreignRelease.body, ownRelease: ownRelease.body }));
+    const taken = await c.signup('reader@EXAMPLE.com', 'another long one');
+    const short = await c.signup('b@example.com', 'short');
+    const noTick = await c.signup('b@example.com', PASSWORD, false);
+    const bad = await c.signup('not an address', PASSWORD);
+    check(`accounts (${label}): one account per address whatever its capitals (409 email_taken); a short password, no tick, or something that is not an address are refused in words (400)`,
+      taken.status === 409 && taken.body?.error?.code === 'email_taken' && short.body?.error?.code === 'password_short' && noTick.body?.error?.code === 'terms_required' && bad.body?.error?.code === 'email_invalid',
+      JSON.stringify([taken.body, short.body, noTick.body, bad.body]));
 
-    const id81 = `run-${'a'.repeat(36)}-c10-${'b'.repeat(36)}`;   // the page's shape for the eleventh claim: 81 characters
-    const first = await streamWith(`${base}/api/extract`, { text, jobId: id81 }, { cookie: op });
-    const again = await streamWith(`${base}/api/extract`, { jobId: id81, cursor: 0 }, { cookie: op });
-    check('an 81-character id (a claim beyond the tenth) is kept as given, and the job is found again under it after its end',
-      id81.length === 81 && first.status === 200 && att(first)?.job === id81 && again.status === 200 && att(again)?.job === id81 && att(again)?.finished === true, JSON.stringify({ length: id81.length, first: att(first)?.job, again: att(again) }));
+    const reserved = await c.signup('OP@example.com');
+    check(`accounts (${label}): the operator's address cannot be taken through the open form; it answers as any taken address does`, reserved.status === 409 && reserved.body?.error?.code === 'email_taken', JSON.stringify(reserved.body));
+    const wrongClaim = await c.json('/api/account/claim', { method: 'POST', body: { token: 'not-the-link', email: 'op@example.com', password: PASSWORD, agree: true } });
+    const claim = await c.json('/api/account/claim', { method: 'POST', body: { token: CLAIM_TOKEN, email: 'op@example.com', password: PASSWORD, agree: true } });
+    const again = await c.json('/api/account/claim', { method: 'POST', body: { token: CLAIM_TOKEN, email: 'op2@example.com', password: PASSWORD, agree: true } });
+    const op = claim.cookie;
+    check(`accounts (${label}): the operator's one-time link makes the operator's account once: a wrong link and a second use are refused (400 claim_invalid)`,
+      wrongClaim.status === 400 && wrongClaim.body?.error?.code === 'claim_invalid' && claim.status === 200 && claim.body?.session?.operator === true && again.status === 400 && again.body?.error?.code === 'claim_invalid',
+      JSON.stringify([wrongClaim.body, claim.body, again.body]));
+    const opSelf = await c.json('/api/selftest', { cookie: op });
+    const rdSelf = await c.json('/api/selftest', { cookie: reader });
+    const opList = await c.json('/api/operator/accounts', { cookie: op });
+    const rdList = await c.json('/api/operator/accounts', { cookie: reader });
+    const opHealth = await c.json('/api/health', { cookie: op });
+    check(`accounts (${label}): /check and the operator's tools are the operator's: 200 with the accounts for them, 403 operator_only for a reader; the costs are shown to the operator alone`,
+      opSelf.status === 200 && Boolean(opSelf.body?.checks) && rdSelf.status === 403 && rdSelf.body?.error?.code === 'operator_only' && opList.status === 200 && opList.body?.accounts?.length === 2 && rdList.status === 403 && opHealth.body?.accounting === true,
+      JSON.stringify({ opSelf: opSelf.status, rdSelf: rdSelf.status, opList: opList.body?.accounts?.length, rdList: rdList.status, acc: opHealth.body?.accounting }));
+
+    const wrong = await c.signin('reader@example.com', 'not the password');
+    const unknown = await c.signin('nobody@example.com', 'not the password');
+    check(`accounts (${label}): a wrong password and an unknown email get the same answer (401 wrong_password, one sentence)`,
+      wrong.status === 401 && unknown.status === 401 && wrong.body?.error?.code === 'wrong_password' && wrong.body.error.message === unknown.body?.error?.message, JSON.stringify([wrong.body, unknown.body]));
+    await c.signin('reader@example.com', 'not the password two');
+    await c.signin('reader@example.com', 'not the password three');
+    const locked = await c.signin('reader@example.com');
+    check(`accounts (${label}): past the wrong-password limit (CIVIC_SIGNIN_TRIES) an email waits, even with the right password (429 tries_wait, with the wait)`,
+      locked.status === 429 && locked.body?.error?.code === 'tries_wait' && locked.body.error.waitSeconds > 0, JSON.stringify(locked.body));
+
+    const second = await c.signup('second@example.com');
+    const b = second.cookie;
+    const own = await c.stream('/api/extract', { text: ACCT_TEXT, jobId: 'verify-acct-owner-1' }, reader);
+    const foreign = await c.json('/api/extract', { method: 'POST', body: { jobId: 'verify-acct-owner-1', cursor: 0 }, cookie: b });
+    const fCancel = await c.json('/api/cancel', { method: 'POST', body: { jobIds: ['verify-acct-owner-1'] }, cookie: b });
+    const fRelease = await c.json('/api/release', { method: 'POST', body: { jobIds: ['verify-acct-owner-1'] }, cookie: b });
+    const oRelease = await c.json('/api/release', { method: 'POST', body: { jobIds: ['verify-acct-owner-1'] }, cookie: reader });
+    check(`accounts (${label}): a job is its account's: another account cannot attach to it (403 not_your_job), its cancel and release count nothing, and the owner's release lets it go`,
+      own.status === 200 && own.events.some((e) => e.t === 'done') && foreign.status === 403 && foreign.body?.error?.code === 'not_your_job' && fCancel.body?.cancelled === 0 && fRelease.body?.released === 0 && oRelease.body?.released === 1,
+      JSON.stringify({ own: own.status, foreign: foreign.body, fCancel: fCancel.body, fRelease: fRelease.body, oRelease: oRelease.body }));
+    const stolenRun = await c.json('/api/extract', { method: 'POST', body: { text: ACCT_TEXT, jobId: 'verify-acct-owner-1' }, cookie: b });
+    check(`accounts (${label}): a run's id belongs to its account even after its job is let go: another account asking for it is refused (403)`, stolenRun.status === 403, JSON.stringify(stolenRun.body));
+
+    const upper = await c.json('/API/extract', { method: 'POST', body: { text: ACCT_TEXT }, cookie: reader });
+    const upperSignup = await c.json('/API/account/signup', { method: 'POST', body: { email: 'z@example.com', password: PASSWORD, agree: true } });
+    const oldSignin = await c.json('/api/signin', { method: 'POST', body: { email: 'x@example.com', code: 'ABCD234' } });
+    check(`accounts (${label}): routes match their case (/API/… is nobody's), and the codes' sign-in is gone even with CIVIC_ACCESS_CODES still set`,
+      upper.status === 404 && upperSignup.status === 404 && oldSignin.status !== 200 && !oldSignin.cookie, JSON.stringify([upper.status, upperSignup.status, oldSignin.status]));
+    const cross = await c.json('/api/account/signin', { method: 'POST', body: { email: 'reader@example.com', password: PASSWORD }, headers: { 'sec-fetch-site': 'cross-site' } });
+    const origin = await c.json('/api/extract', { method: 'POST', body: { text: ACCT_TEXT }, cookie: reader, headers: { origin: 'https://elsewhere.example' } });
+    const form = await fetch(`${base}/api/account/signin`, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: 'email=reader%40example.com&password=x' });
+    check(`accounts (${label}): another site cannot act for this browser: cross-site (Sec-Fetch-Site) 403, another Origin 403, and the account's doors take JSON alone (415)`,
+      cross.status === 403 && cross.body?.error?.code === 'cross_site' && origin.status === 403 && form.status === 415, JSON.stringify([cross.status, origin.status, form.status]));
+
+    const id81 = `run-${'a'.repeat(36)}-c10-${'b'.repeat(36)}`;
+    const first81 = await c.stream('/api/extract', { text: ACCT_TEXT, jobId: id81 }, reader);
     const id200 = `x-${'z'.repeat(198)}`;
-    const long = await streamWith(`${base}/api/extract`, { text, jobId: id200 }, { cookie: op });
-    const kept = att(long)?.job;
-    const back = kept ? await streamWith(`${base}/api/extract`, { jobId: kept, cursor: 0 }, { cookie: op }) : { status: 0, events: [] };
-    check('a 200-character id is replaced by the server\'s own, named in the first event, and that id finds the job again',
-      long.status === 200 && Boolean(kept) && kept !== id200 && /^j-/.test(kept) && back.status === 200 && att(back)?.job === kept && att(back)?.finished === true, JSON.stringify({ kept, back: att(back) }));
+    const long = await c.stream('/api/extract', { text: ACCT_TEXT, jobId: id200 }, reader);
+    const kept = long.events.find((e) => e.t === 'attached')?.job;
+    check(`accounts (${label}): an 81-character id is kept as given, a 200-character one is replaced by the server's own`,
+      first81.events.find((e) => e.t === 'attached')?.job === id81 && Boolean(kept) && kept !== id200 && /^j-/.test(kept), JSON.stringify({ kept }));
 
-    const onB = await json(`http://localhost:${PORT3}/api/health`, { headers: { cookie: op } });
-    const onC = await json(`http://localhost:${PORT4}/api/health`, { headers: { cookie: op } });
-    check('with CIVIC_SESSION_SECRET set the cookie is the secret\'s and not the key\'s: a FactEngine on another OpenAI key and the same secret honours it; one on another key without the secret does not',
-      onB.body?.access?.session?.email === 'op@example.com' && onC.body?.access?.session === null, JSON.stringify({ onB: onB.body?.access, onC: onC.body?.access }));
+    const out = await c.json('/api/account/signout', { method: 'POST', body: {}, cookie: b });
+    const afterOut = await c.json('/api/account', { cookie: b });
+    check(`accounts (${label}): sign-out ends the session: its cookie is refused afterwards (401)`, out.status === 200 && afterOut.status === 401, JSON.stringify([out.status, afterOut.status]));
+    const inAgain = await c.signin('second@example.com');
+    check(`accounts (${label}): sign-in makes a new session, never the old one (a fresh token each time)`, inAgain.status === 200 && Boolean(inAgain.cookie) && inAgain.cookie !== b, JSON.stringify({ status: inAgain.status }));
+    const b2 = inAgain.cookie;
 
-    const opHealth = await json(`${base}/api/health`, { headers: { cookie: op } });
-    const rdHealth = await json(`${base}/api/health`, { headers: { cookie: rd } });
-    const opSelf = await json(`${base}/api/selftest`, { headers: { cookie: op } });
-    const rdSelf = await json(`${base}/api/selftest`, { headers: { cookie: rd } });
-    check('with CIVIC_OPERATOR_CODES set, the sign-in list and the runs per code go to the operator\'s codes alone: the health line says who the operator is, and a reader\'s check page has neither',
-      opHealth.body?.access?.session?.operator === true && rdHealth.body?.access?.session?.operator === false
-        && opSelf.status === 200 && (opSelf.body?.signins || []).length >= 2 && (opSelf.body?.codes || []).length === 2 && opSelf.body?.access?.operator === true
-        && rdSelf.status === 200 && (rdSelf.body?.signins || []).length === 0 && (rdSelf.body?.codes || []).length === 0 && rdSelf.body?.access?.operator === false,
-      JSON.stringify({ op: opHealth.body?.access, rd: rdHealth.body?.access, opSelf: { signins: opSelf.body?.signins?.length, codes: opSelf.body?.codes?.length }, rdSelf: { signins: rdSelf.body?.signins?.length, codes: rdSelf.body?.codes?.length } }));
+    const link = await c.json('/api/operator/reset-link', { method: 'POST', body: { userId: opList.body.accounts.find((a) => a.email === 'Reader@Example.com').id }, cookie: op });
+    const rdLink = await c.json('/api/operator/reset-link', { method: 'POST', body: { userId: 1 }, cookie: reader });
+    const token = (link.body?.link || '').split('#reset=')[1] || '';
+    const used = await c.json('/api/account/reset', { method: 'POST', body: { token, password: 'a brand new password' } });
+    const reused = await c.json('/api/account/reset', { method: 'POST', body: { token, password: 'yet another password' } });
+    const oldSession = await c.json('/api/account', { cookie: reader });
+    const withNew = await c.signin('reader@example.com', 'a brand new password');
+    check(`accounts (${label}): the operator's reset link (its token after #) sets a new password once and signs the reader in; a second use is refused (400 reset_invalid); every earlier session ends; a reader cannot make one (403)`,
+      link.status === 200 && /\/account#reset=[A-Za-z0-9_-]{40,}$/.test(link.body.link) && used.status === 200 && Boolean(used.cookie) && reused.status === 400 && reused.body?.error?.code === 'reset_invalid'
+        && oldSession.status === 401 && (withNew.status === 200 || withNew.status === 429) && rdLink.status === 403,
+      JSON.stringify({ link: link.status, used: used.status, reused: reused.body, oldSession: oldSession.status, withNew: withNew.status, rdLink: rdLink.status }));
 
-    const cCookie = await signin(PORT4, 'ABCD234', 'op@example.com');
-    const cSelf = await json(`http://localhost:${PORT4}/api/selftest`, { headers: { cookie: cCookie } });
-    const warned = (cSelf.body?.checks || []).some((x) => x.state === 'warn' && /CIVIC_SESSION_SECRET/.test(x.fix || ''));
-    const quiet = !(opSelf.body?.checks || []).some((x) => /CIVIC_SESSION_SECRET|CIVIC_OPERATOR_CODES/.test(x.fix || ''));
-    check('/check warns while codes are set and the secret is not, and says nothing once the secret is set and the operator named', warned && quiet, JSON.stringify({ warned, quiet }));
+    const list2 = (await c.json('/api/operator/accounts', { cookie: op })).body.accounts;
+    const reader2 = () => used.cookie;
+    const secondId = list2.find((a) => a.email === 'second@example.com').id;
+    await c.json('/api/operator/block', { method: 'POST', body: { userId: secondId, blocked: true }, cookie: op });
+    const blockedSession = await c.json('/api/account', { cookie: b2 });
+    const blockedSignin = await c.signin('second@example.com');
+    await c.json('/api/operator/block', { method: 'POST', body: { userId: secondId, blocked: false }, cookie: op });
+    const reopened = await c.signin('second@example.com');
+    const opBlock = await c.json('/api/operator/block', { method: 'POST', body: { userId: list2.find((a) => a.operator).id, blocked: true }, cookie: op });
+    check(`accounts (${label}): the operator closes an account (its sessions end; its sign-in is refused, 403 account_closed) and opens it again; the operator's own cannot be closed (409)`,
+      blockedSession.status === 401 && blockedSignin.status === 403 && blockedSignin.body?.error?.code === 'account_closed' && reopened.status === 200 && opBlock.status === 409,
+      JSON.stringify([blockedSession.status, blockedSignin.body, reopened.status, opBlock.status]));
+
+    const fourth = await c.signup('fourth@example.com');
+    const fourthId = (await c.json('/api/operator/accounts', { cookie: op })).body.accounts.find((a) => a.email === 'fourth@example.com').id;
+    const opDelete = await c.json('/api/operator/delete', { method: 'POST', body: { userId: fourthId }, cookie: op });
+    const fourthSession = await c.json('/api/account', { cookie: fourth.cookie });
+    const fourthSignin = await c.signin('fourth@example.com');
+    const fourthRow = (await c.json('/api/operator/accounts', { cookie: op })).body.accounts.find((a) => a.id === fourthId);
+    const opSelfDelete = await c.json('/api/operator/delete', { method: 'POST', body: { userId: list2.find((a) => a.operator).id }, cookie: op });
+    const rdDelete = await c.json('/api/operator/delete', { method: 'POST', body: { userId: fourthId }, cookie: reader2() });
+    check(`accounts (${label}): the operator deletes an account: its sessions end, its email and password sign in no more, the table keeps it as deleted with its amounts; the operator's own cannot be deleted (409), and a reader cannot delete one (403)`,
+      opDelete.status === 200 && fourthSession.status === 401 && fourthSignin.status === 401 && fourthRow?.deleted === true && fourthRow.email === null && fourthRow.balanceCents === 1000 && opSelfDelete.status === 409 && rdDelete.status === 403,
+      JSON.stringify([opDelete.status, fourthSession.status, fourthSignin.status, fourthRow, opSelfDelete.status, rdDelete.status]));
+
+    const third = await c.signup('third@example.com');
+    const selfDelete = await c.json('/api/account/delete', { method: 'POST', body: { password: PASSWORD }, cookie: third.cookie });
+    const afterDelete = await c.json('/api/account', { cookie: third.cookie });
+    const reuse = await c.signup('third@example.com');
+    check(`accounts (${label}): a reader deletes their own account with their password: the session ends and the address is free again`,
+      selfDelete.status === 200 && afterDelete.status === 401 && reuse.status === 200, JSON.stringify([selfDelete.status, afterDelete.status, reuse.status]));
+
+    let lateToken = '';
+    if (dbUrl) {
+      const rows = (await dbQuery(dbUrl, 'SELECT email_key, password_hash FROM users')).rows;
+      const sess = (await dbQuery(dbUrl, 'SELECT id FROM sessions')).rows;
+      const cookieTokens = [reader, op, b, b2].map((x) => x.split('=')[1]).filter(Boolean);
+      check(`accounts (${label}): the database keeps a scrypt hash, never a password, and a session's SHA-256, never its token`,
+        rows.filter((r) => !r.email_key.startsWith('deleted:')).every((r) => /^scrypt\$16384\$8\$5\$/.test(r.password_hash) && !r.password_hash.includes(PASSWORD)) && sess.every((r) => /^[0-9a-f]{64}$/.test(r.id) && !cookieTokens.includes(r.id)),
+        JSON.stringify(rows.map((r) => r.password_hash.slice(0, 20))));
+      // A deploy: the same cookie on a new server over the same database.
+      try { s1.child.kill('SIGTERM'); } catch {}
+      await new Promise((r) => setTimeout(r, 800));
+      s1 = accountServer(P, MOCK2, env);
+      servers.push(s1);
+      await wait(`http://localhost:${P}/api/health`, 20000);
+      const survived = await c.json('/api/account', { cookie: used.cookie });
+      check(`accounts (${label}): a session outlives a restart (a deploy): the same cookie is honoured by the next server`, survived.status === 200 && survived.body?.account?.email === 'Reader@Example.com', JSON.stringify({ status: survived.status }));
+      const late = await c.json('/api/operator/reset-link', { method: 'POST', body: { userId: secondId }, cookie: op });
+      lateToken = (late.body?.link || '').split('#reset=')[1] || '';
+      try { s1.child.kill('SIGTERM'); } catch {}
+      await new Promise((r) => setTimeout(r, 800));
+      s1 = accountServer(P, MOCK2, { ...env, CIVIC_CLOCK: new Date(Date.now() + 25 * 3600e3).toISOString() });
+      servers.push(s1);
+      await wait(`http://localhost:${P}/api/health`, 20000);
+      const expired = await c.json('/api/account/reset', { method: 'POST', body: { token: lateToken, password: 'too late a password' } });
+      check(`accounts (${label}): a reset link past its hours (CIVIC_RESET_LINK_HOURS, 24) is refused (400 reset_invalid)`,
+        late.status === 200 && Boolean(lateToken) && expired.status === 400 && expired.body?.error?.code === 'reset_invalid', JSON.stringify([late.status, expired.body]));
+    }
+
+    const ledgerFile = path.join(os.tmpdir(), `civic-verify-accounts-ledger-${P}.jsonl`);
+    const all = servers.map((s) => s.output()).join('') + (fs.existsSync(ledgerFile) ? fs.readFileSync(ledgerFile, 'utf8') : '');
+    const secrets = [PASSWORD, 'a brand new password', 'too late a password', CLAIM_TOKEN, token, lateToken, ...[reader, op, b, b2, used.cookie].map((x) => (x || '').split('=')[1])].filter((x) => x && x.length > 8);
+    const shown = JSON.stringify([h1.body, opSelf.body, opList.body, opHealth.body]);
+    check(`accounts (${label}): no password, token or session appears in the health line, /check's data, the operator's table, the cost ledger or the server's own output`,
+      secrets.every((x) => !all.includes(x) && !shown.includes(x)) && !/scrypt\$/.test(shown), secrets.filter((x) => all.includes(x) || shown.includes(x)).map((x) => x.slice(0, 6)).join(','));
   } catch (err) {
-    check('the security checks completed', false, err.message);
+    check(`accounts (${label}): the checks completed`, false, err.stack);
   }
-  for (const s of [a, b, c, mock]) { try { s.kill('SIGTERM'); } catch {} }
-  for (const tag of ['a', 'b', 'c']) for (const k of ['CIVIC_SIGNIN_LOG', 'CIVIC_USES_FILE']) { try { fs.unlinkSync(files(tag)[k]); } catch {} }
-}
-await securityChecks();
-
-// Runs per code (server/uses.js). A use is a run started; a connection that joins a run already
-// started is not one; a code's own entry may carry its allowance (ABCD234:2); the general
-// allowance is CIVIC_CODE_USES; the count is a file, so a restart forgets nothing.
-async function usesChecks() {
-  const MOCK2 = MOCK_PORT + 18, PORT2 = PORT + 18;
-  const usesFile = path.join(os.tmpdir(), `civic-verify-uses-${Date.now()}.jsonl`);
-  const mock = start([path.join(root, 'scripts', 'mock-openai.js')], { MOCK_PORT: String(MOCK2), MOCK_SPEED: '0.2', MOCK_EVAL_MARK: process.env.MOCK_EVAL_MARK_FOR_GATE || '' });
-  await wait(`http://localhost:${MOCK2}/v1/mock/stats`, 15000, { anyResponse: true });
-  const env = { OPENAI_BASE_URL: `http://localhost:${MOCK2}/v1`, OPENAI_API_KEY: KEY, CIVIC_IMAGE_ENABLED: 'false', CIVIC_LEDGER_FILE: path.join(os.tmpdir(), 'civic-verify-ledger.jsonl'), CIVIC_SIGNIN_LOG: path.join(os.tmpdir(), 'civic-verify-signins.jsonl'), CIVIC_USES_FILE: usesFile, CIVIC_ACCESS_CODES: 'ABCD234:2,EFGH567', CIVIC_CODE_USES: '1', PORT: String(PORT2) };
-  let server = start([path.join(root, 'server', 'index.js')], env);
-  await wait(`http://localhost:${PORT2}/api/health`);
-  const base = `http://localhost:${PORT2}`;
-  const text = 'The Eiffel Tower stands about 330 metres tall. Water boils at 100 degrees Celsius at sea level.';
-  const signin = async (code) => { const r = await fetch(`${base}/api/signin`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: `${code.toLowerCase()}@verify`, code }) }); return (r.headers.get('set-cookie') || '').split(';')[0]; };
-  const run = async (cookie, jobId) => {
-    const res = await fetch(`${base}/api/extract`, { method: 'POST', headers: { 'content-type': 'application/json', cookie }, body: JSON.stringify({ text, jobId }) });
-    if (!res.ok) return { status: res.status, body: await res.json().catch(() => null) };
-    const body = await res.text();
-    return { status: res.status, done: /"t":"done"/.test(body) };
-  };
-  const codesOn = async (cookie) => ((await (await fetch(`${base}/api/selftest`, { headers: { cookie } })).json()).codes || []);
-  try {
-    const a = await signin('ABCD234');
-    const b = await signin('EFGH567');
-    const r1 = await run(a, 'verify-uses-a1');
-    const r1again = await run(a, 'verify-uses-a1');   // the same run joined again: not a use
-    const r2 = await run(a, 'verify-uses-a2');
-    const r3 = await run(a, 'verify-uses-a3');
-    check('a code with its own allowance (ABCD234:2) starts two runs, joining a run already started counts nothing, and the third run is refused with the figures',
-      r1.done && r1again.status === 200 && r2.done && r3.status === 403 && r3.body?.error?.code === 'code_used_up' && /used 2 times; it allows 2/.test(r3.body?.error?.message || ''), JSON.stringify({ r1: r1.status, again: r1again.status, r2: r2.status, r3 }));
-    const s1 = await run(b, 'verify-uses-b1');
-    const s2 = await run(b, 'verify-uses-b2');
-    check('a code without its own figure has the general allowance (CIVIC_CODE_USES, 1 here): one run, then refused',
-      s1.done && s2.status === 403 && s2.body?.error?.code === 'code_used_up', JSON.stringify({ s1: s1.status, s2 }));
-    const figures = await codesOn(a);
-    check('/check lists each code by its ending with the runs used and allowed',
-      JSON.stringify(figures) === JSON.stringify([{ ending: '34', used: 2, allowed: 2 }, { ending: '67', used: 1, allowed: 1 }]), JSON.stringify(figures));
-    // A restart in place (a deploy, with the file on the disk): the count is what it was.
-    try { server.kill('SIGTERM'); } catch {}
-    await new Promise((r) => setTimeout(r, 500));
-    server = start([path.join(root, 'server', 'index.js')], env);
-    await wait(`http://localhost:${PORT2}/api/health`);
-    const r4 = await run(a, 'verify-uses-a4');
-    const after = await codesOn(a);
-    check('the count survives a restart: the file is read at start and the refusal stands',
-      r4.status === 403 && JSON.stringify(after) === JSON.stringify(figures), JSON.stringify({ r4: r4.status, after }));
-    const lines = fs.readFileSync(usesFile, 'utf8').trim().split('\n').map((l) => JSON.parse(l));
-    check('the record holds a fingerprint of the code, its last two characters, the email and the job, and never the code itself',
-      lines.length === 3 && lines.every((l) => l.fp && l.fp.length === 16 && !/ABCD234|EFGH567/.test(JSON.stringify(l)) && /^[A-Z0-9]{2}$/.test(l.code) && l.email && l.job), JSON.stringify(lines[0]));
-  } catch (err) {
-    check('uses checks ran', false, err.message);
-  }
-  try { server.kill('SIGTERM'); } catch {}
+  for (const s of servers) { try { s.child.kill('SIGTERM'); } catch {} }
   try { mock.kill('SIGTERM'); } catch {}
-  try { fs.unlinkSync(usesFile); } catch {}
 }
-await usesChecks();
+
+async function creditChecks(label, dbUrl) {
+  const MOCK2 = MOCK_PORT + (dbUrl ? 65 : 64), P = PORT + (dbUrl ? 68 : 64);
+  const mock = start([path.join(root, 'scripts', 'mock-openai.js')], { MOCK_PORT: String(MOCK2), MOCK_SPEED: '0.2', MOCK_EVAL_HOLD_MS: '1200', MOCK_EVAL_FAIL_TEXT: 'Pacific', MOCK_EVAL_MARK: process.env.MOCK_EVAL_MARK_FOR_GATE || '' });
+  await wait(`http://localhost:${MOCK2}/v1/mock/stats`, 15000, { anyResponse: true });
+  const env = { DATABASE_URL: dbUrl || '', CIVIC_SIGNUP_GRANT_CENTS: '100', CIVIC_PRICE_START_CENTS: '45', CIVIC_TIER_FIXED: '2', CIVIC_OPERATOR_EMAILS: 'op@example.com', CIVIC_OPERATOR_CLAIM: claimHash() };
+  let s1 = accountServer(P, MOCK2, env);
+  const servers = [s1];
+  await wait(`http://localhost:${P}/api/health`, 20000);
+  const c = accountClient(`http://localhost:${P}`);
+  const reqs = async () => (await (await fetch(`http://localhost:${MOCK2}/v1/mock/stats`)).json()).admitted;
+  const listRun = async (cookie, jobId) => {
+    const r = await c.stream('/api/extract', { text: ACCT_TEXT, jobId }, cookie);
+    return { pricing: r.events.find((e) => e.t === 'pricing'), claims: r.events.find((e) => e.t === 'done')?.claims || [] };
+  };
+  const det = (cookie, runId, claims, n, jobId, extra = {}) => c.stream('/api/evaluate', { jobId, claims: [claims[n - 1].entry], text: ACCT_TEXT, source: { kind: 'text' }, runId, n, ...extra }, cookie);
+  const quote = (r) => r.events.find((e) => e.t === 'quote');
+  const done = (r) => r.events.some((e) => e.t === 'done');
+  const idx = (claims, word) => claims.findIndex((x) => x.entry.includes(word)) + 1;
+  try {
+    const reader = (await c.signup('payer@example.com')).cookie;
+    const run1 = await listRun(reader, 'verify-credit-run-1');
+    check(`credit (${label}): the listing is free and priced for the document: 45 cents a claim, one free (tier 2)`, run1.pricing?.priceCents === 45 && run1.pricing.freeFacts === 1 && run1.claims.length >= 5 && (await c.balance(reader)) === 100, JSON.stringify(run1.pricing));
+    const nEiffel = idx(run1.claims, 'Eiffel'), nWater = idx(run1.claims, 'Water'), nPacific = idx(run1.claims, 'Pacific'), nEverest = idx(run1.claims, 'Everest');
+    const free = await det(reader, 'verify-credit-run-1', run1.claims, nEiffel, 'verify-credit-d1');
+    check(`credit (${label}): the document's free claim holds nothing: free in its quote, the balance unchanged`, quote(free)?.free === true && done(free) && (await c.balance(reader)) === 100, JSON.stringify(quote(free)));
+    // A priced claim, held while the stand-in thinks (MOCK_EVAL_HOLD_MS): the price is held at the start, charged at the end.
+    const pending = det(reader, 'verify-credit-run-1', run1.claims, nWater, 'verify-credit-d2');
+    await new Promise((r) => setTimeout(r, 500));
+    const during = await c.balance(reader);
+    const priced = await pending;
+    await new Promise((r) => setTimeout(r, 300));
+    const afterDone = await c.balance(reader);
+    const act = (await c.json('/api/account/activity', { cookie: reader })).body?.lines || [];
+    check(`credit (${label}): a priced claim's 45 cents are held when it starts (55 cents left while it runs), and charged when it is delivered (still 55; the activity says charged)`,
+      quote(priced)?.priceCents === 45 && quote(priced).balanceCents === 55 && during === 55 && done(priced) && afterDone === 55 && act.some((l) => l.kind === 'test' && l.state === 'charged') && act.some((l) => l.state === 'free'),
+      JSON.stringify({ q: quote(priced), during, afterDone, act }));
+    const failed = await det(reader, 'verify-credit-run-1', run1.claims, nPacific, 'verify-credit-d3');
+    await new Promise((r) => setTimeout(r, 300));
+    check(`credit (${label}): a claim that fails is not charged: its hold is released and the balance is back to 55`,
+      failed.events.some((e) => e.t === 'error') && (await c.balance(reader)) === 55, JSON.stringify({ events: failed.events.map((e) => e.t), balance: await c.balance(reader) }));
+    // A stop: the page's cancel while the claim runs.
+    const stopping = det(reader, 'verify-credit-run-1', run1.claims, nEverest, 'verify-credit-d4');
+    await new Promise((r) => setTimeout(r, 400));
+    const heldNow = await c.balance(reader);
+    await c.json('/api/cancel', { method: 'POST', body: { jobIds: ['verify-credit-d4'] }, cookie: reader });
+    await stopping;
+    await new Promise((r) => setTimeout(r, 400));
+    check(`credit (${label}): a claim the reader stops is not charged: held while it ran (10 cents left), released when stopped (55)`, heldNow === 10 && (await c.balance(reader)) === 55, JSON.stringify({ heldNow, after: await c.balance(reader) }));
+
+    const run2 = await listRun(reader, 'verify-credit-run-2');
+    await det(reader, 'verify-credit-run-2', run2.claims, idx(run2.claims, 'Eiffel'), 'verify-credit-e1');   // this document's free one
+    const once = await det(reader, 'verify-credit-run-2', run2.claims, idx(run2.claims, 'Water'), 'verify-credit-e2');   // 45 of the 55
+    const before = await reqs();
+    const short = await det(reader, 'verify-credit-run-2', run2.claims, idx(run2.claims, 'Everest'), 'verify-credit-e3');
+    check(`credit (${label}): a claim the balance cannot cover is refused before any model is asked (402 credit_short, with the balance and the price)`,
+      done(once) && short.status === 402 && short.body?.error?.code === 'credit_short' && short.body.error.balanceCents === 10 && short.body.error.priceCents === 45 && (await reqs()) === before, JSON.stringify(short.body));
+
+    const noRun = await c.stream('/api/evaluate', { jobId: 'verify-credit-norun', claims: ['Water boils at 100 degrees.'], text: ACCT_TEXT, source: { kind: 'text' } }, reader);
+    const other = (await c.signup('other@example.com')).cookie;
+    const theirs = await det(other, 'verify-credit-run-2', run2.claims, idx(run2.claims, 'Everest'), 'verify-credit-theirs');
+    check(`credit (${label}): no test is free by leaving the run out, or by naming another account's run (400 run_required)`,
+      noRun.status === 400 && noRun.body?.error?.code === 'run_required' && theirs.status === 400 && theirs.body?.error?.code === 'run_required', JSON.stringify([noRun.body, theirs.body]));
+
+    // Two at once on a balance for one: the other account has $1.00: two priced claims at 45 fit, a third does not.
+    const run3 = await listRun(other, 'verify-credit-run-3');
+    await det(other, 'verify-credit-run-3', run3.claims, idx(run3.claims, 'Eiffel'), 'verify-credit-f0');
+    await det(other, 'verify-credit-run-3', run3.claims, idx(run3.claims, 'Water'), 'verify-credit-f1');   // 55 left
+    const [x, y] = await Promise.all([
+      det(other, 'verify-credit-run-3', run3.claims, idx(run3.claims, 'Everest'), 'verify-credit-f2'),
+      det(other, 'verify-credit-run-3', run3.claims, idx(run3.claims, 'Sun'), 'verify-credit-f3'),
+    ]);
+    check(`credit (${label}): two claims started together on a balance that covers one: exactly one runs, the other is refused (402), and the balance never goes below nothing`,
+      [x, y].filter((r) => r.status === 200 && done(r)).length === 1 && [x, y].filter((r) => r.status === 402).length === 1 && (await c.balance(other)) === 10, JSON.stringify([x.status, y.status, await c.balance(other)]));
+
+    // The monthly limit.
+    const limiter = (await c.signup('limit@example.com')).cookie;
+    await c.json('/api/account/limit', { method: 'POST', body: { cents: 50 }, cookie: limiter });
+    const run4 = await listRun(limiter, 'verify-credit-run-4');
+    await det(limiter, 'verify-credit-run-4', run4.claims, idx(run4.claims, 'Eiffel'), 'verify-credit-g0');
+    const g1 = await det(limiter, 'verify-credit-run-4', run4.claims, idx(run4.claims, 'Water'), 'verify-credit-g1');
+    const g2 = await det(limiter, 'verify-credit-run-4', run4.claims, idx(run4.claims, 'Everest'), 'verify-credit-g2');
+    const acct = (await c.json('/api/account', { cookie: limiter })).body?.account;
+    check(`credit (${label}): a monthly limit of 50 cents lets one 45-cent test through and refuses the next (402 month_limit with the figures); the account says this month's spend`,
+      done(g1) && g2.status === 402 && g2.body?.error?.code === 'month_limit' && g2.body.error.limitCents === 50 && acct?.monthSpentCents === 45 && acct.monthlyLimitCents === 50, JSON.stringify({ g2: g2.body, acct }));
+
+    // The operator adds credit.
+    const op = (await c.json('/api/account/claim', { method: 'POST', body: { token: CLAIM_TOKEN, email: 'op@example.com', password: PASSWORD, agree: true } })).cookie;
+    const accounts = (await c.json('/api/operator/accounts', { cookie: op })).body?.accounts || [];
+    const payerId = accounts.find((a) => a.email === 'payer@example.com')?.id;
+    const add = await c.json('/api/operator/credit', { method: 'POST', body: { userId: payerId, cents: 200, note: 'for the guard' }, cookie: op });
+    const byReader = await c.json('/api/operator/credit', { method: 'POST', body: { userId: payerId, cents: 200 }, cookie: reader });
+    const payerLines = (await c.json('/api/account/activity', { cookie: reader })).body?.lines || [];
+    check(`credit (${label}): the operator adds credit to an account (it shows in the account's activity with the note); a reader cannot (403)`,
+      add.status === 200 && add.body.balanceCents === 210 && (await c.balance(reader)) === 210 && byReader.status === 403 && payerLines.some((l) => l.kind === 'adjustment' && l.note === 'for the guard'),
+      JSON.stringify({ add: add.body, byReader: byReader.status }));
+    const totals = (await c.json('/api/operator/accounts', { cookie: op })).body?.totals;
+    check(`credit (${label}): /check's line under the measurement adds up the credit given and spent, and nothing collected`,
+      totals && totals.collectedCents === 0 && totals.spentCents === 45 * 5 && totals.grantedCents === 100 * 4 + 200, JSON.stringify(totals));
+
+    if (dbUrl) {
+      // A deploy while a claim is held: the old server releases it (deploy); the page's next request, on the new server,
+      // opens the next attempt, holds it again, and is charged once.
+      const run5 = await listRun(reader, 'verify-credit-run-5');
+      await det(reader, 'verify-credit-run-5', run5.claims, idx(run5.claims, 'Eiffel'), 'verify-credit-h0');
+      const balBefore = await c.balance(reader);
+      const cut = det(reader, 'verify-credit-run-5', run5.claims, idx(run5.claims, 'Water'), 'verify-credit-h1');
+      await new Promise((r) => setTimeout(r, 400));
+      try { s1.child.kill('SIGTERM'); } catch {}
+      await cut.catch(() => null);
+      await new Promise((r) => setTimeout(r, 1200));
+      s1 = accountServer(P, MOCK2, env);
+      servers.push(s1);
+      await wait(`http://localhost:${P}/api/health`, 20000);
+      const released = await c.balance(reader);
+      const redo = await det(reader, 'verify-credit-run-5', run5.claims, idx(run5.claims, 'Water'), 'verify-credit-h1');
+      await new Promise((r) => setTimeout(r, 300));
+      const ledger = (await dbQuery(dbUrl, "SELECT kind, count(*)::int AS n FROM credit WHERE determination_id = 'verify-credit-h1' GROUP BY kind")).rows;
+      const kinds = Object.fromEntries(ledger.map((r) => [r.kind, r.n]));
+      check(`credit (${label}): a deploy while a claim is held releases it; the same claim on the next server is held again and charged once (two holds, one release, one charge)`,
+        released === balBefore && done(redo) && (await c.balance(reader)) === balBefore - 45 && kinds.hold === 2 && kinds.release === 1 && kinds.charge === 1, JSON.stringify({ balBefore, released, after: await c.balance(reader), kinds }));
+      // The same claim asked for again with no job behind it: one more go, never charged; after that, 409.
+      try { s1.child.kill('SIGTERM'); } catch {}
+      await new Promise((r) => setTimeout(r, 800));
+      s1 = accountServer(P, MOCK2, env);
+      servers.push(s1);
+      await wait(`http://localhost:${P}/api/health`, 20000);
+      const balNow = await c.balance(reader);
+      const rerun = await det(reader, 'verify-credit-run-5', run5.claims, idx(run5.claims, 'Water'), 'verify-credit-h1');
+      await c.json('/api/release', { method: 'POST', body: { jobIds: ['verify-credit-h1'] }, cookie: reader });   // as the page does once it has the result
+      const third = await det(reader, 'verify-credit-run-5', run5.claims, idx(run5.claims, 'Water'), 'verify-credit-h1');
+      check(`credit (${label}): a delivered claim asked for again (its result lost on the way) runs once more, never charged; a third time is refused (409 already_tested)`,
+        done(rerun) && (await c.balance(reader)) === balNow && third.status === 409 && third.body?.error?.code === 'already_tested', JSON.stringify({ rerun: rerun.status, third: { status: third.status, body: third.body }, bal: [balNow, await c.balance(reader)] }));
+      // A crash: the server dies (SIGKILL) with a claim held; its row, older than the reaper's twelve hours by the
+      // server's clock, is failed as lost at the next boot and its hold released.
+      try { s1.child.kill('SIGTERM'); } catch {}
+      await new Promise((r) => setTimeout(r, 800));
+      s1 = accountServer(P, MOCK2, { ...env, CIVIC_CLOCK: new Date(Date.now() - 13 * 3600e3).toISOString() });
+      servers.push(s1);
+      await wait(`http://localhost:${P}/api/health`, 20000);
+      const run6 = await listRun(reader, 'verify-credit-run-6');
+      await det(reader, 'verify-credit-run-6', run6.claims, idx(run6.claims, 'Eiffel'), 'verify-credit-k0');
+      const balK = await c.balance(reader);
+      det(reader, 'verify-credit-run-6', run6.claims, idx(run6.claims, 'Water'), 'verify-credit-k1').catch(() => null);
+      await new Promise((r) => setTimeout(r, 500));
+      const heldK = await c.balance(reader);
+      try { s1.child.kill('SIGKILL'); } catch {}
+      await new Promise((r) => setTimeout(r, 800));
+      s1 = accountServer(P, MOCK2, env);
+      servers.push(s1);
+      await wait(`http://localhost:${P}/api/health`, 20000);
+      check(`credit (${label}): a crash with a claim held: at the next boot its row is lost and its hold released`,
+        heldK === balK - 45 && (await c.balance(reader)) === balK, JSON.stringify({ balK, heldK, after: await c.balance(reader) }));
+    }
+  } catch (err) {
+    check(`credit (${label}): the checks completed`, false, err.stack);
+  }
+  for (const s of servers) { try { s.child.kill('SIGTERM'); } catch {} }
+  try { mock.kill('SIGTERM'); } catch {}
+}
+
+async function accountsAndCreditChecks() {
+  await accountChecks('memory', null);
+  await creditChecks('memory', null);
+  const required = /^(1|true|yes)$/i.test(process.env.CIVIC_VERIFY_REQUIRE_DATABASE || '');
+  const provision = await provisionPostgres().catch(() => null);
+  if (!provision) {
+    if (required) check('a Postgres is available for the accounts and credit checks (CIVIC_VERIFY_REQUIRE_DATABASE=1)', false, 'none');
+    else console.log('  (accounts and credit: no Postgres here, so their database checks are skipped; CI runs them)');
+    return;
+  }
+  const admin = new pg.Client({ connectionString: provision.url });
+  try {
+    await admin.connect();
+    const url = (name) => { const u = new URL(provision.url); u.pathname = `/${name}`; return u.toString(); };
+    for (const name of ['civic_verify_acct', 'civic_verify_credit']) { await admin.query(`DROP DATABASE IF EXISTS ${name}`); await admin.query(`CREATE DATABASE ${name}`); }
+    await accountChecks('Postgres', url('civic_verify_acct'));
+    await creditChecks('Postgres', url('civic_verify_credit'));
+  } catch (err) {
+    check('the accounts and credit checks on Postgres completed', false, err.message);
+  } finally {
+    await admin.end().catch(() => {});
+    await provision.stop();
+  }
+}
+await accountsAndCreditChecks();
 
 // The visual echo is an edit of the FactEngine photograph, sent with every request as the style
 // reference (the operator's rule of 18 September): the picture takes its style and none of its
@@ -1496,12 +1706,22 @@ async function economicsChecks() {
   const mock = start([path.join(root, 'scripts', 'mock-openai.js')], { MOCK_PORT: String(MOCK2), MOCK_SPEED: '0.2', MOCK_EVAL_HOLD_MS: '900', MOCK_EVAL_MARK: process.env.MOCK_EVAL_MARK_FOR_GATE || '' });
   await wait(`http://localhost:${MOCK2}/v1/mock/stats`, 15000, { anyResponse: true });
   const text = 'The Eiffel Tower stands about 330 metres tall. Water boils at 100 degrees Celsius at sea level. Mount Everest is 8,849 metres above sea level.';
-  const usesFile = path.join(os.tmpdir(), `civic-verify-economics-uses-${Date.now()}.jsonl`);
-  const common = { OPENAI_BASE_URL: `http://localhost:${MOCK2}/v1`, OPENAI_API_KEY: KEY, CIVIC_IMAGE_ENABLED: 'false', CIVIC_LEDGER_FILE: path.join(os.tmpdir(), 'civic-verify-ledger.jsonl'), CIVIC_SIGNIN_LOG: path.join(os.tmpdir(), 'civic-verify-signins.jsonl'), CIVIC_USES_FILE: usesFile, CIVIC_ACCESS_CODES: 'ABCD234,EFGH567', CIVIC_OPERATOR_CODES: 'ABCD234', CIVIC_CODE_USES: '100' };
+  const ECON_OP = 'op@verify.example';
+  const common = { OPENAI_BASE_URL: `http://localhost:${MOCK2}/v1`, OPENAI_API_KEY: KEY, CIVIC_IMAGE_ENABLED: 'false', CIVIC_LEDGER_FILE: path.join(os.tmpdir(), 'civic-verify-ledger.jsonl'), CIVIC_ACCOUNTS: 'on', CIVIC_OPERATOR_EMAILS: ECON_OP, CIVIC_OPERATOR_CLAIM: claimHash(), CIVIC_SIGNUP_GRANT_CENTS: '1000' };
   const servers = [];
   const boot = async (port, env) => { const s = start([path.join(root, 'server', 'index.js')], { ...common, PORT: String(port), ...env }); servers.push(s); await wait(`http://localhost:${port}/api/health`, 20000); return s; };
   const base = (port) => `http://localhost:${port}`;
-  const signin = async (port, code) => { const r = await fetch(`${base(port)}/api/signin`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: `${code.toLowerCase()}@verify`, code }) }); return (r.headers.get('set-cookie') || '').split(';')[0]; };
+  // The operator's account on each server: made through the one-time link the first time a database (or a server in memory)
+  // sees it, and signed into after that; a reader's likewise, through the open form.
+  const ECON_PEOPLE = { op: ECON_OP, reader: 'reader@verify.example' };
+  const signin = async (port, who) => {
+    const email = ECON_PEOPLE[who];
+    const post = (p, body) => fetch(`${base(port)}${p}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+    let r = who === 'op' ? await post('/api/account/claim', { token: CLAIM_TOKEN, email, password: PASSWORD, agree: true }) : await post('/api/account/signup', { email, password: PASSWORD, agree: true });
+    if (r.status !== 200) r = await post('/api/account/signin', { email, password: PASSWORD });
+    if (r.status !== 200) throw new Error(`${who} could not sign in on ${port}: ${r.status} ${await r.text()}`);
+    return ((r.headers.getSetCookie?.() || []).find((c) => c.startsWith('fe_session=')) || '').split(';')[0];
+  };
   const streamAs = async (url, body, cookie) => { const res = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json', cookie }, body: JSON.stringify(body) }); if (!res.ok) throw new Error(`${url} HTTP ${res.status}: ${await res.text()}`); return (await res.text()).split('\n').filter(Boolean).map((l) => JSON.parse(l)); };
   const json = async (url, cookie) => (await fetch(url, { headers: { cookie } })).json();
   const runOn = async (port, cookie, jobId) => streamAs(`${base(port)}/api/extract`, { text, jobId }, cookie);
@@ -1543,7 +1763,6 @@ async function economicsChecks() {
   let admin = null;
   const dbUrl = (name) => { const u = new URL(provision.url); u.pathname = `/${name}`; return u.toString(); };
   const makeDb = async (name) => { await admin.query(`DROP DATABASE IF EXISTS ${name}`); await admin.query(`CREATE DATABASE ${name}`); return dbUrl(name); };
-  const dbQuery = async (url, sql, params = []) => { const c = new pg.Client({ connectionString: url }); await c.connect(); try { return await c.query(sql, params); } finally { await c.end(); } };
   if (provision) {
     try {
       admin = new pg.Client({ connectionString: provision.url });
@@ -1552,7 +1771,7 @@ async function economicsChecks() {
       // 2. A run under tier 3 at the start price: the page is told first; the document's first two chosen claims are free, the third priced; a second document gets two free again.
       const P1 = PORT + 50;
       await boot(P1, { DATABASE_URL: DB1, CIVIC_CLOCK: at(T0), CIVIC_PRICE_START_CENTS: '45' });
-      const a = await signin(P1, 'ABCD234');
+      const a = await signin(P1, 'op');
       const health = await json(`${base(P1)}/api/health`, a);
       check('with a database, the health line carries the prices as the page shows them: the tier, the free count, the price and the note, and nothing else, never a cost',
         JSON.stringify(Object.keys(health.pricing || {}).sort()) === JSON.stringify(['currency', 'freeFacts', 'note', 'priceCents', 'tier']) && health.pricing.tier === 3 && health.pricing.freeFacts === 2 && health.pricing.priceCents === 45 && health.pricing.currency === 'USD' && !/cost|usd|margin|revenue|token/i.test(Object.keys(health.pricing).join(',')),
@@ -1571,11 +1790,12 @@ async function economicsChecks() {
         JSON.stringify([quoteOf(d1), quoteOf(d2), quoteOf(d3), quoteOf(d4)]) === JSON.stringify([{ free: true, priceCents: 0 }, { free: true, priceCents: 0 }, { free: false, priceCents: 45 }, { free: true, priceCents: 0 }]) && [d1, d2, d3, d4].every((d) => d.findIndex((e) => e.t === 'quote') < d.findIndex((e) => e.t === 'start')) && [d1, d2, d3, d4].every((d) => d.some((e) => e.t === 'done')),
         JSON.stringify([quoteOf(d1), quoteOf(d2), quoteOf(d3), quoteOf(d4)]));
       await new Promise((r) => setTimeout(r, 500));
-      const runs = (await dbQuery(DB1, 'SELECT id, owner, email, code_fp, tier, free_allowed, price_cents, status, claims_total, extract_usd::float AS extract_usd, chars FROM runs ORDER BY started_at')).rows;
+      const runs = (await dbQuery(DB1, 'SELECT id, owner, email, user_id, code_fp, tier, free_allowed, price_cents, status, claims_total, extract_usd::float AS extract_usd, chars FROM runs ORDER BY started_at')).rows;
+      const opId = Number((await dbQuery(DB1, 'SELECT id FROM users WHERE email_key = $1', [ECON_OP])).rows[0]?.id);
       const dets = (await dbQuery(DB1, 'SELECT id, run_id, n, status, free, price_cents, cost_usd::float AS cost_usd, priced, searches, verdict, model, collected, failure FROM determinations ORDER BY started_at')).rows;
       const lines = (await dbQuery(DB1, 'SELECT kind, run_id, determination_id, owner, usd::float AS usd FROM cost_lines ORDER BY id')).rows;
-      check('the rows: each run carries its owner (the code\'s fingerprint and the email), its tier, its free count and its price, its claims and its own listing cost; each determination its run, its number, free or the price, its cost from its ledger line, its searches, its verdict and collected=false; every ledger line carries the ids',
-        runs.length === 2 && runs.every((r) => /^[0-9a-f]{16}:abcd234@verify$/.test(r.owner) && r.email === 'abcd234@verify' && r.code_fp.length === 16 && r.tier === 3 && r.free_allowed === 2 && r.price_cents === 45 && r.status === 'done' && r.claims_total === claims.length && r.extract_usd > 0 && r.chars === text.length)
+      check('the rows: each run carries its owner (the account: u:<id>, with the account\'s id and email, and no code), its tier, its free count and its price, its claims and its own listing cost; each determination its run, its number, free or the price, its cost from its ledger line, its searches, its verdict and collected=false; every ledger line carries the ids',
+        runs.length === 2 && runs.every((r) => r.owner === `u:${opId}` && Number(r.user_id) === opId && r.email === ECON_OP && r.code_fp === null && r.tier === 3 && r.free_allowed === 2 && r.price_cents === 45 && r.status === 'done' && r.claims_total === claims.length && r.extract_usd > 0 && r.chars === text.length)
           && dets.length === 4 && dets.every((d) => d.status === 'done' && d.cost_usd > 0 && d.priced === true && d.collected === false && d.verdict && d.model && d.failure === null)
           && JSON.stringify(dets.map((d) => [d.run_id, d.n, d.free, d.price_cents])) === JSON.stringify([['verify-econ-r1', 1, true, 0], ['verify-econ-r1', 2, true, 0], ['verify-econ-r1', 3, false, 45], ['verify-econ-r2', 1, true, 0]])
           && lines.length === 6 && lines.filter((l) => l.kind === 'evaluate').every((l) => l.determination_id && l.run_id && l.owner) && lines.filter((l) => l.kind === 'extract').every((l) => l.run_id && !l.determination_id),
@@ -1593,34 +1813,34 @@ async function economicsChecks() {
       // 4. The next window on the same database: the schema is applied once, a run keeps its tier, a new run takes the new one.
       const P2 = PORT + 51;
       await boot(P2, { DATABASE_URL: DB1, CIVIC_CLOCK: at(T1), CIVIC_PRICE_START_CENTS: '45' });
-      const a2 = await signin(P2, 'ABCD234');
+      const a2 = await signin(P2, 'op');
       const migrations = (await dbQuery(DB1, 'SELECT count(*)::int AS n FROM schema_migrations')).rows[0].n;
       const d7 = await detOn(P2, a2, { jobId: 'verify-econ-r1-c4', runId: 'verify-econ-r1', n: 4, entry: entry(0) });
       const r3 = await runOn(P2, a2, 'verify-econ-r3');
       const health2 = await json(`${base(P2)}/api/health`, a2);
-      check('a second FactEngine on the same database six hours on boots with the schema applied once; a determination of the first document, now from this one, is priced by that document\'s tier and count (two free already taken) whatever the clock says; a new document takes the new window\'s tier (4: three free)',
-        migrations === 1 && JSON.stringify(quoteOf(d7)) === JSON.stringify({ free: false, priceCents: 45 }) && JSON.stringify(pricingOf(r3)) === JSON.stringify({ tier: 4, freeFacts: 3, priceCents: 45, currency: 'USD', note: null }) && health2.pricing?.tier === 4,
+      check('a second FactEngine on the same database six hours on boots with each migration applied once; a determination of the first document, now from this one, is priced by that document\'s tier and count (two free already taken) whatever the clock says; a new document takes the new window\'s tier (4: three free)',
+        migrations === fs.readdirSync(path.join(root, 'server', 'migrations')).filter((f) => f.endsWith('.sql')).length && JSON.stringify(quoteOf(d7)) === JSON.stringify({ free: false, priceCents: 45 }) && JSON.stringify(pricingOf(r3)) === JSON.stringify({ tier: 4, freeFacts: 3, priceCents: 45, currency: 'USD', note: null }) && health2.pricing?.tier === 4,
         JSON.stringify({ migrations, d7: quoteOf(d7), r3: pricingOf(r3), tier: health2.pricing?.tier }));
       // 5. The measurement, for the operator alone.
       const st = await json(`${base(P2)}/api/selftest`, a2);
-      const b2 = await signin(P2, 'EFGH567');
-      const stB = await json(`${base(P2)}/api/selftest`, b2);
+      const b2 = await signin(P2, 'reader');
+      const stB = await fetch(`${base(P2)}/api/selftest`, { headers: { cookie: b2 } });
       const e = st.economics;
       const t3 = e?.byTier?.find((x) => x.tier === 3), t4 = e?.byTier?.find((x) => x.tier === 4);
-      const user = e?.byUser?.find((x) => x.email === 'abcd234@verify');
-      check('the operator\'s check page carries the measurement: per tier (users, runs, determinations, free given, cost, listing cost, revenue at list, margin, margin per user, coverage), per user by email, per window, the price with its basis and the measured average so far, the tier clock, the guard off, revenue at list and nothing collected; a code that is not the operator\'s gets none of it',
+      const user = e?.byUser?.find((x) => x.email === ECON_OP);
+      check('the operator\'s check page carries the measurement: per tier (users, runs, determinations, free given, cost, listing cost, revenue at list, margin, margin per user, coverage), per user by email, per window, the price with its basis and the measured average so far, the tier clock, the guard off, revenue at list and nothing collected; an account that is not the operator\'s cannot open the check page at all (403)',
         Boolean(e) && e.store === 'postgres' && t3 && t3.users === 1 && t3.runs === 2 && t3.determinations === 6 && t3.failed === 1 && t3.freeGiven === 4 && t3.revenueUsd === 0.9 && t3.costUsd > 0 && Math.abs(t3.marginUsd - (t3.revenueUsd - t3.costUsd)) < 0.0011 && t3.extractUsd > 0 && typeof t3.coverage === 'number'
           && t4 && t4.runs === 1 && t4.determinations === 0 && user && user.runs === 3 && user.determinations === 6 && user.freeGiven === 4 && e.byWindow.length === 2
           && e.price.cents === 45 && e.price.basis === 'start' && e.price.measuredSample === 6 && e.price.measuredAvgUsd > 0 && e.price.minSample === 20 && e.price.markupPercent === 25
-          && e.tier.now === 4 && e.tier.freeFacts === 3 && e.tier.hours === 6 && e.guard.configured === false && /list price/.test(e.note) && stB.economics === null,
-        JSON.stringify({ t3, t4, user, price: e?.price, tier: e?.tier, guard: e?.guard, other: stB.economics }));
+          && e.tier.now === 4 && e.tier.freeFacts === 3 && e.tier.hours === 6 && e.guard.configured === false && /list price/.test(e.note) && stB.status === 403,
+        JSON.stringify({ t3, t4, user, price: e?.price, tier: e?.tier, guard: e?.guard, other: stB.status }));
       check('the report carries how long determinations and listings take over the window, with the searches per determination',
         e?.durations && e.durations.determinations.n >= 6 && e.durations.determinations.meanMs > 0 && e.durations.determinations.p75Ms >= e.durations.determinations.meanMs * 0.5 && typeof e.durations.determinations.meanSearches === 'number' && e.durations.extractions.n >= 2 && e.durations.extractions.meanMs > 0,
         JSON.stringify(e?.durations));
       // 6. A deploy with a determination in flight: the row is failed as deploy, nothing booked.
       const P3 = PORT + 52;
       const s3 = await boot(P3, { DATABASE_URL: DB1, CIVIC_CLOCK: at(T1), CIVIC_PRICE_START_CENTS: '45' });
-      const a3 = await signin(P3, 'ABCD234');
+      const a3 = await signin(P3, 'op');
       const inflight = fetch(`${base(P3)}/api/evaluate`, { method: 'POST', headers: { 'content-type': 'application/json', cookie: a3 }, body: JSON.stringify({ jobId: 'verify-econ-r3-c1', claims: [entry(0)], text, source: { kind: 'text' }, runId: 'verify-econ-r3', n: 1 }) });
       await new Promise((r) => setTimeout(r, 400));
       s3.kill('SIGTERM');
@@ -1641,7 +1861,7 @@ async function economicsChecks() {
       await seed(DB2, { runId: 'seed-a', tier: 3, from: T2 - 2 * DAY, n: 19, cost: 0.36, price: 45, free: false });
       const P5 = PORT + 54;
       await boot(P5, { DATABASE_URL: DB2, CIVIC_CLOCK: at(T2) });
-      const a5 = await signin(P5, 'ABCD234');
+      const a5 = await signin(P5, 'op');
       const h5 = await json(`${base(P5)}/api/health`, a5);
       const st5 = await json(`${base(P5)}/api/selftest`, a5);
       await seed(DB2, { runId: 'seed-b', tier: 3, from: T2 - DAY, n: 1, cost: 0.36, price: 45, free: false });
@@ -1649,7 +1869,7 @@ async function economicsChecks() {
       const h5again = await json(`${base(P5)}/api/health`, a5);
       const P6 = PORT + 55;
       await boot(P6, { DATABASE_URL: DB2, CIVIC_CLOCK: at(T3) });
-      const a6 = await signin(P6, 'ABCD234');
+      const a6 = await signin(P6, 'op');
       const h6 = await json(`${base(P6)}/api/health`, a6);
       const st6 = await json(`${base(P6)}/api/selftest`, a6);
       const r6 = await runOn(P6, a6, 'verify-econ-r6');
@@ -1663,14 +1883,14 @@ async function economicsChecks() {
       const DB4 = await makeDb('civic_verify_econ4');
       const P8 = PORT + 59;
       const s8 = await boot(P8, { DATABASE_URL: DB4, CIVIC_CLOCK: at(T0) });
-      const a8 = await signin(P8, 'ABCD234');
+      const a8 = await signin(P8, 'op');
       const h8 = await json(`${base(P8)}/api/health`, a8);
       const row8 = (await dbQuery(DB4, 'SELECT price_cents, basis FROM windows')).rows;
       s8.kill('SIGTERM');
       await new Promise((r) => setTimeout(r, 500));
       const P9 = PORT + 61;
       await boot(P9, { DATABASE_URL: DB4, CIVIC_CLOCK: at(T0 + 10 * 60e3), CIVIC_PRICE_START_CENTS: '49' });
-      const a9 = await signin(P9, 'ABCD234');
+      const a9 = await signin(P9, 'op');
       const h9b = await json(`${base(P9)}/api/health`, a9);
       const r9b = await runOn(P9, a9, 'verify-econ-r9b');
       const row9 = (await dbQuery(DB4, 'SELECT price_cents, basis FROM windows')).rows;
@@ -1682,7 +1902,7 @@ async function economicsChecks() {
       const DB3 = await makeDb('civic_verify_econ3');
       const P7 = PORT + 56;
       await boot(P7, { DATABASE_URL: DB3, CIVIC_CLOCK: at(T0 + 30 * 60e3), CIVIC_PRICE_START_CENTS: '45', CIVIC_TIER_LOSS_GUARD_USD: '0.5' });
-      const a7 = await signin(P7, 'ABCD234');
+      const a7 = await signin(P7, 'op');
       const h7 = await json(`${base(P7)}/api/health`, a7);
       // three free determinations at 50 cents each earlier in this window: the window's margin is −1.50, below −0.50
       await seed(DB3, { runId: 'seed-loss', tier: 3, from: T0 + 60e3, n: 3, cost: 0.5, price: 45, free: true });
@@ -1708,7 +1928,7 @@ async function economicsChecks() {
   try {
     const P9 = PORT + 57;
     await boot(P9, { CIVIC_CLOCK: at(T0), CIVIC_PRICE_START_CENTS: '45', CIVIC_PRICING_NOTE: 'The beta is not charged.' });
-    const a9 = await signin(P9, 'ABCD234');
+    const a9 = await signin(P9, 'op');
     const h9 = await json(`${base(P9)}/api/health`, a9);
     const r9 = await runOn(P9, a9, 'verify-econ-r9');
     const claims9 = r9.find((e) => e.t === 'done')?.claims || [];
@@ -1726,7 +1946,7 @@ async function economicsChecks() {
     // 10. Pricing off: the rollback. The page is as before: no pricing on the health line, no pricing or quote event, nothing measured.
     const P10 = PORT + 58;
     await boot(P10, { CIVIC_PRICING_ENABLED: 'false', CIVIC_PRICE_START_CENTS: '45' });
-    const a10 = await signin(P10, 'ABCD234');
+    const a10 = await signin(P10, 'op');
     const h10 = await json(`${base(P10)}/api/health`, a10);
     const r10 = await runOn(P10, a10, 'verify-econ-r10');
     const d10 = await detOn(P10, a10, { jobId: 'verify-econ-r10-c1', runId: 'verify-econ-r10', n: 1, entry: e9(0) });
@@ -1738,7 +1958,6 @@ async function economicsChecks() {
   }
   for (const s of servers) { try { s.kill('SIGTERM'); } catch {} }
   try { mock.kill('SIGTERM'); } catch {}
-  try { fs.unlinkSync(usesFile); } catch {}
   if (provision) await provision.stop();
 }
 await economicsChecks();
@@ -1805,7 +2024,7 @@ async function deepseekChecks() {
   const serve = (port, env) => {
     const child = start([path.join(root, 'server', 'index.js')], {
       PORT: String(port), OPENAI_BASE_URL: `http://localhost:${DMOCK}/v1`, OPENAI_API_KEY: KEY, CIVIC_IMAGE_ENABLED: 'false',
-      CIVIC_LEDGER_FILE: ledger, CIVIC_ERROR_LOG: errlog, CIVIC_ACCESS_CODES: '', CIVIC_OPERATOR_CODES: '', DATABASE_URL: '',
+      CIVIC_LEDGER_FILE: ledger, CIVIC_ERROR_LOG: errlog, DATABASE_URL: '',
       CIVIC_EXTRACT_PROVIDER: 'deepseek', DEEPSEEK_API_KEY: DSKEY, CIVIC_DEEPSEEK_BASE_URL: `http://localhost:${DMOCK}/deepseek`, ...env,
     });
     child.stdout.on('data', (d) => output.push(String(d)));
@@ -1917,17 +2136,16 @@ async function deepseekChecks() {
         && estimateTextCost({ model: 'deepseek-flash', usage: { input: 1_000_000, cached: 1_000_000, output: 0 }, at: Date.parse('2026-10-05T02:00:00Z') }).usd === 0.006,
       JSON.stringify({ peak: at('2026-10-05T02:00:00Z'), off: at('2026-10-05T05:00:00Z') }));
 
-    // The operator's figures stay the operator's: a reader's /check says whether the account can pay, never how much.
-    const readerCode = generateCode();
-    const operatorCode = generateCode();
-    const base2 = serve(PORT + 81, { CIVIC_ACCESS_CODES: `${readerCode},${operatorCode}`, CIVIC_OPERATOR_CODES: operatorCode, CIVIC_SESSION_SECRET: 'b'.repeat(64) });
+    // The operator's figures stay the operator's: /check is the operator's account's alone, and it shows the balance.
+    const base2 = serve(PORT + 81, { CIVIC_ACCOUNTS: 'on', CIVIC_OPERATOR_EMAILS: 'op@example.com', CIVIC_OPERATOR_CLAIM: claimHash() });
     await wait(`${base2}/api/health`);
-    const signIn = async (code) => { const r = await fetch(`${base2}/api/signin`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: 'guard@example.com', code }) }); return (r.headers.get('set-cookie') || '').split(';')[0]; };
-    const balanceRow = async (cookie) => ((await (await fetch(`${base2}/api/selftest`, { headers: { cookie } })).json()).checks || []).find((x) => /DeepSeek account can pay/.test(x.title));
-    const asReader = await balanceRow(await signIn(readerCode));
-    const asOperator = await balanceRow(await signIn(operatorCode));
-    check('DeepSeek: a reader\'s /check says the listing\'s account can pay, with no figure; the operator\'s shows the balance',
-      asReader?.state === 'ok' && !/\d/.test(asReader.detail || '') && /Balance 12\.34 USD/.test(asOperator?.detail || ''), JSON.stringify({ reader: asReader, operator: asOperator }));
+    const people = accountClient(base2);
+    const readerCookie = (await people.signup('reader@example.com')).cookie;
+    const operatorCookie = (await people.json('/api/account/claim', { method: 'POST', body: { token: CLAIM_TOKEN, email: 'op@example.com', password: PASSWORD, agree: true } })).cookie;
+    const asReader = await people.json('/api/selftest', { cookie: readerCookie });
+    const asOperator = ((await people.json('/api/selftest', { cookie: operatorCookie })).body?.checks || []).find((x) => /DeepSeek account can pay/.test(x.title));
+    check('DeepSeek: a reader cannot open /check at all (403 operator_only); the operator\'s shows the balance',
+      asReader.status === 403 && asReader.body?.error?.code === 'operator_only' && /Balance 12\.34 USD/.test(asOperator?.detail || ''), JSON.stringify({ reader: asReader.status, operator: asOperator }));
 
     // No key, no request: provider DeepSeek with DEEPSEEK_API_KEY unset refuses the listing before anything is sent.
     const before = dsEntries().length;
@@ -2004,7 +2222,6 @@ async function fireworksChecks() {
   const FMOCK = MOCK_PORT + 85, SITE = PORT + 88;
   const FWKEY = 'fw_verify0000000000000000000000';
   const SKEY = 'search-key-fw-verify-5d2a';
-  const SECRET = 'd'.repeat(64);
   const COT = 'FWCOT-2c9d', ECHO = 'FWUSER-8b1e';   // the stand-in's reasoning and input-echo markers
   const MODEL = 'accounts/fireworks/models/deepseek-v4p1-flash';
   const stamp = Date.now();
@@ -2039,9 +2256,9 @@ async function fireworksChecks() {
   const serve = (port, env) => {
     const child = start([path.join(root, 'server', 'index.js')], {
       PORT: String(port), OPENAI_BASE_URL: `http://localhost:${FMOCK}/v1`, OPENAI_API_KEY: KEY, CIVIC_IMAGE_ENABLED: 'false',
-      CIVIC_LEDGER_FILE: ledger, CIVIC_ERROR_LOG: errlog, CIVIC_ACCESS_CODES: '', CIVIC_OPERATOR_CODES: '', DATABASE_URL: '',
+      CIVIC_LEDGER_FILE: ledger, CIVIC_ERROR_LOG: errlog, DATABASE_URL: '',
       CIVIC_EXTRACT_PROVIDER: 'fireworks', FIREWORKS_API_KEY: FWKEY, CIVIC_FIREWORKS_BASE_URL: `http://localhost:${FMOCK}/fireworks`,
-      RENDER_EXTERNAL_URL: `http://localhost:${port}`, CIVIC_SESSION_SECRET: SECRET, CIVIC_TOOLS_URL: '', CIVIC_TOOLS_PASS: '',
+      RENDER_EXTERNAL_URL: `http://localhost:${port}`, CIVIC_TOOLS_URL: '', CIVIC_TOOLS_PASS: '',
       CIVIC_SEARCH_URL: `http://localhost:${SITE}/search`, CIVIC_SEARCH_KEY: SKEY, CIVIC_ALLOW_PRIVATE_URLS: 'true', ...env,
     });
     child.stdout.on('data', (d) => output.push(String(d)));
@@ -2302,6 +2519,31 @@ async function pagesChecks() {
       footer.slice(0, 300));
     check('the page carries the AI disclosure line under the results, translated by key',
       /<p class="score-note" data-i18n="score\.aiLine">Determinations are made by an AI model from the sources it cites and can be wrong; check the sources before relying on one\.<\/p>/.test(home.text), '');
+    // Accounts and credit (5 October): the sentences approved with the plan, the account page, and no word of the codes.
+    const refunds = await page('/refunds');
+    check('/terms, /privacy and /refunds carry the account and credit sentences of 5 October',
+      terms.text.includes('<h2>4. Your account</h2>') && terms.text.includes('You need an account to use the Service. Give an email address you control and keep your password to yourself; you are responsible for everything done through your account until you tell us at <a href="mailto:support@operatingequity.ai">support@operatingequity.ai</a> that it is compromised. One account per person. We may change, limit or withdraw access at any time.')
+        && terms.text.includes('New accounts receive credit for testing claims, in the amount shown when you sign up. Testing a claim draws its price from your credit, and a test that fails is not charged. Credit has no cash value, cannot be transferred or exchanged for money, is not refunded, and may be changed or withdrawn, including from an account used against these Terms.')
+        && privacy.text.includes('Your account: the email address and password you sign up with (the password is kept only as a one-way hash, which cannot be turned back into it), and when you agreed to these terms')
+        && privacy.text.includes('Your credit: what was given when your account was made, each test&#39;s price and whether it was charged, and any monthly limit you set')
+        && privacy.text.includes('to keep your account&#39;s credit;')
+        && privacy.text.includes('the sign-in cookie holds only a random identifier and cannot be read by scripts; passwords are kept only as one-way hashes;')
+        && refunds.text.includes('A test paid with credit is refunded as credit.'),
+      '');
+    const accountRes = await fetch(`${base}/account`);
+    const account = { status: accountRes.status, cache: accountRes.headers.get('cache-control') || '', text: await accountRes.text() };
+    check('/account is served as its own page, never cached, with its own script and the language picker',
+      account.status === 200 && /no-store/.test(account.cache) && account.text.includes('<script type="module" src="js/account.js"></script>') && account.text.includes('id="lang-select"') && account.text.includes('data-still="golden"'),
+      JSON.stringify({ status: account.status, cache: account.cache }));
+    const fieldCount = (html) => (html.match(/class="field(?:\s[^"]*)?"/g) || []).length;
+    check('the page and the account page carry one element each of the background\'s class (on 5 October two labels shared it and took every tap), and their fields sit in form-field labels',
+      fieldCount(home.text) === 1 && fieldCount(account.text) === 1 && (home.text.match(/<label class="form-field">/g) || []).length >= 4 && /<label class="form-field"/.test(account.text),
+      JSON.stringify({ home: fieldCount(home.text), account: fieldCount(account.text) }));
+    const SERVED = ['/', '/account', '/check', '/terms', '/privacy', '/refunds', '/contact', '/js/app.js', '/js/api.js', '/js/account.js', '/js/check.js', '/locales/en.js', '/locales/es.js', '/locales/fr.js', '/locales/de.js'];
+    const codesWords = /access code|c[oó]digos? de acceso|codes? d.acc[eè]s|Zugangscode|civic_access/i;
+    const served = await Promise.all(SERVED.map(async (p) => [p, await page(p)]));
+    check('no page or script a reader is served speaks of access codes or carries the codes\' cookie',
+      served.every(([, r]) => r.status === 200 && !codesWords.test(r.text)), served.filter(([, r]) => r.status !== 200 || codesWords.test(r.text)).map(([p, r]) => `${p}:${r.status}`).join(' '));
     const words = { en: ['Refunds', 'an Operating Equity company', 'Determinations are made by an AI model'], es: ['Reembolsos', 'una empresa de Operating Equity', 'Las determinaciones las hace un modelo de IA'], fr: ['Remboursements', "une société d'Operating Equity", "Les déterminations sont faites par un modèle d'IA"], de: ['Erstattungen', 'ein Unternehmen von Operating Equity', 'Die Feststellungen trifft ein KI-Modell'] };
     for (const [code, [refunds, parent, ai]] of Object.entries(words)) {
       const l = await page(`/locales/${code}.js`);

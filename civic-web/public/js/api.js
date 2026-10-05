@@ -19,13 +19,16 @@ async function throwFromResponse(res) {
   const e = body?.error || {};
   const err = new ApiError(res.status, e.code || `http_${res.status}`, e.message || `The server answered ${res.status}.`);
   if (e.site) err.site = e.site; // the site a link led to, for the page's own sentence about it
+  // The figures of a refusal the reader is expected to meet (a balance, a price, a limit, a wait), so the page can say
+  // them in the reader's own language.
+  for (const k of ['balanceCents', 'priceCents', 'limitCents', 'spentCents', 'waitSeconds']) if (Number.isFinite(e[k])) err[k] = e[k];
   throw err;
 }
 
 // Sign-in. When the server refuses a request for want of a sign-in (401, signin_required), the
-// page is asked to obtain one; once it has, the same request is sent again, so the action the
-// reader asked for proceeds on its own after the code is accepted. A sign-in the reader abandons
-// ends with an AbortError, which every caller treats as silence.
+// page is asked to obtain one (the account box); once it has, the same request is sent again, so the
+// action the reader asked for proceeds on its own once they are signed in. A sign-in the reader
+// abandons ends with an AbortError, which every caller treats as silence.
 let obtainSignIn = null;
 export function onSignInRequired(fn) { obtainSignIn = fn; }
 
@@ -40,17 +43,35 @@ async function call(url, init) {
   }
 }
 
-export async function signin({ email, code }) {
-  const res = await fetch('api/signin', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email, code }) });
+// The account (5 October): sign up, sign in, sign out, and the account's own page. Every body is JSON, and every call
+// is the page's own (the server refuses another site's).
+async function post(url, body) {
+  const res = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body || {}) });
   if (!res.ok) await throwFromResponse(res);
   return res.json();
 }
-
-export async function signout() {
-  const res = await fetch('api/signout', { method: 'POST' });
+async function get(url) {
+  const res = await fetch(url, { cache: 'no-store' });
   if (!res.ok) await throwFromResponse(res);
   return res.json();
 }
+export const signup = ({ email, password, agree }) => post('api/account/signup', { email, password, agree });
+export const signin = ({ email, password }) => post('api/account/signin', { email, password });
+export const signout = () => post('api/account/signout', {});
+export const signoutAll = () => post('api/account/signout-all', {});
+export const resetPassword = ({ token, password }) => post('api/account/reset', { token, password });
+export const claimOperator = ({ token, email, password, agree }) => post('api/account/claim', { token, email, password, agree });
+export const account = () => get('api/account');
+export const activity = (before) => get(`api/account/activity${before ? `?before=${encodeURIComponent(before)}` : ''}`);
+export const setLimit = (cents) => post('api/account/limit', { cents });
+export const changePassword = ({ current, next }) => post('api/account/password', { current, next });
+export const deleteAccount = ({ password }) => post('api/account/delete', { password });
+// The operator's tools, on /check.
+export const operatorAccounts = () => get('api/operator/accounts');
+export const operatorCredit = ({ userId, cents, note }) => post('api/operator/credit', { userId, cents, note });
+export const operatorResetLink = ({ userId }) => post('api/operator/reset-link', { userId });
+export const operatorBlock = ({ userId, blocked }) => post('api/operator/block', { userId, blocked });
+export const operatorDelete = ({ userId }) => post('api/operator/delete', { userId });
 
 export async function health() {
   const res = await fetch('api/health', { cache: 'no-store' });

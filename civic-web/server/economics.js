@@ -29,15 +29,16 @@
 // tier, the free count and the price, and never a cost.
 import { config } from './config.js';
 import { dbOn, query, tx, migrate } from './db.js';
+import * as credit from './credit.js';
+import { ApiError } from './openai.js';
 
 const DAY = 86400e3;
 const HOUR = 3600e3;
 
 // ---- the clock -----------------------------------------------------------------------------------
-// Real time, unless the guard set CIVIC_CLOCK: then the instant it names, running from boot.
-const bootReal = Date.now();
-const clockOffset = (() => { const t = config.clock ? Date.parse(config.clock) : NaN; return Number.isFinite(t) ? t - bootReal : 0; })();
-export function now() { return Date.now() + clockOffset; }
+// Real time, unless the guard set CIVIC_CLOCK: then the instant it names, running from boot (server/clock.js).
+export { now } from './clock.js';
+import { now } from './clock.js';
 
 export function enabled() { return Boolean(config.pricingEnabled); }
 
@@ -70,12 +71,16 @@ export function priceFromAverage(avgUsd, markupPercent = config.priceMarkupPerce
 
 // ---- the rows -------------------------------------------------------------------------------------
 const mem = { runs: new Map(), dets: new Map(), windows: new Map(), guard: [], lines: [] };   // lines: { at, kind, ms, searches } of finished calls, for the durations
-const inFlight = new Set();   // determinations this instance has open: failed as `deploy` when it is told to stop
+// The attempts this instance has open, `${id}@${attempt}` → { id, attempt, holdId }: failed as `deploy` when it is told to
+// stop. Keyed by attempt, so a job stopped while the same claim is taken up again here (the page's next request) closes
+// its own attempt and never the new one.
+const inFlight = new Map();
+const attemptKey = (id, attempt) => `${id}@${attempt}`;
 
 const ms = (v) => (v === null || v === undefined ? null : (v instanceof Date ? v.getTime() : Number(v)));
 const num = (v) => (v === null || v === undefined ? 0 : Number(v));
-const rowRun = (r) => ({ id: r.id, owner: r.owner, email: r.email, codeFp: r.code_fp, startedAt: ms(r.started_at), tier: r.tier, windowStart: ms(r.window_start), priceCents: r.price_cents, freeAllowed: r.free_allowed, chars: r.chars, claimsTotal: r.claims_total, extractUsd: num(r.extract_usd), status: r.status });
-const rowDet = (d) => ({ id: d.id, runId: d.run_id, n: d.n, startedAt: ms(d.started_at), endedAt: ms(d.ended_at), status: d.status, failure: d.failure, free: d.free, priceCents: d.price_cents, costUsd: num(d.cost_usd), priced: d.priced, searches: d.searches, verdict: d.verdict, model: d.model, chars: d.chars, collected: d.collected });
+const rowRun = (r) => ({ id: r.id, owner: r.owner, email: r.email, userId: r.user_id === null || r.user_id === undefined ? null : Number(r.user_id), codeFp: r.code_fp, startedAt: ms(r.started_at), tier: r.tier, windowStart: ms(r.window_start), priceCents: r.price_cents, freeAllowed: r.free_allowed, chars: r.chars, claimsTotal: r.claims_total, extractUsd: num(r.extract_usd), status: r.status });
+const rowDet = (d) => ({ id: d.id, runId: d.run_id, n: d.n, startedAt: ms(d.started_at), endedAt: ms(d.ended_at), status: d.status, failure: d.failure, free: d.free, priceCents: d.price_cents, costUsd: num(d.cost_usd), priced: d.priced, searches: d.searches, verdict: d.verdict, model: d.model, chars: d.chars, collected: d.collected, holdId: d.hold_id === null || d.hold_id === undefined ? null : Number(d.hold_id), attempt: Number(d.attempt || 1), rerun: Boolean(d.rerun) });
 const rowWindow = (w) => ({ windowStart: ms(w.window_start), tier: w.tier, priceCents: w.price_cents, avgCostUsd: w.avg_cost_usd === null ? null : num(w.avg_cost_usd), sample: w.sample, basis: w.basis });
 const rowGuard = (g) => ({ at: ms(g.at), engaged: g.engaged, windowStart: ms(g.window_start), lossUsd: num(g.loss_usd), earnedUsd: num(g.earned_usd) });
 
@@ -202,22 +207,26 @@ async function guardDecide(at) {
 
 // ---- runs and determinations ----------------------------------------------------------------------
 /**
- * A run starts: its tier and its window's price are fixed here and hold for the document. The same
- * id asked for again (a page joining its run on a new instance) gets the row it already has.
+ * A run starts: its tier and its window's price are fixed here and hold for the document. The same id asked for again
+ * (a page joining its run on a new instance) gets the row it already has, and only its own: with accounts on, a run
+ * belongs to the account that started it.
  */
-export async function openRun({ id, owner = null, email = null, codeFp = null, chars = null }) {
+export async function openRun({ id, owner = null, email = null, userId = null, codeFp = null, chars = null }) {
   if (!enabled() || !id) return null;
   const existing = await loadRun(id);
-  if (existing) return existing;
+  if (existing) {
+    if ((existing.owner ?? null) !== (owner ?? null)) throw Object.assign(new ApiError(403, 'not_your_job', 'That run belongs to another sign-in.'), { expected: true });
+    return existing;
+  }
   const at = now();
   const ws = windowStartAt(at);
   const guard = await guardDecide(at);
   const tier = guard.tier1 ? 1 : tierAt(at);
   const win = await priceForWindow(ws);
-  const run = { id, owner, email, codeFp, startedAt: at, tier, windowStart: ws, priceCents: win.priceCents, freeAllowed: freeFor(tier), chars, claimsTotal: null, extractUsd: 0, status: 'running' };
+  const run = { id, owner, email, userId, codeFp, startedAt: at, tier, windowStart: ws, priceCents: win.priceCents, freeAllowed: freeFor(tier), chars, claimsTotal: null, extractUsd: 0, status: 'running' };
   if (dbOn()) {
-    await query('INSERT INTO runs (id, owner, email, code_fp, started_at, tier, window_start, price_cents, free_allowed, chars, status) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) ON CONFLICT (id) DO NOTHING',
-      [id, owner, email, codeFp, new Date(at), tier, new Date(ws), win.priceCents, run.freeAllowed, chars, 'running']);
+    await query('INSERT INTO runs (id, owner, email, user_id, code_fp, started_at, tier, window_start, price_cents, free_allowed, chars, status) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) ON CONFLICT (id) DO NOTHING',
+      [id, owner, email, userId, codeFp, new Date(at), tier, new Date(ws), win.priceCents, run.freeAllowed, chars, 'running']);
     return (await loadRun(id)) || run;
   }
   mem.runs.set(id, run);
@@ -238,75 +247,192 @@ const quoteOf = (det, run) => {
   return det.free ? { free: true, priceCents: 0 } : { free: false, priceCents: run.priceCents };
 };
 
+const fmtCents = (cents) => { try { return new Intl.NumberFormat('en-US', { style: 'currency', currency: config.currency }).format((Number(cents) || 0) / 100); } catch { return `${((Number(cents) || 0) / 100).toFixed(2)} ${config.currency}`; } };
+const expected = (err, extra = null) => Object.assign(err, { expected: true }, extra ? { extra } : {});
+/** The refusals of a claim the reader's credit or limit cannot cover: before any model call, with the figures. */
+function creditRefusal(h) {
+  if (h.refused === 'credit_short') {
+    return expected(new ApiError(402, 'credit_short', `Testing this claim costs ${fmtCents(h.priceCents)}; your balance is ${fmtCents(h.balanceCents)}.`),
+      { balanceCents: h.balanceCents, priceCents: h.priceCents });
+  }
+  return expected(new ApiError(402, 'month_limit', `This test would take this month's tests past your limit of ${fmtCents(h.limitCents)}.`),
+    { limitCents: h.limitCents, spentCents: h.spentCents, priceCents: h.priceCents, balanceCents: h.balanceCents });
+}
+const runRequired = () => expected(new ApiError(400, 'run_required', 'Test a claim from a document listed under this account.'));
+const alreadyTested = () => expected(new ApiError(409, 'already_tested', 'This claim was tested already.'));
+
 /**
- * A determination starts: the server decides, never the page, whether it is one of the document's
- * free ones (the run's count so far, failed ones excepted) or priced at the run's price. The run's
- * row is locked while the count is taken, so three claims starting together cannot all be the last
- * free one. An id asked for again gets the row it already has.
+ * A determination starts: the server decides, never the page, whether it is one of the document's free ones (the run's
+ * count so far, failed ones and this one excepted) or priced at the run's price, and, with accounts on, holds that price
+ * from the reader's credit (server/credit.js) or refuses before the model is asked. The run's row and then the reader's
+ * are locked while that is decided, so three claims starting together cannot all be the last free one, and two tabs
+ * cannot spend one balance twice.
+ *
+ * Each start is an attempt with a hold of its own. The same id coming back with no job behind it here (a deploy's new
+ * instance, a crash, a stop and a new request) opens the next attempt: decided and held again, the earlier attempt's
+ * hold released, and only the newest attempt can be charged. A claim already delivered gets one more go, never charged
+ * again (its result was lost on the way); after that, 409.
+ *
+ * Returns the quote, { free, priceCents }, with the attempt, its hold and the balance after it.
  */
-export async function openDetermination({ id, runId = null, n = null, chars = null }) {
+export async function openDetermination({ id, runId = null, n = null, chars = null, userId = null, owner = null, limitCents = null, requireRun = false }) {
   if (!enabled() || !id) return null;
   const at = now();
   if (dbOn()) {
     return tx(async (c) => {
-      const had = (await c.query('SELECT * FROM determinations WHERE id = $1', [id])).rows[0];
-      if (had) { const run = had.run_id ? rowRun((await c.query('SELECT * FROM runs WHERE id = $1', [had.run_id])).rows[0] || {}) : null; return quoteOf(rowDet(had), run && run.id ? run : null); }
+      const hadRow = (await c.query('SELECT * FROM determinations WHERE id = $1 FOR UPDATE', [id])).rows[0];
+      const had = hadRow ? rowDet(hadRow) : null;
+      const rid = had ? had.runId : runId;
       let run = null;
-      if (runId) { const r = await c.query('SELECT * FROM runs WHERE id = $1 FOR UPDATE', [runId]); run = r.rows[0] ? rowRun(r.rows[0]) : null; }
+      if (rid) { const r = await c.query('SELECT * FROM runs WHERE id = $1 FOR UPDATE', [rid]); run = r.rows[0] ? rowRun(r.rows[0]) : null; }
+      if (requireRun && (!run || (run.owner ?? null) !== (owner ?? null))) throw runRequired();
+      if (had && had.status === 'done') {
+        if (had.rerun) throw alreadyTested();
+        const attempt = had.attempt + 1;
+        await c.query("UPDATE determinations SET status = 'running', attempt = $2, rerun = true, hold_id = NULL WHERE id = $1", [id, attempt]);
+        inFlight.set(attemptKey(id, attempt), { id, attempt, holdId: null });
+        return { ...quoteOf({ free: had.free }, run), attempt, holdId: null, balanceCents: null, rerun: true };
+      }
       let free = false;
       if (run) {
-        const used = Number((await c.query("SELECT count(*) FROM determinations WHERE run_id = $1 AND free AND status <> 'failed'", [runId])).rows[0].count);
+        const used = Number((await c.query("SELECT count(*) FROM determinations WHERE run_id = $1 AND free AND status <> 'failed' AND id <> $2", [run.id, id])).rows[0].count);
         free = used < run.freeAllowed;
       }
       const price = run && !free && Number.isInteger(run.priceCents) ? run.priceCents : 0;
-      await c.query('INSERT INTO determinations (id, run_id, n, started_at, status, free, price_cents, chars) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) ON CONFLICT (id) DO NOTHING',
-        [id, run ? run.id : null, n, new Date(at), 'running', free, price, chars]);
-      inFlight.add(id);
-      return quoteOf({ free }, run);
+      let holdId = null, balanceCents = null;
+      if (userId && price > 0) {
+        const h = await credit.hold(userId, price, { determinationId: id, runId: run.id, atMs: at, limitCents }, c);
+        if (h.refused) throw creditRefusal(h);
+        holdId = h.holdId; balanceCents = h.balanceCents;
+      }
+      let attempt = 1;
+      if (had) {
+        attempt = had.attempt + 1;
+        if (had.holdId) await credit.settle(had.holdId, 'release', c);   // the earlier attempt's hold: its price comes back
+        await c.query("UPDATE determinations SET status = 'running', started_at = $2, ended_at = NULL, failure = NULL, free = $3, price_cents = $4, hold_id = $5, attempt = $6, rerun = false WHERE id = $1",
+          [id, new Date(at), free, price, holdId, attempt]);
+      } else {
+        await c.query('INSERT INTO determinations (id, run_id, n, started_at, status, free, price_cents, chars, hold_id, attempt) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 1)',
+          [id, run ? run.id : null, n, new Date(at), 'running', free, price, chars, holdId]);
+      }
+      inFlight.set(attemptKey(id, attempt), { id, attempt, holdId });
+      return { ...quoteOf({ free }, run), attempt, holdId, balanceCents };
     });
   }
-  const had = mem.dets.get(id);
-  if (had) return quoteOf(had, had.runId ? mem.runs.get(had.runId) : null);
-  const run = runId ? mem.runs.get(runId) || null : null;
+  // Memory: everything from the free count to the hold and the row is one synchronous step, so nothing interleaves.
+  const had = mem.dets.get(id) || null;
+  const run = (had ? had.runId : runId) ? mem.runs.get(had ? had.runId : runId) || null : null;
+  if (requireRun && (!run || (run.owner ?? null) !== (owner ?? null))) throw runRequired();
+  if (had && had.status === 'done') {
+    if (had.rerun) throw alreadyTested();
+    const attempt = had.attempt + 1;
+    Object.assign(had, { status: 'running', attempt, rerun: true, holdId: null });
+    inFlight.set(attemptKey(id, attempt), { id, attempt, holdId: null });
+    return { ...quoteOf(had, run), attempt, holdId: null, balanceCents: null, rerun: true };
+  }
   let free = false;
   if (run) {
     let used = 0;
-    for (const d of mem.dets.values()) if (d.runId === run.id && d.free && d.status !== 'failed') used++;
+    for (const d of mem.dets.values()) if (d.runId === run.id && d.id !== id && d.free && d.status !== 'failed') used++;
     free = used < run.freeAllowed;
   }
-  const det = { id, runId: run ? run.id : null, n, startedAt: at, endedAt: null, status: 'running', failure: null, free, priceCents: run && !free && Number.isInteger(run.priceCents) ? run.priceCents : 0, costUsd: 0, priced: true, searches: 0, verdict: null, model: null, chars, collected: false };
-  // Memory is not a database: a long-lived instance without one lets its oldest finished rows go past twenty thousand.
-  if (mem.dets.size >= 20000) { for (const [k, d] of mem.dets) { if (d.status !== 'running') { mem.dets.delete(k); if (mem.dets.size < 15000) break; } } }
-  mem.dets.set(id, det);
-  inFlight.add(id);
-  return quoteOf(det, run);
+  const price = run && !free && Number.isInteger(run.priceCents) ? run.priceCents : 0;
+  let holdId = null, balanceCents = null;
+  if (userId && price > 0) {
+    const h = credit.holdNow(userId, price, { determinationId: id, runId: run.id, atMs: at, limitCents });
+    if (h.refused) throw creditRefusal(h);
+    holdId = h.holdId; balanceCents = h.balanceCents;
+  }
+  let attempt = 1;
+  if (had) {
+    attempt = had.attempt + 1;
+    if (had.holdId) credit.settleNow(had.holdId, 'release');
+    Object.assign(had, { status: 'running', startedAt: at, endedAt: null, failure: null, free, priceCents: price, holdId, attempt, rerun: false });
+  } else {
+    const det = { id, runId: run ? run.id : null, n, startedAt: at, endedAt: null, status: 'running', failure: null, free, priceCents: price, costUsd: 0, priced: true, searches: 0, verdict: null, model: null, chars, collected: false, holdId, attempt: 1, rerun: false };
+    // Memory is not a database: a long-lived instance without one lets its oldest finished rows go past twenty thousand.
+    if (mem.dets.size >= 20000) { for (const [k, d] of mem.dets) { if (d.status !== 'running') { mem.dets.delete(k); if (mem.dets.size < 15000) break; } } }
+    mem.dets.set(id, det);
+  }
+  inFlight.set(attemptKey(id, attempt), { id, attempt, holdId });
+  return { ...quoteOf({ free }, run), attempt, holdId, balanceCents };
 }
 
-/** The determination's end: done books its revenue at list (already on the row); anything else books nothing and keeps the cost. */
-export async function book(id, { status = 'done', verdict = null, model = null, failure = null } = {}) {
+/**
+ * The end of one attempt. If it is still the row's own: done books its revenue at list and charges its hold; anything
+ * else books nothing, keeps the cost and releases the hold. A superseded attempt (the claim was taken up again
+ * meanwhile) only ever has its hold released. A second go at a delivered claim ends done, whatever happens to it.
+ */
+export async function book(id, { attempt = null, status = 'done', verdict = null, model = null, failure = null } = {}) {
   if (!enabled() || !id) return;
-  inFlight.delete(id);
+  let k = attempt === null ? null : attemptKey(id, attempt);
+  if (k === null) for (const [x, v] of inFlight) if (v.id === id) { k = x; attempt = v.attempt; }
+  const open = (k && inFlight.get(k)) || { id, attempt, holdId: null };
+  if (k) inFlight.delete(k);
   const done = status === 'done';
   const at = now();
   try {
     if (dbOn()) {
-      await query("UPDATE determinations SET status = $2, ended_at = $3, verdict = COALESCE($4, verdict), model = COALESCE($5, model), failure = $6, price_cents = CASE WHEN $2 = 'done' THEN price_cents ELSE 0 END WHERE id = $1 AND status = 'running'",
-        [id, done ? 'done' : 'failed', new Date(at), verdict, model, done ? null : (failure || status)]);
+      await tx(async (c) => {
+        const row = (await c.query('SELECT status, attempt, hold_id, rerun FROM determinations WHERE id = $1 FOR UPDATE', [id])).rows[0];
+        const current = row && row.status === 'running' && (open.attempt === null || Number(row.attempt) === open.attempt);
+        if (!current) { if (open.holdId) await credit.settle(open.holdId, 'release', c); return; }
+        if (row.rerun) {
+          await c.query("UPDATE determinations SET status = 'done', ended_at = $2, verdict = COALESCE($3, verdict), model = COALESCE($4, model) WHERE id = $1", [id, new Date(at), done ? verdict : null, done ? model : null]);
+          return;
+        }
+        await c.query("UPDATE determinations SET status = $2, ended_at = $3, verdict = COALESCE($4, verdict), model = COALESCE($5, model), failure = $6, price_cents = CASE WHEN $2 = 'done' THEN price_cents ELSE 0 END WHERE id = $1",
+          [id, done ? 'done' : 'failed', new Date(at), verdict, model, done ? null : (failure || status)]);
+        if (row.hold_id !== null) await credit.settle(Number(row.hold_id), done ? 'charge' : 'release', c);
+      });
     } else {
       const d = mem.dets.get(id);
-      if (d && d.status === 'running') Object.assign(d, { status: done ? 'done' : 'failed', endedAt: at, verdict: verdict ?? d.verdict, model: model ?? d.model, failure: done ? null : (failure || status), priceCents: done ? d.priceCents : 0 });
+      const current = d && d.status === 'running' && (open.attempt === null || d.attempt === open.attempt);
+      if (!current) { if (open.holdId) credit.settleNow(open.holdId, 'release'); return; }
+      if (d.rerun) { Object.assign(d, { status: 'done', endedAt: at, verdict: done ? verdict ?? d.verdict : d.verdict, model: done ? model ?? d.model : d.model }); return; }
+      Object.assign(d, { status: done ? 'done' : 'failed', endedAt: at, verdict: verdict ?? d.verdict, model: model ?? d.model, failure: done ? null : (failure || status), priceCents: done ? d.priceCents : 0 });
+      if (d.holdId) credit.settleNow(d.holdId, done ? 'charge' : 'release');
     }
   } catch (err) { warn('the determination could not be booked', err); }
 }
 
-/** Determinations of a request that ended without a result of their own (the job was stopped, or the whole request failed). */
-export async function closeOpen(ids, failure = 'ended') {
-  for (const id of ids || []) if (inFlight.has(id)) await book(id, { status: 'failed', failure });
+/** Attempts of a request that ended without a result of their own (the job was stopped, or the whole request failed): [{ id, attempt }]. */
+export async function closeOpen(entries, failure = 'ended') {
+  for (const e of entries || []) {
+    const { id, attempt } = typeof e === 'string' ? { id: e, attempt: null } : e;
+    if (attempt === null || attempt === undefined) { for (const v of [...inFlight.values()]) if (v.id === id) await book(id, { attempt: v.attempt, status: 'failed', failure }); }
+    else if (inFlight.has(attemptKey(id, attempt))) await book(id, { attempt, status: 'failed', failure });
+  }
 }
 
-/** This instance is being stopped (a deploy): everything it still has in flight is failed as such, cost kept, nothing booked. */
+/** This instance is being stopped (a deploy): every attempt it still has open is failed as such, cost kept, nothing booked, its hold released. */
 export async function closeAllOpen(failure = 'deploy') {
-  await closeOpen([...inFlight], failure);
+  await closeOpen([...inFlight.values()].map((v) => ({ id: v.id, attempt: v.attempt })), failure);
+}
+
+/** The tests of an account that were free (its runs' free determinations that did not fail), newest first: its Activity. */
+export async function freeTestsFor(userId, { beforeAt = null, limit = 50 } = {}) {
+  if (!userId) return { rows: [], more: false };
+  let rows;
+  if (dbOn()) {
+    rows = (await query(`SELECT d.* FROM determinations d JOIN runs r ON r.id = d.run_id
+      WHERE r.user_id = $1 AND d.free AND d.status <> 'failed' AND ($2::timestamptz IS NULL OR d.started_at < $2)
+      ORDER BY d.started_at DESC LIMIT $3`, [userId, beforeAt === null ? null : new Date(beforeAt), limit + 1])).rows.map(rowDet);
+  } else {
+    rows = [...mem.dets.values()].filter((d) => d.free && d.status !== 'failed' && mem.runs.get(d.runId)?.userId === userId && (beforeAt === null || d.startedAt < beforeAt))
+      .sort((a, b) => b.startedAt - a.startedAt).slice(0, limit + 1);
+  }
+  return { rows: rows.slice(0, limit), more: rows.length > limit };
+}
+
+/** The claim number and verdict of each determination named: id → { n, verdict, status }. Never the claim's text, which is not kept. */
+export async function testsByIds(ids) {
+  const out = new Map();
+  const list = [...new Set((ids || []).filter(Boolean))];
+  if (!list.length) return out;
+  if (dbOn()) for (const d of (await query('SELECT id, n, verdict, status FROM determinations WHERE id = ANY($1::text[])', [list])).rows) out.set(d.id, { n: d.n, verdict: d.verdict, status: d.status });
+  else for (const id of list) { const d = mem.dets.get(id); if (d) out.set(id, { n: d.n, verdict: d.verdict, status: d.status }); }
+  return out;
 }
 
 /** A ledger line arrives (server/ledger.js): kept whole with its ids, and its cost put on the determination or the run it belongs to. */
@@ -423,6 +549,7 @@ export async function report() {
     byTier, byUser, byWindow,
     durations: took,   // over the price window: how long a determination and a listing take, and the searches per determination
     store: dbOn() ? 'postgres' : 'memory',
+    credit: await credit.totals().catch((err) => { warn('the credit totals could not be read', err); return null; }),
     note: 'Revenue is at list price; nothing is collected yet.',
   };
 }
@@ -433,7 +560,11 @@ export async function boot() {
   if (!dbOn()) { console.log('[economics] no DATABASE_URL: prices and tiers work; the measurement lives in this instance\'s memory until it restarts'); return; }
   const m = await migrate();
   // Rows an instance left running when it died without a word (a crash): failed as lost, cost kept.
-  await query("UPDATE determinations SET status = 'failed', failure = 'lost', ended_at = now(), price_cents = 0 WHERE status = 'running' AND started_at < now() - interval '12 hours'").catch((err) => warn('lost rows could not be closed', err));
+  await query("UPDATE determinations SET status = 'failed', failure = 'lost', ended_at = now(), price_cents = 0 WHERE status = 'running' AND NOT rerun AND started_at < now() - interval '12 hours'").catch((err) => warn('lost rows could not be closed', err));
+  await query("UPDATE determinations SET status = 'done' WHERE status = 'running' AND rerun AND ended_at < now() - interval '12 hours'").catch((err) => warn('lost second goes could not be closed', err));
+  // Holds no attempt will settle any more (a crash): charged where the row is done and names them, released otherwise.
+  const settled = await credit.reconcile().catch((err) => { warn('holds could not be settled', err); return null; });
+  if (settled && (settled.charged || settled.released)) console.log(`[economics] holds settled at boot: ${settled.charged} charged, ${settled.released} released`);
   await query("UPDATE runs SET status = 'failed' WHERE status = 'running' AND started_at < now() - interval '12 hours'").catch((err) => warn('lost runs could not be closed', err));
   console.log(`[economics] measuring in Postgres${m.applied.length ? ` · schema ${m.applied.join(', ')} applied` : ''}${config.clock ? ` · the clock reads ${new Date(now()).toISOString()}` : ''}`);
 }

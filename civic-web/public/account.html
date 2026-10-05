@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>FactEngine · Your account</title>
+<meta name="description" content="Your FactEngine account: your balance, your tests, your monthly limit and your sign-in.">
+<link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="css/fonts.css">
+<link rel="stylesheet" href="css/civic.css">
+<style>
+  .acct-page { max-width: 46rem; margin: 32px auto 48px; padding: 0 16px; position: relative; z-index: 1; display: grid; gap: 18px; }
+  .acct-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+  .acct-box { padding: 22px clamp(18px, 4vw, 30px); display: grid; gap: 12px; }
+  .acct-box h2 { margin: 0; font-size: 20px; }
+  .acct-box p { margin: 0; }
+  .acct-balance { font-family: var(--font-display); font-weight: 700; font-size: 44px; line-height: 1; color: var(--ink); }
+  .acct-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .acct-row .input { width: 9rem; font-size: 16px; min-height: 44px; }
+  .acct-row .btn, .acct-box .btn { min-height: 44px; touch-action: manipulation; }
+  .acct-note { color: var(--ink-2); font-size: 14.5px; }
+  .acct-note.is-bad { color: var(--false); }
+  .acct-activity { list-style: none; margin: 0; padding: 0; display: grid; gap: 0; }
+  .acct-activity li { display: flex; justify-content: space-between; gap: 12px; padding: 10px 0; border-top: 1px solid var(--line); font-size: 15px; }
+  .acct-activity li:first-child { border-top: 0; }
+  .acct-activity time { display: block; color: var(--ink-3); font-size: 13px; }
+  .acct-amount { white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .acct-amount.is-plus { color: var(--true); }
+  .acct-form { display: grid; gap: 12px; max-width: 26rem; }
+  .acct-form .input { font-size: 16px; min-height: 44px; }
+  .acct-danger summary { cursor: pointer; color: var(--ink-2); }
+</style>
+</head>
+<body>
+<!-- The page's mathematical field, held still on the golden rectangle here (js/field.js). -->
+<div class="field" id="field" aria-hidden="true" data-phase="idle" data-field="" data-still="golden">
+  <div class="field-layer" data-slot="a"></div>
+  <div class="field-layer" data-slot="b"></div>
+</div>
+<main class="acct-page">
+  <div class="acct-top">
+    <a class="plain-brand" href="./">FactEngine</a>
+    <label class="lang">
+      <span class="visually-hidden" data-i18n="nav.language">Language</span>
+      <select id="lang-select" class="lang-select"></select>
+    </label>
+  </div>
+  <h1 class="plain-head" id="acct-title" data-i18n="account.page.title">Your account</h1>
+  <p class="plain-lede" id="acct-who"></p>
+
+  <!-- Signed out: a reset link or the operator's link still works here; otherwise, the way to the main page. -->
+  <section class="acct-box glass" id="acct-signed-out" hidden>
+    <p data-i18n="account.page.signedOut">Sign in on the main page to see your account.</p>
+    <p><a class="btn btn-primary" href="./" data-i18n="account.page.back">Back to FactEngine</a></p>
+  </section>
+
+  <section class="acct-box glass" id="acct-reset" hidden>
+    <h2 id="acct-reset-title" data-i18n="account.page.resetTitle">Set a new password</h2>
+    <p class="acct-note" id="acct-reset-lede" hidden></p>
+    <form class="acct-form" id="acct-reset-form" novalidate>
+      <label class="form-field" id="acct-claim-email-field" hidden>
+        <span class="field-label" data-i18n="account.email">Email</span>
+        <input class="input" type="email" name="email" id="acct-claim-email" autocomplete="username" autocapitalize="off" spellcheck="false" inputmode="email">
+      </label>
+      <label class="form-field">
+        <span class="field-label" data-i18n="account.page.next">New password</span>
+        <input class="input" type="password" name="new-password" id="acct-reset-password" autocomplete="new-password" autocapitalize="off" spellcheck="false">
+      </label>
+      <label class="account-agree" id="acct-claim-agree-field" hidden>
+        <input type="checkbox" id="acct-claim-agree">
+        <span id="acct-claim-agree-text"></span>
+      </label>
+      <p class="acct-note is-bad" id="acct-reset-note" hidden></p>
+      <p><button type="submit" class="btn btn-primary" id="acct-reset-submit" data-i18n="account.page.resetButton">Set the password</button></p>
+    </form>
+  </section>
+
+  <div id="acct-signed-in" hidden>
+    <section class="acct-box glass">
+      <h2 id="acct-balance-head" data-i18n="account.page.balance">Balance</h2>
+      <p class="acct-balance" id="acct-balance"></p>
+      <p class="acct-note" id="acct-balance-note"></p>
+    </section>
+
+    <section class="acct-box glass">
+      <h2 data-i18n="account.page.addCredit">Add credit</h2>
+      <!-- Payments, the last step (task #47): Stripe's own page takes the card; nothing here until it does. -->
+      <p class="acct-note" id="acct-add-credit" data-i18n="account.page.addCreditSoon">Adding credit opens with payments.</p>
+    </section>
+
+    <section class="acct-box glass">
+      <h2 data-i18n="account.page.limit">Monthly limit</h2>
+      <p class="acct-note" data-i18n="account.page.limitLede">Stop testing when this month's tests reach this amount.</p>
+      <div class="acct-row">
+        <label class="visually-hidden" for="acct-limit-amount" data-i18n="account.page.limitAmount">Amount</label>
+        <input class="input" type="text" inputmode="decimal" id="acct-limit-amount" autocomplete="off" placeholder="5.00">
+        <button type="button" class="btn btn-primary" id="acct-limit-set" data-i18n="account.page.limitSet">Set the limit</button>
+        <button type="button" class="btn btn-text" id="acct-limit-remove" data-i18n="account.page.limitRemove">Remove the limit</button>
+      </div>
+      <p class="acct-note" id="acct-limit-now"></p>
+    </section>
+
+    <section class="acct-box glass">
+      <h2 data-i18n="account.page.activity">Activity</h2>
+      <ul class="acct-activity" id="acct-activity"></ul>
+      <p><button type="button" class="btn btn-text" id="acct-more" data-i18n="account.page.more" hidden>Show more</button></p>
+    </section>
+
+    <section class="acct-box glass">
+      <h2 data-i18n="account.page.security">Sign-in and security</h2>
+      <form class="acct-form" id="acct-pw-form" novalidate>
+        <input type="email" name="email" id="acct-pw-email" autocomplete="username" hidden>
+        <label class="form-field">
+          <span class="field-label" data-i18n="account.page.current">Current password</span>
+          <input class="input" type="password" id="acct-pw-current" autocomplete="current-password" autocapitalize="off" spellcheck="false">
+        </label>
+        <label class="form-field">
+          <span class="field-label" data-i18n="account.page.next">New password</span>
+          <input class="input" type="password" id="acct-pw-next" autocomplete="new-password" autocapitalize="off" spellcheck="false">
+        </label>
+        <p class="acct-note" id="acct-pw-note" hidden></p>
+        <p><button type="submit" class="btn btn-primary" id="acct-pw-change" data-i18n="account.page.changePassword">Change password</button></p>
+      </form>
+      <p><button type="button" class="btn btn-outline" id="acct-signout-all" data-i18n="account.page.signoutAll">Sign out everywhere</button></p>
+      <details class="acct-danger" id="acct-delete-box">
+        <summary data-i18n="account.page.deleteTitle">Delete account</summary>
+        <form class="acct-form" id="acct-delete-form" novalidate>
+          <p class="acct-note" data-i18n="account.page.deleteText">This deletes your account and its credit, and cannot be undone. Enter your password to confirm.</p>
+          <input type="email" name="email" id="acct-delete-email" autocomplete="username" hidden>
+          <input class="input" type="password" id="acct-delete-password" autocomplete="current-password" autocapitalize="off" spellcheck="false">
+          <p class="acct-note is-bad" id="acct-delete-note" hidden></p>
+          <p><button type="submit" class="btn btn-outline" id="acct-delete-submit" data-i18n="account.page.deleteButton">Delete my account</button></p>
+        </form>
+      </details>
+    </section>
+  </div>
+
+  <p><a class="btn btn-outline" href="./" data-i18n="account.page.back">Back to FactEngine</a></p>
+</main>
+<script type="module" src="js/field.js"></script>
+<script type="module" src="js/account.js"></script>
+</body>
+</html>
