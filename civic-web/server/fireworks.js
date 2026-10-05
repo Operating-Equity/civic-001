@@ -33,9 +33,11 @@ export function key({ optional = false } = {}) {
   const k = config.fireworksKey;
   if (!k) {
     if (optional) return '';
-    throw new ApiError(503, 'no_operator_key', '',
-      'The listing is set to run on Fireworks (CIVIC_EXTRACT_PROVIDER=fireworks) and FIREWORKS_API_KEY is not set. ' +
-      'The operator pastes it in Render: the civic service, Environment.');
+    const spellings = config.fireworksKeyInfo?.ambiguous || [];
+    throw new ApiError(503, 'no_operator_key', '', spellings.length
+      ? `FIREWORKS_API_KEY is saved in Render under ${spellings.join(' and ')}, which differ only in capitals and hold different keys, so neither is used. Keep one, named FIREWORKS_API_KEY.`
+      : 'The listing is set to run on Fireworks (CIVIC_EXTRACT_PROVIDER=fireworks) and FIREWORKS_API_KEY is not set. ' +
+        'The operator pastes it in Render: the civic service, Environment.');
   }
   if (optional) return k;
   if (!HEADER_SAFE.test(k)) {

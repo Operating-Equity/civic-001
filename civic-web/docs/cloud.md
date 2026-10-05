@@ -579,6 +579,25 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
     the service was idle, so their run was not cut.
   - The code's default for Fireworks and DeepSeek follows (`server/config.js`), so a lost setting cannot bring `max`
     back.
+- **5 October, the first pass on DeepSeek's own service.**
+  - The operator's article at "high" on Fireworks took 4 min 55 s. Fireworks serves DeepSeek V4.1 Flash at about 50
+    tokens/s, against about 211 at DeepSeek's own service (public benchmarks; ModelIndex measures Fireworks at 48).
+  - Fireworks' price for the model is $0.30 / $0.006 / $1.20 per million since 1 October (its release note), corrected
+    in PR #65.
+  - Offered low thinking on Fireworks, a faster US host, DeepSeek's own service or OpenAI, the operator chose DeepSeek's
+    own service, which they had ruled out that morning ("Fireworks sucks").
+  - They saved the key in Render themselves at 15:12–15:18 UTC, as `DEEPSEEK_API_Key`, with the last three letters
+    lowercase. Names are case-sensitive, so the release reads a key under its name whatever its capitals:
+    - the exact name wins;
+    - two spellings holding different keys are used neither;
+    - /check names the spelling.
+
+    `render-env.mjs` now refuses a key's name whatever its capitals.
+  - The Privacy page goes back to the operator's wording of 4 October: the listing's provider "processes data in China,
+    and its terms allow it to use a small part of the inputs it receives, de-identified, to improve its models unless we
+    opt out", and the transfer sentence names China.
+  - `CIVIC_EXTRACT_PROVIDER=deepseek` is written before the merge, so the release's deploy carries the provider, the
+    key's reading and the text together.
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 

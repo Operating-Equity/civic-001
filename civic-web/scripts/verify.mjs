@@ -1941,6 +1941,42 @@ async function deepseekChecks() {
         && (st3.checks || []).some((x) => x.state === 'bad' && x.title === 'No DeepSeek key for the listing' && /DEEPSEEK_API_KEY/.test(x.detail)) && dsEntries().length === before,
       JSON.stringify({ status: noKey.status, body: noKeyBody, sent: dsEntries().length - before }));
 
+    // A key's name, whatever its capitals (5 October: the operator saved DeepSeek's key in Render as DEEPSEEK_API_Key).
+    // Under another spelling it is still the listing's key, and /check names the spelling; the exact name wins; two
+    // spellings that hold different keys are not guessed between, and nothing is sent.
+    const sentBy = () => dsEntries().map((r) => r.auth);
+    const KEY2 = 'sk-dsverify-other-spelling-000000000';
+    const before4 = sentBy().length;
+    const base4 = serve(PORT + 93, { DEEPSEEK_API_KEY: '', DEEPSEEK_API_Key: DSKEY });
+    await wait(`${base4}/api/health`);
+    const l4 = await stream(`${base4}/api/extract`, { text: source, jobId: `ds-case-${stamp}` });
+    const st4 = await (await fetch(`${base4}/api/selftest`)).json();
+    const row4 = (st4.checks || []).find((x) => x.title === 'A DeepSeek key is configured for the listing');
+    check('DeepSeek: a key saved as DEEPSEEK_API_Key (other capitals) is the listing\'s key: the listing reaches DeepSeek with it and completes, and /check says under which name it was saved',
+      l4.some((e) => e.t === 'done') && sentBy().slice(before4).length >= 1 && sentBy().slice(before4).every((a) => a === `Bearer ${DSKEY}`)
+        && /saved in Render as DEEPSEEK_API_Key/.test(row4?.detail || '') && st4.ready === true,
+      JSON.stringify({ done: l4.some((e) => e.t === 'done'), sent: sentBy().slice(before4).map((a) => (a === `Bearer ${DSKEY}` ? 'the key' : 'another')), row: row4?.detail }));
+    const before5 = sentBy().length;
+    const base5 = serve(PORT + 94, { DEEPSEEK_API_KEY: DSKEY, DEEPSEEK_API_Key: KEY2 });
+    await wait(`${base5}/api/health`);
+    const l5 = await stream(`${base5}/api/extract`, { text: source, jobId: `ds-exact-${stamp}` });
+    check('DeepSeek: when the exact name and another spelling both hold a key, the exact name wins',
+      l5.some((e) => e.t === 'done') && sentBy().slice(before5).length >= 1 && sentBy().slice(before5).every((a) => a === `Bearer ${DSKEY}`),
+      JSON.stringify(sentBy().slice(before5).map((a) => (a === `Bearer ${DSKEY}` ? 'exact' : 'other'))));
+    const before6 = sentBy().length;
+    const base6 = serve(PORT + 95, { DEEPSEEK_API_KEY: '', DEEPSEEK_API_Key: DSKEY, Deepseek_Api_Key: KEY2 });
+    await wait(`${base6}/api/health`);
+    const r6 = await fetch(`${base6}/api/extract`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text: source, jobId: `ds-ambiguous-${stamp}` }) });
+    const b6 = await r6.json().catch(() => ({}));
+    const st6 = await (await fetch(`${base6}/api/selftest`)).json();
+    check('DeepSeek: two spellings holding different keys are not guessed between: the listing is refused before any request, and /check names both and says to keep one',
+      r6.status === 503 && b6?.error?.code === 'no_operator_key' && sentBy().length === before6 && st6.ready === false
+        && (st6.checks || []).some((x) => x.state === 'bad' && x.title === 'Two settings hold the DeepSeek key, with different values' && /DEEPSEEK_API_Key and Deepseek_Api_Key/.test(x.detail) && /DEEPSEEK_API_KEY/.test(x.fix)),
+      JSON.stringify({ status: r6.status, sent: sentBy().length - before6, rows: (st6.checks || []).filter((x) => x.state === 'bad').map((x) => x.title) }));
+    const check4 = await (await fetch(`${base4}/api/selftest`)).text() + await (await fetch(`${base6}/api/selftest`)).text();
+    check('DeepSeek: neither spelling\'s key appears in /check\'s data',
+      !check4.includes(DSKEY) && !check4.includes(KEY2), '');
+
     // The key, nowhere it could be read.
     const health2 = await (await fetch(`${base}/api/health`)).text();
     const check2 = await (await fetch(`${base}/api/selftest`)).text();
@@ -2248,17 +2284,16 @@ async function pagesChecks() {
       check(`${p}: links the other three pages and marks itself`,
         r.text.includes('class="plain-nav"') && ['terms', 'privacy', 'refunds', 'contact'].every((q) => r.text.includes(`href="${q}"`)) && r.text.includes(`href="${p.slice(1)}" aria-current="page"`), '');
     }
-    // The listing's provider (5 October): a US company serving the model from the United States, Europe and Japan, which
-    // keeps nothing and trains on nothing; it may search through our search provider. True before the switch (the
-    // listing on OpenAI) and after it (on Fireworks); no country named that is not one, and no vendor.
+    // The listing's provider (5 October, the operator's choice for speed): DeepSeek's own service, which processes data in
+    // China and whose terms allow a small, de-identified part of the inputs to improve its models unless we opt out. The
+    // operator's wording of 4 October, unchanged; no vendor named.
     const privacy = await page('/privacy');
     const terms = await page('/terms');
-    check('/privacy and /terms: the listing\'s provider lists claims under terms that do not permit training, searching itself or through our search provider; the search provider may receive the model\'s searches; data may be processed in the United States, Europe and Japan; China is named nowhere',
-      privacy.text.includes('A model provider that lists the claims in what you submit: it processes the documents you submit, and may search the web while doing so, itself or through our search provider, under terms that do not permit your inputs to be used to train its models.')
+    check('/privacy and /terms: the listing\'s provider processes data in China and may use a small de-identified part of the inputs unless we opt out; the search provider may receive the model\'s searches; the transfer to those countries',
+      privacy.text.includes('A model provider that lists the claims in what you submit: it processes the documents you submit and may search the web while doing so. It processes data in China, and its terms allow it to use a small part of the inputs it receives, de-identified, to improve its models unless we opt out.')
         && privacy.text.includes('A model provider that produces the determinations') && privacy.text.includes('A search provider, which may receive the searches a model makes while listing claims, and the words of a link&#39;s own address and date')
-        && privacy.text.includes('the model providers we use may process data in the United States, Europe and Japan; by using the Service you understand your information is transferred to those places')
-        && terms.text.includes('search the web while doing so, themselves or through our search provider; a search provider performs the searches a model asks for and may be asked to find a licensed copy')
-        && !/China/.test(privacy.text + terms.text),
+        && privacy.text.includes('Our servers are in the United States, and the model provider that lists claims processes data in China; by using the Service you understand your information is transferred to those countries')
+        && terms.text.includes('search the web while doing so, themselves or through our search provider; a search provider performs the searches a model asks for and may be asked to find a licensed copy'),
       '');
     const home = await page('/');
     const footer = (home.text.match(/<footer class="footer">[\s\S]*?<\/footer>/) || [''])[0];

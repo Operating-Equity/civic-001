@@ -1,5 +1,5 @@
 import fs from 'node:fs';
-import { resolveKey } from './key.js';
+import { resolveKey, envByName } from './key.js';
 import { extractionShape } from './prompts.js';
 // Runtime configuration.
 //
@@ -142,7 +142,7 @@ export const config = {
   // named in the code: whichever one the operator signs up for is an address and a key. The key stays
   // on the server, like the OpenAI key, and never reaches the browser or a failure record.
   transcriptUrl: env('CIVIC_TRANSCRIPT_URL', ''),            // {id} is the video's id, {url} its address
-  transcriptKey: env('CIVIC_TRANSCRIPT_KEY', ''),
+  transcriptKey: envByName(process.env, 'CIVIC_TRANSCRIPT_KEY').value,   // whatever its capitals (key.js)
   transcriptHeader: env('CIVIC_TRANSCRIPT_HEADER', 'x-api-key'),
   // Most services carry the key raw in their own header, so the prefix is empty unless one is named;
   // a service that wants `Authorization: Bearer <key>` sets the header and the prefix `Bearer`.
@@ -157,7 +157,7 @@ export const config = {
   // Exa's /search, the service tested on 1 October; its key stays on the server, like every key, and
   // travels as the transcript door's does.
   searchUrl: env('CIVIC_SEARCH_URL', ''),
-  searchKey: env('CIVIC_SEARCH_KEY', ''),
+  searchKey: envByName(process.env, 'CIVIC_SEARCH_KEY').value,   // whatever its capitals (key.js)
   searchHeader: env('CIVIC_SEARCH_HEADER', 'x-api-key'),
   searchPrefix: env('CIVIC_SEARCH_PREFIX', ''),
   // Results asked of each search: the count the service's base price covers (Exa: up to 10).
