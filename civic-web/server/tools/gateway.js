@@ -3,14 +3,17 @@
 // server over the registry, so nothing is kept between calls and the address can move to its own
 // service later without a change here.
 //
-// The only door is the pass (CIVIC_TOOLS_PASS), carried by OpenAI as `Authorization: Bearer …`. It is
-// CIVIC's own credential, not a vendor's: every vendor key stays in this process, in the adapters'
-// settings, and the pass appears in no record, no message and no page. Without a pass set, nothing
-// answers here at all.
+// Two ways in, and no other:
+//   - At /mcp, the pass (CIVIC_TOOLS_PASS), carried by OpenAI as `Authorization: Bearer …`. It is CIVIC's own
+//     credential, not a vendor's: every vendor key stays in this process, in the adapters' settings, and the pass
+//     appears in no record, no message and no page. Without a pass set, nothing answers there at all.
+//   - At /mcp/t/<door>, a listing's own door (doors.js), open only while that listing runs: Fireworks' servers carry
+//     no header of ours, so the door is in the address.
 import crypto from 'node:crypto';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { ListToolsRequestSchema, CallToolRequestSchema } from '@modelcontextprotocol/sdk/types.js';
+import { isOpen } from './doors.js';
 
 const same = (a, b) => {
   const x = Buffer.from(String(a || '')), y = Buffer.from(String(b || ''));
@@ -18,9 +21,11 @@ const same = (a, b) => {
 };
 
 export function mountGateway(app, { path = '/mcp', registry, pass, name = 'civic', version = '0' }) {
-  app.all(path, async (req, res) => {
+  app.all([path, `${path}/t/:door`], async (req, res) => {
+    const door = req.params.door;
     const given = String(req.headers.authorization || '').replace(/^Bearer\s+/i, '');
-    if (!pass || !same(given, pass)) {
+    const allowed = door !== undefined ? isOpen(door) : Boolean(pass) && same(given, pass);
+    if (!allowed) {
       res.status(401).json({ jsonrpc: '2.0', error: { code: -32001, message: 'Unauthorized' }, id: null });
       return;
     }

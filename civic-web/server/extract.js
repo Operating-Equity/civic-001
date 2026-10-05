@@ -9,7 +9,8 @@ import { ThoughtCut, usageFrom, noteEcho } from './fireworks.js';
 import { noteFailure, noteReply } from './reach.js';
 import { gateFor, parseRefusal } from './gate.js';
 import { estimateTextCost } from './pricing.js';
-import { requestTools, gatewayTools, toolStep, searchCount } from './tools/request.js';
+import { requestTools, gatewayTools, gatewayOn, toolStep, searchCount } from './tools/request.js';
+import { openDoor } from './tools/doors.js';
 import { record } from './ledger.js';
 
 /** Parses "1. claim\n2. claim" incrementally. Returns the claims completed so far. */
@@ -69,18 +70,26 @@ export async function runExtraction({ apiKey, text, meta, send, signal, sourceWa
       // Fireworks: the model, the prompt verbatim, the effort, FactEngine's tool server (Fireworks has no web search of
       // its own; it calls the tool server itself, during the response) and `store: false`, without which Fireworks
       // keeps the conversation for 30 days. Nothing else. Not through OpenAI's gate: a 429 is a wait, below.
+      // The tool server is named at a door opened for this go alone (tools/doors.js), since Fireworks forwards no
+      // header of ours; the door closes when the go ends, however it ends.
+      const door = gatewayOn() ? openDoor() : null;
       const body = {
         model,
         ...(request.instructions ? { instructions: request.instructions } : {}),
         input: [{ role: 'user', content: [{ type: 'input_text', text: request.message }] }],
         reasoning: { effort: config.extractEffort },
-        tools: gatewayTools(),
+        tools: gatewayTools(door?.id),
         stream: true,
         store: false,
       };
-      const { data, response } = await client.responses.create(body, { signal }).withResponse();
-      noteReply('Fireworks');
-      return { data, response, release: () => {} };
+      try {
+        const { data, response } = await client.responses.create(body, { signal }).withResponse();
+        noteReply('Fireworks');
+        return { data, response, release: () => door?.close() };
+      } catch (err) {
+        door?.close();
+        throw err;
+      }
     }
     if (deepseek) {
       // DeepSeek: the model, the prompt verbatim, the effort and web search, and nothing else. DeepSeek has no

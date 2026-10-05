@@ -322,9 +322,12 @@ with one entry in the existing `tools` list beside web search when `CIVIC_TOOLS_
 both set (neither is on the service), and nothing else changes: the prompts go byte for byte, and whether the
 model calls a tool is the model's decision. A listing on Fireworks names it always, as its only tool, since
 Fireworks has no web search of its own: at `CIVIC_TOOLS_URL`, or else at the service's own address, which
-Render sets on every web service as `RENDER_EXTERNAL_URL`, followed by `/mcp`; with `CIVIC_TOOLS_PASS`, or else
-a pass derived from the session secret under its own label, so nothing new is pasted. The gateway answers that
-pass and no other; the pass appears in no record, page or line of output.
+Render sets on every web service as `RENDER_EXTERNAL_URL`, followed by `/mcp`. Fireworks' servers forward no
+header of the entry's (its first live listing, 5 October: ten calls without the pass, each refused), so each
+listing's request names a door of its own in the address, `/mcp/t/<door>` (`server/tools/doors.js`): 24 random
+bytes, open from the moment the request is made until its reply ends, then shut, so the address answers no one
+again. No pass goes to Fireworks, and nothing new is pasted. At `/mcp` itself the gateway answers OpenAI's pass and
+no other; neither the pass nor a door appears in any record, page or line of output.
 
 The tools are **verbs**, few and stable (`server/tools/verbs.js`): `read_page`, `get_transcript` and
 `search_web` today; `search_law`, `get_case`, `search_filings`, `get_financials`,

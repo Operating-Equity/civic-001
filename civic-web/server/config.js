@@ -1,4 +1,3 @@
-import crypto from 'node:crypto';
 import fs from 'node:fs';
 import { resolveKey } from './key.js';
 import { extractionShape } from './prompts.js';
@@ -71,11 +70,9 @@ const fireworksKey = resolveKey({ settingsFile: new URL('../.env', import.meta.u
 
 // FactEngine's tool server (server/tools/gateway.js), for a model that reaches it from its provider's servers. Its
 // address: CIVIC_TOOLS_URL, or else the service's own, which Render puts on every web service as RENDER_EXTERNAL_URL
-// (its onrender.com address), followed by /mcp: no setting and no domain. Its pass: CIVIC_TOOLS_PASS, or else one
-// derived from the session secret (or, without one, the OpenAI key) under its own label, so nothing new is pasted;
-// it travels only inside a request to a model provider, and no record, page or line of output carries it.
+// (its onrender.com address), followed by /mcp: no setting and no domain. A listing on Fireworks enters through a door
+// of its own in that address (server/tools/doors.js), so no pass is needed for it and none is sent.
 const PUBLIC_URL = env('RENDER_EXTERNAL_URL', '').trim().replace(/\/+$/, '');
-const derivedPass = (seed) => (seed ? crypto.createHmac('sha256', seed).update('civic-tools-pass').digest('hex') : '');
 
 
 /** "ABCD234" or "ABCD234:150": the code as typed made canonical, and its own allowance of runs if given. */
@@ -170,10 +167,9 @@ export const config = {
   // Every source's own key is that source's setting, named in its adapter, never here.
   toolsUrl: env('CIVIC_TOOLS_URL', ''),
   toolsPass: env('CIVIC_TOOLS_PASS', ''),
-  // The tool server's address and pass as a listing on Fireworks names them (see PUBLIC_URL above): the two settings
-  // when set, else the service's own address and a pass derived from its secret. The gateway answers this pass.
-  gatewayUrl: env('CIVIC_TOOLS_URL', '') || (PUBLIC_URL ? `${PUBLIC_URL}/mcp` : ''),
-  gatewayPass: env('CIVIC_TOOLS_PASS', '') || derivedPass(env('CIVIC_SESSION_SECRET', '') || chosenKey.value || ''),
+  // The tool server's address as a listing on Fireworks names it (see PUBLIC_URL above), before the listing's door is
+  // added to it: CIVIC_TOOLS_URL when set, else the service's own address.
+  gatewayUrl: (env('CIVIC_TOOLS_URL', '') || (PUBLIC_URL ? `${PUBLIC_URL}/mcp` : '')).replace(/\/+$/, ''),
   maxSourceChars: int('CIVIC_MAX_SOURCE_CHARS', 0),
   allowSourceTruncation: bool('CIVIC_ALLOW_SOURCE_TRUNCATION', false),
   maxClaims: int('CIVIC_MAX_CLAIMS', 10), // the most one /api/evaluate request carries (the guard's multi-claim requests); the page sends one claim per request, so this bounds nothing it does
@@ -272,7 +268,7 @@ export function requestShape() {
   const source = extractionShape();
   return {
     // On Fireworks the listing searches through FactEngine's tool server, so it can search when that has an address and a pass.
-    extract: { provider: config.extractProvider, model: config.extractModels[0], effort: config.extractEffort, mode: config.extractReasoningMode || null, summary: config.extractSummary || null, webSearch: config.extractProvider === 'fireworks' ? Boolean(config.gatewayUrl && config.gatewayPass) : true, fallback: config.extractModels.length > 1, source },
+    extract: { provider: config.extractProvider, model: config.extractModels[0], effort: config.extractEffort, mode: config.extractReasoningMode || null, summary: config.extractSummary || null, webSearch: config.extractProvider === 'fireworks' ? Boolean(config.gatewayUrl) : true, fallback: config.extractModels.length > 1, source },
     evaluate: { model: config.evalModels[0], effort: config.evalEffort, mode: config.evalReasoningMode || null, summary: config.evalReasoningSummary || null, webSearch: true, fallback: config.evalModels.length > 1, source: 'ahead' },
     // Present in every request; never anything else.
     // On DeepSeek the listing carries no `store` (DeepSeek keeps nothing and does not take the key); on Fireworks it

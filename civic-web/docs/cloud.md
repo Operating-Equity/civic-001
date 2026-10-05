@@ -548,6 +548,17 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
   267/267 with the real prompts; CI green in both shapes; browser 5/5): both steps on gpt-5.6-sol at effort xhigh with
   no mode key; /privacy and /terms without China and with the new sentences; the operator's /check ready with the
   listing on OpenAI and the search verb among the tools (6/6, scratchpad/live-fireworks.mjs).
+- **5 October, the switch to Fireworks, and why it went back.** The operator: "I want the first pass pulling empirical
+  statements from text to be on deepseek flash and I have the new key" (a Fireworks key, pasted in Render; its deploy
+  live at 03:50 UTC). `CIVIC_EXTRACT_PROVIDER=fireworks` was written and deployed (live 03:51 UTC); the first live
+  listing failed: Fireworks answered 500 "Internal server error" after its servers had called the tool server ten times
+  (POST /mcp in Render's request log), each refused with 401. Fireworks does not forward an `mcp` entry's headers, and
+  the pass was in them. The listing went back to OpenAI at once (`CIVIC_EXTRACT_PROVIDER=openai`, live 03:52 UTC); no
+  reader was affected. The fix: each listing's request names a door of its own in the address, `/mcp/t/<door>`
+  (`server/tools/doors.js`): 24 random bytes, open from the moment the request is made until its reply ends, then
+  shut. The entry carries no header, the derived pass is gone, and nothing new is pasted. /check opens a door of its own,
+  asks the tool server for its tools at the public address through it, shuts it and proves it refused. The stand-in
+  Fireworks now forwards no header either, so the guard reproduces the live failure whenever the door is missing.
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 

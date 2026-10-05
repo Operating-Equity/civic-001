@@ -42,9 +42,9 @@ export function ownClient({ key, baseURL }) {
   });
 }
 
-/** What a provider said, made safe to record: no prompt, no key. */
+/** What a provider said, made safe to record: no prompt, no key, no door to the tool server (tools/doors.js). */
 export function providerWords(err, key) {
   let s = redactPrompts(String(err?.error?.message || err?.message || ''));
   if (key) s = s.split(key).join('<key>');
-  return s.replace(/sk-[A-Za-z0-9_-]{8,}/g, 'sk-<key>').replace(/fw_[A-Za-z0-9_-]{8,}/g, 'fw_<key>').slice(0, 1000);
+  return s.replace(/sk-[A-Za-z0-9_-]{8,}/g, 'sk-<key>').replace(/fw_[A-Za-z0-9_-]{8,}/g, 'fw_<key>').replace(/\/t\/[0-9a-f]{48}/g, '/t/<door>').slice(0, 1000);
 }
