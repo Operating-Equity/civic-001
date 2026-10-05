@@ -559,6 +559,14 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
   shut. The entry carries no header, the derived pass is gone, and nothing new is pasted. /check opens a door of its own,
   asks the tool server for its tools at the public address through it, shuts it and proves it refused. The stand-in
   Fireworks now forwards no header either, so the guard reproduces the live failure whenever the door is missing.
+  **Live** (PR #64 squash b22e780, deploy dep-db1ibhlg1s2s739midjg at 04:24 UTC, build cbbf14f11689; guard 269/269 with
+  the real prompts; CI green in both shapes; browser 5/5). Fireworks' MCP client (python-httpx, the standard Python
+  library) sends the headers the tool server requires. `CIVIC_EXTRACT_PROVIDER=fireworks` written and deployed with the
+  service idle (dep-db1id96gekts73dvrpv0, live 04:25 UTC). Live proof under the operator's code: a three-sentence
+  listing completed in 136 s with exactly its three claims, no reasoning text, Fireworks' echo of effort max, and a
+  ledger cost of $0.0045. Render's request log shows Fireworks at the listing's door three times (initialize 200,
+  initialized 202, tools/list 200), none refused; the model made no search for three plain facts; no door was left
+  open. The first pass now runs on DeepSeek V4.1 Flash at Fireworks; determinations stay on GPT-5.6 Sol at effort xhigh.
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 
