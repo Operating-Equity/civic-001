@@ -541,7 +541,13 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
   the key and the model without a token and whether the tool server answers at its public address; the Privacy and
   Terms texts stop saying China and are true before and after the switch (the listing's provider does not train on
   inputs and may search through our search provider; data may be processed in the United States, Europe and Japan),
-  the launch-texts document matching (rev 24).
+  the launch-texts document matching (rev 24). Later that day the operator: "I think we need to go back the model we
+  were using previously. The cost has gone up 10 x and the processing time huge." Already so since 02:36 UTC (the same
+  model, GPT-5.6 Sol, at the setting before 21 September; no other model ever ran); the Fireworks switch is held for
+  their word. **Live** (PR #63 squash cc52046, deploy dep-db1hbj6q1p3s73fanc4g at 03:13 UTC, build 87804ceab1f1; guard
+  267/267 with the real prompts; CI green in both shapes; browser 5/5): both steps on gpt-5.6-sol at effort xhigh with
+  no mode key; /privacy and /terms without China and with the new sentences; the operator's /check ready with the
+  listing on OpenAI and the search verb among the tools (6/6, scratchpad/live-fireworks.mjs).
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 
