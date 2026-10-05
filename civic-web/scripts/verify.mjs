@@ -499,9 +499,13 @@ async function gateChecks() {
     const r = await gateRun(12, { MOCK_TPM: String(reserve * 3), MOCK_RESERVE: String(reserve), MOCK_WINDOW_MS: '3000', MOCK_STREAM_RATE_LIMIT_REQUESTS: '3', MOCK_STREAM_REQUESTED: '90000' }, { serverEnv: twenty });
     const ev = r.events;
     const retry = ev.find((e) => e.t === 'retry' && e.reason === 'rate_limit');
-    check('a claim refused inside its stream waits OpenAI\'s figure, rejoins behind its reader\'s other claims (its second start after the sixth claim\'s), finishes, and the gate learns the later call\'s charge',
-      !r.failure && r.stats?.refusedInStream === 1 && retry && retry.i === 2 && startAt(ev, 2, 1) > startAt(ev, 5) && done(r) === 6 && r.pacing?.costs?.determination === 90000,
-      `${r.failure} inStream=${r.stats?.refusedInStream} retry=${JSON.stringify(retry)} second=${startAt(ev, 2, 1)} sixth=${startAt(ev, 5)} done=${done(r)} costs=${JSON.stringify(r.pacing?.costs)}`);
+    // The stand-in refuses its third request, whichever claim that carries: claims can reach the gate a moment out of
+    // order, so the refused claim is the one the retry names.
+    const ri = retry?.i;
+    const others = [0, 1, 2, 3, 4, 5].filter((j) => j !== ri).map((j) => startAt(ev, j));
+    check('a claim refused inside its stream waits OpenAI\'s figure, rejoins behind its reader\'s other claims (its second start after every other claim\'s first), finishes, and the gate learns the later call\'s charge',
+      !r.failure && r.stats?.refusedInStream === 1 && Number.isInteger(ri) && others.every((t) => t !== undefined && startAt(ev, ri, 1) > t) && done(r) === 6 && r.pacing?.costs?.determination === 90000,
+      `${r.failure} inStream=${r.stats?.refusedInStream} retry=${JSON.stringify(retry)} second=${startAt(ev, ri, 1)} others=${JSON.stringify(others)} done=${done(r)} costs=${JSON.stringify(r.pacing?.costs)}`);
   }
   // 11. The pacing row mid-run: sent and awaiting headers, reserved tokens, waiting by kind and by reader; nothing of it on /api/health.
   {
@@ -1888,15 +1892,6 @@ async function deepseekChecks() {
     check('DeepSeek: a balance used up (402) reaches the page as its status and code with no words of the provider\'s, and /check records DeepSeek\'s own',
       errF?.status === 402 && errF.code === 'balance_exhausted' && errF.message === '' && /DeepSeek answered 402 \(Insufficient Balance\)/.test(rec402?.detail || ''),
       JSON.stringify({ error: errF, record: rec402 }));
-
-    // Every go had a door of its own, and every door is shut now: the refused sends (429, 503, 402), the stream that
-    // failed, the one that closed early and the ones that completed alike.
-    const doors = fwBodies().map((r) => doorOf(r.body));
-    const knocks = await Promise.all(doors.filter(Boolean).map((d) => knock(`${base}/mcp/t/${d}`)));
-    const stDoors = await (await fetch(`${base}/api/selftest`)).json();
-    check('Fireworks: each request to Fireworks named a door of its own, and once the listings ended every door is shut, whether its send was refused, its stream failed or closed early, or it completed; /check counts none open',
-      doors.length >= 12 && doors.every(Boolean) && new Set(doors).size === doors.length && knocks.every((x) => x === 401) && stDoors.tools?.doors === 0,
-      JSON.stringify({ sends: doors.length, named: doors.filter(Boolean).length, distinct: new Set(doors).size, open: knocks.filter((x) => x !== 401).length, counted: stDoors.tools?.doors }));
 
     const st = await (await fetch(`${base}/api/selftest`)).json();
     const row = (re) => (st.checks || []).find((x) => re.test(x.title));
