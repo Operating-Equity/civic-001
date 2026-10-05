@@ -1,4 +1,4 @@
-// Whether OpenAI (and, for a listing on DeepSeek, DeepSeek) can be reached from this computer, and the record of
+// Whether OpenAI (and, for a listing on DeepSeek or Fireworks, that provider) can be reached from this computer, and the record of
 // the times it could not. One outage per provider, so a reply from one never closes the other's.
 //
 // A run of 17 September lost eight of ten claims to EHOSTUNREACH: the operating system had no

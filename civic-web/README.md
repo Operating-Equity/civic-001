@@ -316,18 +316,23 @@ development only.
 ## Sources as tools
 
 The model can reach for FactEngine's own tools while it works, through the gateway at `/mcp` (the open
-standard, MCP, over HTTP). The gateway is FactEngine's server itself; OpenAI's servers call it during a
-response, with a pass FactEngine issues (`CIVIC_TOOLS_PASS`), and the model's call is answered at once.
-The requests name it with one entry in the existing `tools` list beside web search, and nothing
-else changes: the prompts go byte for byte, and whether the model calls a tool is the model's
-decision. With `CIVIC_TOOLS_URL` or the pass unset, the requests are exactly as before and the
-gateway answers no one.
+standard, MCP, over HTTP). The gateway is FactEngine's server itself; a provider's servers call it during a
+response, with a pass FactEngine issues, and the model's call is answered at once. OpenAI's requests name it
+with one entry in the existing `tools` list beside web search when `CIVIC_TOOLS_URL` and `CIVIC_TOOLS_PASS` are
+both set (neither is on the service), and nothing else changes: the prompts go byte for byte, and whether the
+model calls a tool is the model's decision. A listing on Fireworks names it always, as its only tool, since
+Fireworks has no web search of its own: at `CIVIC_TOOLS_URL`, or else at the service's own address, which
+Render sets on every web service as `RENDER_EXTERNAL_URL`, followed by `/mcp`; with `CIVIC_TOOLS_PASS`, or else
+a pass derived from the session secret under its own label, so nothing new is pasted. The gateway answers that
+pass and no other; the pass appears in no record, page or line of output.
 
-The tools are **verbs**, few and stable (`server/tools/verbs.js`): `read_page` and
-`get_transcript` today; `search_law`, `get_case`, `search_filings`, `get_financials`,
+The tools are **verbs**, few and stable (`server/tools/verbs.js`): `read_page`, `get_transcript` and
+`search_web` today; `search_law`, `get_case`, `search_filings`, `get_financials`,
 `search_news` as those domains arrive. The **sources** behind them are adapters
 (`server/tools/adapters/`, one file each, with a stand-in beside it for the guard): the web, read by
-FactEngine's own link reader with all of its rules, is the first; a legal or financial database is one
+FactEngine's own link reader with all of its rules, is the first; the web's search service (the one that finds
+a refused article elsewhere, on when `CIVIC_SEARCH_URL` and `CIVIC_SEARCH_KEY` are set) answers `search_web` in
+the model's own words, each call priced at the service's own figure for it; a legal or financial database is one
 more file, its key and its address as settings, and nothing else in the program names it. A source
 is on when its settings are set; a verb is listed when a source answers it; a verb several sources
 answer gains a `source` parameter the model must fill, listing each source in its own words, so the
@@ -364,6 +369,29 @@ sentence, and DeepSeek's words go to the record on /check, which also reads Deep
 /models`, `GET /user/balance`, no tokens; the figures to the operator alone). The determinations stay on OpenAI as
 below. `CIVIC_EXTRACT_PROVIDER=openai` (or unset) puts the listing back on OpenAI exactly as before.
 
+**The listing on Fireworks** (`CIVIC_EXTRACT_PROVIDER=fireworks`; the operator's choice of 5 October, "Maybe
+someone in the US is hosting the model so we can avoid the China issue"): the same model, DeepSeek V4.1 Flash
+(`accounts/fireworks/models/deepseek-v4p1-flash`), served by Fireworks, a US company, through its Responses API
+(`https://api.fireworks.ai/inference/v1`, `POST /responses`) with Fireworks' key (`FIREWORKS_API_KEY`). DeepSeek the
+company receives nothing. The request carries `model`, `input` (or `instructions` and `input`), `reasoning.effort`
+(`max`, the operator's answer of 4 October; `CIVIC_EXTRACT_EFFORT`, never inherited from `CIVIC_EFFORT`), `tools`
+(one `mcp` entry naming FactEngine's tool server, as above: Fireworks has no web search of its own and calls the
+tool server itself, so the model searches, reads a page or a transcript through FactEngine), `stream` and `store:
+false`, without which Fireworks keeps the conversation 30 days; with it, nothing is kept, and Fireworks trains on
+nothing. Fireworks serves this model from its own data centers in the United States, Germany, Iceland and Japan
+(its US-only service covers other models). The model's chain of thought arrives inside the answer's own text, ahead
+of `</think>` (Fireworks' own examples read the answer after it): FactEngine holds each answer's text until the
+marker, drops everything before it, and passes only what follows, so the reasoning never becomes a claim and never
+reaches the page, the job's replay, the raw listing, the ledger or a failure record; text with no marker is the
+answer whole, and reasoning sent apart is dropped as DeepSeek's is. Fireworks counts tokens as `prompt_tokens` and
+`completion_tokens`, read into the price table's shape; the ledger line keeps Fireworks' own echo of the effort it was
+asked for, and /check shows it (Fireworks documents no effort key of its own, so its echo is the proof that `max`
+reaches the model). The client takes none of OpenAI's settings; the listing does not go through OpenAI's gate; a 429 is a wait
+(Fireworks' retry-after, else a second), a 5xx and an error mid-stream are retried, an early end goes again. A key
+Fireworks rejects (401) or an account that cannot pay (402) is FactEngine's own sentence on the page, Fireworks' words
+on /check, which also reads the key and the model (`GET /models`, no tokens) and whether the tool server answers at its
+public address.
+
 **Extraction request:** `model`, `input` (the extraction prompt, verbatim, with the source in
 place of its final bracketed line, as the only message), `reasoning.effort`, `reasoning.mode`, `reasoning.summary`,
 `tools` (one `web_search`, no options; and, when the gateway is set, one `mcp` entry naming it, with `server_label`, `server_url`, `headers` carrying the pass and `require_approval: never`, nothing else), `stream`, `store`. The source goes into that slot with
@@ -388,9 +416,9 @@ truncation setting. No fallback model. No size limit of ours on the document.
 | Setting | Value | Set by |
 |---|---|---|
 | Model, both steps | `gpt-5.6-sol` | Operator, tested |
-| The listing's provider | `CIVIC_EXTRACT_PROVIDER`: `openai` (unset) or `deepseek`, which sends the listing to `deepseek-flash` (`CIVIC_EXTRACT_MODELS` to change) at effort `max` (`CIVIC_EXTRACT_EFFORT`) on `DEEPSEEK_API_KEY`, which the operator pastes in Render. `CIVIC_DEEPSEEK_BASE_URL` is DeepSeek's address (only the guard changes it). Determinations stay on OpenAI. | Operator, 4 October |
-| Reasoning effort, both steps | `max` | Operator, 21 September: the model's maximum power below GPT-6 (tested at `xhigh` before that) |
-| Reasoning mode, both steps | `pro` | Operator, 21 September: GPT-5.6's pro mode, OpenAI's "highest-intelligence API option" short of GPT-6; more model work per answer at the same per-token rates. `standard` or blank sends no mode key. |
+| The listing's provider | `CIVIC_EXTRACT_PROVIDER`: `openai` (unset), `deepseek` (DeepSeek's own service: `deepseek-flash` on `DEEPSEEK_API_KEY`) or `fireworks` (the same model from the US: `accounts/fireworks/models/deepseek-v4p1-flash` on `FIREWORKS_API_KEY`, searching through FactEngine's tool server, `store: false`). Either runs at effort `max` (`CIVIC_EXTRACT_EFFORT`); `CIVIC_EXTRACT_MODELS` changes the model. The keys are pasted by the operator in Render. `CIVIC_DEEPSEEK_BASE_URL` and `CIVIC_FIREWORKS_BASE_URL` are the providers' addresses (only the guard changes them). Determinations stay on OpenAI. | Operator, 4 and 5 October |
+| Reasoning effort, both steps on OpenAI | `xhigh` | Operator, 5 October: back to the setting before 21 September, when `max` in `pro` mode had taken a listing to fifteen minutes and $3.81 and a determination to almost seven minutes and $3.71. `max` from 21 September to 5 October. |
+| Reasoning mode, both steps on OpenAI | `standard` (no mode key sent) | Operator, 5 October, as above. `pro` (GPT-5.6's pro mode, OpenAI's "highest-intelligence API option": more model work per answer at the same per-token rates) from 21 September to 5 October; `CIVIC_REASONING_MODE=pro` brings it back. |
 | Web search | on, both steps, not configurable | The prompts were tested in a UI where search is available to every prompt. A request without it is not what was tested. |
 | Reasoning summary | `auto` | Display only: the model's own account of its reasoning, shown on the card. Does not change the answer. Blank to turn off. |
 | Claims run automatically | `CIVIC_AUTO_TEST_FIRST` of them (10 unless set; 0 = none: every claim found waits for the reader's checkbox and runs when chosen), ten at a time (`CIVIC_EVAL_CONCURRENCY`, the operator's figure of 3 October on a minute budget of 40,000,000 tokens), each on its own request, the whole selection in one batch. The page is told both figures by the server (`autoTestFirst` and `inFlight` on `/api/health`), so what runs and how fast change with one setting and no release. The intake sentences follow the figures too. | Operator's rule; 0 since 1 October |
@@ -404,8 +432,8 @@ truncation setting. No fallback model. No size limit of ours on the document.
 Environment variables: `CIVIC_MODEL`, `CIVIC_EFFORT` (both steps), or per step
 `CIVIC_EXTRACT_MODELS`, `CIVIC_EXTRACT_EFFORT`, `CIVIC_EVAL_MODELS`, `CIVIC_EVAL_EFFORT`,
 `CIVIC_EXTRACT_REASONING_SUMMARY`, `CIVIC_EVAL_REASONING_SUMMARY`; for the listing's provider,
-`CIVIC_EXTRACT_PROVIDER`, `DEEPSEEK_API_KEY` and `CIVIC_DEEPSEEK_BASE_URL`. There is no setting that
-removes web search.
+`CIVIC_EXTRACT_PROVIDER`, `DEEPSEEK_API_KEY`, `CIVIC_DEEPSEEK_BASE_URL`, `FIREWORKS_API_KEY` and
+`CIVIC_FIREWORKS_BASE_URL`. There is no setting that removes web search.
 The server prints the exact shape of both requests at startup.
 
 The image is a picture, not a determination, and the operator asked for the fast model there
@@ -477,8 +505,8 @@ When accounts arrive, the prompts should move to a secrets manager rather than f
 
 | Step | Default | Why |
 |---|---|---|
-| Extraction | `gpt-5.6-sol`, effort `max`, mode `pro`, web search on; with `CIVIC_EXTRACT_PROVIDER=deepseek`, DeepSeek's `deepseek-flash`, effort `max`, web search on | The operator's configuration; DeepSeek flash on the operator's word of 4 October ("10 times faster and better"). DeepSeek's price per million tokens (its page, 4 October): input $0.30, cached input $0.006, output $1.20 at peak hours (01:00-04:00 and 06:00-10:00 UTC, Monday to Friday), half at every other hour; FactEngine prices each listing at the hour it went. A `CIVIC_PRICING_JSON` override of a DeepSeek row replaces the whole row, so it repeats `offPeak` and `peakUtc`. |
-| Determination | `gpt-5.6-sol`, effort `max`, mode `pro`, web search on | As requested. Web search lets the inspector reach primary sources, and every query and citation is shown. |
+| Extraction | `gpt-5.6-sol`, effort `xhigh`, standard mode, web search on; with `CIVIC_EXTRACT_PROVIDER=deepseek`, DeepSeek's `deepseek-flash`, effort `max`, web search on; with `CIVIC_EXTRACT_PROVIDER=fireworks`, the same model on Fireworks, effort `max`, FactEngine's tool server for its searches | The operator's configuration; DeepSeek flash on the operator's word of 4 October ("10 times faster and better"), served from the US by Fireworks on their word of 5 October. Fireworks' price per million tokens (its model page, 5 October): input $0.22, cached input $0.007, output $0.66, at every hour. DeepSeek's price per million tokens (its page, 4 October): input $0.30, cached input $0.006, output $1.20 at peak hours (01:00-04:00 and 06:00-10:00 UTC, Monday to Friday), half at every other hour; FactEngine prices each listing at the hour it went. A `CIVIC_PRICING_JSON` override of a DeepSeek row replaces the whole row, so it repeats `offPeak` and `peakUtc`. |
+| Determination | `gpt-5.6-sol`, effort `xhigh`, standard mode, web search on | As requested (5 October: back to the setting before 21 September). Web search lets the inspector reach primary sources, and every query and citation is shown. |
 | Art direction | `gpt-5.6-luna`, effort `low` | Reads the document and writes a concrete photographic brief for the echo. About two seconds. |
 | Visual echo | `gpt-image-2.5-flare`, quality `high` | OpenAI's fastest image model. Quality is `high`, not `low`: the speed comes from the model, not from starving it. |
 

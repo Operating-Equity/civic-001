@@ -117,7 +117,9 @@ export function buildRegistry(loaded, env = process.env) {
       const retrievedAt = new Date().toISOString();
       const items = (result?.items || []).map((x) => ({ source: adapter.name, ...itemOf(x), retrievedAt }));
       const out = { items, cursor: result?.cursor ?? null };
-      line({ ok: true, items: items.length, chars: items.reduce((n, x) => n + x.text.length, 0) });
+      // A source that reports its own cost for the call (a search service does) is priced at that figure.
+      const own = result?.usd === null || result?.usd === undefined ? null : Number(result.usd);
+      line({ ok: true, items: items.length, chars: items.reduce((n, x) => n + x.text.length, 0), ...(Number.isFinite(own) ? { usd: own } : {}) });
       return { content: [{ type: 'text', text: JSON.stringify(out) }] };
     } catch (err) {
       if (signal?.aborted) throw err;

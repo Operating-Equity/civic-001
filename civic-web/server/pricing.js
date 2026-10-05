@@ -6,6 +6,7 @@
 // DeepSeek's rows are its Models & Pricing page of 4 October 2026: a peak price, an off-peak price at half, and the
 // peak hours (01:00-04:00 and 06:00-10:00 UTC, Monday to Friday); a call is priced at the hour it went. An override
 // of a DeepSeek row in CIVIC_PRICING_JSON replaces the whole row, so it repeats `offPeak` and `peakUtc`.
+// Fireworks' row (DeepSeek V4.1 Flash served from the US) is its model page of 5 October 2026: one price at every hour.
 import { config } from './config.js';
 
 const DEFAULT_PRICES = {
@@ -17,6 +18,7 @@ const DEFAULT_PRICES = {
   'gpt-5-nano': { input: 0.05, cached: 0.005, output: 0.4 },
   'deepseek-flash': { input: 0.30, cached: 0.006, output: 1.20, offPeak: { input: 0.15, cached: 0.003, output: 0.60 }, peakUtc: { days: [1, 2, 3, 4, 5], hours: [[1, 4], [6, 10]] } },
   'deepseek-v4-pro': { input: 1.32, cached: 0.044, output: 3.96, offPeak: { input: 0.66, cached: 0.022, output: 1.98 }, peakUtc: { days: [1, 2, 3, 4, 5], hours: [[1, 4], [6, 10]] } },
+  'accounts/fireworks/models/deepseek-v4p1-flash': { input: 0.22, cached: 0.007, output: 0.66 },
 };
 
 /** Whether `at` falls in a row's peak hours (UTC). A row without peak hours has one price at every hour. */

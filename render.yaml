@@ -2,9 +2,9 @@
 # creates the CIVIC web service; a service created through Render's API carries the same settings.
 # After the service exists, the two prompts go in as Secret Files named extract.txt and
 # evaluate.txt (mounted at /etc/secrets/, never in the repository), and the values marked
-# sync: false are set in Render and nowhere else: the operator's OpenAI key, DeepSeek's key for the
-# listing (4 October), the access codes that open the door (civic-web/server/access.js), and the
-# database's address.
+# sync: false are set in Render and nowhere else: the operator's OpenAI key, the listing's key on
+# Fireworks (5 October; DeepSeek's own, 4 October, if the listing goes there instead), the access codes
+# that open the door (civic-web/server/access.js), and the database's address.
 services:
   - type: web
     name: civic
@@ -48,10 +48,16 @@ services:
       # colon): set in Render, never here.
       - key: OPENAI_API_KEY
         sync: false
+      - key: FIREWORKS_API_KEY     # the listing's key when CIVIC_EXTRACT_PROVIDER is fireworks
+        sync: false
       - key: DEEPSEEK_API_KEY      # the listing's key when CIVIC_EXTRACT_PROVIDER is deepseek
         sync: false
       - key: CIVIC_EXTRACT_PROVIDER
-        value: deepseek            # the operator's choice of 4 October: the listing on DeepSeek flash
+        value: fireworks           # the operator's choice of 5 October: DeepSeek V4.1 Flash, served from the US by Fireworks
+      - key: CIVIC_EFFORT
+        value: xhigh               # OpenAI's two steps, back to the setting before 21 September (5 October)
+      - key: CIVIC_REASONING_MODE
+        value: standard
       - key: CIVIC_ACCESS_CODES
         sync: false
       # The measurement of every run and determination (server/economics.js) lives in the Render

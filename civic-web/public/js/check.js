@@ -62,7 +62,7 @@ function renderSettings(s, build, pacing, silent, tools, readers) {
     ...pacingRows(pacing),
     ...(readers !== undefined && readers !== null ? [['Readers now', readers ? `${readers} with work in flight on this instance` : 'none with work in flight on this instance']] : []),
     ...(silent && silent.length ? [['Sites that stayed silent', silent.map((x) => `${x.host} (${x.cause}, since ${x.at.slice(11, 19)} UTC)`).join(' · ') + ' — a site that never answers the connection is remembered until FactEngine restarts, and re-checked whenever it is asked for again']] : []),
-    ...(tools ? [['Sources the model can reach for', (tools.sources || []).length ? (tools.sources.map((x) => `${x.name} (${x.verbs.join(', ')})`).join(' · ') + (tools.reachable ? '' : ' — not in the requests yet: the gateway\'s address and pass are not both set')) : 'none on']] : []),
+    ...(tools ? [['Sources the model can reach for', (tools.sources || []).length ? (tools.sources.map((x) => `${x.name} (${x.verbs.join(', ')})`).join(' · ') + (!tools.reachable ? ' — not in the requests yet: the gateway\'s address and pass are not both set' : tools.requests && !tools.requests.determinations ? ' — named in the listing\'s requests only' : '')) : 'none on']] : []),
   ];
   const table = $('#settings');
   table.textContent = '';

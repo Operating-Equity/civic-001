@@ -10,7 +10,8 @@ import multer from 'multer';
 import { config, publicConfig, requestShape } from './config.js';
 import { promptStatus, hasPrompt, promptVersions } from './prompts.js';
 import { ApiError, operatorKey, describeError } from './openai.js';
-import { listingKey, onDeepSeek, deepseekHost } from './deepseek.js';
+import { listingKey, onOwnProvider, onFireworks, listingHost, listingProviderName } from './listing.js';
+import { gatewayTools } from './tools/request.js';
 import { openStream } from './stream.js';
 import * as jobs from './jobs.js';
 import { fileToText, normalise, ACCEPTED_SOURCE_EXT } from './documents.js';
@@ -100,9 +101,10 @@ const wrap = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).cat
 // The door (server/access.js): with CIVIC_ACCESS_CODES set, every API route but the health line
 // and the sign-in itself needs the cookie a listed code earns. It is mounted on /api itself, so
 // what is under /api is Express's decision and the gate's alike, never two readings of one path.
-// FactEngine's tools for the model (server/tools): the gateway answers OpenAI's servers with the pass, so it
-// sits outside the sign-in gate; without a pass set it answers no one.
-mountGateway(app, { registry, pass: config.toolsPass, version: BUILD });
+// FactEngine's tools for the model (server/tools): the gateway answers a provider's servers (OpenAI's, Fireworks')
+// with the pass, so it sits outside the sign-in gate; the pass is CIVIC_TOOLS_PASS, or one derived from the
+// service's secret (config.js), and without either it answers no one.
+mountGateway(app, { registry, pass: config.gatewayPass, version: BUILD });
 app.use('/api', gate);
 
 // Whose work a job is: the sign-in that started it (its code's fingerprint and its email), or
@@ -218,7 +220,7 @@ app.post('/api/extract', wrap(async (req, res) => {
   const known = jobs.get(id, owner);
   if (known) { known.attach(openStream(req, res), req.body?.cursor); return; }
 
-  // The listing's provider's key: OpenAI's, or DeepSeek's when the listing is there (server/deepseek.js).
+  // The listing's provider's key: OpenAI's, or DeepSeek's or Fireworks' when the listing is there (server/listing.js).
   const apiKey = listingKey();
   if (!hasPrompt('extract')) throw new ApiError(503, 'prompt_missing', 'The extraction prompt is not installed on this server.');
   const source = normalise(req.body?.text);
@@ -427,7 +429,9 @@ function banner() {
   console.log(`prompts installed: ${mark('extract')} · ${mark('evaluate')} · challenge=${status.challenge}` + (config.challengeEnabled ? '' : ' (challenge API step withheld)'));
   const shape = requestShape();
   const placing = shape.extract.source === 'inserted' ? 'the prompt verbatim with the source in place of its final bracketed line, as the only message' : 'the prompt verbatim as instructions · the document whole as the only message';
-  console.log(`extraction requests ${onDeepSeek() ? `go to ${deepseekHost()} (DeepSeek) and ` : ''}carry: model ${shape.extract.model} · reasoning.effort ${shape.extract.effort}${shape.extract.mode ? ` · reasoning.mode ${shape.extract.mode}` : ''}${shape.extract.summary ? ` · reasoning.summary ${shape.extract.summary}` : ''} · web_search · ${placing} · nothing else${shape.extract.fallback ? '  (FALLBACK LIST SET)' : ''}`);
+  // On Fireworks the listing names FactEngine's tool server for its searches and says store: false.
+  const listingTools = onFireworks() ? `${gatewayTools().length ? 'FactEngine\'s tool server (search_web, read_page, get_transcript)' : 'no tools (the tool server has no public address)'} · store false` : 'web_search';
+  console.log(`extraction requests ${onOwnProvider() ? `go to ${listingHost()} (${listingProviderName()}) and ` : ''}carry: model ${shape.extract.model} · reasoning.effort ${shape.extract.effort}${shape.extract.mode ? ` · reasoning.mode ${shape.extract.mode}` : ''}${shape.extract.summary ? ` · reasoning.summary ${shape.extract.summary}` : ''} · ${listingTools} · ${placing} · nothing else${shape.extract.fallback ? '  (FALLBACK LIST SET)' : ''}`);
   console.log(`determination requests carry: model ${shape.evaluate.model} · reasoning.effort ${shape.evaluate.effort}${shape.evaluate.mode ? ` · reasoning.mode ${shape.evaluate.mode}` : ''}${shape.evaluate.summary ? ` · reasoning.summary ${shape.evaluate.summary}` : ''} · web_search · the source as a message ahead of the prompt · the prompt verbatim with the claim's whole entry in its slot · nothing else${shape.evaluate.fallback ? '  (FALLBACK LIST SET)' : ''}`);
   if (config.openaiBaseUrl) console.log(`OpenAI base URL override: ${config.openaiBaseUrl}`);
 }

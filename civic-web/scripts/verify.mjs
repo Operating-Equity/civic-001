@@ -5,6 +5,7 @@
 // It also runs the prompt leak guard: no committed file may contain a fragment of the prompts.
 // Run before every deploy: `npm run verify`. A non-zero exit is a defect.
 import { spawn, spawnSync } from 'node:child_process';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import http from 'node:http';
 import net from 'node:net';
@@ -62,11 +63,13 @@ const ALLOWED = {
 };
 
 const children = [];
-// Every child starts with the listing on OpenAI and DeepSeek out of reach (an address on a closed port, no key),
-// unless a check says otherwise: a developer's shell can never send the guard's prompts to the real DeepSeek.
+// Every child starts with the listing on OpenAI, and DeepSeek and Fireworks out of reach (an address on a closed port,
+// no key), unless a check says otherwise: a developer's shell can never send the guard's prompts to the real DeepSeek or
+// Fireworks. No public address of Render's either, so the tool server's address is only ever one a check gives.
 const DEEPSEEK_OFF = { CIVIC_EXTRACT_PROVIDER: '', DEEPSEEK_API_KEY: '', CIVIC_DEEPSEEK_BASE_URL: 'http://127.0.0.1:9/deepseek' };
+const FIREWORKS_OFF = { FIREWORKS_API_KEY: '', CIVIC_FIREWORKS_BASE_URL: 'http://127.0.0.1:9/fireworks', RENDER_EXTERNAL_URL: '' };
 const start = (args, extraEnv) => {
-  const child = spawn(process.execPath, args, { cwd: root, env: { ...process.env, ...DEEPSEEK_OFF, ...extraEnv }, stdio: ['ignore', 'pipe', 'pipe'] });
+  const child = spawn(process.execPath, args, { cwd: root, env: { ...process.env, ...DEEPSEEK_OFF, ...FIREWORKS_OFF, ...extraEnv }, stdio: ['ignore', 'pipe', 'pipe'] });
   child.stdout.on('data', () => {});
   child.stderr.on('data', (d) => process.stderr.write(`  [${path.basename(args[0])}] ${d}`));
   children.push(child);
@@ -163,7 +166,7 @@ try {
   if (exBody) {
     check('extraction: model is the configured model', exBody.model === shape.extract.model, exBody.model);
     check('extraction: reasoning.effort is the configured effort', exBody.reasoning?.effort === shape.extract.effort, JSON.stringify(exBody.reasoning));
-    check('extraction: reasoning.mode is the configured mode (pro), and the key is there only when a mode is set', (exBody.reasoning?.mode ?? null) === shape.extract.mode && ('mode' in (exBody.reasoning || {})) === Boolean(shape.extract.mode), JSON.stringify({ sent: exBody.reasoning, configured: shape.extract.mode }));
+    check('extraction: reasoning.mode is the configured mode (standard since 5 October: no key), and the key is there only when a mode is set', (exBody.reasoning?.mode ?? null) === shape.extract.mode && ('mode' in (exBody.reasoning || {})) === Boolean(shape.extract.mode), JSON.stringify({ sent: exBody.reasoning, configured: shape.extract.mode }));
     check(`extraction: no keys beyond ${ALLOWED.extract.join(', ')}`, extraKeys(exBody, ALLOWED.extract).length === 0, extraKeys(exBody, ALLOWED.extract).join(', '));
     const exTools = exBody.tools || [];
     check('extraction: web search available (exactly one web_search, no options)', exTools.length === 1 && exTools[0].type === 'web_search' && extraKeys(exTools[0], ALLOWED.webSearchTool).length === 0, JSON.stringify(exTools));
@@ -190,7 +193,7 @@ try {
     const ahead = evBody.input?.length === 2 ? evBody.input[0]?.content?.[0]?.text : null;
     check('determination: model is the configured model', evBody.model === shape.evaluate.model, evBody.model);
     check('determination: reasoning.effort is the configured effort', evBody.reasoning?.effort === shape.evaluate.effort, JSON.stringify(evBody.reasoning));
-    check('determination: reasoning.mode is the configured mode (pro), and the key is there only when a mode is set', (evBody.reasoning?.mode ?? null) === shape.evaluate.mode && ('mode' in (evBody.reasoning || {})) === Boolean(shape.evaluate.mode), JSON.stringify({ sent: evBody.reasoning, configured: shape.evaluate.mode }));
+    check('determination: reasoning.mode is the configured mode (standard since 5 October: no key), and the key is there only when a mode is set', (evBody.reasoning?.mode ?? null) === shape.evaluate.mode && ('mode' in (evBody.reasoning || {})) === Boolean(shape.evaluate.mode), JSON.stringify({ sent: evBody.reasoning, configured: shape.evaluate.mode }));
     check('determination: no keys beyond model, input, reasoning, tools, stream, store', extraKeys(evBody, ALLOWED.evaluate).length === 0, extraKeys(evBody, ALLOWED.evaluate).join(', '));
     check('determination: no reasoning keys beyond effort, mode, summary', extraKeys(evBody.reasoning, ALLOWED.reasoning).length === 0, extraKeys(evBody.reasoning, ALLOWED.reasoning).join(', '));
     check('determination: no instructions field (nothing added around the prompt)', evBody.instructions === undefined);
@@ -337,13 +340,19 @@ async function gateRun(n, env, { extraction = false, claims = SIX, serverEnv = {
   try { mock.kill('SIGTERM'); } catch {}
   return out;
 }
-// The mode is a setting: `standard` (or empty) sends today's reasoning object, with no mode key at all.
+// The mode and the effort are settings: standard (or empty) sends no mode key at all, the default since 5 October; set
+// back to the power of 21 September (effort max in pro mode), both steps carry exactly that, and nothing else changes.
 async function modeChecks() {
   const modeRecord = path.join(os.tmpdir(), `civic-verify-mode-${Date.now()}.jsonl`);
-  const r = await gateRun(9, { MOCK_RECORD: modeRecord }, { extraction: true, claims: [SIX[0]], serverEnv: { CIVIC_REASONING_MODE: 'standard' } });
+  const r = await gateRun(9, { MOCK_RECORD: modeRecord }, { extraction: true, claims: [SIX[0]], serverEnv: { CIVIC_REASONING_MODE: 'pro', CIVIC_EFFORT: 'max' } });
   const bodies = fs.existsSync(modeRecord) ? fs.readFileSync(modeRecord, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)).filter((x) => x.path === '/v1/responses').map((x) => x.body) : [];
-  check('with CIVIC_REASONING_MODE=standard no request carries a mode key: the reasoning object is effort and summary alone, the effort still the configured one',
-    bodies.length >= 2 && bodies.every((b) => !('mode' in (b.reasoning || {})) && b.reasoning?.effort === requestShape().evaluate.effort) && !r.failure, JSON.stringify({ reasoning: bodies.map((b) => b.reasoning), failure: r.failure }));
+  check('with CIVIC_REASONING_MODE=pro and CIVIC_EFFORT=max both requests carry exactly that (effort max, mode pro, the summary), as from 21 September to 5 October',
+    bodies.length >= 2 && bodies.every((b) => b.reasoning?.mode === 'pro' && b.reasoning?.effort === 'max' && JSON.stringify(Object.keys(b.reasoning).sort()) === JSON.stringify(['effort', 'mode', 'summary'])) && !r.failure, JSON.stringify({ reasoning: bodies.map((b) => b.reasoning), failure: r.failure }));
+  // The defaults as the code holds them: judged only where no shell sets these (CI sets none).
+  const set = ['CIVIC_EFFORT', 'CIVIC_EVAL_EFFORT', 'CIVIC_EXTRACT_EFFORT', 'CIVIC_REASONING_MODE', 'CIVIC_EVAL_REASONING_MODE', 'CIVIC_EXTRACT_REASONING_MODE'].filter((n) => process.env[n]);
+  const shape = requestShape();
+  check('by default (standard since 5 October) no request carries a mode key, and both steps\' effort is xhigh',
+    set.length > 0 || (shape.extract.mode === null && shape.evaluate.mode === null && shape.evaluate.effort === 'xhigh' && (shape.extract.provider !== 'openai' || shape.extract.effort === 'xhigh')), JSON.stringify({ set, extract: shape.extract, evaluate: shape.evaluate }));
 }
 await modeChecks();
 
@@ -1396,7 +1405,7 @@ async function toolChecks() {
     check('with the pass, the gateway speaks the standard: initialize answers with its name and that it has tools', init.status === 200 && init.json?.result?.serverInfo?.name === 'civic' && Boolean(init.json?.result?.capabilities?.tools), JSON.stringify(init.json).slice(0, 200));
     const list = await rpc('tools/list', {}, 3);
     const tools = list.json?.result?.tools || [];
-    check('the tool table lists the verbs the sources on can answer, read_page and get_transcript, nothing else, and with one source no source parameter', JSON.stringify(tools.map((t) => t.name)) === JSON.stringify(['read_page', 'get_transcript']) && tools.every((t) => !t.inputSchema.properties.source && t.inputSchema.required.includes('url') && t.description.length > 40), JSON.stringify(tools).slice(0, 300));
+    check('the tool table lists the verbs the sources on can answer, read_page, get_transcript and search_web (the search service is set), nothing else, and with one source each no source parameter', JSON.stringify(tools.map((t) => t.name)) === JSON.stringify(['read_page', 'get_transcript', 'search_web']) && tools.every((t) => !t.inputSchema.properties.source && t.inputSchema.required.includes(t.name === 'search_web' ? 'query' : 'url') && t.description.length > 40), JSON.stringify(tools).slice(0, 300));
     // Every adapter's probes, through the gateway, against its stand-in.
     let n = 10;
     for (const { file, standIn } of standIns) {
@@ -1425,7 +1434,7 @@ async function toolChecks() {
     const client = sent.filter((r) => r.path === '/mcp-client');
     const listed = client.find((r) => r.step === 'list');
     const made = client.filter((r) => r.step === 'call');
-    check('the stand-in OpenAI, as a client of the gateway, listed the tools and made its calls: the page\'s text came back whole, the refused page as the site\'s answer', listed?.status === 200 && JSON.stringify(listed?.names) === JSON.stringify(['read_page', 'get_transcript']) && made.length === 2 && made[0].failed === false && /The Nile is about 6,650 kilometres long/.test(made[0].output) && made[1].failed === true && /turns FactEngine's server away/.test(made[1].output), JSON.stringify({ listed: listed?.names, made: made.map((m) => [m.status, m.failed, String(m.output).slice(0, 80)]) }));
+    check('the stand-in OpenAI, as a client of the gateway, listed the tools and made its calls: the page\'s text came back whole, the refused page as the site\'s answer', listed?.status === 200 && JSON.stringify(listed?.names) === JSON.stringify(['read_page', 'get_transcript', 'search_web']) && made.length === 2 && made[0].failed === false && /The Nile is about 6,650 kilometres long/.test(made[0].output) && made[1].failed === true && /turns FactEngine's server away/.test(made[1].output), JSON.stringify({ listed: listed?.names, made: made.map((m) => [m.status, m.failed, String(m.output).slice(0, 80)]) }));
     const steps = ev.filter((e) => e.t === 'trail').map((e) => e.step);
     const toolSteps = steps.filter((s) => s.kind === 'tool');
     const done = ev.find((e) => e.t === 'done');
@@ -1433,10 +1442,13 @@ async function toolChecks() {
     const webSteps = steps.filter((s) => s.kind !== 'tool').length;
     check('the searches counted for the cost are the web searches alone; the tool calls sit in the trail and on their own ledger lines; the row said it was reading', Boolean(done) && done.searches === webSteps && done.trail.length === webSteps + 2 && ev.some((e) => e.t === 'phase' && e.phase === 'reading'), JSON.stringify({ searches: done?.searches, webSteps, trail: done?.trail?.length }));
     const ledger = readIf(ledgerFile).split('\n').filter(Boolean).map((l) => JSON.parse(l));
-    const toolLines = ledger.filter((l) => l.kind === 'tool');
+    const toolLines = ledger.filter((l) => l.kind === 'tool' && l.source === 'web');
     check('each call is one ledger line: the source, the verb, the time, the operator\'s price (zero for FactEngine\'s own reader), and how it ended', toolLines.length >= 2 && toolLines.every((l) => l.source === 'web' && ['read_page', 'get_transcript'].includes(l.verb) && l.usd === 0 && l.priced === true && typeof l.ms === 'number') && toolLines.some((l) => l.ok === true && l.chars > 100) && toolLines.some((l) => l.ok === false && l.code === 'url_refused'), JSON.stringify(toolLines.slice(-2)));
+    const searchLines = ledger.filter((l) => l.kind === 'tool' && l.source === 'search');
+    check('a search through the tool server is one ledger line priced at the search service\'s own figure for it, and no line of the copies search beside it', searchLines.length === 1 && searchLines[0].verb === 'search_web' && searchLines[0].usd === 0.005 && searchLines[0].ok === true && searchLines[0].items === 1 && !ledger.some((l) => l.kind === 'search'), JSON.stringify({ search: searchLines, copies: ledger.filter((l) => l.kind === 'search').length }));
     const st = await (await fetch(`${base}/api/selftest`)).json();
-    check('/check lists the sources the model can reach for, by name and verb, and that the requests name the gateway', st.tools?.reachable === true && st.tools?.on === true && st.tools?.sources?.[0]?.id === 'web' && JSON.stringify(st.tools.sources[0].verbs) === JSON.stringify(['read_page', 'get_transcript']), JSON.stringify(st.tools));
+    const bySource = (id) => (st.tools?.sources || []).find((x) => x.id === id);
+    check('/check lists the sources the model can reach for, by name and verb, and that the requests name the gateway', st.tools?.reachable === true && st.tools?.on === true && st.tools?.requests?.determinations === true && JSON.stringify(bySource('web')?.verbs) === JSON.stringify(['read_page', 'get_transcript']) && JSON.stringify(bySource('search')?.verbs) === JSON.stringify(['search_web']), JSON.stringify(st.tools));
     const everywhere = readIf(ledgerFile) + readIf(errorLog) + JSON.stringify(st) + JSON.stringify(ev) + JSON.stringify(ex) + await (await fetch(`${base}/`)).text() + await (await fetch(`${base}/api/health`)).text();
     check('the pass appears in no record, no stream, no page and no health line', !everywhere.includes(PASS), '');
   } finally {
@@ -1944,6 +1956,240 @@ async function deepseekChecks() {
 }
 await deepseekChecks();
 
+// ---- the listing on Fireworks: DeepSeek V4.1 Flash from a US company, FactEngine's own search, the chain of thought cut off ----
+// The operator's choice of 5 October. Against a stand-in that speaks Fireworks' dialect (scripts/mock-openai.js): the
+// model's reasoning inside the answer's text ahead of `</think>` (with no opening tag, with one, or sent apart), carrying a
+// marker and numbered lines of its own; the input echoed among the output; usage as prompt_tokens and completion_tokens;
+// no web search, and FactEngine's tool server called by the stand-in itself during the response, as Fireworks calls one.
+async function fireworksChecks() {
+  const FMOCK = MOCK_PORT + 85, SITE = PORT + 88;
+  const FWKEY = 'fw_verify0000000000000000000000';
+  const SKEY = 'search-key-fw-verify-5d2a';
+  const SECRET = 'd'.repeat(64);
+  const PASS = crypto.createHmac('sha256', SECRET).update('civic-tools-pass').digest('hex');   // the pass the service derives
+  const COT = 'FWCOT-2c9d', ECHO = 'FWUSER-8b1e';   // the stand-in's reasoning and input-echo markers
+  const MODEL = 'accounts/fireworks/models/deepseek-v4p1-flash';
+  const stamp = Date.now();
+  const rec = path.join(os.tmpdir(), `civic-verify-fw-${stamp}.jsonl`);
+  const ledger = path.join(os.tmpdir(), `civic-verify-fw-ledger-${stamp}.jsonl`);
+  const errlog = path.join(os.tmpdir(), `civic-verify-fw-errors-${stamp}.log`);
+  fs.writeFileSync(rec, '');
+  const records = () => fs.readFileSync(rec, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l));
+  const fwEntries = () => records().filter((r) => r.fireworks);
+  const fwBodies = () => records().filter((r) => r.path === '/fireworks/responses' && r.body);
+  const fwStats = async () => (await fetch(`http://localhost:${FMOCK}/fireworks/mock/stats`, { headers: { authorization: `Bearer ${KEY}` } })).json();
+  // The search service the tool server asks, in Exa's shape; every call recorded.
+  const searchCalls = [];
+  const site = http.createServer((req, res) => {
+    if (req.method === 'POST' && req.url.startsWith('/search')) {
+      let raw = '';
+      req.on('data', (c) => { raw += c; });
+      req.on('end', () => {
+        let body = {}; try { body = JSON.parse(raw); } catch {}
+        searchCalls.push({ key: req.headers['x-api-key'] || '', auth: req.headers.authorization || '', body });
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ requestId: 'standin', results: [{ url: `http://localhost:${SITE}/tower`, title: 'The tower, measured', publishedDate: '2026-01-02T00:00:00.000Z', text: `${body.query}: the Eiffel Tower is about 330 metres tall.` }], costDollars: { total: 0.005 } }));
+      });
+      return;
+    }
+    if (req.url.startsWith('/tower')) { res.writeHead(200, { 'content-type': 'text/html' }); res.end(`<html><head><title>The tower, measured</title></head><body><article><p>${'The Eiffel Tower is about 330 metres tall and stands on the Champ de Mars in Paris. '.repeat(6)}</p></article></body></html>`); return; }
+    res.writeHead(404); res.end();
+  });
+  await new Promise((r) => site.listen(SITE, r));
+  const procs = [];
+  const output = [];
+  const serve = (port, env) => {
+    const child = start([path.join(root, 'server', 'index.js')], {
+      PORT: String(port), OPENAI_BASE_URL: `http://localhost:${FMOCK}/v1`, OPENAI_API_KEY: KEY, CIVIC_IMAGE_ENABLED: 'false',
+      CIVIC_LEDGER_FILE: ledger, CIVIC_ERROR_LOG: errlog, CIVIC_ACCESS_CODES: '', CIVIC_OPERATOR_CODES: '', DATABASE_URL: '',
+      CIVIC_EXTRACT_PROVIDER: 'fireworks', FIREWORKS_API_KEY: FWKEY, CIVIC_FIREWORKS_BASE_URL: `http://localhost:${FMOCK}/fireworks`,
+      RENDER_EXTERNAL_URL: `http://localhost:${port}`, CIVIC_SESSION_SECRET: SECRET, CIVIC_TOOLS_URL: '', CIVIC_TOOLS_PASS: '',
+      CIVIC_SEARCH_URL: `http://localhost:${SITE}/search`, CIVIC_SEARCH_KEY: SKEY, CIVIC_ALLOW_PRIVATE_URLS: 'true', ...env,
+    });
+    child.stdout.on('data', (d) => output.push(String(d)));
+    child.stderr.on('data', (d) => output.push(String(d)));
+    procs.push(child);
+    return `http://localhost:${port}`;
+  };
+  // Request ordinals at the stand-in Fireworks: 1 the reasoning inline with no opening tag; 2 opened with <think>; 3 sent
+  // apart; 4 a 429 with no wait, 5 clean; 6 a 503, 7 clean; 8 an error event mid-stream, 9 clean; 10 a stream closed with
+  // no event, 11 clean; 12 a 402 (out of credits). Every stream calls the tool server twice: a search and a page.
+  const toolCalls = [{ name: 'search_web', arguments: { query: 'height of the Eiffel Tower' } }, { name: 'read_page', arguments: { url: `http://localhost:${SITE}/tower` } }];
+  start([path.join(root, 'scripts', 'mock-openai.js')], {
+    MOCK_PORT: String(FMOCK), MOCK_RECORD: rec, MOCK_SPEED: '0.2', MOCK_EVAL_MARK: process.env.MOCK_EVAL_MARK_FOR_GATE || '', MOCK_FW_TOOL_CALLS: JSON.stringify(toolCalls),
+    MOCK_FW_TAGGED: '2', MOCK_FW_APART: '3', MOCK_FW_429: '4', MOCK_FW_503: '6', MOCK_FW_ERROR_EVENT: '8', MOCK_FW_CLOSE: '10', MOCK_FW_402: '12',
+  });
+  try {
+    await wait(`http://localhost:${FMOCK}/v1/responses`, 15000, { anyResponse: true });
+    // OpenAI's own settings in this server's environment, none of which may travel to Fireworks.
+    const base = serve(PORT + 85, { OPENAI_ORG_ID: 'org-verify-fw', OPENAI_PROJECT_ID: 'proj-verify-fw', OPENAI_CUSTOM_HEADERS: 'X-Verify-Leak: yes' });
+    await wait(`${base}/api/health`);
+    const health = await (await fetch(`${base}/api/health`)).json();
+    const sx = health.request?.extract || {};
+    const wantKeys = [...(slot ? ['model', 'input'] : ['model', 'instructions', 'input']), 'reasoning', 'tools', 'stream', 'store'];
+    check('Fireworks: the health line says the listing goes to Fireworks\' DeepSeek V4.1 Flash at effort max with no mode and no summary, can search, and lists its keys (store among them); the determinations stay on OpenAI',
+      sx.provider === 'fireworks' && sx.model === MODEL && sx.effort === 'max' && sx.mode === null && sx.summary === null && sx.webSearch === true && JSON.stringify(health.request?.keys?.extract) === JSON.stringify(wantKeys) && health.request?.evaluate?.model === config.evalModels[0],
+      JSON.stringify({ extract: sx, keys: health.request?.keys?.extract }));
+
+    const source = 'The Eiffel Tower stands about 330 metres tall. Water boils at 100 degrees Celsius at sea level. Mount Everest is 8,849 metres above sea level.';
+    const sentences = ['The Eiffel Tower stands about 330 metres tall.', 'Water boils at 100 degrees Celsius at sea level.', 'Mount Everest is 8,849 metres above sea level.'];
+    const listing = async (label, cursor) => stream(`${base}/api/extract`, { text: source, jobId: `fw-${label}-${stamp}`, ...(cursor === undefined ? {} : { cursor }) });
+    const a = await listing('a');
+    const doneA = a.find((e) => e.t === 'done');
+    const bodyA = fwBodies()[0]?.body;
+    const toolStepsA = (doneA?.trail || []).filter((t) => t.kind === 'tool');
+    check('Fireworks: a listing completes with exactly the document\'s three claims, on DeepSeek V4.1 Flash at effort max, no mode, its search and its page read on the trail',
+      Boolean(doneA) && doneA.total === 3 && JSON.stringify(doneA.claims.map((c) => c.text)) === JSON.stringify(sentences) && doneA.model === MODEL && doneA.effort === 'max' && doneA.mode === null
+        && toolStepsA.length === 2 && toolStepsA[0].name === 'search_web' && toolStepsA[0].query === 'height of the Eiffel Tower' && toolStepsA[0].status === 'completed' && toolStepsA[1].name === 'read_page' && toolStepsA[1].url === `http://localhost:${SITE}/tower` && !a.some((e) => e.t === 'error'),
+      JSON.stringify(doneA && { total: doneA.total, claims: doneA.claims.map((c) => c.text), model: doneA.model, trail: doneA.trail }));
+    const expectedMcp = { type: 'mcp', server_label: 'civic', server_url: `${base}/mcp`, headers: { authorization: `Bearer ${PASS}` }, require_approval: 'never' };
+    check('Fireworks: the listing\'s body carries exactly the model, the prompt, reasoning {effort: max}, the one entry naming FactEngine\'s tool server at the service\'s own address with the pass derived from its secret, stream, and store: false; no web search, mode or summary',
+      Boolean(bodyA) && JSON.stringify(Object.keys(bodyA).sort()) === JSON.stringify([...wantKeys].sort()) && JSON.stringify(bodyA.reasoning) === JSON.stringify({ effort: 'max' })
+        && JSON.stringify(bodyA.tools) === JSON.stringify([expectedMcp]) && bodyA.store === false && bodyA.stream === true && bodyA.model === MODEL,
+      JSON.stringify(bodyA && { keys: Object.keys(bodyA), reasoning: bodyA.reasoning, store: bodyA.store, tools: (bodyA.tools || []).map((t) => ({ ...t, headers: t.headers && (t.headers.authorization === `Bearer ${PASS}` ? 'the derived pass' : 'another') })) }));
+    const textA = bodyA?.input?.[0]?.content?.[0]?.text;
+    if (slot) {
+      const expected = extractPrompt.slice(0, slot.start) + sourceBlock(source, { kind: 'text' }) + extractPrompt.slice(slot.end);
+      check('Fireworks: the prompt sent verbatim with the source in place of its final bracketed line, as the only message', bodyA?.instructions === undefined && bodyA?.input?.length === 1 && textA === expected, `${textA?.length} vs ${expected.length} chars`);
+    } else {
+      check('Fireworks: the prompt sent verbatim as the instructions, the document whole as the only message', bodyA?.instructions === extractPrompt && bodyA?.input?.length === 1 && textA === source, `${bodyA?.instructions?.length} vs ${extractPrompt.length} chars`);
+    }
+    const replay = await listing('a', 0);
+    const marked = (evs) => JSON.stringify(evs).includes(COT) || JSON.stringify(evs).includes(ECHO) || JSON.stringify(evs).includes('</think>') || JSON.stringify(evs).includes('<think>');
+    check('Fireworks: the chain of thought, and its own numbered lines, reach nothing: not a claim, not an event of the stream or of its replay from the start, not the raw listing, not done; nor does the input Fireworks lists among its output',
+      a.length > 0 && replay.length > 0 && !marked(a) && !marked(replay) && ![...a, ...replay].some((e) => e.t === 'reasoning') && doneA?.reasoning === null && String(doneA?.raw || '').trim().startsWith('1. Claim: The Eiffel Tower'),
+      JSON.stringify({ raw: String(doneA?.raw || '').slice(0, 120), reasoningEvents: [...a, ...replay].filter((e) => e.t === 'reasoning').length }));
+    const b = await listing('tagged');
+    const c = await listing('apart');
+    const doneB = b.find((e) => e.t === 'done'), doneC = c.find((e) => e.t === 'done');
+    check('Fireworks: with the reasoning opened by <think>, or sent apart as reasoning events, the listing is the same three claims and nothing of the reasoning appears',
+      [doneB, doneC].every((d) => d && JSON.stringify(d.claims.map((x) => x.text)) === JSON.stringify(sentences)) && !marked(b) && !marked(c),
+      JSON.stringify({ tagged: doneB?.claims?.map((x) => x.text), apart: doneC?.claims?.map((x) => x.text) }));
+
+    // The search: through the tool server, with the search service's key, the model's words as the query.
+    const mcpCalls = records().filter((r) => r.path === '/mcp-client' && r.step === 'call' && r.style === 'fireworks');
+    const firstSearch = mcpCalls.find((r) => r.call?.name === 'search_web');
+    const firstRead = mcpCalls.find((r) => r.call?.name === 'read_page');
+    check('Fireworks: the model\'s search reached the search service through FactEngine\'s tool server, in the model\'s own words, with the service\'s key and no site left out; its pages came back to the model, and the page it read came back whole',
+      searchCalls.length >= 1 && searchCalls.every((x) => x.key === SKEY && x.auth === '' && x.body.query === 'height of the Eiffel Tower' && x.body.excludeDomains === undefined && x.body.contents?.text === true)
+        && firstSearch?.status === 200 && firstSearch.failed === false && /height of the Eiffel Tower: the Eiffel Tower is about 330 metres tall/.test(firstSearch.output) && firstRead?.failed === false && /Champ de Mars/.test(firstRead.output),
+      JSON.stringify({ searches: searchCalls.map((x) => x.body), search: firstSearch && [firstSearch.status, String(firstSearch.output).slice(0, 120)] }));
+    const lines = () => fs.readFileSync(ledger, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l));
+    await new Promise((r) => setTimeout(r, 300));   // the ledger is appended after the stream ends
+    const searchLines = lines().filter((l) => l.kind === 'tool' && l.source === 'search');
+    check('Fireworks: each search is one ledger line at the search service\'s own figure, beside the listing\'s own line',
+      searchLines.length === searchCalls.length && searchLines.every((l) => l.verb === 'search_web' && l.usd === 0.005 && l.ok === true) && !lines().some((l) => l.kind === 'search'),
+      JSON.stringify({ lines: searchLines.length, calls: searchCalls.length }));
+
+    // A determination of the first claim: OpenAI, with OpenAI's key, and the gateway not in its request.
+    const entry = doneA?.claims?.[0]?.entry || 'Claim: The Eiffel Tower stands about 330 metres tall.';
+    const ev = await stream(`${base}/api/evaluate`, { claims: [entry], text: source, source: { kind: 'text' } });
+    const openaiRecs = records().filter((r) => r.path === '/v1/responses');
+    check('Fireworks: the determination still runs on OpenAI and completes, and its request carries web search alone though the tool server is mounted with a pass',
+      ev.some((e) => e.t === 'done') && !ev.some((e) => e.t === 'error') && openaiRecs.length === 1 && JSON.stringify(openaiRecs[0].body?.tools) === JSON.stringify([{ type: 'web_search' }]),
+      JSON.stringify({ errors: ev.filter((e) => e.t === 'error'), tools: openaiRecs.map((r) => r.body?.tools) }));
+    const fw = fwEntries();
+    check('Fireworks: the listing went to Fireworks with Fireworks\' key and never OpenAI\'s; the determination went to OpenAI with OpenAI\'s key and never Fireworks\'',
+      fw.length >= 3 && fw.every((r) => r.auth === `Bearer ${FWKEY}`) && openaiRecs.every((r) => r.auth === `Bearer ${KEY}`) && !records().some((r) => (r.auth || '').includes(READER_KEY)),
+      JSON.stringify({ fireworks: [...new Set(fw.map((r) => r.auth))].map((x) => x.replace(FWKEY, 'FWKEY').replace(KEY, 'OPENAI KEY')), openai: openaiRecs.length }));
+    check('Fireworks: none of OpenAI\'s settings travelled to Fireworks (no organisation, project or custom header)',
+      fw.length >= 1 && fw.every((r) => !r.headers.includes('openai-organization') && !r.headers.includes('openai-project') && !r.headers.includes('x-verify-leak')),
+      JSON.stringify([...new Set(fw.flatMap((r) => r.headers))]));
+
+    // The refusals, one listing each, in the order the stand-in was told.
+    const run = async (label) => { const before = (await fwStats()).requests; const evs = await listing(label); return { evs, sends: (await fwStats()).requests - before }; };
+    const d429 = await run('429');
+    const r429 = d429.evs.find((e) => e.t === 'retry');
+    check('Fireworks: a 429 that names no wait is a wait of about a second, then the listing completes (two sends, no loop)',
+      r429?.reason === 'rate_limit' && r429.waitMs >= 600 && r429.waitMs <= 1000 && d429.sends === 2 && d429.evs.some((e) => e.t === 'done'), JSON.stringify({ retry: r429, sends: d429.sends }));
+    const d503 = await run('503');
+    check('Fireworks: an unavailable answer (503) goes again a second later and the listing completes',
+      d503.evs.some((e) => e.t === 'retry' && e.reason === 'error' && e.waitMs >= 600) && d503.sends === 2 && d503.evs.some((e) => e.t === 'done'), JSON.stringify({ retries: d503.evs.filter((e) => e.t === 'retry'), sends: d503.sends }));
+    const dErr = await run('error-event');
+    check('Fireworks: an error event in the middle of a stream is read as the stream\'s failure and goes again; the listing completes',
+      dErr.evs.some((e) => e.t === 'retry') && dErr.sends === 2 && dErr.evs.some((e) => e.t === 'done') && !dErr.evs.some((e) => e.t === 'error'), JSON.stringify({ retries: dErr.evs.filter((e) => e.t === 'retry'), sends: dErr.sends }));
+    const dClose = await run('closed');
+    const doneClose = dClose.evs.find((x) => x.t === 'done');
+    check('Fireworks: a stream closed with no event is a cut connection and goes again; never a listing of no claims',
+      dClose.evs.some((x) => x.t === 'retry' && x.reason === 'connection') && dClose.sends === 2 && doneClose?.total === 3, JSON.stringify({ retries: dClose.evs.filter((x) => x.t === 'retry'), sends: dClose.sends, total: doneClose?.total }));
+    const d402 = await run('402');
+    const err402 = d402.evs.find((x) => x.t === 'error');
+    const failures = (await (await fetch(`${base}/api/selftest`)).json()).recentFailures || [];
+    const rec402 = failures.find((x) => x.where === 'server:listing' && x.code === 'balance_exhausted');
+    check('Fireworks: an account out of credits (402) reaches the page as its status and code with no words of the provider\'s, and /check records Fireworks\' own',
+      err402?.status === 402 && err402.code === 'balance_exhausted' && err402.message === '' && /Fireworks answered 402 \(Your account is out of credits/.test(rec402?.detail || ''),
+      JSON.stringify({ error: err402, record: rec402 }));
+
+    const st = await (await fetch(`${base}/api/selftest`)).json();
+    const row = (re) => (st.checks || []).find((x) => re.test(x.title));
+    check('Fireworks: /check accepts the listing\'s key and model without spending a token, finds the tool server answering at its public address, checks OpenAI for the determinations\' model alone, shows Fireworks\' own echo of the effort it took, and is ready',
+      st.ready === true && row(/^A Fireworks key is configured/)?.state === 'ok' && row(new RegExp(`^Fireworks accepts this key for ${MODEL.replace(/[.]/g, '\\.')}`))?.state === 'ok'
+        && row(/^FactEngine's tool server answers at localhost/)?.state === 'ok' && row(/^OpenAI accepts this key for/)?.title === `OpenAI accepts this key for ${config.evalModels[0]}` && !(st.checks || []).some((x) => x.title === `OpenAI accepts this key for ${MODEL}`)
+        && row(/^Fireworks took the listing's effort as max$/)?.state === 'ok'
+        && st.settings?.listingProvider === 'Fireworks' && st.settings?.listingModel === MODEL && st.settings?.listingEffort === 'max' && st.tools?.requests?.listing === true && st.tools?.requests?.determinations === false,
+      JSON.stringify((st.checks || []).filter((x) => /Fireworks|OpenAI|tool server/.test(x.title)).map((x) => `${x.state}:${x.title}`)));
+    check('Fireworks: the listing\'s ledger lines say Fireworks, are priced at its rates from its own token counts (cached apart), and keep Fireworks\' echo of the effort it was asked for; the chain of thought is in no ledger line and no failure record',
+      (() => {
+        const ex = lines().filter((l) => l.kind === 'extract');
+        const errText = fs.existsSync(errlog) ? fs.readFileSync(errlog, 'utf8') : '';
+        const all = fs.readFileSync(ledger, 'utf8');
+        return ex.length >= 7 && ex.every((l) => l.provider === 'fireworks' && l.model === MODEL && l.priced === true && l.usd > 0 && l.usage?.input > 0 && l.usage?.cached === 7 && l.usage?.output > 0 && JSON.stringify(l.reasoningEcho) === JSON.stringify({ effort: 'max' }))
+          && !all.includes(COT) && !all.includes(ECHO) && !errText.includes(COT);
+      })(), JSON.stringify(lines().filter((l) => l.kind === 'extract').slice(0, 1)));
+
+    // The price, in process, from Fireworks' page of 5 October: one price at every hour.
+    delete process.env.CIVIC_PRICING_JSON;
+    const { estimateTextCost } = await import(`${pathToFileURL(path.join(root, 'server', 'pricing.js')).href}?fw=${stamp}`);
+    const priced = (usage, iso) => estimateTextCost({ model: MODEL, usage, at: Date.parse(iso) }).usd;
+    check('Fireworks: a million tokens in and out cost $0.88 at any hour; a million cached $0.007',
+      priced({ input: 1_000_000, cached: 0, output: 1_000_000 }, '2026-10-05T02:00:00Z') === 0.88 && priced({ input: 1_000_000, cached: 0, output: 1_000_000 }, '2026-10-04T14:00:00Z') === 0.88 && priced({ input: 1_000_000, cached: 1_000_000, output: 0 }, '2026-10-05T02:00:00Z') === 0.007,
+      JSON.stringify({ any: priced({ input: 1_000_000, cached: 0, output: 1_000_000 }, '2026-10-05T02:00:00Z') }));
+
+    // No key, no request: provider Fireworks with FIREWORKS_API_KEY unset refuses the listing before anything is sent.
+    const before = fwEntries().length;
+    const base2 = serve(PORT + 86, { FIREWORKS_API_KEY: '' });
+    await wait(`${base2}/api/health`);
+    const noKey = await fetch(`${base2}/api/extract`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text: source, jobId: `fw-nokey-${stamp}` }) });
+    const noKeyBody = await noKey.json().catch(() => ({}));
+    const st2 = await (await fetch(`${base2}/api/selftest`)).json();
+    check('Fireworks: with no Fireworks key the listing is refused before any request (the page\'s own sentence, no words of ours), /check says which setting is missing and is not ready, and nothing reaches Fireworks',
+      noKey.status === 503 && noKeyBody?.error?.code === 'no_operator_key' && noKeyBody.error.message === '' && st2.ready === false
+        && (st2.checks || []).some((x) => x.state === 'bad' && x.title === 'No Fireworks key for the listing' && /FIREWORKS_API_KEY/.test(x.detail)) && fwEntries().length === before,
+      JSON.stringify({ status: noKey.status, body: noKeyBody, sent: fwEntries().length - before }));
+
+    // No public address for the tool server (not on Render, no CIVIC_TOOLS_URL): the listing goes without tools, and /check says so.
+    const before3 = fwBodies().length;
+    const base3 = serve(PORT + 87, { RENDER_EXTERNAL_URL: '' });
+    await wait(`${base3}/api/health`);
+    const h3 = await (await fetch(`${base3}/api/health`)).json();
+    const l3 = await stream(`${base3}/api/extract`, { text: source, jobId: `fw-notools-${stamp}` });
+    const body3 = fwBodies()[before3]?.body;
+    const st3 = await (await fetch(`${base3}/api/selftest`)).json();
+    check('Fireworks: with no public address for the tool server, the listing goes with an empty tools list and completes, the health line says it cannot search, and /check says why',
+      h3.request?.extract?.webSearch === false && JSON.stringify(body3?.tools) === '[]' && JSON.stringify(Object.keys(body3 || {}).sort()) === JSON.stringify([...wantKeys].sort()) && l3.some((e) => e.t === 'done')
+        && (st3.checks || []).some((x) => x.state === 'warn' && x.title === 'The listing on Fireworks cannot search or read pages'),
+      JSON.stringify({ webSearch: h3.request?.extract?.webSearch, tools: body3?.tools, warn: (st3.checks || []).filter((x) => x.state === 'warn').map((x) => x.title) }));
+
+    // The keys and the pass, nowhere they could be read.
+    const health2 = await (await fetch(`${base}/api/health`)).text();
+    const check2 = await (await fetch(`${base}/api/selftest`)).text();
+    const pageHtml = await (await fetch(`${base}/`)).text();
+    const ledgerText = fs.readFileSync(ledger, 'utf8');
+    const errText = fs.existsSync(errlog) ? fs.readFileSync(errlog, 'utf8') : '';
+    const said = output.join('');
+    check('Fireworks: neither key nor the tool server\'s pass appears in the health line, the check data, the page, the ledger, the failure records or the server\'s own output; the startup line says where the listing goes and what it carries',
+      ![health2, check2, pageHtml, ledgerText, errText, said].some((t) => t.includes(FWKEY) || t.includes(KEY) || t.includes(PASS))
+        && said.includes(`extraction requests go to localhost (Fireworks) and carry: model ${MODEL} · reasoning.effort max · FactEngine's tool server (search_web, read_page, get_transcript) · store false`),
+      [['health', health2], ['check', check2], ['page', pageHtml], ['ledger', ledgerText], ['errors', errText], ['output', said]].filter(([, t]) => t.includes(FWKEY) || t.includes(KEY) || t.includes(PASS)).map(([n]) => n).join(', ') || said.split('\n').find((l) => l.startsWith('extraction requests')));
+  } catch (err) {
+    check('Fireworks checks completed', false, err.message);
+  } finally {
+    for (const p of procs) { try { p.kill('SIGTERM'); } catch {} }
+    site.close();
+  }
+}
+await fireworksChecks();
+
 // ---- the pages a commercial service owes: the texts are served, whole, English, with no script but the field ----
 // Terms, Privacy, Refunds and Contact are static files (public/*.html) served at /terms, /privacy, /refunds and
 // /contact by the extensionless rule; each carries its heading, the support address and the text in .prose, names no
@@ -1964,7 +2210,7 @@ async function pagesChecks() {
       ['/refunds', 'Refund and Dispute Policy', /A test that fails is never charged\./],
       ['/contact', 'Contact', /Arbitration opt-out/],
     ];
-    const vendors = /\b(OpenAI|DeepSeek|Exa|Supadata|YouTube|Render|Stripe|Google|Resend|Cloudflare)\b/;
+    const vendors = /\b(OpenAI|DeepSeek|Fireworks|Exa|Supadata|YouTube|Render|Stripe|Google|Resend|Cloudflare)\b/;
     for (const [p, heading, mark] of PAGES) {
       const r = await page(p);
       const scripts = r.text.match(/<script[^>]*>/g) || [];
@@ -1977,12 +2223,17 @@ async function pagesChecks() {
       check(`${p}: links the other three pages and marks itself`,
         r.text.includes('class="plain-nav"') && ['terms', 'privacy', 'refunds', 'contact'].every((q) => r.text.includes(`href="${q}"`)) && r.text.includes(`href="${p.slice(1)}" aria-current="page"`), '');
     }
-    // The listing's provider processes data in China (4 October): the Privacy page says so, and says which provider's
-    // terms allow a use of inputs to improve its models, naming none.
+    // The listing's provider (5 October): a US company serving the model from the United States, Europe and Japan, which
+    // keeps nothing and trains on nothing; it may search through our search provider. True before the switch (the
+    // listing on OpenAI) and after it (on Fireworks); no country named that is not one, and no vendor.
     const privacy = await page('/privacy');
-    check('/privacy: the listing\'s provider is described as processing data in China, with its terms on inputs, and the transfer sentence names China',
-      privacy.text.includes('A model provider that lists the claims in what you submit') && privacy.text.includes('It processes data in China, and its terms allow it to use a small part of the inputs it receives, de-identified, to improve its models unless we opt out.')
-        && privacy.text.includes('A model provider that produces the determinations') && privacy.text.includes('the model provider that lists claims processes data in China; by using the Service you understand your information is transferred to those countries'),
+    const terms = await page('/terms');
+    check('/privacy and /terms: the listing\'s provider lists claims under terms that do not permit training, searching itself or through our search provider; the search provider may receive the model\'s searches; data may be processed in the United States, Europe and Japan; China is named nowhere',
+      privacy.text.includes('A model provider that lists the claims in what you submit: it processes the documents you submit, and may search the web while doing so, itself or through our search provider, under terms that do not permit your inputs to be used to train its models.')
+        && privacy.text.includes('A model provider that produces the determinations') && privacy.text.includes('A search provider, which may receive the searches a model makes while listing claims, and the words of a link&#39;s own address and date')
+        && privacy.text.includes('the model providers we use may process data in the United States, Europe and Japan; by using the Service you understand your information is transferred to those places')
+        && terms.text.includes('search the web while doing so, themselves or through our search provider; a search provider performs the searches a model asks for and may be asked to find a licensed copy')
+        && !/China/.test(privacy.text + terms.text),
       '');
     const home = await page('/');
     const footer = (home.text.match(/<footer class="footer">[\s\S]*?<\/footer>/) || [''])[0];

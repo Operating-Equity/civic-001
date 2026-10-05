@@ -9,8 +9,10 @@ import path from 'node:path';
 import { config } from './config.js';
 import { promptStatus, promptVersions, extractionShape } from './prompts.js';
 import { clientFor, describeError } from './openai.js';
-import { onDeepSeek, listingKey, listingClient, deepseekFailure, listingProviderName, deepseekHost } from './deepseek.js';
+import { onDeepSeek, onFireworks, onOwnProvider, listingKey, listingClient, listingFailure, listingProviderName, listingHost } from './listing.js';
 import { HEADER_SAFE } from './key.js';
+import { siteFetch } from './http.js';
+import { lastEcho } from './fireworks.js';
 import { recent } from './diagnostics.js';
 import { whereTheShellSetsIt } from './key.js';
 import { gateStates } from './gate.js';
@@ -18,7 +20,7 @@ import { readers as readersNow } from './jobs.js';
 import { silentSites } from './fetchurl.js';
 import { searchOn } from './copies.js';
 import { registry } from './tools/index.js';
-import { toolsOn } from './tools/request.js';
+import { toolsOn, gatewayTools } from './tools/request.js';
 
 const ok = (title, detail = '') => ({ state: 'ok', title, detail });
 const bad = (title, detail = '', fix = '') => ({ state: 'bad', title, detail, fix });
@@ -51,8 +53,8 @@ async function checkKeyAndModel(apiKey) {
   checks.push(ok('A key is configured', `It ends ${apiKey.slice(-4)} and is ${apiKey.length} characters long.`));
 
   const client = clientFor(apiKey);
-  // OpenAI is asked about the models it serves: both steps', or only the determinations' when the listing is on DeepSeek.
-  const models = [...new Set(onDeepSeek() ? [config.evalModels[0]] : [config.extractModels[0], config.evalModels[0]])];
+  // OpenAI is asked about the models it serves: both steps', or only the determinations' when the listing is elsewhere.
+  const models = [...new Set(onOwnProvider() ? [config.evalModels[0]] : [config.extractModels[0], config.evalModels[0]])];
   for (const model of models) {
     const started = Date.now();
     try {
@@ -84,57 +86,103 @@ async function checkKeyAndModel(apiKey) {
 }
 
 /**
- * The listing's own provider when it is not OpenAI: DeepSeek's key, its model and whether its account can pay,
- * asked without spending a token (GET /models, GET /user/balance). With no DeepSeek key nothing is asked of
- * DeepSeek at all. Every viewer sees whether the account can pay (so a stop always has its row); the figures
- * are the operator's alone.
+ * The listing's own provider when it is not OpenAI: its key and its model, and (DeepSeek's own service) whether its
+ * account can pay, asked without spending a token (GET /models, GET /user/balance). With no key for it nothing is asked
+ * of the provider at all. Every viewer sees whether the account can pay (so a stop always has its row); the figures
+ * are the operator's alone. On Fireworks, too, whether FactEngine's tool server answers at the address the listing
+ * gives Fireworks, which is how the model searches there.
  */
 async function checkListing({ operator }) {
   const checks = [];
   if (!config.extractProviderKnown) {
-    checks.push(bad('The listing\'s provider is not one FactEngine knows', `CIVIC_EXTRACT_PROVIDER is "${config.extractProvider}".`, 'Set it to openai or deepseek.'));
+    checks.push(bad('The listing\'s provider is not one FactEngine knows', `CIVIC_EXTRACT_PROVIDER is "${config.extractProvider}".`, 'Set it to openai, deepseek or fireworks.'));
     return checks;
   }
-  if (!onDeepSeek()) return checks;
+  if (!onOwnProvider()) return checks;
+  const who = listingProviderName();
+  const keyName = onFireworks() ? 'FIREWORKS_API_KEY' : 'DEEPSEEK_API_KEY';
+  const keyInfo = onFireworks() ? config.fireworksKeyInfo : config.deepseekKeyInfo;
+  const dashboard = onFireworks() ? 'app.fireworks.ai' : 'platform.deepseek.com';
   const model = config.extractModels[0];
   const key = listingKey({ optional: true });
   if (!key) {
-    checks.push(bad('No DeepSeek key for the listing', 'The listing is set to run on DeepSeek (CIVIC_EXTRACT_PROVIDER=deepseek) and DEEPSEEK_API_KEY is not set. Nothing is sent to DeepSeek without it.',
-      'Paste the key in Render: the civic service, Environment, DEEPSEEK_API_KEY, then deploy. Or set CIVIC_EXTRACT_PROVIDER=openai to list on OpenAI.'));
+    checks.push(bad(`No ${who} key for the listing`, `The listing is set to run on ${who} (CIVIC_EXTRACT_PROVIDER=${config.extractProvider}) and ${keyName} is not set. Nothing is sent to ${who} without it.`,
+      `Paste the key in Render: the civic service, Environment, ${keyName}, then deploy. Or set CIVIC_EXTRACT_PROVIDER=openai to list on OpenAI.`));
     return checks;
   }
   if (!HEADER_SAFE.test(key)) {
-    const o = config.deepseekKeyInfo?.offending;
-    checks.push(bad('The DeepSeek key cannot be sent in a request at all',
-      `It came from ${config.deepseekKeyInfo?.source}.${o ? ` Character ${o.index} of it is ${JSON.stringify(o.char)}, which a request cannot carry.` : ''}`,
-      'Paste the key alone in DEEPSEEK_API_KEY: no space, no line break, nothing before or after it.'));
+    const o = keyInfo?.offending;
+    checks.push(bad(`The ${who} key cannot be sent in a request at all`,
+      `It came from ${keyInfo?.source}.${o ? ` Character ${o.index} of it is ${JSON.stringify(o.char)}, which a request cannot carry.` : ''}`,
+      `Paste the key alone in ${keyName}: no space, no line break, nothing before or after it.`));
     return checks;
   }
-  checks.push(ok('A DeepSeek key is configured for the listing', `It ends ${key.slice(-4)} and is ${key.length} characters long.`));
+  checks.push(ok(`A ${who} key is configured for the listing`, `It ends ${key.slice(-4)} and is ${key.length} characters long.`));
   const client = listingClient(key);
   const started = Date.now();
   try {
     const page = await client.models.list();
     const ids = (page?.data || []).map((m) => m.id);
-    if (ids.includes(model)) checks.push(ok(`DeepSeek accepts this key for ${model}`, `Answered in ${Date.now() - started} ms. No tokens were used.`));
-    else checks.push(bad(`DeepSeek does not list ${model}`, `It lists ${ids.join(', ') || 'no model'}.`, 'Set CIVIC_EXTRACT_MODELS to one of them.'));
+    if (ids.includes(model)) checks.push(ok(`${who} accepts this key for ${model}`, `Answered in ${Date.now() - started} ms. No tokens were used.`));
+    else if (onFireworks()) checks.push(warn(`${who} accepted this key but did not list ${model}`, `It listed ${ids.length} model${ids.length === 1 ? '' : 's'}. A listing says at once if the model is refused.`, 'Set CIVIC_EXTRACT_MODELS to a model Fireworks serves if a listing is refused.'));
+    else checks.push(bad(`${who} does not list ${model}`, `It lists ${ids.join(', ') || 'no model'}.`, 'Set CIVIC_EXTRACT_MODELS to one of them.'));
   } catch (err) {
-    const safe = deepseekFailure(err);
+    const safe = listingFailure(err);
     if (safe.status === 401) {
-      checks.push(bad('DeepSeek rejected the listing\'s key', safe.detail || safe.message, 'The key is wrong or revoked. Make a new one at platform.deepseek.com and paste it in Render as DEEPSEEK_API_KEY.'));
+      checks.push(bad(`${who} rejected the listing\'s key`, safe.detail || safe.message, `The key is wrong or revoked. Make a new one at ${dashboard} and paste it in Render as ${keyName}.`));
       return checks;
     }
-    checks.push(bad('Could not reach DeepSeek', safe.detail || safe.message, `Check that this machine is online and that nothing is blocking ${deepseekHost()}.`));
+    checks.push(bad(`Could not reach ${who}`, safe.detail || safe.message, `Check that this machine is online and that nothing is blocking ${listingHost()}.`));
     return checks;
   }
+  if (onDeepSeek()) {
+    try {
+      const b = await client.get('/user/balance');
+      const figures = (b?.balance_infos || []).map((x) => `${x.total_balance} ${x.currency} (topped up ${x.topped_up_balance}, granted ${x.granted_balance})`).join('; ');
+      if (b?.is_available) checks.push(ok('The listing\'s DeepSeek account can pay for requests', operator && figures ? `Balance ${figures}.` : ''));
+      else checks.push(bad('The listing\'s DeepSeek account cannot pay for requests', operator && figures ? `Balance ${figures}.` : 'Its balance is used up.', 'Top it up in DeepSeek\'s dashboard, platform.deepseek.com.'));
+    } catch (err) {
+      const safe = listingFailure(err);
+      checks.push(warn('DeepSeek\'s balance could not be read', safe.detail || safe.message));
+    }
+  }
+  if (onFireworks()) {
+    checks.push(...await checkToolServer());
+    // What Fireworks says it applied, from its own echo of the last listing's request (none yet: no row).
+    const e = lastEcho();
+    if (e) {
+      const when = `${e.at.slice(0, 16).replace('T', ' ')} UTC`;
+      if (e.reasoning?.effort === config.extractEffort) checks.push(ok(`Fireworks took the listing's effort as ${config.extractEffort}`, `Its own echo of the last listing's request, at ${when}.`));
+      else checks.push(warn('Fireworks did not echo the listing\'s effort as sent', `FactEngine sent effort ${config.extractEffort}; Fireworks echoed ${JSON.stringify(e.reasoning)} for the last listing, at ${when}.`, 'The effort may not be reaching the model. Nothing else is affected.'));
+    }
+  }
+  return checks;
+}
+
+/**
+ * The listing on Fireworks searches through FactEngine's tool server: Fireworks' servers call it at the address the
+ * listing's request gives. Asked here as they would ask it, but without the pass: an answer of 401 says it is there and
+ * keeps its door. The pass itself is never shown.
+ */
+async function checkToolServer() {
+  const checks = [];
+  if (!gatewayTools().length) {
+    checks.push(warn('The listing on Fireworks cannot search or read pages', 'FactEngine\'s tool server has no public address: neither CIVIC_TOOLS_URL nor RENDER_EXTERNAL_URL is set. The listing reads the document alone.',
+      'On Render the address is the service\'s own and is set by Render; elsewhere set CIVIC_TOOLS_URL to this server\'s public address followed by /mcp.'));
+    return checks;
+  }
+  let at = config.gatewayUrl;
+  try { at = new URL(config.gatewayUrl).host; } catch { /* the setting as written */ }
   try {
-    const b = await client.get('/user/balance');
-    const figures = (b?.balance_infos || []).map((x) => `${x.total_balance} ${x.currency} (topped up ${x.topped_up_balance}, granted ${x.granted_balance})`).join('; ');
-    if (b?.is_available) checks.push(ok('The listing\'s DeepSeek account can pay for requests', operator && figures ? `Balance ${figures}.` : ''));
-    else checks.push(bad('The listing\'s DeepSeek account cannot pay for requests', operator && figures ? `Balance ${figures}.` : 'Its balance is used up.', 'Top it up in DeepSeek\'s dashboard, platform.deepseek.com.'));
+    const r = await siteFetch(config.gatewayUrl, { method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} }) });
+    await r.text().catch(() => '');
+    if (r.status === 401) checks.push(ok(`FactEngine's tool server answers at ${at}`, 'Fireworks reaches it there during a listing, with a pass only the listing\'s requests carry.'));
+    else checks.push(warn(`FactEngine's tool server did not answer as expected at ${at}`, `Without the pass it answered ${r.status}, not 401.`));
   } catch (err) {
-    const safe = deepseekFailure(err);
-    checks.push(warn('DeepSeek\'s balance could not be read', safe.detail || safe.message));
+    checks.push(warn(`FactEngine's tool server could not be reached at ${at}`, String(err?.cause?.code || err?.message || err), 'Fireworks will not be able to reach it either: the listing would read the document alone.'));
+  }
+  if (!registry.summary().verbs.includes('search_web')) {
+    checks.push(warn('The listing on Fireworks cannot search the web', 'The search service is not set (CIVIC_SEARCH_URL and CIVIC_SEARCH_KEY); the model can still read a page or a video\'s transcript.'));
   }
   return checks;
 }
@@ -223,7 +271,9 @@ export async function selftest({ apiKey, build, operator = true }) {
     pacing: gateStates(),
     readers: readersNow(),   // readers with work in flight on this instance right now
     silentSites: silentSites(),
-    tools: { reachable: toolsOn(), ...registry.summary() }, // the sources the model can reach for, and whether the requests name the gateway
+    // The sources the model can reach for, and which requests name the gateway: OpenAI's two when its address and pass
+    // are both set, the listing's on Fireworks whenever the tool server has an address.
+    tools: { reachable: toolsOn() || (onFireworks() && gatewayTools().length > 0), requests: { determinations: toolsOn(), listing: onFireworks() ? gatewayTools().length > 0 : toolsOn() }, ...registry.summary() },
     recentFailures: recent(10),
   };
 }
