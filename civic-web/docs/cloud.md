@@ -505,6 +505,43 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
   the operator's /check is ready (7/7, scratchpad/live-deepseek.mjs). The switch waits for the key: when
   `DEEPSEEK_API_KEY` is on the service, `CIVIC_EXTRACT_PROVIDER=deepseek` is written and a deploy carries both; then
   `live-deepseek.mjs after` and one short listing are the proof.
+- **5 October: OpenAI back to its setting before 21 September, and the listing on Fireworks.** The operator: "Do
+  you have a DeepSeek key in place? I want to send the email, but I need to identify the account. Maybe someone in
+  the US is hosting the model so we can avoid the China issue. The truth is, it's not their societal strength; it's
+  stealing intellectual property. I'm going to use their top model later and compare it to the one we are using; the
+  switch made costs balloon, and the quality is lower, as I saw the model not pulling empirical questions out [...]
+  This model is expensive and terrible—10 minutes and $3.40 for a simple question." Measured: no DeepSeek key was
+  ever on the service, so DeepSeek never received anything; the run they saw was OpenAI's gpt-5.6-sol at effort
+  `max` in mode `pro` (the setting of 21 September): in Postgres on 4 October the listing took 927 s and $3.81, one
+  determination 404 s, 12 searches and $3.71. Their answers: the listing to **a US host (Fireworks)**; the
+  determinations **back to the setting before 21 September**; on search, "Does the DeepSeek model have no search.
+  How can it work?" (no model searches by itself: the service running it performs the searches it asks for).
+  Read from Fireworks' own pages that day: DeepSeek V4.1 Flash as `accounts/fireworks/models/deepseek-v4p1-flash`,
+  $0.22 input, $0.007 cached, $0.66 output per million tokens; its Responses API keeps a conversation 30 days
+  unless `store: false` and otherwise retains nothing (zero data retention for open models; no training on inputs
+  without opt-in); serverless runs on its fleet in the United States, Frankfurt, Iceland and Tokyo, its US-only
+  serverless covering two other models; tools of type function or mcp (an mcp server is called by Fireworks itself),
+  no web search; the chain of thought comes inside the answer's text, ahead of `</think>` (its examples read the
+  answer after it); usage as `prompt_tokens` / `completion_tokens`. Three choices made on the operator's behalf
+  where they had not answered, each one word to reverse: FactEngine's own search (not Fireworks' own, which needs
+  Fireworks to switch it on for the account), Fireworks' pay-per-token service (not a US-only setup), and the
+  OpenAI listing stepped down too until the switch. **Done at 02:36 UTC:** `CIVIC_EFFORT=xhigh` and
+  `CIVIC_REASONING_MODE=standard` written with `render-env.mjs` and deployed with the service idle
+  (dep-db1gpthsrm7s73bkb3ug): both OpenAI steps read effort xhigh and no mode on the health line; the code's
+  defaults follow in the release. **The release:** `CIVIC_EXTRACT_PROVIDER=fireworks` with `FIREWORKS_API_KEY`
+  (the operator's, pasted in Render) and `CIVIC_FIREWORKS_BASE_URL`; the providers behind one seam
+  (`server/listing.js`), OpenAI's settings kept from every other provider (`server/providers.js`); the body on
+  Fireworks is the model, the prompt verbatim, `reasoning.effort` max, one `mcp` entry naming FactEngine's tool server
+  and `store: false`, nothing else; the tool server's address is `RENDER_EXTERNAL_URL` + `/mcp` (Render sets it) and
+  its pass is derived from the session secret, so nothing new is pasted, and OpenAI's requests still name the tool
+  server only with both `CIVIC_TOOLS_*` set; a new verb `search_web` answered by the search service already on the
+  service (each call at the service's own price on its ledger line); the chain of thought cut at `</think>`
+  (`ThoughtCut`) so no reasoning becomes a claim or reaches the page, the replay, the raw listing, the ledger or a
+  failure record; Fireworks' usage read into the price table; its echo of the effort on the ledger line; /check reads
+  the key and the model without a token and whether the tool server answers at its public address; the Privacy and
+  Terms texts stop saying China and are true before and after the switch (the listing's provider does not train on
+  inputs and may search through our search provider; data may be processed in the United States, Europe and Japan),
+  the launch-texts document matching (rev 24).
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 

@@ -20,4 +20,9 @@ export const VERBS = {
     params: { url: { type: 'string', description: 'The video\'s full address.' } },
     required: ['url'],
   },
+  search_web: {
+    description: 'Search the web, as a search engine does: the pages found for what you ask, each with its title, its address, its site, its publication date when known, and its text. Ask in plain words; ask again in other words for other pages.',
+    params: { query: { type: 'string', description: 'What to search for, in plain words.' } },
+    required: ['query'],
+  },
 };

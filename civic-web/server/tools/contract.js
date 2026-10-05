@@ -28,7 +28,9 @@
 // A result is one shape for every source, so the model can cite it and the operator can read it:
 //   { items: [{ kind, title, site, url, id, date, text, note }], cursor }
 // `cursor` is the source's own next page, if it has one; the model asks for more by calling again with
-// it. A single document is one item. The registry adds `source` (the source's name) and `retrievedAt`.
+// it. A single document is one item. The registry adds `source` (the source's name) and `retrievedAt`. A
+// source that reports its own cost for the call adds `usd`, and the ledger line carries that figure instead
+// of the operator's per-call one; the model never sees it.
 // What a source keeps back (a refusal, a paywall, nothing found) is thrown as `ToolRefusal` with the
 // sentence the model should read; anything else that fails becomes a failure record for the operator,
 // and the model reads that the source did not answer.

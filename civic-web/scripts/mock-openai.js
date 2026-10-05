@@ -34,6 +34,11 @@ app.use('/deepseek', (req, res, next) => {
   if (process.env.MOCK_RECORD) fs.appendFileSync(process.env.MOCK_RECORD, JSON.stringify({ ts: Date.now(), deepseek: true, method: req.method, path: req.originalUrl.split('?')[0], auth: req.get('authorization') || '', headers: Object.keys(req.headers) }) + '\n');
   next();
 });
+// The same record for every request to the Fireworks stand-in (below), for the same proofs.
+app.use('/fireworks', (req, res, next) => {
+  if (process.env.MOCK_RECORD) fs.appendFileSync(process.env.MOCK_RECORD, JSON.stringify({ ts: Date.now(), fireworks: true, method: req.method, path: req.originalUrl.split('?')[0], auth: req.get('authorization') || '', headers: Object.keys(req.headers) }) + '\n');
+  next();
+});
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms * SPEED));
 // The calls the stand-in makes to CIVIC's gateway when a request names it (see the Responses route).
@@ -156,40 +161,9 @@ app.post('/v1/responses', async (req, res) => {
       }
     }
     // CIVIC's own tools: with an `mcp` entry in the request, the stand-in does what OpenAI's servers do,
-    // as a client of the gateway at the entry's address with the entry's headers: it lists the tools,
-    // makes the calls MOCK_TOOL_CALLS names (JSON: [{ name, arguments }]), and streams each as OpenAI
-    // does. What the gateway answered is recorded (MOCK_RECORD) for the guard.
+    // as a client of the gateway at the entry's address with the entry's headers (playMcp, below).
     const mcp = body.tools?.find((t) => t.type === 'mcp');
-    if (mcp && TOOL_CALLS.length) {
-      const rpc = async (method, params, rpcId) => {
-        const r = await fetch(mcp.server_url, { method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', ...(mcp.headers || {}) }, body: JSON.stringify({ jsonrpc: '2.0', id: rpcId, method, params }) });
-        const raw = await r.text();
-        let json = null; try { json = JSON.parse(raw); } catch {}
-        return { status: r.status, json };
-      };
-      const init = await rpc('initialize', { protocolVersion: '2025-11-25', capabilities: {}, clientInfo: { name: 'mock-openai', version: '1' } }, 1);
-      const list = await rpc('tools/list', {}, 2);
-      const tools = list.json?.result?.tools || [];
-      send({ type: 'response.output_item.added', output_index: 10, item: { id: 'mcpl_1', type: 'mcp_list_tools', server_label: mcp.server_label, tools: [] } });
-      send({ type: 'response.mcp_list_tools.in_progress', item_id: 'mcpl_1', output_index: 10 });
-      send({ type: 'response.mcp_list_tools.completed', item_id: 'mcpl_1', output_index: 10 });
-      send({ type: 'response.output_item.done', output_index: 10, item: { id: 'mcpl_1', type: 'mcp_list_tools', server_label: mcp.server_label, tools: tools.map((t) => ({ name: t.name, description: t.description, input_schema: t.inputSchema })) } });
-      recordMcp({ step: 'list', initialize: init.status, status: list.status, names: tools.map((t) => t.name), tools });
-      for (const [k, c] of TOOL_CALLS.entries()) {
-        const itemId = `mcp_${k}`, index = 20 + k, args = JSON.stringify(c.arguments || {});
-        send({ type: 'response.output_item.added', output_index: index, item: { id: itemId, type: 'mcp_call', name: c.name, arguments: '', server_label: mcp.server_label, status: 'in_progress' } });
-        send({ type: 'response.mcp_call.in_progress', item_id: itemId, output_index: index });
-        send({ type: 'response.mcp_call_arguments.delta', item_id: itemId, output_index: index, delta: args });
-        send({ type: 'response.mcp_call_arguments.done', item_id: itemId, output_index: index, arguments: args });
-        const r = await rpc('tools/call', { name: c.name, arguments: c.arguments || {} }, 3 + k);
-        const result = r.json?.result;
-        const failed = !result || Boolean(result.isError);
-        const outText = (result?.content || []).map((x) => x.text || '').join('');
-        send({ type: failed ? 'response.mcp_call.failed' : 'response.mcp_call.completed', item_id: itemId, output_index: index });
-        send({ type: 'response.output_item.done', output_index: index, item: { id: itemId, type: 'mcp_call', name: c.name, arguments: args, server_label: mcp.server_label, status: failed ? 'failed' : 'completed', output: failed ? null : outText, error: failed ? { type: 'mcp_tool_execution_error', message: outText || `the gateway answered ${r.status}` } : null } });
-        recordMcp({ step: 'call', call: c, status: r.status, failed, output: outText.slice(0, 6000) });
-      }
-    }
+    if (mcp && TOOL_CALLS.length) await playMcp(mcp, send, TOOL_CALLS);
     // The response's own later call, after the search: its whole context is charged to the bucket
     // now, as OpenAI charges it. When the bucket lacks it, OpenAI does not turn anything back at
     // the door (the door is long passed); it ends the response with its figures in an error event.
@@ -298,6 +272,54 @@ app.post('/v1/images/edits', form.any(), async (req, res) => {
 
 app.get('/v1/mock/stats', (req, res) => res.json({ ...stats, tokens: { limit: TOKENS.limit, level: Math.floor(levelOf(TOKENS)) }, requests: REQUESTS ? { limit: REQUESTS.limit, level: Math.floor(levelOf(REQUESTS)) } : null, windowMs: WINDOW, costs: COSTS }));
 
+// ---- A provider's servers as a client of FactEngine's tool server ----------------------------
+// What OpenAI's servers (and Fireworks') do with an `mcp` entry: as a client of the gateway at the entry's address,
+// with the entry's headers, list the tools, make the calls given (JSON: [{ name, arguments }]) and stream each as that
+// provider does. OpenAI's style: mcp_list_tools and mcp_call items with the call's name and arguments on the item.
+// Fireworks' style: mcp_call items carrying the call inside an `mcp` object, and a tool_output item after each.
+// What the gateway answered is recorded (MOCK_RECORD) for the guard.
+async function playMcp(mcp, send, calls, { style = 'openai' } = {}) {
+  const rpc = async (method, params, rpcId) => {
+    const r = await fetch(mcp.server_url, { method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', ...(mcp.headers || {}) }, body: JSON.stringify({ jsonrpc: '2.0', id: rpcId, method, params }) });
+    const raw = await r.text();
+    let json = null; try { json = JSON.parse(raw); } catch {}
+    return { status: r.status, json };
+  };
+  const init = await rpc('initialize', { protocolVersion: '2025-11-25', capabilities: {}, clientInfo: { name: 'mock-openai', version: '1' } }, 1);
+  const list = await rpc('tools/list', {}, 2);
+  const tools = list.json?.result?.tools || [];
+  if (style === 'openai') {
+    send({ type: 'response.output_item.added', output_index: 10, item: { id: 'mcpl_1', type: 'mcp_list_tools', server_label: mcp.server_label, tools: [] } });
+    send({ type: 'response.mcp_list_tools.in_progress', item_id: 'mcpl_1', output_index: 10 });
+    send({ type: 'response.mcp_list_tools.completed', item_id: 'mcpl_1', output_index: 10 });
+    send({ type: 'response.output_item.done', output_index: 10, item: { id: 'mcpl_1', type: 'mcp_list_tools', server_label: mcp.server_label, tools: tools.map((t) => ({ name: t.name, description: t.description, input_schema: t.inputSchema })) } });
+  }
+  recordMcp({ step: 'list', style, initialize: init.status, status: list.status, names: tools.map((t) => t.name), tools });
+  for (const [k, c] of calls.entries()) {
+    const itemId = `mcp_${k}`, index = 20 + k, args = JSON.stringify(c.arguments || {});
+    if (style === 'openai') {
+      send({ type: 'response.output_item.added', output_index: index, item: { id: itemId, type: 'mcp_call', name: c.name, arguments: '', server_label: mcp.server_label, status: 'in_progress' } });
+      send({ type: 'response.mcp_call.in_progress', item_id: itemId, output_index: index });
+      send({ type: 'response.mcp_call_arguments.delta', item_id: itemId, output_index: index, delta: args });
+      send({ type: 'response.mcp_call_arguments.done', item_id: itemId, output_index: index, arguments: args });
+    } else {
+      send({ type: 'response.output_item.added', output_index: index, item: { id: itemId, type: 'mcp_call', status: 'in_progress', mcp: { name: c.name, arguments: args, server_label: mcp.server_label } } });
+    }
+    const r = await rpc('tools/call', { name: c.name, arguments: c.arguments || {} }, 3 + k);
+    const result = r.json?.result;
+    const failed = !result || Boolean(result.isError);
+    const outText = (result?.content || []).map((x) => x.text || '').join('');
+    if (style === 'openai') {
+      send({ type: failed ? 'response.mcp_call.failed' : 'response.mcp_call.completed', item_id: itemId, output_index: index });
+      send({ type: 'response.output_item.done', output_index: index, item: { id: itemId, type: 'mcp_call', name: c.name, arguments: args, server_label: mcp.server_label, status: failed ? 'failed' : 'completed', output: failed ? null : outText, error: failed ? { type: 'mcp_tool_execution_error', message: outText || `the gateway answered ${r.status}` } : null } });
+    } else {
+      send({ type: 'response.output_item.done', output_index: index, item: { id: itemId, type: 'mcp_call', name: null, arguments: null, status: failed ? 'incomplete' : 'completed', mcp: { name: c.name, arguments: args, server_label: mcp.server_label }, ...(failed ? { error: outText || `the gateway answered ${r.status}` } : {}) } });
+      send({ type: 'response.output_item.done', output_index: index + 50, item: { type: 'tool_output', tool_call_id: itemId, output: outText } });
+    }
+    recordMcp({ step: 'call', style, call: c, status: r.status, failed, output: outText.slice(0, 6000) });
+  }
+}
+
 // ---- DeepSeek ----------------------------------------------------------------------------
 // The listing on DeepSeek (server/deepseek.js) talks to this when CIVIC_DEEPSEEK_BASE_URL points here
 // (http://localhost:<port>/deepseek). It speaks DeepSeek's dialect of the Responses API as its pages describe it:
@@ -379,6 +401,88 @@ app.post('/deepseek/responses', async (req, res) => {
       id, object: 'response', status: 'completed', model: body.model, store: false, error: null, incomplete_details: null,
       usage: { input_tokens: Math.round(text.length / 4), input_tokens_details: { cached_tokens: 0 }, output_tokens: Math.round(output.length / 4) + 50, output_tokens_details: { reasoning_tokens: 50 }, total_tokens: 0 },
     },
+  });
+  res.end();
+});
+
+// ---- Fireworks ---------------------------------------------------------------------------
+// The listing on Fireworks (server/fireworks.js) talks to this when CIVIC_FIREWORKS_BASE_URL points here
+// (http://localhost:<port>/fireworks). It speaks Fireworks' dialect of the Responses API as its pages and its own
+// examples show it: the model's chain of thought inside the answer's text, ahead of `</think>` with no opening tag
+// (MOCK_FW_TAGGED lists the requests that open it with `<think>`; MOCK_FW_APART those that send it apart, as reasoning
+// events, instead), carrying a marker and numbered lines of its own that must never become claims; the input listed
+// among the output as a user's item, with numbered lines of its own too; the request echoed in response.created; usage
+// as prompt_tokens and completion_tokens; no web search, and an `mcp` tool called by the stand-in itself during the
+// response, as Fireworks calls one (MOCK_FW_TOOL_CALLS); and its refusals: 429 with no wait, 503, 402 (out of
+// credits), an error event mid-stream, a stream closed with no event. Each knob lists request ordinals (1-based).
+const FW_MODELS = ['accounts/fireworks/models/deepseek-v4p1-flash', 'accounts/fireworks/models/kimi-k3'];
+const FW_EFFORTS = new Set(['none', 'low', 'medium', 'high', 'xhigh', 'max']);
+const FW_429 = dsSet('MOCK_FW_429'), FW_503 = dsSet('MOCK_FW_503'), FW_402 = dsSet('MOCK_FW_402'), FW_CLOSE = dsSet('MOCK_FW_CLOSE'), FW_ERROR_EVENT = dsSet('MOCK_FW_ERROR_EVENT');
+const FW_TAGGED = dsSet('MOCK_FW_TAGGED'), FW_APART = dsSet('MOCK_FW_APART');
+const FW_TOOL_CALLS = (() => { try { return JSON.parse(process.env.MOCK_FW_TOOL_CALLS || '[]'); } catch { return []; } })();
+const FW_COT = 'FWCOT-2c9d';    // the chain of thought's marker: never in a claim, on a page, a replay, a ledger line or a failure record
+const FW_USER = 'FWUSER-8b1e';  // the input's echo among the output: never a claim either
+const fwStats = { requests: 0, streams: 0 };
+let fwOrdinal = 0;
+
+app.get('/fireworks/models', (req, res) => res.json({ object: 'list', data: FW_MODELS.map((id) => ({ id, object: 'model', owned_by: 'fireworks' })) }));
+app.get('/fireworks/mock/stats', (req, res) => res.json(fwStats));
+
+app.post('/fireworks/responses', async (req, res) => {
+  const body = req.body || {};
+  const ordinal = ++fwOrdinal;
+  fwStats.requests = ordinal;
+  if (!FW_MODELS.includes(body.model)) return res.status(404).json({ error: { message: `Model not found, inaccessible, and/or not deployed: ${body.model}`, code: 'NOT_FOUND' } });
+  if (body.reasoning?.effort !== undefined && !FW_EFFORTS.has(body.reasoning.effort)) return res.status(400).json({ error: { message: `Invalid reasoning effort: ${body.reasoning.effort}` } });
+  if (FW_402.has(ordinal)) return res.status(402).json({ error: { message: 'Your account is out of credits. Add credits at app.fireworks.ai to continue.', code: 'PAYMENT_REQUIRED' } });
+  if (FW_429.has(ordinal)) return res.status(429).json({ error: { message: 'Too many requests', code: 'RATE_LIMITED' } });
+  if (FW_503.has(ordinal)) return res.status(503).json({ error: { message: 'Service unavailable', code: 'UNAVAILABLE' } });
+  fwStats.streams++;
+  res.status(200);
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.flushHeaders();
+  if (FW_CLOSE.has(ordinal)) { res.end(); return; }
+  let seq = 0;
+  const send = (event) => res.write(`event: ${event.type}\ndata: ${JSON.stringify({ ...event, sequence_number: seq++ })}\n\n`);
+  const id = body.store === false ? null : 'resp_fw_' + Math.random().toString(36).slice(2);
+  const echo = { id, object: 'response', status: 'in_progress', model: body.model, reasoning: body.reasoning ?? null, store: body.store ?? true, tools: body.tools || [] };
+  send({ type: 'response.created', response: echo });
+  send({ type: 'response.in_progress', response: echo });
+  // The input among the output, as Fireworks lists it: a user's item, with numbered lines of its own.
+  send({ type: 'response.output_item.added', output_index: 0, item: { id: 'msg_in', type: 'message', role: 'user', status: 'completed', content: [] } });
+  send({ type: 'response.output_text.delta', item_id: 'msg_in', output_index: 0, content_index: 0, delta: `${FW_USER} the input, listed\n1. ${FW_USER} an echo of the input\n2. ${FW_USER} never a claim\n` });
+  send({ type: 'response.output_item.done', output_index: 0, item: { id: 'msg_in', type: 'message', role: 'user', status: 'completed', content: [] } });
+  const thought = `${FW_COT} reading the document whole.\n1. ${FW_COT} first, every claim in the order it comes\n2. ${FW_COT} then who said it and when\n`;
+  if (FW_APART.has(ordinal)) {
+    send({ type: 'response.output_item.added', output_index: 1, item: { type: 'reasoning', id: 'rs_fw', status: 'in_progress' } });
+    for (const delta of thought.match(/[\s\S]{1,13}/g) || []) send({ type: 'response.reasoning_text.delta', item_id: 'rs_fw', output_index: 1, content_index: 0, delta });
+    send({ type: 'response.output_item.done', output_index: 1, item: { type: 'reasoning', id: 'rs_fw', status: 'completed', content: [{ type: 'reasoning_text', text: thought }] } });
+  }
+  if (FW_ERROR_EVENT.has(ordinal)) {
+    res.write(`event: error\ndata: ${JSON.stringify({ type: 'error', error: { message: 'Service unavailable', code: 'UNAVAILABLE' } })}\n\n`);
+    res.end();
+    return;
+  }
+  const mcp = (body.tools || []).find((t) => t.type === 'mcp');
+  if (mcp && FW_TOOL_CALLS.length) await playMcp(mcp, send, FW_TOOL_CALLS, { style: 'fireworks' });
+  const text = inputText(body);
+  const cut = text.lastIndexOf('\n\n');
+  const claims = mockClaims(body.instructions || cut < 0 ? text : text.slice(cut + 2).replace(/^[^\n]*:[ \t]*\n/, ''));
+  const output = FW_APART.has(ordinal) ? claims : FW_TAGGED.has(ordinal) ? `<think>${thought}</think>\n\n${claims}` : `${thought}</think>\n\n${claims}`;
+  send({ type: 'response.output_item.added', output_index: 2, item: { type: 'message', id: 'msg_fw', status: 'in_progress', role: 'assistant', content: [] } });
+  // Pieces of thirteen characters, so the marker is split between two pieces as often as not.
+  for (const delta of output.match(/[\s\S]{1,13}/g) || []) {
+    if (res.writableEnded || res.destroyed) return;
+    send({ type: 'response.output_text.delta', item_id: 'msg_fw', output_index: 2, content_index: 0, delta });
+    await sleep(4);
+  }
+  send({ type: 'response.output_text.done', item_id: 'msg_fw', output_index: 2, content_index: 0, text: output });
+  send({ type: 'response.output_item.done', output_index: 2, item: { type: 'message', id: 'msg_fw', status: 'completed', role: 'assistant', content: [{ type: 'output_text', text: output }] } });
+  const prompt = Math.round(text.length / 4), completion = Math.round(output.length / 4) + 50;
+  send({
+    type: 'response.completed',
+    response: { ...echo, status: 'completed', usage: { input_tokens: null, output_tokens: null, prompt_tokens: prompt, completion_tokens: completion, total_tokens: prompt + completion, prompt_tokens_details: { cached_tokens: 7 } } },
   });
   res.end();
 });

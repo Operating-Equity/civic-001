@@ -89,10 +89,11 @@ const wait = (ms, signal) => new Promise((resolve, reject) => {
 
 /** One search. A refusal for the minute is a wait (the service's own Retry-After, else a doubling from
  *  a second) and never a failure; nothing here limits how long the reader is willing to wait, and the
- *  reader leaving is what stops it. Any other refusal is a note for the operator and no copies. */
-async function searchOnce(kind, query, exclude, { signal }) {
+ *  reader leaving is what stops it. Any other refusal is a note for the operator and no copies. The cost is
+ *  the service's own figure, on a ledger line of its own unless the caller records it (the tool server does). */
+async function searchOnce(kind, query, exclude, { signal, ledgerLine = true } = {}) {
   const address = await assertPublic(String(config.searchUrl).trim());
-  const body = JSON.stringify({ query, type: 'auto', numResults: config.searchResults, excludeDomains: exclude, contents: { text: true } });
+  const body = JSON.stringify({ query, type: 'auto', numResults: config.searchResults, ...(exclude.length ? { excludeDomains: exclude } : {}), contents: { text: true } });
   for (let backoff = 1000; ;) {
     if (signal?.aborted) throw new Error('aborted');
     const started = Date.now();
@@ -118,10 +119,17 @@ async function searchOnce(kind, query, exclude, { signal }) {
     }
     const results = Array.isArray(data?.results) ? data.results : [];
     // The cost is the service's own figure for this call, when it gives one; nothing is estimated.
-    const usd = Number(data?.costDollars?.total);
-    ledger({ kind: 'search', step: 'find-copies', search: kind, results: results.length, ms: Date.now() - started, usd: Number.isFinite(usd) ? usd : null });
-    return { results };
+    const figure = data?.costDollars?.total;
+    const usd = figure === null || figure === undefined || !Number.isFinite(Number(figure)) ? null : Number(figure);
+    if (ledgerLine) ledger({ kind: 'search', step: 'find-copies', search: kind, results: results.length, ms: Date.now() - started, usd });
+    return { results, usd };
   }
+}
+
+/** A search in the model's own words (the tool server's search_web, server/tools/adapters/search.js): the same
+ *  request and the same waits as the copies search, no site left out. Its cost goes on the tool's own ledger line. */
+export async function searchWeb(query, { signal } = {}) {
+  return searchOnce('web', String(query || ''), [], { signal, ledgerLine: false });
 }
 
 const escapeRe = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');

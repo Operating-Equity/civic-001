@@ -19,7 +19,8 @@
 // It makes an installed copy predictable: what the installer wrote is what runs. And when the two
 // disagree, FactEngine says so rather than choosing in silence.
 // The same rule serves every key FactEngine holds: OpenAI's (the default name below) and, since 4 October,
-// DeepSeek's for the listing (DEEPSEEK_API_KEY), so a stale shell can never beat either.
+// DeepSeek's for the listing (DEEPSEEK_API_KEY) and, since 5 October, Fireworks' (FIREWORKS_API_KEY), so a stale shell
+// can never beat any of them.
 import fs from 'node:fs';
 
 const NAME = 'OPENAI_API_KEY';

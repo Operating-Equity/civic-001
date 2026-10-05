@@ -4,11 +4,12 @@ import { config } from './config.js';
 import { extractionRequest, extractionShape } from './prompts.js';
 import { sourceBlock } from './source.js';
 import { withModelFallback, usageOf, isRetryable, isRateLimit, isConnectionDrop, connectionWait, rateLimitWaitMs, sleep, throughGate, streamFailure, CONNECTION_RETRY_MS } from './openai.js';
-import { onDeepSeek, listingClient, deepseekFailure, deepseekHost, openaiHost } from './deepseek.js';
+import { onDeepSeek, onFireworks, onOwnProvider, listingClient, listingFailure, listingHost, listingProviderName, openaiHost } from './listing.js';
+import { ThoughtCut, usageFrom } from './fireworks.js';
 import { noteFailure, noteReply } from './reach.js';
 import { gateFor, parseRefusal } from './gate.js';
 import { estimateTextCost } from './pricing.js';
-import { requestTools, toolStep, searchCount } from './tools/request.js';
+import { requestTools, gatewayTools, toolStep, searchCount } from './tools/request.js';
 import { record } from './ledger.js';
 
 /** Parses "1. claim\n2. claim" incrementally. Returns the claims completed so far. */
@@ -46,9 +47,11 @@ export function splitEntry(entry) {
 }
 
 export async function runExtraction({ apiKey, text, meta, send, signal, sourceWarning, ctx = {} }) {
-  // The listing's provider: OpenAI as before, or DeepSeek when the operator puts the listing there
-  // (CIVIC_EXTRACT_PROVIDER=deepseek; 4 October). apiKey is that provider's key (listingKey, deepseek.js).
+  // The listing's provider: OpenAI as before, or DeepSeek's own service (CIVIC_EXTRACT_PROVIDER=deepseek; 4 October),
+  // or the same model on Fireworks (fireworks; 5 October). apiKey is that provider's key (listingKey, listing.js).
   const deepseek = onDeepSeek();
+  const fireworks = onFireworks();
+  const own = onOwnProvider();   // not OpenAI: not through OpenAI's gate, and its waits name its own provider
   const client = listingClient(apiKey);
   // A prompt with a slot for the source asked for what is known of its origin too, so the source
   // goes in with what CIVIC knows of that. A prompt without a slot gets the text alone.
@@ -59,8 +62,26 @@ export async function runExtraction({ apiKey, text, meta, send, signal, sourceWa
 
   let wantSummary = Boolean(config.extractSummary);
   let reasoning = '';
+  let reasoningEcho;   // Fireworks' own echo of the reasoning it was asked for (response.created), for /check
   const trail = []; // every web action the model took during extraction, if any
   const attempt = async (model) => {
+    if (fireworks) {
+      // Fireworks: the model, the prompt verbatim, the effort, FactEngine's tool server (Fireworks has no web search of
+      // its own; it calls the tool server itself, during the response) and `store: false`, without which Fireworks
+      // keeps the conversation for 30 days. Nothing else. Not through OpenAI's gate: a 429 is a wait, below.
+      const body = {
+        model,
+        ...(request.instructions ? { instructions: request.instructions } : {}),
+        input: [{ role: 'user', content: [{ type: 'input_text', text: request.message }] }],
+        reasoning: { effort: config.extractEffort },
+        tools: gatewayTools(),
+        stream: true,
+        store: false,
+      };
+      const { data, response } = await client.responses.create(body, { signal }).withResponse();
+      noteReply('Fireworks');
+      return { data, response, release: () => {} };
+    }
     if (deepseek) {
       // DeepSeek: the model, the prompt verbatim, the effort and web search, and nothing else. DeepSeek has no
       // mode, makes no summary and keeps nothing (so no `store`); CIVIC's own tools never go, since their
@@ -113,19 +134,33 @@ export async function runExtraction({ apiKey, text, meta, send, signal, sourceWa
         pricedAt = attemptAt;
         send({ t: 'start', model, requested: config.extractModels[0], at: started });
         let ended = false;   // completed, incomplete or failed: the reply's own last word
+        // On Fireworks the model's chain of thought comes inside the answer's text; the cut hands on the answer alone.
+        const cut = fireworks ? new ThoughtCut() : null;
+        const take = (piece) => {
+          if (!piece) return;
+          full += piece;
+          const items = parseNumberedList(full);
+          // Emit each claim once it is closed by the next number.
+          while (emitted < items.length - 1) {
+            const c = items[emitted];
+            send({ t: 'claim', n: emitted + 1, ...splitEntry(c.text), entry: c.text });
+            emitted++;
+          }
+          send({ t: 'progress', chars: full.length, found: Math.max(emitted, items.length) });
+        };
         try {
         for await (const event of stream) {
           if (signal.aborted) return;
           if (event.type === 'response.output_text.delta') {
-            full += event.delta;
-            const items = parseNumberedList(full);
-            // Emit each claim once it is closed by the next number.
-            while (emitted < items.length - 1) {
-              const c = items[emitted];
-              send({ t: 'claim', n: emitted + 1, ...splitEntry(c.text), entry: c.text });
-              emitted++;
-            }
-            send({ t: 'progress', chars: full.length, found: Math.max(emitted, items.length) });
+            take(cut ? cut.feed(event.item_id, event.delta) : event.delta);
+          } else if (cut && event.type === 'response.output_item.added') {
+            cut.begin(event.item);
+          } else if (cut && event.type === 'response.output_item.done' && event.item?.type === 'message') {
+            take(cut.end(event.item.id));
+          } else if (cut && event.type === 'response.created') {
+            reasoningEcho = event.response?.reasoning ?? null;
+          } else if (cut && /reasoning/.test(String(event.type))) {
+            // Fireworks' reasoning sent apart, in whatever form: neither sent nor kept.
           } else if (event.type === 'response.reasoning_summary_text.delta') {
             // The model's own summary of its reasoning (OpenAI). A raw chain of thought
             // (`response.reasoning_text.delta`, which is what DeepSeek streams) is neither sent nor kept: it
@@ -146,10 +181,12 @@ export async function runExtraction({ apiKey, text, meta, send, signal, sourceWa
             send({ t: 'trail', step, searches: searchCount(trail) });
           } else if (event.type === 'response.completed') {
             ended = true;
-            usage = usageOf(event.response);
+            if (cut) take(cut.finish());
+            usage = cut ? usageFrom(event.response) : usageOf(event.response);
           } else if (event.type === 'response.incomplete') {
             ended = true;
-            usage = usageOf(event.response);
+            if (cut) take(cut.finish());
+            usage = cut ? usageFrom(event.response) : usageOf(event.response);
             incomplete = event.response?.incomplete_details?.reason || 'incomplete';
             send({ t: 'phase', phase: 'incomplete', reason: incomplete });
           } else if (event.type === 'response.failed' || event.type === 'error') {
@@ -157,7 +194,8 @@ export async function runExtraction({ apiKey, text, meta, send, signal, sourceWa
           }
         }
         // A reply that stops without its last word was cut, however politely: DeepSeek closes a request that
-        // has not started inside ten minutes. It goes again; it is never a listing of no claims.
+        // has not started inside ten minutes. It goes again; it is never a listing of no claims (and what the
+        // cut was holding goes with it: the next go starts its own).
         if (!ended && !signal.aborted) throw new Error('terminated: the reply ended before its last event');
         } finally {
           release();
@@ -182,9 +220,9 @@ export async function runExtraction({ apiKey, text, meta, send, signal, sourceWa
         // A refusal inside the streamed reply, as in evaluate.js: OpenAI's figures go to the gate,
         // the extraction waits exactly what OpenAI asked, and goes again, whole.
         const refusal = parseRefusal(err);
-        if (!deepseek) gateFor(modelUsed || config.extractModels[0]).refusedInStream('extraction', refusal);
-        // A refusal that names no wait (DeepSeek's never do) goes again a second after this go began, the
-        // same second as a missing connection: never at once, which would be an endless loop.
+        if (!own) gateFor(modelUsed || config.extractModels[0]).refusedInStream('extraction', refusal);
+        // A refusal that names no wait (DeepSeek's never do; Fireworks' may) goes again a second after this go
+        // began, the same second as a missing connection: never at once, which would be an endless loop.
         const waitMs = refusal.waitMs || Math.max(0, CONNECTION_RETRY_MS - (Date.now() - attemptAt));
         send({ t: 'retry', attempt: tries + 1, status: 429, reason: 'rate_limit', waitMs });
         if (waitMs > 0) await sleep(waitMs);
@@ -196,8 +234,8 @@ export async function runExtraction({ apiKey, text, meta, send, signal, sourceWa
         // second after this go began, however long the route is missing, never counted out.
         const wait = connectionWait(err, attemptAt);
         const { code, waitMs } = wait;
-        const why = deepseek ? String(wait.why || '').split(openaiHost()).join(deepseekHost()) : wait.why;
-        const { since } = noteFailure({ code, why, ...(deepseek ? { who: 'DeepSeek' } : {}) });
+        const why = own ? String(wait.why || '').split(openaiHost()).join(listingHost()) : wait.why;
+        const { since } = noteFailure({ code, why, ...(own ? { who: listingProviderName() } : {}) });
         send({ t: 'retry', attempt: tries + 1, status: null, reason: 'connection', code, why, since, waitMs, at: Date.now() });
         if (waitMs > 0) await sleep(waitMs);
         continue;
@@ -212,7 +250,7 @@ export async function runExtraction({ apiKey, text, meta, send, signal, sourceWa
         if (waitMs > 0) await sleep(waitMs);
         continue;
       }
-      throw deepseek ? deepseekFailure(err) : err;
+      throw listingFailure(err);
     }
   }
 
@@ -225,7 +263,7 @@ export async function runExtraction({ apiKey, text, meta, send, signal, sourceWa
   const claims = items.map((c, i) => ({ n: i + 1, ...splitEntry(c.text), entry: c.text }));
   const ms = Date.now() - started;
   const cost = estimateTextCost({ model: modelUsed, usage, at: pricedAt });
-  record({ kind: 'extract', provider: config.extractProvider, model: modelUsed, effort: config.extractEffort, mode: config.extractReasoningMode || null, chars: text.length, claims: claims.length, usage, ms, usd: cost.usd, priced: cost.priced }, { runId: ctx.runId, owner: ctx.owner });
+  record({ kind: 'extract', provider: config.extractProvider, model: modelUsed, effort: config.extractEffort, mode: config.extractReasoningMode || null, ...(fireworks ? { reasoningEcho: reasoningEcho ?? null } : {}), chars: text.length, claims: claims.length, usage, ms, usd: cost.usd, priced: cost.priced }, { runId: ctx.runId, owner: ctx.owner });
   // `raw` is the model's complete extraction output, exactly as returned, so it can be inspected.
   // No token figures go to the page (the operator's rule of 18 September); the ledger line above keeps them.
   const result = { t: 'done', total: claims.length, limit: config.maxClaims, claims, raw: full, reasoning: reasoning.trim() || null, trail, model: modelUsed, requested: config.extractModels[0], fellBack, effort: config.extractEffort, mode: config.extractReasoningMode || null, ms, cost, incomplete };

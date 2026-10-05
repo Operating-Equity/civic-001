@@ -1,11 +1,12 @@
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import { resolveKey } from './key.js';
 import { extractionShape } from './prompts.js';
 // Runtime configuration.
 //
 // ONE RULE GOVERNS THIS FILE. The requests sent to OpenAI (and, for the listing when the operator
-// puts it there, to DeepSeek) carry the operator's tested configuration and nothing else: the model,
-// the reasoning effort, the prompt, web search.
+// puts it there, to DeepSeek or Fireworks) carry the operator's tested configuration and nothing else: the
+// model, the reasoning effort, the prompt, web search.
 // No parameter is added that the operator did not test with. No cap, no mode, no verbosity,
 // no context-size, no fallback, no limit. `npm run verify` inspects the request bodies the
 // server actually sends and fails if any key beyond that set appears.
@@ -27,15 +28,17 @@ const num = (name, fallback) => { const v = Number(env(name, String(fallback)));
 const optInt = (name) => { const v = Number.parseInt(env(name, ''), 10); return Number.isInteger(v) ? v : null; };
 const optNum = (name) => { const raw = env(name, ''); const v = Number(raw); return raw !== '' && Number.isFinite(v) ? v : null; };
 
-// The operator's configuration: gpt-5.6-sol, OpenAI's flagship below GPT-6, at its maximum. Tested by the
-// operator at reasoning effort xhigh; on 21 September they asked for the model's maximum power short of
-// GPT-6, which OpenAI's pages put at effort `max` (the top of the ladder) in reasoning mode `pro` ("the
+// The operator's configuration: gpt-5.6-sol, OpenAI's flagship below GPT-6. Tested by the operator at
+// reasoning effort xhigh; on 21 September they asked for the model's maximum power short of GPT-6, which
+// OpenAI's pages put at effort `max` (the top of the ladder) in reasoning mode `pro` ("the
 // highest-intelligence API option": more model work per answer, billed at the ordinary per-token rates).
-// Used for both steps unless the operator sets a step separately. A mode of `standard` or empty sends
-// no mode key at all.
+// On 5 October, after a listing had taken fifteen minutes and $3.81 and one determination almost seven
+// minutes and $3.71 at that power ("This model is expensive and terrible"), the operator stepped back to the
+// setting before 21 September: effort xhigh in standard mode. Used for both steps unless the operator sets
+// a step separately. A mode of `standard` or empty sends no mode key at all; `pro` brings pro mode back.
 const MODEL = env('CIVIC_MODEL', 'gpt-5.6-sol');
-const EFFORT = env('CIVIC_EFFORT', 'max');
-const MODE = env('CIVIC_REASONING_MODE', 'pro');
+const EFFORT = env('CIVIC_EFFORT', 'xhigh');
+const MODE = env('CIVIC_REASONING_MODE', 'standard');
 const modeOrNone = (v) => (v && v !== 'standard' ? v : '');
 
 // CIVIC's own key. The rule lives in server/key.js and is the same whatever shape either key is in.
@@ -50,10 +53,29 @@ const chosenKey = resolveKey({ settingsFile: new URL('../.env', import.meta.url)
 // carries the model, the prompt, the effort, web search and nothing else. The listing's effort is its own
 // (CIVIC_EXTRACT_EFFORT, max by the operator's answer of 4 October) and never inherited from CIVIC_EFFORT, so a
 // change of OpenAI's effort cannot move the listing. Unset, the listing is on OpenAI exactly as before.
-const PROVIDERS = ['openai', 'deepseek'];
+//
+// Fireworks, the operator's choice of 5 October ("Maybe someone in the US is hosting the model so we can avoid the
+// China issue"): the same DeepSeek V4.1 Flash, served by a US company that keeps nothing it is told not to keep and
+// trains on nothing; DeepSeek the company receives nothing. Fireworks answers OpenAI's Responses API at its own
+// address with its own key; it has no web search of its own, so the model reaches FactEngine's tool server instead
+// (server/tools: a search, a page, a transcript); it keeps a conversation 30 days unless the request says
+// store: false, which the listing always says; and its model's chain of thought arrives inside the answer's text,
+// ahead of `</think>`, and is cut off there (server/fireworks.js). The effort is the listing's own, as on DeepSeek.
+const PROVIDERS = ['openai', 'deepseek', 'fireworks'];
 const PROVIDER = env('CIVIC_EXTRACT_PROVIDER', 'openai').trim().toLowerCase();
 const DEEPSEEK = PROVIDER === 'deepseek';
+const FIREWORKS = PROVIDER === 'fireworks';
+const OWN = DEEPSEEK || FIREWORKS;   // the listing is not on OpenAI: its own model and effort, no mode, no summary
 const deepseekKey = resolveKey({ settingsFile: new URL('../.env', import.meta.url).pathname, name: 'DEEPSEEK_API_KEY' });
+const fireworksKey = resolveKey({ settingsFile: new URL('../.env', import.meta.url).pathname, name: 'FIREWORKS_API_KEY' });
+
+// FactEngine's tool server (server/tools/gateway.js), for a model that reaches it from its provider's servers. Its
+// address: CIVIC_TOOLS_URL, or else the service's own, which Render puts on every web service as RENDER_EXTERNAL_URL
+// (its onrender.com address), followed by /mcp: no setting and no domain. Its pass: CIVIC_TOOLS_PASS, or else one
+// derived from the session secret (or, without one, the OpenAI key) under its own label, so nothing new is pasted;
+// it travels only inside a request to a model provider, and no record, page or line of output carries it.
+const PUBLIC_URL = env('RENDER_EXTERNAL_URL', '').trim().replace(/\/+$/, '');
+const derivedPass = (seed) => (seed ? crypto.createHmac('sha256', seed).update('civic-tools-pass').digest('hex') : '');
 
 
 /** "ABCD234" or "ABCD234:150": the code as typed made canonical, and its own allowance of runs if given. */
@@ -69,21 +91,25 @@ function parseCodes(entries) {
 export const config = {
   port: int('PORT', 3000),
 
-  // Step 1 — empirical claim extraction, on OpenAI unless CIVIC_EXTRACT_PROVIDER says deepseek.
+  // Step 1 — empirical claim extraction, on OpenAI unless CIVIC_EXTRACT_PROVIDER says deepseek or fireworks.
   extractProvider: PROVIDER,
   extractProviderKnown: PROVIDERS.includes(PROVIDER),
-  extractModels: list('CIVIC_EXTRACT_MODELS', DEEPSEEK ? 'deepseek-flash' : MODEL), // one id = no fallback
-  extractEffort: DEEPSEEK ? env('CIVIC_EXTRACT_EFFORT', 'max') : env('CIVIC_EXTRACT_EFFORT', EFFORT),
-  extractReasoningMode: DEEPSEEK ? '' : modeOrNone(env('CIVIC_EXTRACT_REASONING_MODE', MODE)), // '' = no mode key in the request
+  extractModels: list('CIVIC_EXTRACT_MODELS', DEEPSEEK ? 'deepseek-flash' : FIREWORKS ? 'accounts/fireworks/models/deepseek-v4p1-flash' : MODEL), // one id = no fallback
+  extractEffort: OWN ? env('CIVIC_EXTRACT_EFFORT', 'max') : env('CIVIC_EXTRACT_EFFORT', EFFORT),
+  extractReasoningMode: OWN ? '' : modeOrNone(env('CIVIC_EXTRACT_REASONING_MODE', MODE)), // '' = no mode key in the request
   // Reasoning summaries are the model's own account of its reasoning, shown on the page. They do
-  // not change the answer. 'auto' lets the API decide the form. Blank turns them off. DeepSeek makes
-  // none (it streams its whole chain of thought instead, which never reaches the page).
-  extractSummary: DEEPSEEK ? '' : env('CIVIC_EXTRACT_REASONING_SUMMARY', 'auto'),
+  // not change the answer. 'auto' lets the API decide the form. Blank turns them off. DeepSeek and
+  // Fireworks make none (their model's whole chain of thought comes instead, and never reaches the page).
+  extractSummary: OWN ? '' : env('CIVIC_EXTRACT_REASONING_SUMMARY', 'auto'),
   // DeepSeek's address and key, used only by the listing when it is on DeepSeek. The address is a setting
   // so the guard can point it at its stand-in; the key follows the same rule as OpenAI's (server/key.js).
   deepseekBaseUrl: env('CIVIC_DEEPSEEK_BASE_URL', 'https://api.deepseek.com'),
   deepseekKey: deepseekKey.value,
   deepseekKeyInfo: deepseekKey,
+  // Fireworks' address and key, used only by the listing when it is on Fireworks; the same two rules.
+  fireworksBaseUrl: env('CIVIC_FIREWORKS_BASE_URL', 'https://api.fireworks.ai/inference/v1'),
+  fireworksKey: fireworksKey.value,
+  fireworksKeyInfo: fireworksKey,
 
   // Step 2 — determination.
   evalModels: list('CIVIC_EVAL_MODELS', MODEL), // one id = no fallback
@@ -144,6 +170,10 @@ export const config = {
   // Every source's own key is that source's setting, named in its adapter, never here.
   toolsUrl: env('CIVIC_TOOLS_URL', ''),
   toolsPass: env('CIVIC_TOOLS_PASS', ''),
+  // The tool server's address and pass as a listing on Fireworks names them (see PUBLIC_URL above): the two settings
+  // when set, else the service's own address and a pass derived from its secret. The gateway answers this pass.
+  gatewayUrl: env('CIVIC_TOOLS_URL', '') || (PUBLIC_URL ? `${PUBLIC_URL}/mcp` : ''),
+  gatewayPass: env('CIVIC_TOOLS_PASS', '') || derivedPass(env('CIVIC_SESSION_SECRET', '') || chosenKey.value || ''),
   maxSourceChars: int('CIVIC_MAX_SOURCE_CHARS', 0),
   allowSourceTruncation: bool('CIVIC_ALLOW_SOURCE_TRUNCATION', false),
   maxClaims: int('CIVIC_MAX_CLAIMS', 10), // the most one /api/evaluate request carries (the guard's multi-claim requests); the page sends one claim per request, so this bounds nothing it does
@@ -241,10 +271,12 @@ export const config = {
 export function requestShape() {
   const source = extractionShape();
   return {
-    extract: { provider: config.extractProvider, model: config.extractModels[0], effort: config.extractEffort, mode: config.extractReasoningMode || null, summary: config.extractSummary || null, webSearch: true, fallback: config.extractModels.length > 1, source },
+    // On Fireworks the listing searches through FactEngine's tool server, so it can search when that has an address and a pass.
+    extract: { provider: config.extractProvider, model: config.extractModels[0], effort: config.extractEffort, mode: config.extractReasoningMode || null, summary: config.extractSummary || null, webSearch: config.extractProvider === 'fireworks' ? Boolean(config.gatewayUrl && config.gatewayPass) : true, fallback: config.extractModels.length > 1, source },
     evaluate: { model: config.evalModels[0], effort: config.evalEffort, mode: config.evalReasoningMode || null, summary: config.evalReasoningSummary || null, webSearch: true, fallback: config.evalModels.length > 1, source: 'ahead' },
     // Present in every request; never anything else.
-    // On DeepSeek the listing carries no `store` (DeepSeek keeps nothing and does not take the key).
+    // On DeepSeek the listing carries no `store` (DeepSeek keeps nothing and does not take the key); on Fireworks it
+    // carries `store: false`, as on OpenAI.
     keys: { extract: [...(source === 'inserted' ? ['model', 'input'] : ['model', 'instructions', 'input']), 'reasoning', 'tools', 'stream', ...(config.extractProvider === 'deepseek' ? [] : ['store'])], evaluate: ['model', 'input', 'reasoning', 'tools', 'stream', 'store'] },
   };
 }
