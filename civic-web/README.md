@@ -372,6 +372,10 @@ sentence, and DeepSeek's words go to the record on /check, which also reads Deep
 /models`, `GET /user/balance`, no tokens; the figures to the operator alone). The determinations stay on OpenAI as
 below. `CIVIC_EXTRACT_PROVIDER=openai` (or unset) puts the listing back on OpenAI exactly as before.
 
+**Fireworks is never used again** (the operator, 5 October: "Never go back to fireworks. That's like killing users by
+making them watch paint dry for 48 hours."). Its code stays, inert, and is described below for the record; the
+listing's fallback is `CIVIC_EXTRACT_PROVIDER=openai`.
+
 **The listing on Fireworks** (`CIVIC_EXTRACT_PROVIDER=fireworks`; the operator's choice of 5 October, "Maybe
 someone in the US is hosting the model so we can avoid the China issue"): the same model, DeepSeek V4.1 Flash
 (`accounts/fireworks/models/deepseek-v4p1-flash`), served by Fireworks, a US company, through its Responses API
@@ -508,7 +512,7 @@ When accounts arrive, the prompts should move to a secrets manager rather than f
 
 | Step | Default | Why |
 |---|---|---|
-| Extraction | `gpt-5.6-sol`, effort `xhigh`, standard mode, web search on; with `CIVIC_EXTRACT_PROVIDER=deepseek`, DeepSeek's `deepseek-flash`, effort `high`, web search on; with `CIVIC_EXTRACT_PROVIDER=fireworks`, the same model on Fireworks, effort `high`, FactEngine's tool server for its searches | The operator's configuration; DeepSeek flash on the operator's word of 4 October ("10 times faster and better"), served from the US by Fireworks on their word of 5 October. Fireworks' price per million tokens (its serverless price from 1 October 2026, per its release note): input $0.30, cached input $0.006, output $1.20, at every hour. DeepSeek's price per million tokens (its page, 4 October): input $0.30, cached input $0.006, output $1.20 at peak hours (01:00-04:00 and 06:00-10:00 UTC, Monday to Friday), half at every other hour; FactEngine prices each listing at the hour it went. A `CIVIC_PRICING_JSON` override of a DeepSeek row replaces the whole row, so it repeats `offPeak` and `peakUtc`. |
+| Extraction | `gpt-5.6-sol`, effort `xhigh`, standard mode, web search on; with `CIVIC_EXTRACT_PROVIDER=deepseek`, DeepSeek's `deepseek-flash`, effort `high`, web search on; with `CIVIC_EXTRACT_PROVIDER=fireworks`, the same model on Fireworks, effort `high`, FactEngine's tool server for its searches | The operator's configuration; DeepSeek flash on the operator's word of 4 October ("10 times faster and better"), served from the US by Fireworks on their word of 5 October, and back on DeepSeek's own service the same day for speed (never Fireworks again). Fireworks' price per million tokens (its serverless price from 1 October 2026, per its release note): input $0.30, cached input $0.006, output $1.20, at every hour. DeepSeek's price per million tokens (its page, 4 October): input $0.30, cached input $0.006, output $1.20 at peak hours (01:00-04:00 and 06:00-10:00 UTC, Monday to Friday), half at every other hour; FactEngine prices each listing at the hour it went. A `CIVIC_PRICING_JSON` override of a DeepSeek row replaces the whole row, so it repeats `offPeak` and `peakUtc`. |
 | Determination | `gpt-5.6-sol`, effort `xhigh`, standard mode, web search on | As requested (5 October: back to the setting before 21 September). Web search lets the inspector reach primary sources, and every query and citation is shown. |
 | Art direction | `gpt-5.6-luna`, effort `low` | Reads the document and writes a concrete photographic brief for the echo. About two seconds. |
 | Visual echo | `gpt-image-2.5-flare`, quality `high` | OpenAI's fastest image model. Quality is `high`, not `low`: the speed comes from the model, not from starving it. |

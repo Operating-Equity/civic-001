@@ -53,7 +53,8 @@ services:
       - key: DEEPSEEK_API_KEY      # the listing's key when CIVIC_EXTRACT_PROVIDER is deepseek
         sync: false
       - key: CIVIC_EXTRACT_PROVIDER
-        value: fireworks           # the operator's choice of 5 October: DeepSeek V4.1 Flash, served from the US by Fireworks
+        value: deepseek            # the operator's choice of 5 October, for speed: DeepSeek's own service. Never Fireworks
+                                   # ("Never go back to fireworks", 5 October); the fallback is openai
       - key: CIVIC_EFFORT
         value: xhigh               # OpenAI's two steps, back to the setting before 21 September (5 October)
       - key: CIVIC_REASONING_MODE

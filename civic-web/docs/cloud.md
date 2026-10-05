@@ -598,6 +598,18 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
     opt out", and the transfer sentence names China.
   - `CIVIC_EXTRACT_PROVIDER=deepseek` is written before the merge, so the release's deploy carries the provider, the
     key's reading and the text together.
+  - **Live** (PR #66 squash cc68553, deploy dep-db1saglckfvc73e51u3g at 15:42 UTC; guard 273/273 with the real
+    prompts; CI green in both shapes). Live proof 5/5 under the operator's code:
+    - the health line reads deepseek-flash at high;
+    - /privacy names China in the 4 October wording;
+    - /check accepts DeepSeek's key and model, with a balance of $19.73;
+    - the three-sentence listing took 14 s and $0.0019 (58 s on Fireworks at high, 136 s at max), with its three claims
+      and no reasoning text.
+
+    Rollback: `CIVIC_EXTRACT_PROVIDER=openai` and a deploy. Never Fireworks again: the operator, 5 October, 18:3x UTC,
+    "Never go back to fireworks. That's like killing users by making them watch paint dry for 48 hours." The Fireworks
+    code stays inert (it runs only on `CIVIC_EXTRACT_PROVIDER=fireworks`), and `FIREWORKS_API_KEY` stays in Render until
+    the operator deletes it there.
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 

@@ -149,7 +149,9 @@ body {
 }
 .input:focus, .source:focus { outline: none; border-color: var(--blue); box-shadow: 0 0 0 3px rgba(72, 116, 228, 0.18); }
 .mono { font-family: var(--font-mono); font-size: 0.93em; }
-.field { display: block; }
+/* A form's label and its field. Not `.field`, which is the drawn background (above): sharing it put the background's
+   fixed, click-through layer over the sign-in fields from 2 October, so nothing could be typed on a touch screen. */
+.form-field { display: block; }
 .field-label { display: block; font-size: 13px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--ink-2); margin-block-end: 6px; }
 .field-row { display: flex; gap: 8px; align-items: center; }
 .field-row .input { width: auto; flex: 1 1 160px; min-width: 0; }
