@@ -356,7 +356,7 @@ number in this program in the path of a determination that the operator did not 
 DeepSeek flash for the generating of empirical claims. It is 10 times faster and better."): the extraction goes to
 DeepSeek's `deepseek-flash` through DeepSeek's own Responses API (`https://api.deepseek.com`, `POST /responses`),
 with DeepSeek's key (`DEEPSEEK_API_KEY`) and carries `model`, `input` (or `instructions` and `input`, as below),
-`reasoning.effort` (`max`, the operator's answer; `CIVIC_EXTRACT_EFFORT`, never inherited from `CIVIC_EFFORT`),
+`reasoning.effort` (`high`, the operator's answer of 5 October; `CIVIC_EXTRACT_EFFORT`, never inherited from `CIVIC_EFFORT`),
 `tools` (one `web_search`, which DeepSeek runs on its side) and `stream`: nothing else. DeepSeek has no reasoning
 mode, makes no summary and keeps nothing, so no `reasoning.mode`, `reasoning.summary` or `store` goes; FactEngine's
 own tools never go to DeepSeek (their pass is for OpenAI). DeepSeek streams its whole chain of thought instead of a
@@ -377,7 +377,7 @@ someone in the US is hosting the model so we can avoid the China issue"): the sa
 (`accounts/fireworks/models/deepseek-v4p1-flash`), served by Fireworks, a US company, through its Responses API
 (`https://api.fireworks.ai/inference/v1`, `POST /responses`) with Fireworks' key (`FIREWORKS_API_KEY`). DeepSeek the
 company receives nothing. The request carries `model`, `input` (or `instructions` and `input`), `reasoning.effort`
-(`max`, the operator's answer of 4 October; `CIVIC_EXTRACT_EFFORT`, never inherited from `CIVIC_EFFORT`), `tools`
+(`high`, the operator's answer of 5 October after a small article took over seven minutes at `max`; `CIVIC_EXTRACT_EFFORT`, never inherited from `CIVIC_EFFORT`), `tools`
 (one `mcp` entry naming FactEngine's tool server, as above: Fireworks has no web search of its own and calls the
 tool server itself, so the model searches, reads a page or a transcript through FactEngine), `stream` and `store:
 false`, without which Fireworks keeps the conversation 30 days; with it, nothing is kept, and Fireworks trains on
@@ -419,7 +419,7 @@ truncation setting. No fallback model. No size limit of ours on the document.
 | Setting | Value | Set by |
 |---|---|---|
 | Model, both steps | `gpt-5.6-sol` | Operator, tested |
-| The listing's provider | `CIVIC_EXTRACT_PROVIDER`: `openai` (unset), `deepseek` (DeepSeek's own service: `deepseek-flash` on `DEEPSEEK_API_KEY`) or `fireworks` (the same model from the US: `accounts/fireworks/models/deepseek-v4p1-flash` on `FIREWORKS_API_KEY`, searching through FactEngine's tool server, `store: false`). Either runs at effort `max` (`CIVIC_EXTRACT_EFFORT`); `CIVIC_EXTRACT_MODELS` changes the model. The keys are pasted by the operator in Render. `CIVIC_DEEPSEEK_BASE_URL` and `CIVIC_FIREWORKS_BASE_URL` are the providers' addresses (only the guard changes them). Determinations stay on OpenAI. | Operator, 4 and 5 October |
+| The listing's provider | `CIVIC_EXTRACT_PROVIDER`: `openai` (unset), `deepseek` (DeepSeek's own service: `deepseek-flash` on `DEEPSEEK_API_KEY`) or `fireworks` (the same model from the US: `accounts/fireworks/models/deepseek-v4p1-flash` on `FIREWORKS_API_KEY`, searching through FactEngine's tool server, `store: false`). Either runs at effort `high` (`CIVIC_EXTRACT_EFFORT`; the operator's answer of 5 October, `max` before); `CIVIC_EXTRACT_MODELS` changes the model. The keys are pasted by the operator in Render. `CIVIC_DEEPSEEK_BASE_URL` and `CIVIC_FIREWORKS_BASE_URL` are the providers' addresses (only the guard changes them). Determinations stay on OpenAI. | Operator, 4 and 5 October |
 | Reasoning effort, both steps on OpenAI | `xhigh` | Operator, 5 October: back to the setting before 21 September, when `max` in `pro` mode had taken a listing to fifteen minutes and $3.81 and a determination to almost seven minutes and $3.71. `max` from 21 September to 5 October. |
 | Reasoning mode, both steps on OpenAI | `standard` (no mode key sent) | Operator, 5 October, as above. `pro` (GPT-5.6's pro mode, OpenAI's "highest-intelligence API option": more model work per answer at the same per-token rates) from 21 September to 5 October; `CIVIC_REASONING_MODE=pro` brings it back. |
 | Web search | on, both steps, not configurable | The prompts were tested in a UI where search is available to every prompt. A request without it is not what was tested. |
@@ -508,7 +508,7 @@ When accounts arrive, the prompts should move to a secrets manager rather than f
 
 | Step | Default | Why |
 |---|---|---|
-| Extraction | `gpt-5.6-sol`, effort `xhigh`, standard mode, web search on; with `CIVIC_EXTRACT_PROVIDER=deepseek`, DeepSeek's `deepseek-flash`, effort `max`, web search on; with `CIVIC_EXTRACT_PROVIDER=fireworks`, the same model on Fireworks, effort `max`, FactEngine's tool server for its searches | The operator's configuration; DeepSeek flash on the operator's word of 4 October ("10 times faster and better"), served from the US by Fireworks on their word of 5 October. Fireworks' price per million tokens (its model page, 5 October): input $0.22, cached input $0.007, output $0.66, at every hour. DeepSeek's price per million tokens (its page, 4 October): input $0.30, cached input $0.006, output $1.20 at peak hours (01:00-04:00 and 06:00-10:00 UTC, Monday to Friday), half at every other hour; FactEngine prices each listing at the hour it went. A `CIVIC_PRICING_JSON` override of a DeepSeek row replaces the whole row, so it repeats `offPeak` and `peakUtc`. |
+| Extraction | `gpt-5.6-sol`, effort `xhigh`, standard mode, web search on; with `CIVIC_EXTRACT_PROVIDER=deepseek`, DeepSeek's `deepseek-flash`, effort `high`, web search on; with `CIVIC_EXTRACT_PROVIDER=fireworks`, the same model on Fireworks, effort `high`, FactEngine's tool server for its searches | The operator's configuration; DeepSeek flash on the operator's word of 4 October ("10 times faster and better"), served from the US by Fireworks on their word of 5 October. Fireworks' price per million tokens (its serverless price from 1 October 2026, per its release note): input $0.30, cached input $0.006, output $1.20, at every hour. DeepSeek's price per million tokens (its page, 4 October): input $0.30, cached input $0.006, output $1.20 at peak hours (01:00-04:00 and 06:00-10:00 UTC, Monday to Friday), half at every other hour; FactEngine prices each listing at the hour it went. A `CIVIC_PRICING_JSON` override of a DeepSeek row replaces the whole row, so it repeats `offPeak` and `peakUtc`. |
 | Determination | `gpt-5.6-sol`, effort `xhigh`, standard mode, web search on | As requested (5 October: back to the setting before 21 September). Web search lets the inspector reach primary sources, and every query and citation is shown. |
 | Art direction | `gpt-5.6-luna`, effort `low` | Reads the document and writes a concrete photographic brief for the echo. About two seconds. |
 | Visual echo | `gpt-image-2.5-flare`, quality `high` | OpenAI's fastest image model. Quality is `high`, not `low`: the speed comes from the model, not from starving it. |

@@ -50,8 +50,9 @@ const chosenKey = resolveKey({ settingsFile: new URL('../.env', import.meta.url)
 // OpenAI's Responses API at its own address and with its own key, runs web search on its own side, honours
 // reasoning.effort (none, low, high, max), makes no reasoning summary and has no mode; so on DeepSeek the request
 // carries the model, the prompt, the effort, web search and nothing else. The listing's effort is its own
-// (CIVIC_EXTRACT_EFFORT, max by the operator's answer of 4 October) and never inherited from CIVIC_EFFORT, so a
-// change of OpenAI's effort cannot move the listing. Unset, the listing is on OpenAI exactly as before.
+// (CIVIC_EXTRACT_EFFORT) and never inherited from CIVIC_EFFORT, so a change of OpenAI's effort cannot move the
+// listing: high, the operator's answer of 5 October after a small article took over seven minutes at max ("We may
+// need to reduce from max"); max was their answer of 4 October. Unset, the listing is on OpenAI exactly as before.
 //
 // Fireworks, the operator's choice of 5 October ("Maybe someone in the US is hosting the model so we can avoid the
 // China issue"): the same DeepSeek V4.1 Flash, served by a US company that keeps nothing it is told not to keep and
@@ -92,7 +93,7 @@ export const config = {
   extractProvider: PROVIDER,
   extractProviderKnown: PROVIDERS.includes(PROVIDER),
   extractModels: list('CIVIC_EXTRACT_MODELS', DEEPSEEK ? 'deepseek-flash' : FIREWORKS ? 'accounts/fireworks/models/deepseek-v4p1-flash' : MODEL), // one id = no fallback
-  extractEffort: OWN ? env('CIVIC_EXTRACT_EFFORT', 'max') : env('CIVIC_EXTRACT_EFFORT', EFFORT),
+  extractEffort: OWN ? env('CIVIC_EXTRACT_EFFORT', 'high') : env('CIVIC_EXTRACT_EFFORT', EFFORT),
   extractReasoningMode: OWN ? '' : modeOrNone(env('CIVIC_EXTRACT_REASONING_MODE', MODE)), // '' = no mode key in the request
   // Reasoning summaries are the model's own account of its reasoning, shown on the page. They do
   // not change the answer. 'auto' lets the API decide the form. Blank turns them off. DeepSeek and
