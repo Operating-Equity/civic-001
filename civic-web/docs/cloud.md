@@ -567,6 +567,18 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
   ledger cost of $0.0045. Render's request log shows Fireworks at the listing's door three times (initialize 200,
   initialized 202, tools/list 200), none refused; the model made no search for three plain facts; no door was left
   open. The first pass now runs on DeepSeek V4.1 Flash at Fireworks; determinations stay on GPT-5.6 Sol at effort xhigh.
+- **5 October, the first pass thinks at "high".** The operator, after their first article on Fireworks: "It is taking
+  over 7 minutes to extract claims from a small article. We may need to reduce from max. It should[n't] think so much."
+  - What was read: their listing started at 04:37:42 UTC. Fireworks connected to the tool server once and the model
+    made no search, so the whole time was thinking at `max`. The three-sentence test had taken 136 s at `max`.
+  - DeepSeek's own documentation for V4 Flash lists four levels: none, low, high and max. Medium and xhigh map to high,
+    and high is DeepSeek's default with thinking on.
+  - DeepSeek's published scores for Flash at non-think / high / max: 71.2 / 87.4 / 88.1 on GPQA Diamond, and
+    83.0 / 86.4 / 86.2 on MMLU-Pro.
+  - The operator's answer: **High**. `CIVIC_EXTRACT_EFFORT=high` was written with `render-env.mjs` and deployed once
+    the service was idle, so their run was not cut.
+  - The code's default for Fireworks and DeepSeek follows (`server/config.js`), so a lost setting cannot bring `max`
+    back.
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 

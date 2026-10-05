@@ -1781,7 +1781,7 @@ await takeoverChecks();
 
 // ---- The listing on DeepSeek (4 October) ------------------------------------------------------------------
 // The operator: "I want use DeepSeek flash for the generating of empirical claims." The listing goes to DeepSeek's
-// deepseek-flash at effort max; the determinations stay on OpenAI. A stand-in DeepSeek (the /deepseek routes of
+// deepseek-flash at effort high; the determinations stay on OpenAI. A stand-in DeepSeek (the /deepseek routes of
 // scripts/mock-openai.js) answers as DeepSeek's own pages describe it, refusals included. Proved here: the right key
 // to the right provider and no OpenAI setting at DeepSeek; DeepSeek's body exactly; the prompt verbatim; the chain
 // of thought on no page, replay, ledger line or failure record; every refusal a wait or the operator's sentence;
@@ -1828,8 +1828,8 @@ async function deepseekChecks() {
     const health = await (await fetch(`${base}/api/health`)).json();
     const sx = health.request?.extract || {};
     const wantKeys = [...(slot ? ['model', 'input'] : ['model', 'instructions', 'input']), 'reasoning', 'tools', 'stream'];
-    check('DeepSeek: the health line says the listing goes to DeepSeek\'s deepseek-flash at effort max with no mode and no summary, and lists its keys (no store); the determinations stay on OpenAI',
-      sx.provider === 'deepseek' && sx.model === 'deepseek-flash' && sx.effort === 'max' && sx.mode === null && sx.summary === null && JSON.stringify(health.request?.keys?.extract) === JSON.stringify(wantKeys) && health.request?.evaluate?.model === config.evalModels[0],
+    check('DeepSeek: the health line says the listing goes to DeepSeek\'s deepseek-flash at effort high with no mode and no summary, and lists its keys (no store); the determinations stay on OpenAI',
+      sx.provider === 'deepseek' && sx.model === 'deepseek-flash' && sx.effort === 'high' && sx.mode === null && sx.summary === null && JSON.stringify(health.request?.keys?.extract) === JSON.stringify(wantKeys) && health.request?.evaluate?.model === config.evalModels[0],
       JSON.stringify({ extract: sx, keys: health.request?.keys?.extract }));
 
     const source = 'The Eiffel Tower stands about 330 metres tall. Water boils at 100 degrees Celsius at sea level. Mount Everest is 8,849 metres above sea level.';
@@ -1837,11 +1837,11 @@ async function deepseekChecks() {
     const a = await stream(`${base}/api/extract`, { text: source, jobId: jobA });
     const doneA = a.find((e) => e.t === 'done');
     const bodyA = dsBodies()[0]?.body;
-    check('DeepSeek: a listing completes with its claims, on deepseek-flash at effort max, no mode, its web search on the trail',
-      Boolean(doneA) && doneA.total >= 3 && doneA.model === 'deepseek-flash' && doneA.effort === 'max' && doneA.mode === null && (doneA.trail || []).some((t) => t.kind === 'search') && !a.some((e) => e.t === 'error'),
+    check('DeepSeek: a listing completes with its claims, on deepseek-flash at effort high, no mode, its web search on the trail',
+      Boolean(doneA) && doneA.total >= 3 && doneA.model === 'deepseek-flash' && doneA.effort === 'high' && doneA.mode === null && (doneA.trail || []).some((t) => t.kind === 'search') && !a.some((e) => e.t === 'error'),
       JSON.stringify(doneA && { total: doneA.total, model: doneA.model, effort: doneA.effort, mode: doneA.mode, trail: doneA.trail }));
-    check('DeepSeek: the listing\'s body carries exactly the model, the prompt, reasoning {effort: max}, web search and stream; no store, mode or summary, and not CIVIC\'s own tools though the gateway is set',
-      Boolean(bodyA) && JSON.stringify(Object.keys(bodyA).sort()) === JSON.stringify([...wantKeys].sort()) && JSON.stringify(bodyA.reasoning) === JSON.stringify({ effort: 'max' })
+    check('DeepSeek: the listing\'s body carries exactly the model, the prompt, reasoning {effort: high}, web search and stream; no store, mode or summary, and not CIVIC\'s own tools though the gateway is set',
+      Boolean(bodyA) && JSON.stringify(Object.keys(bodyA).sort()) === JSON.stringify([...wantKeys].sort()) && JSON.stringify(bodyA.reasoning) === JSON.stringify({ effort: 'high' })
         && JSON.stringify(bodyA.tools) === JSON.stringify([{ type: 'web_search' }]) && bodyA.stream === true && bodyA.model === 'deepseek-flash' && !JSON.stringify(bodyA).includes(PASS),
       JSON.stringify(bodyA && { keys: Object.keys(bodyA), reasoning: bodyA.reasoning, tools: bodyA.tools }));
     const textA = bodyA?.input?.[0]?.content?.[0]?.text;
@@ -1898,7 +1898,7 @@ async function deepseekChecks() {
     check('DeepSeek: /check accepts the listing\'s key and model without spending a token, shows the balance to the operator, and is ready',
       st.ready === true && row(/^A DeepSeek key is configured/)?.state === 'ok' && row(/^DeepSeek accepts this key for deepseek-flash/)?.state === 'ok'
         && /Balance 12\.34 USD/.test(row(/DeepSeek account can pay/)?.detail || '') && row(/^OpenAI accepts this key for/)?.title === `OpenAI accepts this key for ${config.evalModels[0]}`
-        && st.settings?.listingProvider === 'DeepSeek' && st.settings?.listingModel === 'deepseek-flash' && st.settings?.listingEffort === 'max',
+        && st.settings?.listingProvider === 'DeepSeek' && st.settings?.listingModel === 'deepseek-flash' && st.settings?.listingEffort === 'high',
       JSON.stringify((st.checks || []).filter((x) => /DeepSeek|OpenAI/.test(x.title)).map((x) => `${x.state}:${x.title}`)));
     check('DeepSeek: the listing\'s price is DeepSeek\'s at the hour it went, its ledger line says DeepSeek, and the chain of thought is in no ledger line and no failure record',
       (() => {
@@ -2029,8 +2029,8 @@ async function fireworksChecks() {
     const health = await (await fetch(`${base}/api/health`)).json();
     const sx = health.request?.extract || {};
     const wantKeys = [...(slot ? ['model', 'input'] : ['model', 'instructions', 'input']), 'reasoning', 'tools', 'stream', 'store'];
-    check('Fireworks: the health line says the listing goes to Fireworks\' DeepSeek V4.1 Flash at effort max with no mode and no summary, can search, and lists its keys (store among them); the determinations stay on OpenAI',
-      sx.provider === 'fireworks' && sx.model === MODEL && sx.effort === 'max' && sx.mode === null && sx.summary === null && sx.webSearch === true && JSON.stringify(health.request?.keys?.extract) === JSON.stringify(wantKeys) && health.request?.evaluate?.model === config.evalModels[0],
+    check('Fireworks: the health line says the listing goes to Fireworks\' DeepSeek V4.1 Flash at effort high with no mode and no summary, can search, and lists its keys (store among them); the determinations stay on OpenAI',
+      sx.provider === 'fireworks' && sx.model === MODEL && sx.effort === 'high' && sx.mode === null && sx.summary === null && sx.webSearch === true && JSON.stringify(health.request?.keys?.extract) === JSON.stringify(wantKeys) && health.request?.evaluate?.model === config.evalModels[0],
       JSON.stringify({ extract: sx, keys: health.request?.keys?.extract }));
 
     const source = 'The Eiffel Tower stands about 330 metres tall. Water boils at 100 degrees Celsius at sea level. Mount Everest is 8,849 metres above sea level.';
@@ -2040,16 +2040,16 @@ async function fireworksChecks() {
     const doneA = a.find((e) => e.t === 'done');
     const bodyA = fwBodies()[0]?.body;
     const toolStepsA = (doneA?.trail || []).filter((t) => t.kind === 'tool');
-    check('Fireworks: a listing completes with exactly the document\'s three claims, on DeepSeek V4.1 Flash at effort max, no mode, its search and its page read on the trail',
-      Boolean(doneA) && doneA.total === 3 && JSON.stringify(doneA.claims.map((c) => c.text)) === JSON.stringify(sentences) && doneA.model === MODEL && doneA.effort === 'max' && doneA.mode === null
+    check('Fireworks: a listing completes with exactly the document\'s three claims, on DeepSeek V4.1 Flash at effort high, no mode, its search and its page read on the trail',
+      Boolean(doneA) && doneA.total === 3 && JSON.stringify(doneA.claims.map((c) => c.text)) === JSON.stringify(sentences) && doneA.model === MODEL && doneA.effort === 'high' && doneA.mode === null
         && toolStepsA.length === 2 && toolStepsA[0].name === 'search_web' && toolStepsA[0].query === 'height of the Eiffel Tower' && toolStepsA[0].status === 'completed' && toolStepsA[1].name === 'read_page' && toolStepsA[1].url === `http://localhost:${SITE}/tower` && !a.some((e) => e.t === 'error'),
       JSON.stringify(doneA && { total: doneA.total, claims: doneA.claims.map((c) => c.text), model: doneA.model, trail: doneA.trail }));
     // The tool server is named at a door of the listing's own, in the address: Fireworks forwards no header of the entry's.
     const doorOf = (b) => new RegExp(`^${base.replace(/[.]/g, '\\.')}/mcp/t/([0-9a-f]{48})$`).exec(String(b?.tools?.[0]?.server_url || ''))?.[1] || null;
     const entryA = bodyA?.tools?.[0];
     const doorA = doorOf(bodyA);
-    check('Fireworks: the listing\'s body carries exactly the model, the prompt, reasoning {effort: max}, the one entry naming FactEngine\'s tool server at the service\'s own address through a door of the listing\'s own and with no header (no pass goes to Fireworks), stream, and store: false; no web search, mode or summary',
-      Boolean(bodyA) && JSON.stringify(Object.keys(bodyA).sort()) === JSON.stringify([...wantKeys].sort()) && JSON.stringify(bodyA.reasoning) === JSON.stringify({ effort: 'max' })
+    check('Fireworks: the listing\'s body carries exactly the model, the prompt, reasoning {effort: high}, the one entry naming FactEngine\'s tool server at the service\'s own address through a door of the listing\'s own and with no header (no pass goes to Fireworks), stream, and store: false; no web search, mode or summary',
+      Boolean(bodyA) && JSON.stringify(Object.keys(bodyA).sort()) === JSON.stringify([...wantKeys].sort()) && JSON.stringify(bodyA.reasoning) === JSON.stringify({ effort: 'high' })
         && bodyA.tools.length === 1 && JSON.stringify(Object.keys(entryA)) === JSON.stringify(['type', 'server_label', 'server_url', 'require_approval'])
         && entryA.type === 'mcp' && entryA.server_label === 'civic' && entryA.require_approval === 'never' && Boolean(doorA)
         && bodyA.store === false && bodyA.stream === true && bodyA.model === MODEL,
@@ -2149,15 +2149,15 @@ async function fireworksChecks() {
     check('Fireworks: /check accepts the listing\'s key and model without spending a token, finds the tool server answering at its public address, checks OpenAI for the determinations\' model alone, shows Fireworks\' own echo of the effort it took, and is ready',
       st.ready === true && row(/^A Fireworks key is configured/)?.state === 'ok' && row(new RegExp(`^Fireworks accepts this key for ${MODEL.replace(/[.]/g, '\\.')}`))?.state === 'ok'
         && row(/^FactEngine's tool server answers at localhost/)?.state === 'ok' && row(/^OpenAI accepts this key for/)?.title === `OpenAI accepts this key for ${config.evalModels[0]}` && !(st.checks || []).some((x) => x.title === `OpenAI accepts this key for ${MODEL}`)
-        && row(/^Fireworks took the listing's effort as max$/)?.state === 'ok'
-        && st.settings?.listingProvider === 'Fireworks' && st.settings?.listingModel === MODEL && st.settings?.listingEffort === 'max' && st.tools?.requests?.listing === true && st.tools?.requests?.determinations === false,
+        && row(/^Fireworks took the listing's effort as high$/)?.state === 'ok'
+        && st.settings?.listingProvider === 'Fireworks' && st.settings?.listingModel === MODEL && st.settings?.listingEffort === 'high' && st.tools?.requests?.listing === true && st.tools?.requests?.determinations === false,
       JSON.stringify((st.checks || []).filter((x) => /Fireworks|OpenAI|tool server/.test(x.title)).map((x) => `${x.state}:${x.title}`)));
     check('Fireworks: the listing\'s ledger lines say Fireworks, are priced at its rates from its own token counts (cached apart), and keep Fireworks\' echo of the effort it was asked for; the chain of thought is in no ledger line and no failure record',
       (() => {
         const ex = lines().filter((l) => l.kind === 'extract');
         const errText = fs.existsSync(errlog) ? fs.readFileSync(errlog, 'utf8') : '';
         const all = fs.readFileSync(ledger, 'utf8');
-        return ex.length >= 7 && ex.every((l) => l.provider === 'fireworks' && l.model === MODEL && l.priced === true && l.usd > 0 && l.usage?.input > 0 && l.usage?.cached === 7 && l.usage?.output > 0 && JSON.stringify(l.reasoningEcho) === JSON.stringify({ effort: 'max' }))
+        return ex.length >= 7 && ex.every((l) => l.provider === 'fireworks' && l.model === MODEL && l.priced === true && l.usd > 0 && l.usage?.input > 0 && l.usage?.cached === 7 && l.usage?.output > 0 && JSON.stringify(l.reasoningEcho) === JSON.stringify({ effort: 'high' }))
           && !all.includes(COT) && !all.includes(ECHO) && !errText.includes(COT);
       })(), JSON.stringify(lines().filter((l) => l.kind === 'extract').slice(0, 1)));
 
@@ -2204,7 +2204,7 @@ async function fireworksChecks() {
     const secretIn = (t) => t.includes(FWKEY) || t.includes(KEY) || fwBodies().map((r) => doorOf(r.body)).filter(Boolean).some((d) => t.includes(d));
     check('Fireworks: neither key nor any listing\'s door appears in the health line, the check data, the page, the ledger, the failure records or the server\'s own output; the startup line says where the listing goes and what it carries',
       ![health2, check2, pageHtml, ledgerText, errText, said].some(secretIn)
-        && said.includes(`extraction requests go to localhost (Fireworks) and carry: model ${MODEL} · reasoning.effort max · FactEngine's tool server (search_web, read_page, get_transcript) through a door opened for that listing alone · store false`),
+        && said.includes(`extraction requests go to localhost (Fireworks) and carry: model ${MODEL} · reasoning.effort high · FactEngine's tool server (search_web, read_page, get_transcript) through a door opened for that listing alone · store false`),
       [['health', health2], ['check', check2], ['page', pageHtml], ['ledger', ledgerText], ['errors', errText], ['output', said]].filter(([, t]) => secretIn(t)).map(([n]) => n).join(', ') || said.split('\n').find((l) => l.startsWith('extraction requests')));
   } catch (err) {
     check('Fireworks checks completed', false, err.message);
