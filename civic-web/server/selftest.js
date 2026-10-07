@@ -23,6 +23,7 @@ import { searchOn } from './copies.js';
 import { registry } from './tools/index.js';
 import { toolsOn, gatewayOn } from './tools/request.js';
 import { openDoor, doorsOpen } from './tools/doors.js';
+import { listPrice, retiredSettings } from './economics.js';
 
 const ok = (title, detail = '') => ({ state: 'ok', title, detail });
 const bad = (title, detail = '', fix = '') => ({ state: 'bad', title, detail, fix });
@@ -264,6 +265,14 @@ export async function selftest({ apiKey, build, operator = true }) {
       dbOn() || !process.env.RENDER ? undefined : 'Set DATABASE_URL to the service\'s Postgres.'));
     const retired = ['CIVIC_ACCESS_CODES', 'CIVIC_OPERATOR_CODES', 'CIVIC_CODE_USES', 'CIVIC_USES_FILE', 'CIVIC_SIGNIN_LOG', 'CIVIC_SESSION_SECRET'].filter((n) => String(process.env[n] || '').trim());
     if (retired.length) checks.push(warn('Settings from the access codes are still on the service', `Nothing reads them any more: ${retired.join(', ')}.`, 'Delete them in Render when convenient.'));
+  }
+
+  // The price (server/economics.js): one list price since 6 October. Without it nothing is priced; the settings of the
+  // measured price before it are read by nothing, and named while they are still on the service.
+  if (config.pricingEnabled) {
+    if (listPrice() === null) checks.push(warn('No list price is set', 'Nothing is priced: every fact-check is free to the reader.', 'Set CIVIC_LIST_PRICE_CENTS to the price of one fact-check, in cents.'));
+    const retiredPrice = retiredSettings();
+    if (retiredPrice.length) checks.push(warn('Settings of the measured price are still on the service', `Nothing reads them any more: ${retiredPrice.join(', ')}. The list price (CIVIC_LIST_PRICE_CENTS) prices every window.`, 'Delete them in Render when convenient.'));
   }
 
   const failures = checks.filter((c) => c.state === 'bad');
