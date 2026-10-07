@@ -665,8 +665,11 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
   changes." Earlier: "The formula is going to test and return either 0, 1, or 2 answers, not 3", and "I just set the
   $10 as a temporary number".
   - Their answers: the list price is $1.25; 0, 1 or 2 free per document stays (the rotation without tier 4); one line
-    only, with the balance kept in the menu bar; the key's limit taken as 40,000,000 tokens a minute (the screenshot
-    of OpenAI's page never reached the session).
+    only, with the balance kept in the menu bar.
+  - The key's limit: their screenshot of OpenAI's Limits page (it reached the session on 7 October; the badge reads
+    Grow, the table is set to Launch) gives gpt-5.6-sol 4,000,000 tokens and 10,000 requests a minute. On 3 October
+    the key's own replies reported 40,000,000 and 15,000. The gate always paces by the figures OpenAI returns, and
+    /check shows them with the count they allow.
   - Built: `CIVIC_LIST_PRICE_CENTS` prices every window (`server/economics.js`); a window row at another price is
     rewritten the first time it is asked, and a document listed before keeps its own. The measured average is kept
     for /check's coverage figure and never sets the price. `CIVIC_PRICE_START_CENTS` and `CIVIC_PRICE_MIN_SAMPLE` are
