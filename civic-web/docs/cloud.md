@@ -683,6 +683,20 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
     host's log, for the operator.
   - Settings written before the merge: `CIVIC_LIST_PRICE_CENTS=125`, `CIVIC_TIER_ORDER=1,2,3`. The pace per reader
     (`CIVIC_EVAL_CONCURRENCY` 10) is unchanged.
+  - **Live:** PR #69 squash d1d64f2, deploy dep-db37m8h5efls73c4nc7g at 17:03 UTC on 7 October, build a2f7f816a43b.
+    - The guard passed 331/331 three times: with the real prompts on Postgres, and in both CI shapes. CI was green in
+      both shapes, and the browser check passed 15/15 on a desktop and a phone.
+    - The health line read 125 cents at once, tier 3 (two free); the 49-cent window took the list price on its first
+      asking.
+    - Live proof 6/6 (`scratchpad/live-price.mjs`): the served page carries the one line and no row price. A check
+      account's three-sentence document was told 125 cents with two free, its balance stayed $10.00, and it deleted
+      itself.
+    - The boot lines: "the list price is 125 cents a fact-check · the rotation 1,2,3 · no longer read:
+      CIVIC_PRICE_START_CENTS", and "[capacity] last 7 days: 6 fact-checks, on average 509,305 tokens over 3.86 min
+      (132,075 a minute each)".
+    - So about 30 fact-checks run at once at the 4,000,000 tokens a minute of the operator's screenshot (three readers
+      at ten each), or about 302 at the 40,000,000 the key reported on 3 October. Beyond that a fact-check waits its
+      turn at the gate; it never fails. 10,000 requests a minute do not bind: 30 at once make about 8 requests a minute.
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 
