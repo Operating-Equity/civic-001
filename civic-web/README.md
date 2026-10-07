@@ -148,22 +148,26 @@ The operator's program of 2 October, in their words: "All empirical facts are pa
 and the user can then decide which or all to test, with 0 to 3 free facts, and cost and revenue measured
 for all users in each tier"; "the average needs to be marked up 25% to start"; "change every 6 hours
 unless one is very unprofitable and I am losing a lot of money. Become 1 until we earn it back"; "I need
-to test, measure, and optimize." `server/economics.js` does exactly that and nothing else:
+to test, measure, and optimize." On 6 October: "It looks like facts cost around $1 to check, all in, to be safe", then
+"Remove all pricing from the application except the list price, which doesn't need to be stated in every empirical
+statement ... each fact-check is $1.25", and "The formula is going to test and return either 0, 1, or 2 answers, not
+3". `server/economics.js` does exactly that and nothing else:
 
-- **Listing is free; testing is priced.** Every claim found is listed. A run's **tier** is fixed when its
-  extraction starts and holds for that document: tier 1 prices every claim; tiers 2, 3 and 4 give the
-  first one, two or three claims the reader chooses free. The tiers rotate every `CIVIC_TIER_HOURS` (6)
-  in `CIVIC_TIER_ORDER` (1,2,3,4), and each day the rotation starts `CIVIC_TIER_SHIFT` (1) tiers later,
-  so over four days every tier meets every time of day; `CIVIC_TIER_FIXED` holds one tier for everyone.
-- **One price for everyone**, fixed at each window's start: the measured average cost of a determination
-  (its own ledger line: OpenAI's token counts at the price table, plus its searches) over the last
-  `CIVIC_PRICE_WINDOW_DAYS` (7), marked up `CIVIC_PRICE_MARKUP_PERCENT` (25) and rounded up to the cent,
-  once `CIVIC_PRICE_MIN_SAMPLE` (20) determinations have been measured. Until then
-  `CIVIC_PRICE_START_CENTS`, the operator's figure; with no start figure nothing is priced until the
-  sample exists, and /check shows the average as it grows. A window that has its price keeps it until the
-  next window; one that has none is not fixed, so the start figure applies the moment it is set (49 cents,
-  the operator's figure of 2 October) and the measured price arrives at the first window after the sample
-  is complete. `CIVIC_CURRENCY` (USD) names the money.
+- **Listing is free; testing costs the list price.** Every claim found is listed. A run's **tier** is fixed when its
+  extraction starts and holds for that document: tier 1 prices every claim; tiers 2 and 3 give the first one or
+  two claims the reader chooses free (a tier 4 in the order would give three). The tiers rotate every
+  `CIVIC_TIER_HOURS` (6) in `CIVIC_TIER_ORDER` (1,2,3 since 6 October; 1,2,3,4 before), and each day the rotation
+  starts `CIVIC_TIER_SHIFT` (1) tiers later, so every tier meets every time of day; `CIVIC_TIER_FIXED` holds one
+  tier for everyone.
+- **One list price** for everyone and every window: `CIVIC_LIST_PRICE_CENTS` (125 on the service: $1.25, the
+  operator's $1 marked up 25 %). Unset, nothing is priced. A window's row holding another price (the 49 cents
+  the retired start figure fixed) takes the list price the first time it is asked, so a new price applies from
+  the deploy that brings it; a document listed before keeps the price it was told. The average cost of a
+  determination is still measured (its own ledger line: the provider's token counts at the price table, plus its
+  searches) over `CIVIC_PRICE_WINDOW_DAYS` (7), for /check alone, where the list price's **coverage** of that cost
+  plus `CIVIC_PRICE_MARKUP_PERCENT` (25) is shown; it never sets the price. `CIVIC_PRICE_START_CENTS` and
+  `CIVIC_PRICE_MIN_SAMPLE`, the measured price's settings, are read by nothing since 6 October; the boot line and
+  /check name them while they are still on the service. `CIVIC_CURRENCY` (USD) names the money.
 - **The loss guard**: `CIVIC_TIER_LOSS_GUARD_USD` (unset = off). When the current window's margin falls
   below minus that figure, every new run goes to tier 1, the switch is recorded, and tier 1 holds until
   the margin earned since covers the loss; then the rotation resumes.
@@ -172,20 +176,25 @@ to test, measure, and optimize." `server/economics.js` does exactly that and not
   error, a stop, a deploy) keeps its cost, books nothing and never uses up a free one. The extraction's
   cost stays on the run as the cost of listing, apart. Margin is revenue less the determinations' cost;
   coverage is revenue against cost plus the markup, so 1.00 means the tokens and the 25 % are both covered.
-- **The page** shows, on each claim still to choose, Free or the price, with the Free marks on the rows that
-  would be free if the reader pressed now (the chosen first, then the rest), and the button sums the
-  choice: "Test 3 claims · $1.35", "Test 2 claims · free", "Test 5 claims · 2 free + $1.35"; under it,
-  "Testing a claim costs $0.45. The first 2 you choose on each document are free." and
-  `CIVIC_PRICING_NOTE` when set. The server decides what is free, never the page: each determination is
-  told its quote before the model is asked. A reader is told the tier, the free count and the price,
-  and never a cost.
+- **The page** says the price once, in one line above the claims: "Each fact-check is $1.25. The first two you
+  choose on this document are free." (the second sentence only when the document has free ones), then
+  `CIVIC_PRICING_NOTE` when set. No claim's row carries a price or a Free mark, and the button says how many
+  ("Test 3 selected claims"), never what they cost. A selection the balance cannot cover holds the button back with
+  "Your balance covers three fact-checks. Choose three or fewer." (the document's free ones and as many as the
+  balance pays for; never a total). The balance itself is in the menu bar. The server decides what is free, never
+  the page: each determination is told its quote before the model is asked. A reader is told the tier, the free
+  count and the price, and never a cost.
 - **The measurement** lives in Render's Postgres (`DATABASE_URL`, Render's own name; `server/db.js`,
   the schema in `server/migrations/`, applied once at boot under an advisory lock), so nothing resets
   with a deploy: a row per run (owner, email, tier, price, free count, claims, listing cost), a row per
   determination (run, number, free or price, cost, searches, verdict, failure, collected), every ledger
   line with its ids, the windows and the guard events. Without `DATABASE_URL` the rows live in the
-  instance's memory until it restarts. /check, for the operator alone, shows the price and what it came
-  from, the tier clock, the guard, and the money per tier, per user and per window.
+  instance's memory until it restarts. /check, for the operator alone, shows the list price and its coverage, the
+  tier clock, the guard, the money per tier, per user and per window, and **how many fact-checks the key can run at
+  once**: the key's own tokens a minute (OpenAI's figure, from the pacing row) over what one running determination
+  takes of it, its mean tokens (read and written, cached included: OpenAI's minute counts them) over its mean
+  minutes. The same figures go in the host's log at every boot, for the operator: `[capacity] last 7 days: n
+  fact-checks, on average T tokens over M min (R a minute each)`, nothing of any reader's and no key.
 - `CIVIC_PRICING_ENABLED=false` is the rollback: the page as before, nothing priced or measured beyond
   the ledger. `npm run verify` proves all of it on a real Postgres (a cluster of its own here; a service
   container in CI, where `CIVIC_VERIFY_REQUIRE_DATABASE=1` makes a missing database a failure).
@@ -486,7 +495,7 @@ truncation setting. No fallback model. No size limit of ours on the document.
 | Web search | on, both steps, not configurable | The prompts were tested in a UI where search is available to every prompt. A request without it is not what was tested. |
 | Reasoning summary | `auto` | Display only: the model's own account of its reasoning, shown on the card. Does not change the answer. Blank to turn off. |
 | Claims run automatically | `CIVIC_AUTO_TEST_FIRST` of them (10 unless set; 0 = none: every claim found waits for the reader's checkbox and runs when chosen), ten at a time (`CIVIC_EVAL_CONCURRENCY`, the operator's figure of 3 October on a minute budget of 40,000,000 tokens), each on its own request, the whole selection in one batch. The page is told both figures by the server (`autoTestFirst` and `inFlight` on `/api/health`), so what runs and how fast change with one setting and no release. The intake sentences follow the figures too. | Operator's rule; 0 since 1 October |
-| Prices and tiers | Listing free; a determination at one price for everyone (the measured average cost × 1.25, or `CIVIC_PRICE_START_CENTS` until twenty are measured; nothing priced until either exists); a run's tier (1: nothing free; 2, 3, 4: one, two, three of the reader's choices free per document) rotating every six hours with a daily shift; a loss guard to tier 1 when a window loses more than `CIVIC_TIER_LOSS_GUARD_USD`; revenue at list, not collected; every user measured in Postgres. See "Facts have a price". | Operator's program, 2 October; every figure theirs |
+| Prices and tiers | Listing free; a determination at one list price for everyone, `CIVIC_LIST_PRICE_CENTS` (125: "each fact-check is $1.25"; unset, nothing priced), said once above the claims and on no row or button; a run's tier (1: nothing free; 2, 3: one, two of the reader's choices free per document) rotating every six hours in `CIVIC_TIER_ORDER` (1,2,3) with a daily shift; a loss guard to tier 1 when a window loses more than `CIVIC_TIER_LOSS_GUARD_USD`; revenue at list, not collected; every user measured in Postgres, and /check's figure of how many fact-checks the key runs at once. See "Facts have a price". | Operator's program, 2 October; the list price and 0, 1 or 2 free, 6 October; every figure theirs |
 | Accounts and credit | On unless `CIVIC_ACCOUNTS=off`: an account by email and password before anything runs; the operator's account only through the one-time link (`CIVIC_OPERATOR_CLAIM`, its SHA-256; `CIVIC_OPERATOR_EMAILS`, the reserved address); `CIVIC_SIGNUP_GRANT_CENTS` (1000) of credit to start; a test's price held when it starts, charged when it is delivered, released when it is not; a monthly limit of the reader's own. Flagged defaults, the operator's to change: `CIVIC_PASSWORD_MIN_CHARS` 8, `CIVIC_SESSION_DAYS` 400, `CIVIC_SIGNIN_TRIES` 10 an hour, `CIVIC_RESET_LINK_HOURS` 24; off unless set: `CIVIC_SIGNIN_TRIES_PER_ADDRESS`, `CIVIC_SIGNUPS_PER_ADDRESS_PER_DAY`. See "Accounts and credit". | Operator, 5 October |
 | Pacing | OpenAI keeps a bucket of the key's minute limit that refills continuously at that limit per minute; each request costs what OpenAI estimates for it, and a request the bucket cannot hold is refused with exactly the wait that refills the difference (its refusals say so, to the millisecond). FactEngine reads those figures from every reply and every refusal. A request goes when the bucket, less what is reserved by the sends whose headers have not yet arrived (each at what OpenAI has shown for its kind), holds its cost; when the headers arrive their figure replaces the reservation. So many readers' requests leave together, bounded by the bucket, instead of one after another. The first request ever, and the first of each kind of request (a listing, a determination), goes alone into a full minute so its reply shows its cost exactly; a refusal's Requested figure is learned too, so a larger cost is met once and never twice. The line is an order, not a figure: listings before determinations (listing is the free first step), and among determinations the readers take turns, so one reader's thirty queued claims never starve another's first three; a request OpenAI turns back waits exactly what OpenAI asked and goes again first. The check page's pacing row shows the key's figures, what is in the air with its reservations, what waits by kind and by reader, and the refusals. | Built from OpenAI's refusals of 16 September; parallel sends, the order and the turns on 3 October |
 | Rate limits | Never a failure, never an error on a row. A refusal at the door sets the bucket to OpenAI's figures; the refused request waits exactly what OpenAI asked and goes first. A refusal can also arrive inside a running reply, when the response's own later call (after a web search) finds the minute short and OpenAI ends the response with its figures in an error event: it is read the same way, the claim waits exactly what OpenAI asked, and goes again whole. This is why the pace per reader is a figure rather than everything at once: a running reply is charged again at each of its later calls (67,000 to 89,000 each in September's readings), by far more than its admission showed, and the gate cannot see those charges, so many parallel claims can starve one another; the limits are per organization and model, so every reader shares the key's minute. The key's minute read 500,000 tokens on 16 September, 2,000,000 on 18 September and 40,000,000 on 3 October (the check page's pacing row is the authoritative reading), so the pace went one, two, three, four, three, and ten on 3 October on the operator's word; a larger budget still is OpenAI's to grant on request. The figure is a setting, so it moves without a release. A used-up quota is reported in words. | OpenAI's own numbers |

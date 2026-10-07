@@ -97,20 +97,35 @@ function table(head, rows) {
   return wrap;
 }
 
+/**
+ * How many determinations the key's minute holds at once: the key's own figure (OpenAI's, from the pacing row of the
+ * determinations' model) over what one running determination takes of it, its mean tokens over its mean minutes.
+ */
+function capacity(d, pacing, model) {
+  if (!d?.determinations?.n || !(d.determinations.meanTokens > 0) || !(d.determinations.meanMs > 0)) return null;
+  const minutes = d.determinations.meanMs / 60000;
+  const perMinute = d.determinations.meanTokens / minutes;
+  const limit = (pacing || []).find((g) => g.model === model)?.tokens?.limit || null;
+  return { tokens: d.determinations.meanTokens, minutes, perMinute, limit, atOnce: limit ? Math.floor(limit / perMinute) : null };
+}
+
 /** The lines of the measurement, as sentences (the page and the text report share them). */
-function economicsLines(e) {
+function economicsLines(e, { pacing = null, model = null } = {}) {
   const c = e.currency;
+  const n = (v) => Number(v).toLocaleString('en-US');
   const lines = [];
   const p = e.price;
-  if (p.cents === null || p.cents === undefined) {
-    lines.push(`No price yet. ${p.measuredSample} of the ${p.minSample} determinations the average needs have been measured over the last ${p.days} days` +
-      (p.measuredAvgUsd !== null ? `, averaging ${money(p.measuredAvgUsd, c)} each (${money(p.measuredAvgUsd * (1 + p.markupPercent / 100), c)} with the ${p.markupPercent} % markup)` : '') +
-      '. Until the sample exists nothing is priced; set CIVIC_PRICE_START_CENTS to price from today, and the measured figure takes over at the first window after the sample is complete.');
-  } else {
-    lines.push(`Price per claim: ${cents(p.cents, c)}, fixed for the window that began ${p.windowStart.slice(0, 16).replace('T', ' ')} UTC` +
-      (p.basis === 'measured' ? ` from the measured average of ${money(p.windowAvgUsd, c)} over ${p.windowSample} determinations in the ${p.days} days before it, marked up ${p.markupPercent} % and rounded up to the cent.`
-        : ` from CIVIC_PRICE_START_CENTS, because the ${p.days}-day sample held ${p.windowSample} of the ${p.minSample} determinations the average needs.`) +
-      (p.measuredSample ? ` Measured so far: ${p.measuredSample} determinations averaging ${money(p.measuredAvgUsd, c)}, which would price at ${money(Math.ceil(p.measuredAvgUsd * (100 + p.markupPercent)) / 100, c)}.` : ''));
+  const measuredWords = p.measuredSample
+    ? ` Measured over the last ${p.days} days: ${p.measuredSample} determinations averaging ${money(p.measuredAvgUsd, c)} each` +
+      (p.coverage !== null && p.coverage !== undefined ? `; the list price covers that cost and the ${p.markupPercent} % markup ${p.coverage.toFixed(2)} times (1.00 is exactly).` : '.')
+    : ` No determination has been measured in the last ${p.days} days yet.`;
+  if (p.cents === null || p.cents === undefined) lines.push(`No list price is set (CIVIC_LIST_PRICE_CENTS), so nothing is priced: every fact-check is free to the reader.${measuredWords}`);
+  else lines.push(`Each fact-check is ${cents(p.cents, c)} (CIVIC_LIST_PRICE_CENTS), for every window and every reader; a document keeps the price it was listed under.${measuredWords}`);
+  const cap = capacity(e.durations, pacing, model);
+  if (cap) {
+    lines.push(cap.atOnce !== null
+      ? `At this key's ${n(cap.limit)} tokens a minute, about ${n(cap.atOnce)} fact-checks can run at once (each uses about ${n(cap.tokens)} tokens over ${Number(cap.minutes.toPrecision(3))} minutes, ${n(Math.round(cap.perMinute))} a minute). Beyond that a fact-check waits its turn at the gate.`
+      : `Each fact-check uses about ${n(cap.tokens)} tokens over ${Number(cap.minutes.toPrecision(3))} minutes, ${n(Math.round(cap.perMinute))} a minute. The key's minute figure arrives with this FactEngine's first reply; divided by that, it is how many can run at once.`);
   }
   const t = e.tier;
   lines.push(t.fixed ? `Tier ${t.now} for everyone (CIVIC_TIER_FIXED): ${t.freeFacts} free claim${t.freeFacts === 1 ? '' : 's'} per document.`
@@ -131,7 +146,7 @@ function economicsLines(e) {
 }
 
 /** The operator's measurement: the price, the tier clock, the guard, and the money per tier, per user and per window. */
-function renderEconomics(e) {
+function renderEconomics(e, ctx = {}) {
   let box = $('#economics');
   if (!box) { box = el('div', 'check-failures'); box.id = 'economics'; $('#failures').before(box); }
   box.textContent = '';
@@ -139,7 +154,7 @@ function renderEconomics(e) {
   box.append(el('h2', null, 'Prices, tiers and what each user costs'));
   if (e.error) { box.append(el('p', 'check-detail', `The measurement could not be read: ${e.error}`)); return; }
   const ul = el('ul');
-  for (const line of economicsLines(e)) ul.append(el('li', null, line));
+  for (const line of economicsLines(e, ctx)) ul.append(el('li', null, line));
   box.append(ul);
   const c = e.currency;
   const row = (x) => [x.users, x.runs, x.determinations, x.failed, x.freeGiven, money(x.costUsd, c), money(x.extractUsd, c), money(x.revenueUsd, c), money(x.marginUsd, c), x.marginPerUserUsd === null ? null : money(x.marginPerUserUsd, c), x.coverage === null ? null : x.coverage.toFixed(2)];
@@ -269,7 +284,7 @@ function asText(data) {
   ];
   if (data.economics && !data.economics.error) {
     lines.push('', 'Prices, tiers and what each user costs');
-    for (const line of economicsLines(data.economics)) lines.push(`  ${line}`);
+    for (const line of economicsLines(data.economics, { pacing: data.pacing, model: data.settings?.model })) lines.push(`  ${line}`);
     for (const x of data.economics.byTier) lines.push(`  tier ${x.tier}: ${x.users} users, ${x.runs} runs, ${x.determinations} determinations (${x.freeGiven} free, ${x.failed} failed), cost ${money(x.costUsd, data.economics.currency)}, listing ${money(x.extractUsd, data.economics.currency)}, revenue at list ${money(x.revenueUsd, data.economics.currency)}, margin ${money(x.marginUsd, data.economics.currency)}, coverage ${x.coverage === null ? '—' : x.coverage.toFixed(2)}`);
   }
   if (data.recentFailures?.length) {
@@ -308,7 +323,7 @@ async function run() {
     verdict.textContent = data.summary;
     renderChecks(data.checks);
     renderSettings(data.settings, data.build, data.pacing, data.silentSites, data.tools, data.readers);
-    renderEconomics(data.economics);
+    renderEconomics(data.economics, { pacing: data.pacing, model: data.settings?.model });
     renderFailures(data.recentFailures);
     await renderAccounts(data);
     $('#report').value = asText(data);

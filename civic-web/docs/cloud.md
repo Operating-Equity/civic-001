@@ -650,6 +650,39 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
   - Retired, read by nothing, named by the startup line and /check while still set: `CIVIC_ACCESS_CODES`,
     `CIVIC_OPERATOR_CODES`, `CIVIC_CODE_USES`, `CIVIC_USES_FILE`, `CIVIC_SIGNIN_LOG`, `CIVIC_SESSION_SECRET`. They are the
     operator's to delete in Render when convenient.
+  - **Live:** PR #68 squash d58e27c, deploy dep-db236ebl550s73c05prg at 23:31 UTC, build 9aa072404352. The guard passed
+    325/325 with the real prompts on Postgres, and CI was green in both shapes.
+    - The startup line reads: accounts kept in Postgres, 1000 cents to start, the operator's link set, and the six
+      retired settings named.
+    - Live proof 12/12 (`scratchpad/live-accounts.mjs`). A check account signed up with $10.00 (cookie HttpOnly, Secure,
+      SameSite=Lax), was refused /check and the operator's tools, and was refused from another site. It signed out and
+      in, ran one three-sentence listing (12 s) with its balance unchanged, and deleted itself.
+    - The operator's one-time link went to them as a private file.
+- **6 October, one list price, said once.** The operator: "It looks like facts cost around $1 to check, all in, to be
+  safe." Then, on the plan for a floor under the measured price: "Remove all pricing from the application except the
+  list price, which doesn't need to be stated in every empirical statement. Can you provide it once each fact-check is
+  $1.25? … Make no changes during the process; tell me the number of simultaneous connections after you make all
+  changes." Earlier: "The formula is going to test and return either 0, 1, or 2 answers, not 3", and "I just set the
+  $10 as a temporary number".
+  - Their answers: the list price is $1.25; 0, 1 or 2 free per document stays (the rotation without tier 4); one line
+    only, with the balance kept in the menu bar.
+  - The key's limit: their screenshot of OpenAI's Limits page (it reached the session on 7 October; the badge reads
+    Grow, the table is set to Launch) gives gpt-5.6-sol 4,000,000 tokens and 10,000 requests a minute. On 3 October
+    the key's own replies reported 40,000,000 and 15,000. The gate always paces by the figures OpenAI returns, and
+    /check shows them with the count they allow.
+  - Built: `CIVIC_LIST_PRICE_CENTS` prices every window (`server/economics.js`); a window row at another price is
+    rewritten the first time it is asked, and a document listed before keeps its own. The measured average is kept
+    for /check's coverage figure and never sets the price. `CIVIC_PRICE_START_CENTS` and `CIVIC_PRICE_MIN_SAMPLE` are
+    read by nothing and named while set. `CIVIC_TIER_ORDER` defaults to 1,2,3.
+  - The page: one line above the claims ("Each fact-check is $1.25. The first two you choose on this document are
+    free."), no price or Free mark on any row, the button's count alone, and a selection the balance cannot cover
+    held back with "Your balance covers N fact-checks", never a total. Four languages.
+  - How many fact-checks the key runs at once: the report's durations carry a determination's mean tokens (read and
+    written, cached included), /check divides the key's tokens a minute by a determination's tokens a minute, and
+    each boot prints `[capacity] last 7 days: n fact-checks, on average T tokens over M min (R a minute each)` in the
+    host's log, for the operator.
+  - Settings written before the merge: `CIVIC_LIST_PRICE_CENTS=125`, `CIVIC_TIER_ORDER=1,2,3`. The pace per reader
+    (`CIVIC_EVAL_CONCURRENCY` 10) is unchanged.
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 

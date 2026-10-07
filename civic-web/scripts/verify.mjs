@@ -21,7 +21,7 @@ import { parseEntry } from '../server/verdict.js';
 import { isConnectionDrop, connectionWait, describeError } from '../server/openai.js';
 import { validateStandIn } from '../server/tools/contract.js';
 import { config, requestShape } from '../server/config.js';
-import { tierAt, windowStartAt, freeFor, priceFromAverage } from '../server/economics.js';
+import { tierAt, windowStartAt, freeFor } from '../server/economics.js';
 import pg from 'pg';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -70,8 +70,11 @@ const FIREWORKS_OFF = { FIREWORKS_API_KEY: '', CIVIC_FIREWORKS_BASE_URL: 'http:/
 // And with accounts off (the door open, as on a laptop of one's own) unless a check turns them on: since 5 October they are
 // on wherever CIVIC_ACCOUNTS is not "off". No database from the shell either, and none of the access codes' retired settings.
 const ACCOUNTS_OFF = { CIVIC_ACCOUNTS: 'off', DATABASE_URL: '', CIVIC_OPERATOR_EMAILS: '', CIVIC_OPERATOR_CLAIM: '', CIVIC_ACCESS_CODES: '', CIVIC_OPERATOR_CODES: '', CIVIC_CODE_USES: '', CIVIC_USES_FILE: '', CIVIC_SIGNIN_LOG: '', CIVIC_SESSION_SECRET: '' };
+// And no price from the shell (since 6 October one list price, CIVIC_LIST_PRICE_CENTS, which a check sets when it needs one),
+// none of the measured price's retired settings, and the tiers' default rotation.
+const PRICES_OFF = { CIVIC_LIST_PRICE_CENTS: '', CIVIC_PRICE_START_CENTS: '', CIVIC_PRICE_MIN_SAMPLE: '', CIVIC_TIER_ORDER: '', CIVIC_TIER_FIXED: '' };
 const start = (args, extraEnv) => {
-  const child = spawn(process.execPath, args, { cwd: root, env: { ...process.env, ...DEEPSEEK_OFF, ...FIREWORKS_OFF, ...ACCOUNTS_OFF, ...extraEnv }, stdio: ['ignore', 'pipe', 'pipe'] });
+  const child = spawn(process.execPath, args, { cwd: root, env: { ...process.env, ...DEEPSEEK_OFF, ...FIREWORKS_OFF, ...ACCOUNTS_OFF, ...PRICES_OFF, ...extraEnv }, stdio: ['ignore', 'pipe', 'pipe'] });
   child.stdout.on('data', () => {});
   child.stderr.on('data', (d) => process.stderr.write(`  [${path.basename(args[0])}] ${d}`));
   children.push(child);
@@ -687,7 +690,7 @@ function accountServer(port, mockPort, env = {}) {
   const out = [];
   const child = spawn(process.execPath, [path.join(root, 'server', 'index.js')], {
     cwd: root, stdio: ['ignore', 'pipe', 'pipe'],
-    env: { ...process.env, ...DEEPSEEK_OFF, ...FIREWORKS_OFF, ...ACCOUNTS_OFF, CIVIC_ACCOUNTS: 'on', PORT: String(port), OPENAI_BASE_URL: `http://localhost:${mockPort}/v1`, OPENAI_API_KEY: KEY, CIVIC_IMAGE_ENABLED: 'false', CIVIC_LEDGER_FILE: path.join(os.tmpdir(), `civic-verify-accounts-ledger-${port}.jsonl`), ...env },
+    env: { ...process.env, ...DEEPSEEK_OFF, ...FIREWORKS_OFF, ...ACCOUNTS_OFF, ...PRICES_OFF, CIVIC_ACCOUNTS: 'on', PORT: String(port), OPENAI_BASE_URL: `http://localhost:${mockPort}/v1`, OPENAI_API_KEY: KEY, CIVIC_IMAGE_ENABLED: 'false', CIVIC_LEDGER_FILE: path.join(os.tmpdir(), `civic-verify-accounts-ledger-${port}.jsonl`), ...env },
   });
   child.stdout.on('data', (d) => out.push(String(d)));
   child.stderr.on('data', (d) => out.push(String(d)));
@@ -895,7 +898,7 @@ async function creditChecks(label, dbUrl) {
   const MOCK2 = MOCK_PORT + (dbUrl ? 65 : 64), P = PORT + (dbUrl ? 68 : 64);
   const mock = start([path.join(root, 'scripts', 'mock-openai.js')], { MOCK_PORT: String(MOCK2), MOCK_SPEED: '0.2', MOCK_EVAL_HOLD_MS: '1200', MOCK_EVAL_FAIL_TEXT: 'Pacific', MOCK_EVAL_MARK: process.env.MOCK_EVAL_MARK_FOR_GATE || '' });
   await wait(`http://localhost:${MOCK2}/v1/mock/stats`, 15000, { anyResponse: true });
-  const env = { DATABASE_URL: dbUrl || '', CIVIC_SIGNUP_GRANT_CENTS: '100', CIVIC_PRICE_START_CENTS: '45', CIVIC_TIER_FIXED: '2', CIVIC_OPERATOR_EMAILS: 'op@example.com', CIVIC_OPERATOR_CLAIM: claimHash() };
+  const env = { DATABASE_URL: dbUrl || '', CIVIC_SIGNUP_GRANT_CENTS: '100', CIVIC_LIST_PRICE_CENTS: '45', CIVIC_TIER_FIXED: '2', CIVIC_OPERATOR_EMAILS: 'op@example.com', CIVIC_OPERATOR_CLAIM: claimHash() };
   let s1 = accountServer(P, MOCK2, env);
   const servers = [s1];
   await wait(`http://localhost:${P}/api/health`, 20000);
@@ -1707,9 +1710,22 @@ async function economicsChecks() {
   await wait(`http://localhost:${MOCK2}/v1/mock/stats`, 15000, { anyResponse: true });
   const text = 'The Eiffel Tower stands about 330 metres tall. Water boils at 100 degrees Celsius at sea level. Mount Everest is 8,849 metres above sea level.';
   const ECON_OP = 'op@verify.example';
-  const common = { OPENAI_BASE_URL: `http://localhost:${MOCK2}/v1`, OPENAI_API_KEY: KEY, CIVIC_IMAGE_ENABLED: 'false', CIVIC_LEDGER_FILE: path.join(os.tmpdir(), 'civic-verify-ledger.jsonl'), CIVIC_ACCOUNTS: 'on', CIVIC_OPERATOR_EMAILS: ECON_OP, CIVIC_OPERATOR_CLAIM: claimHash(), CIVIC_SIGNUP_GRANT_CENTS: '1000' };
+  // The rotation's mechanics are proved on four tiers (CIVIC_TIER_ORDER 1,2,3,4, as it was until 6 October); the default of
+  // three is proved on its own server below.
+  const common = { OPENAI_BASE_URL: `http://localhost:${MOCK2}/v1`, OPENAI_API_KEY: KEY, CIVIC_IMAGE_ENABLED: 'false', CIVIC_LEDGER_FILE: path.join(os.tmpdir(), 'civic-verify-ledger.jsonl'), CIVIC_ACCOUNTS: 'on', CIVIC_OPERATOR_EMAILS: ECON_OP, CIVIC_OPERATOR_CLAIM: claimHash(), CIVIC_SIGNUP_GRANT_CENTS: '1000', CIVIC_TIER_ORDER: '1,2,3,4' };
   const servers = [];
-  const boot = async (port, env) => { const s = start([path.join(root, 'server', 'index.js')], { ...common, PORT: String(port), ...env }); servers.push(s); await wait(`http://localhost:${port}/api/health`, 20000); return s; };
+  const outputs = new Map();   // port → what that server printed (its boot lines among it)
+  const boot = async (port, env) => {
+    const s = start([path.join(root, 'server', 'index.js')], { ...common, PORT: String(port), ...env });
+    const out = [];
+    s.stdout.on('data', (d) => out.push(String(d)));
+    s.stderr.on('data', (d) => out.push(String(d)));
+    outputs.set(port, out);
+    servers.push(s);
+    await wait(`http://localhost:${port}/api/health`, 20000);
+    return s;
+  };
+  const printed = (port) => (outputs.get(port) || []).join('');
   const base = (port) => `http://localhost:${port}`;
   // The operator's account on each server: made through the one-time link the first time a database (or a server in memory)
   // sees it, and signed into after that; a reader's likewise, through the open form.
@@ -1756,8 +1772,23 @@ async function economicsChecks() {
     const everyTierEveryHour = Object.values(slots).every((list) => JSON.stringify([...list].sort()) === '[1,2,3,4]');
     const fixedClock = [0, 1, 2, 3].every((d) => tierAt(base0 + d * DAY, { ...opts, shift: 0 }) === tierAt(base0, { ...opts, shift: 0 }));
     check('the tier changes every six hours and only at the boundary, over four days every tier meets every time of day (the daily shift), a shift of 0 is a fixed clock, and CIVIC_TIER_FIXED holds one tier',
-      boundaries && changes === 15 && everyTierEveryHour && fixedClock && tierAt(base0, { ...opts, fixed: 2 }) === 2 && tierAt(base0 + 5 * DAY, { ...opts, fixed: 2 }) === 2 && freeFor(1) === 0 && freeFor(4) === 3 && priceFromAverage(0.36, 25) === 45 && priceFromAverage(0.0081, 25) === 2,
+      boundaries && changes === 15 && everyTierEveryHour && fixedClock && tierAt(base0, { ...opts, fixed: 2 }) === 2 && tierAt(base0 + 5 * DAY, { ...opts, fixed: 2 }) === 2 && freeFor(1) === 0 && freeFor(4) === 3,
       JSON.stringify({ boundaries, changes, slots, fixedClock }));
+    // The operator, 6 October: "0, 1, or 2 answers, not 3". The rotation of three (and the fallback when the order holds
+    // nothing) never gives three free, and over three days still meets every time of day.
+    const three = { hours: 6, order: [1, 2, 3], shift: 1, fixed: null };
+    const slots3 = {};
+    let only3 = true;
+    for (let k = 0; k < 12; k++) {
+      const t = base0 + k * 6 * HOUR;
+      const tier = tierAt(t, three);
+      if (tier !== tierAt(t, { ...three, order: [] })) only3 = false;
+      if (freeFor(tier) > 2) only3 = false;
+      const h = new Date(t).getUTCHours();
+      slots3[h] = [...(slots3[h] || []), tier];
+    }
+    check('the default rotation of three (1, 2, 3, and the fallback of an empty order) gives 0, 1 or 2 free and never 3, and over three days every tier meets every time of day',
+      only3 && Object.values(slots3).every((list) => JSON.stringify([...list].sort()) === '[1,2,3]') && freeFor(3) === 2, JSON.stringify({ only3, slots3 }));
   } catch (err) { check('the tier clock arithmetic', false, err.message); }
 
   let admin = null;
@@ -1770,7 +1801,7 @@ async function economicsChecks() {
       const DB1 = await makeDb('civic_verify_econ1');
       // 2. A run under tier 3 at the start price: the page is told first; the document's first two chosen claims are free, the third priced; a second document gets two free again.
       const P1 = PORT + 50;
-      await boot(P1, { DATABASE_URL: DB1, CIVIC_CLOCK: at(T0), CIVIC_PRICE_START_CENTS: '45' });
+      await boot(P1, { DATABASE_URL: DB1, CIVIC_CLOCK: at(T0), CIVIC_LIST_PRICE_CENTS: '45' });
       const a = await signin(P1, 'op');
       const health = await json(`${base(P1)}/api/health`, a);
       check('with a database, the health line carries the prices as the page shows them: the tier, the free count, the price and the note, and nothing else, never a cost',
@@ -1812,7 +1843,7 @@ async function economicsChecks() {
         d5row?.status === 'failed' && d5row?.failure === 'cancelled' && d5row?.price_cents === 0 && JSON.stringify(quoteOf(d6)) === JSON.stringify({ free: true, priceCents: 0 }), JSON.stringify({ d5row, d6: quoteOf(d6) }));
       // 4. The next window on the same database: the schema is applied once, a run keeps its tier, a new run takes the new one.
       const P2 = PORT + 51;
-      await boot(P2, { DATABASE_URL: DB1, CIVIC_CLOCK: at(T1), CIVIC_PRICE_START_CENTS: '45' });
+      await boot(P2, { DATABASE_URL: DB1, CIVIC_CLOCK: at(T1), CIVIC_LIST_PRICE_CENTS: '45' });
       const a2 = await signin(P2, 'op');
       const migrations = (await dbQuery(DB1, 'SELECT count(*)::int AS n FROM schema_migrations')).rows[0].n;
       const d7 = await detOn(P2, a2, { jobId: 'verify-econ-r1-c4', runId: 'verify-econ-r1', n: 4, entry: entry(0) });
@@ -1821,6 +1852,16 @@ async function economicsChecks() {
       check('a second FactEngine on the same database six hours on boots with each migration applied once; a determination of the first document, now from this one, is priced by that document\'s tier and count (two free already taken) whatever the clock says; a new document takes the new window\'s tier (4: three free)',
         migrations === fs.readdirSync(path.join(root, 'server', 'migrations')).filter((f) => f.endsWith('.sql')).length && JSON.stringify(quoteOf(d7)) === JSON.stringify({ free: false, priceCents: 45 }) && JSON.stringify(pricingOf(r3)) === JSON.stringify({ tier: 4, freeFacts: 3, priceCents: 45, currency: 'USD', note: null }) && health2.pricing?.tier === 4,
         JSON.stringify({ migrations, d7: quoteOf(d7), r3: pricingOf(r3), tier: health2.pricing?.tier }));
+      // 4b. The boot lines, for the operator in the host's log: the list price and the rotation, and what one running
+      // determination takes of the key's minute (the five determinations so far: their mean tokens over their mean minutes).
+      // Nothing of a key, a password or a reader's address.
+      const boot2 = printed(P2);
+      const cap2 = (boot2.match(/\[capacity\] last 7 days: (\d+) fact-checks?, on average ([\d,]+) tokens over ([\d.]+) min \(([\d,]+) a minute each\)/) || []);
+      const toInt = (v) => Number(String(v || '').replace(/,/g, ''));
+      check('at boot the host\'s log says the list price and the rotation, and what one running fact-check takes of the key\'s minute: the fact-checks measured over the last seven days, their mean tokens over their mean minutes, and that rate; it carries no key, no password and no reader\'s address',
+        /\[economics\] measuring in Postgres[^\n]* · the list price is 45 cents a fact-check · the rotation 1,2,3,4/.test(boot2) && cap2.length === 5 && toInt(cap2[1]) >= 5 && toInt(cap2[2]) > 6000 && Number(cap2[3]) > 0
+          && Math.abs(toInt(cap2[4]) - toInt(cap2[2]) / Number(cap2[3])) <= Math.max(2, toInt(cap2[4]) * 0.06) && !boot2.includes(KEY) && !boot2.includes(PASSWORD) && !boot2.includes(ECON_OP),
+        (boot2.match(/\[(economics|capacity)\][^\n]*/g) || []).join(' | '));
       // 5. The measurement, for the operator alone.
       const st = await json(`${base(P2)}/api/selftest`, a2);
       const b2 = await signin(P2, 'reader');
@@ -1831,15 +1872,24 @@ async function economicsChecks() {
       check('the operator\'s check page carries the measurement: per tier (users, runs, determinations, free given, cost, listing cost, revenue at list, margin, margin per user, coverage), per user by email, per window, the price with its basis and the measured average so far, the tier clock, the guard off, revenue at list and nothing collected; an account that is not the operator\'s cannot open the check page at all (403)',
         Boolean(e) && e.store === 'postgres' && t3 && t3.users === 1 && t3.runs === 2 && t3.determinations === 6 && t3.failed === 1 && t3.freeGiven === 4 && t3.revenueUsd === 0.9 && t3.costUsd > 0 && Math.abs(t3.marginUsd - (t3.revenueUsd - t3.costUsd)) < 0.0011 && t3.extractUsd > 0 && typeof t3.coverage === 'number'
           && t4 && t4.runs === 1 && t4.determinations === 0 && user && user.runs === 3 && user.determinations === 6 && user.freeGiven === 4 && e.byWindow.length === 2
-          && e.price.cents === 45 && e.price.basis === 'start' && e.price.measuredSample === 6 && e.price.measuredAvgUsd > 0 && e.price.minSample === 20 && e.price.markupPercent === 25
+          && e.price.cents === 45 && e.price.basis === 'list' && e.price.listCents === 45 && e.price.measuredSample === 6 && e.price.measuredAvgUsd > 0 && e.price.markupPercent === 25
+          && Math.abs(e.price.coverage - Math.round((0.45 / (e.price.measuredAvgUsd * 1.25)) * 100) / 100) < 1e-9 && !('minSample' in e.price) && !('startCents' in e.price)
           && e.tier.now === 4 && e.tier.freeFacts === 3 && e.tier.hours === 6 && e.guard.configured === false && /list price/.test(e.note) && stB.status === 403,
         JSON.stringify({ t3, t4, user, price: e?.price, tier: e?.tier, guard: e?.guard, other: stB.status }));
       check('the report carries how long determinations and listings take over the window, with the searches per determination',
         e?.durations && e.durations.determinations.n >= 6 && e.durations.determinations.meanMs > 0 && e.durations.determinations.p75Ms >= e.durations.determinations.meanMs * 0.5 && typeof e.durations.determinations.meanSearches === 'number' && e.durations.extractions.n >= 2 && e.durations.extractions.meanMs > 0,
         JSON.stringify(e?.durations));
+      // The tokens of a determination, as the stand-in reported them on each ledger line (read and written; the stand-in
+      // writes 6,000 reasoning tokens into every determination): the report's mean is theirs, over the same lines.
+      const evLines = (await dbQuery(DB1, "SELECT at, line FROM cost_lines WHERE kind = 'evaluate' AND ok IS NOT FALSE AND line->>'ms' IS NOT NULL")).rows
+        .filter((r) => new Date(r.at).getTime() >= T1 - 7 * DAY).map((r) => (Number(r.line.usage?.input) || 0) + (Number(r.line.usage?.output) || 0)).filter((v) => v > 0);
+      const meanTok = evLines.length ? Math.round(evLines.reduce((a, b) => a + b, 0) / evLines.length) : null;
+      check('the report\'s durations carry the mean tokens of a determination (read and written, cached included): the mean of the stand-in\'s own figures on the ledger lines, its 6,000 reasoning tokens in each',
+        e?.durations?.determinations?.meanTokens === meanTok && meanTok > 6000 && e.durations.determinations.tokensMeasured === evLines.length && evLines.length === e.durations.determinations.n,
+        JSON.stringify({ report: e?.durations?.determinations, lines: evLines.length, meanTok }));
       // 6. A deploy with a determination in flight: the row is failed as deploy, nothing booked.
       const P3 = PORT + 52;
-      const s3 = await boot(P3, { DATABASE_URL: DB1, CIVIC_CLOCK: at(T1), CIVIC_PRICE_START_CENTS: '45' });
+      const s3 = await boot(P3, { DATABASE_URL: DB1, CIVIC_CLOCK: at(T1), CIVIC_LIST_PRICE_CENTS: '45' });
       const a3 = await signin(P3, 'op');
       const inflight = fetch(`${base(P3)}/api/evaluate`, { method: 'POST', headers: { 'content-type': 'application/json', cookie: a3 }, body: JSON.stringify({ jobId: 'verify-econ-r3-c1', claims: [entry(0)], text, source: { kind: 'text' }, runId: 'verify-econ-r3', n: 1 }) });
       await new Promise((r) => setTimeout(r, 400));
@@ -1848,60 +1898,74 @@ async function economicsChecks() {
       await new Promise((r) => setTimeout(r, 800));
       const deployRow = (await dbQuery(DB1, 'SELECT status, failure, price_cents, free FROM determinations WHERE id = $1', ['verify-econ-r3-c1'])).rows[0];
       check('a FactEngine told to stop with a determination in flight fails that row as deploy, nothing booked, before it goes', deployRow?.status === 'failed' && deployRow?.failure === 'deploy' && deployRow?.price_cents === 0, JSON.stringify(deployRow));
-      // 7. The price from the measured average: fixed at a window's start, start figure until the sample, the sample's own figure after.
+      // 7. One list price (the operator, 6 October): it prices every window, and the measured average never does.
       const DB2 = await makeDb('civic_verify_econ2');
       const T2 = T0 + 12 * HOUR, T3 = T2 + 6 * HOUR;
       const seed = async (url, { runId, tier, from, n, cost, price, free, email = 'seed@verify' }) => {
         await dbQuery(url, 'INSERT INTO runs (id, owner, email, started_at, tier, window_start, price_cents, free_allowed, status) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) ON CONFLICT (id) DO NOTHING', [runId, `seed:${email}`, email, new Date(from), tier, new Date(windowStartAt(from, 6)), price, freeFor(tier), 'done']);
         for (let i = 0; i < n; i++) await dbQuery(url, "INSERT INTO determinations (id, run_id, n, started_at, ended_at, status, free, price_cents, cost_usd, priced) VALUES ($1, $2, $3, $4, $4, 'done', $5, $6, $7, true)", [`${runId}-d${i + 1}`, runId, i + 1, new Date(from + i * 1000), free, free ? 0 : price, cost]);
       };
-      // nineteen determinations at 36 cents two days before: one short of the sample
+      // twenty determinations measured at 36 cents two days before: the sample the measured price once waited for (it would have priced at 45)
       const P4 = PORT + 53;
       await boot(P4, { DATABASE_URL: DB2, CIVIC_CLOCK: at(T0) });   // the schema, for the seed
-      await seed(DB2, { runId: 'seed-a', tier: 3, from: T2 - 2 * DAY, n: 19, cost: 0.36, price: 45, free: false });
+      await seed(DB2, { runId: 'seed-a', tier: 3, from: T2 - 2 * DAY, n: 20, cost: 0.36, price: 45, free: false });
       const P5 = PORT + 54;
-      await boot(P5, { DATABASE_URL: DB2, CIVIC_CLOCK: at(T2) });
+      await boot(P5, { DATABASE_URL: DB2, CIVIC_CLOCK: at(T2) });   // no list price
       const a5 = await signin(P5, 'op');
       const h5 = await json(`${base(P5)}/api/health`, a5);
       const st5 = await json(`${base(P5)}/api/selftest`, a5);
-      await seed(DB2, { runId: 'seed-b', tier: 3, from: T2 - DAY, n: 1, cost: 0.36, price: 45, free: false });
-      await new Promise((r) => setTimeout(r, 5500));   // the health line's prices are cached for five seconds
-      const h5again = await json(`${base(P5)}/api/health`, a5);
       const P6 = PORT + 55;
-      await boot(P6, { DATABASE_URL: DB2, CIVIC_CLOCK: at(T3) });
+      await boot(P6, { DATABASE_URL: DB2, CIVIC_CLOCK: at(T3), CIVIC_LIST_PRICE_CENTS: '125', CIVIC_TIER_ORDER: '' });   // the list price, and the default rotation
       const a6 = await signin(P6, 'op');
       const h6 = await json(`${base(P6)}/api/health`, a6);
       const st6 = await json(`${base(P6)}/api/selftest`, a6);
       const r6 = await runOn(P6, a6, 'verify-econ-r6');
       const windows = (await dbQuery(DB2, 'SELECT window_start, price_cents, sample, basis, avg_cost_usd::float AS avg FROM windows WHERE window_start >= $1 ORDER BY window_start', [new Date(T2)])).rows;
-      check('with no start figure and nineteen of the twenty determinations the average needs, nothing is priced (the health line says no price, the check page says 19 of 20 measured at 36 cents); the twentieth, dated before the window, prices it the next time it is asked, since a window without a price is not fixed: the measured average × 1.25, rounded up, 45 cents; the next window prices the same, and a run in it is told so',
-        h5.pricing?.priceCents === null && st5.economics?.price?.cents === null && st5.economics?.price?.measuredSample === 19 && Math.abs(st5.economics.price.measuredAvgUsd - 0.36) < 1e-9
-          && h5again.pricing?.priceCents === 45 && h6.pricing?.priceCents === 45 && st6.economics?.price?.basis === 'measured' && st6.economics?.price?.windowSample === 20 && pricingOf(r6)?.priceCents === 45
-          && windows.length === 2 && windows.every((w) => w.price_cents === 45 && w.basis === 'measured' && w.sample === 20 && Math.abs(w.avg - 0.36) < 1e-9),
-        JSON.stringify({ h5: h5.pricing, st5: st5.economics?.price, h5again: h5again.pricing, h6: h6.pricing, st6: st6.economics?.price, windows }));
-      // 7b. The operator sets the start figure during a window that began without one (2 October, 49 cents): the next instance prices at once.
+      check('with no list price set nothing is priced, even with twenty determinations measured (the health line says no price, the check page says so and still measures 20 at 36 cents, and a warning names the missing setting); with CIVIC_LIST_PRICE_CENTS the window prices at the list price, never at the measured average (which would have priced at 45 cents), the check page says how many times the list price covers the measured cost and the markup, and a run in it is told so',
+        h5.pricing?.priceCents === null && st5.economics?.price?.cents === null && st5.economics?.price?.basis === 'none' && st5.economics?.price?.measuredSample === 20 && Math.abs(st5.economics.price.measuredAvgUsd - 0.36) < 1e-9 && (st5.checks || []).some((x) => x.state === 'warn' && x.title === 'No list price is set')
+          && h6.pricing?.priceCents === 125 && st6.economics?.price?.cents === 125 && st6.economics?.price?.basis === 'list' && st6.economics?.price?.listCents === 125 && st6.economics?.price?.measuredSample === 20 && st6.economics?.price?.coverage === Math.round((1.25 / (0.36 * 1.25)) * 100) / 100 && pricingOf(r6)?.priceCents === 125
+          && !(st6.checks || []).some((x) => x.title === 'No list price is set')
+          && windows.length === 2 && windows[0].price_cents === null && windows[0].basis === 'none' && windows[1].price_cents === 125 && windows[1].basis === 'list' && windows[1].sample === 20 && Math.abs(windows[1].avg - 0.36) < 1e-9,
+        JSON.stringify({ h5: h5.pricing, st5: st5.economics?.price, h6: h6.pricing, st6: st6.economics?.price, r6: pricingOf(r6), windows }));
+      check('a FactEngine with no CIVIC_TIER_ORDER rotates through tiers 1, 2 and 3 (0, 1 or 2 free on a document, never 3), and says so on the check page and in its boot line',
+        JSON.stringify(st6.economics?.tier?.order) === '[1,2,3]' && [1, 2, 3].includes(h6.pricing?.tier) && h6.pricing.freeFacts === h6.pricing.tier - 1 && h6.pricing.freeFacts <= 2 && pricingOf(r6)?.freeFacts <= 2
+          && /the list price is 125 cents a fact-check · the rotation 1,2,3\b/.test(printed(P6)) && /no list price is set \(CIVIC_LIST_PRICE_CENTS\), so nothing is priced/.test(printed(P5)),
+        JSON.stringify({ order: st6.economics?.tier?.order, h6: h6.pricing, r6: pricingOf(r6) }));
+      // 7b. The deploy of 6 October: the live window was fixed at 49 cents by the retired start figure. The list price rewrites
+      // that window's row the first time it is asked, so a new document is told the list price at once; a document listed
+      // before keeps the price it was told.
       const DB4 = await makeDb('civic_verify_econ4');
       const P8 = PORT + 59;
-      const s8 = await boot(P8, { DATABASE_URL: DB4, CIVIC_CLOCK: at(T0) });
+      const s8 = await boot(P8, { DATABASE_URL: DB4, CIVIC_CLOCK: at(T0), CIVIC_TIER_FIXED: '1', CIVIC_LIST_PRICE_CENTS: '49' });
       const a8 = await signin(P8, 'op');
-      const h8 = await json(`${base(P8)}/api/health`, a8);
+      const r8b = await runOn(P8, a8, 'verify-econ-r8b');
+      await dbQuery(DB4, "UPDATE windows SET basis = 'start'");   // the row exactly as the measured price left it live: 49 cents, from the start figure
       const row8 = (await dbQuery(DB4, 'SELECT price_cents, basis FROM windows')).rows;
       s8.kill('SIGTERM');
       await new Promise((r) => setTimeout(r, 500));
       const P9 = PORT + 61;
-      await boot(P9, { DATABASE_URL: DB4, CIVIC_CLOCK: at(T0 + 10 * 60e3), CIVIC_PRICE_START_CENTS: '49' });
+      await boot(P9, { DATABASE_URL: DB4, CIVIC_CLOCK: at(T0 + 10 * 60e3), CIVIC_TIER_FIXED: '1', CIVIC_LIST_PRICE_CENTS: '125', CIVIC_PRICE_START_CENTS: '49', CIVIC_PRICE_MIN_SAMPLE: '20' });
       const a9 = await signin(P9, 'op');
       const h9b = await json(`${base(P9)}/api/health`, a9);
-      const r9b = await runOn(P9, a9, 'verify-econ-r9b');
       const row9 = (await dbQuery(DB4, 'SELECT price_cents, basis FROM windows')).rows;
-      check('a window that began with no price (the row says none) takes the start figure the moment the operator sets it: the next instance on the same database, ten minutes into the same window, prices at 49 cents, tells a run so, and the window\'s row now says start',
-        h8.pricing?.priceCents === null && row8.length === 1 && row8[0].price_cents === null && row8[0].basis === 'none'
-          && h9b.pricing?.priceCents === 49 && pricingOf(r9b)?.priceCents === 49 && row9.length === 1 && row9[0].price_cents === 49 && row9[0].basis === 'start',
-        JSON.stringify({ h8: h8.pricing, row8, h9b: h9b.pricing, r9b: pricingOf(r9b), row9 }));
+      const r9b = await runOn(P9, a9, 'verify-econ-r9b');
+      const c9 = (r) => r.find((e) => e.t === 'done')?.claims?.[0]?.entry || text;
+      const dOld = await detOn(P9, a9, { jobId: 'verify-econ-r8b-c1', runId: 'verify-econ-r8b', n: 1, entry: c9(r8b) });
+      const dNew = await detOn(P9, a9, { jobId: 'verify-econ-r9b-c1', runId: 'verify-econ-r9b', n: 1, entry: c9(r9b) });
+      const st9b = await json(`${base(P9)}/api/selftest`, a9);
+      check('a window fixed at another price (49 cents, from the retired start figure) takes the list price the first time it is asked: the next instance, ten minutes into the same window, says 125 cents at once, the row now says list, and a new document is told 125; a document listed before keeps its 49 cents, and each claim is held at its own document\'s price',
+        pricingOf(r8b)?.priceCents === 49 && row8.length === 1 && row8[0].price_cents === 49 && row8[0].basis === 'start'
+          && h9b.pricing?.priceCents === 125 && row9.length === 1 && row9[0].price_cents === 125 && row9[0].basis === 'list' && pricingOf(r9b)?.priceCents === 125
+          && JSON.stringify([quoteOf(dOld), quoteOf(dNew)]) === JSON.stringify([{ free: false, priceCents: 49 }, { free: false, priceCents: 125 }]) && dOld.some((e) => e.t === 'done') && dNew.some((e) => e.t === 'done'),
+        JSON.stringify({ r8b: pricingOf(r8b), row8, h9b: h9b.pricing, row9, r9b: pricingOf(r9b), dOld: quoteOf(dOld), dNew: quoteOf(dNew) }));
+      check('the measured price\'s settings still on a service (CIVIC_PRICE_START_CENTS, CIVIC_PRICE_MIN_SAMPLE) are read by nothing, and named: in the boot line and as a warning on the check page',
+        /no longer read: CIVIC_PRICE_START_CENTS, CIVIC_PRICE_MIN_SAMPLE/.test(printed(P9)) && (st9b.checks || []).some((x) => x.state === 'warn' && x.title === 'Settings of the measured price are still on the service' && /CIVIC_PRICE_START_CENTS, CIVIC_PRICE_MIN_SAMPLE/.test(x.detail))
+          && JSON.stringify(st9b.economics?.price?.retired) === JSON.stringify(['CIVIC_PRICE_START_CENTS', 'CIVIC_PRICE_MIN_SAMPLE']) && st9b.economics?.price?.cents === 125,
+        (printed(P9).match(/\[economics\][^\n]*/) || [''])[0]);
       // 8. The loss guard: a window that lost more than the guard sends every new run to tier 1, until the margin earned since covers the loss.
       const DB3 = await makeDb('civic_verify_econ3');
       const P7 = PORT + 56;
-      await boot(P7, { DATABASE_URL: DB3, CIVIC_CLOCK: at(T0 + 30 * 60e3), CIVIC_PRICE_START_CENTS: '45', CIVIC_TIER_LOSS_GUARD_USD: '0.5' });
+      await boot(P7, { DATABASE_URL: DB3, CIVIC_CLOCK: at(T0 + 30 * 60e3), CIVIC_LIST_PRICE_CENTS: '45', CIVIC_TIER_LOSS_GUARD_USD: '0.5' });
       const a7 = await signin(P7, 'op');
       const h7 = await json(`${base(P7)}/api/health`, a7);
       // three free determinations at 50 cents each earlier in this window: the window's margin is −1.50, below −0.50
@@ -1927,7 +1991,7 @@ async function economicsChecks() {
   // 9. The file mode: no DATABASE_URL, the same flow, the rows in memory.
   try {
     const P9 = PORT + 57;
-    await boot(P9, { CIVIC_CLOCK: at(T0), CIVIC_PRICE_START_CENTS: '45', CIVIC_PRICING_NOTE: 'The beta is not charged.' });
+    await boot(P9, { CIVIC_CLOCK: at(T0), CIVIC_LIST_PRICE_CENTS: '45', CIVIC_PRICING_NOTE: 'The beta is not charged.' });
     const a9 = await signin(P9, 'op');
     const h9 = await json(`${base(P9)}/api/health`, a9);
     const r9 = await runOn(P9, a9, 'verify-econ-r9');
@@ -1941,11 +2005,14 @@ async function economicsChecks() {
       h9.pricing?.note === 'The beta is not charged.' && JSON.stringify(pricingOf(r9)) === JSON.stringify({ tier: 3, freeFacts: 2, priceCents: 45, currency: 'USD', note: 'The beta is not charged.' })
         && JSON.stringify(q) === JSON.stringify([{ free: true, priceCents: 0 }, { free: true, priceCents: 0 }, { free: false, priceCents: 45 }]) && st9.economics?.store === 'memory' && t9?.determinations === 3 && t9?.freeGiven === 2 && t9?.revenueUsd === 0.45,
       JSON.stringify({ h9: h9.pricing, r9: pricingOf(r9), q, t9, store: st9.economics?.store }));
-    check('in file mode the report carries the durations too, from the ledger lines this instance wrote',
-      st9.economics?.durations?.determinations?.n === 3 && st9.economics.durations.determinations.meanMs > 0 && st9.economics.durations.extractions.n === 1, JSON.stringify(st9.economics?.durations));
+    check('in file mode the report carries the durations too, from the ledger lines this instance wrote, with the mean tokens of a determination (the stand-in\'s 6,000 reasoning tokens in each of the three) and the list price',
+      st9.economics?.durations?.determinations?.n === 3 && st9.economics.durations.determinations.meanMs > 0 && st9.economics.durations.extractions.n === 1
+        && st9.economics.durations.determinations.meanTokens > 6000 && st9.economics.durations.determinations.tokensMeasured === 3
+        && st9.economics.price?.cents === 45 && st9.economics.price.basis === 'list' && st9.economics.price.listCents === 45,
+      JSON.stringify({ durations: st9.economics?.durations, price: st9.economics?.price }));
     // 10. Pricing off: the rollback. The page is as before: no pricing on the health line, no pricing or quote event, nothing measured.
     const P10 = PORT + 58;
-    await boot(P10, { CIVIC_PRICING_ENABLED: 'false', CIVIC_PRICE_START_CENTS: '45' });
+    await boot(P10, { CIVIC_PRICING_ENABLED: 'false', CIVIC_LIST_PRICE_CENTS: '45' });
     const a10 = await signin(P10, 'op');
     const h10 = await json(`${base(P10)}/api/health`, a10);
     const r10 = await runOn(P10, a10, 'verify-econ-r10');
@@ -2544,6 +2611,22 @@ async function pagesChecks() {
     const served = await Promise.all(SERVED.map(async (p) => [p, await page(p)]));
     check('no page or script a reader is served speaks of access codes or carries the codes\' cookie',
       served.every(([, r]) => r.status === 200 && !codesWords.test(r.text)), served.filter(([, r]) => r.status !== 200 || codesWords.test(r.text)).map(([p, r]) => `${p}:${r.status}`).join(' '));
+    // The price, said once (the operator, 6 October): one line above the claims, and no price on a claim's row or on the
+    // button. The locales carry the one line's words and none of the row's or the button's; the credit sentence says how
+    // many fact-checks a balance covers, never a total.
+    const appJs = served.find(([p]) => p === '/js/app.js')[1].text;
+    const LINE = { en: 'Each fact-check is {amount}.', es: 'Cada verificación cuesta {amount}.', fr: 'Chaque vérification coûte {amount}.', de: 'Jeder Faktencheck kostet {amount}.' };
+    const bundles = {};
+    for (const code of Object.keys(LINE)) bundles[code] = (await import(pathToFileURL(path.join(root, 'public', 'locales', `${code}.js`)).href)).default;
+    const lineOk = Object.entries(LINE).every(([code, words]) => {
+      const b = bundles[code];
+      return b.price?.each === words && JSON.stringify(Object.keys(b.price).sort()) === JSON.stringify(['each', 'eachFree_one', 'eachFree_other'])
+        && !('balance' in b.credit) && /\{w\}/.test(b.credit.over_other) && typeof b.credit.overNone === 'string' && !/\{(cost|balance)\}/.test(b.credit.over_other) && typeof b.account?.page?.freeAmount === 'string';
+    });
+    check('the price is said once: the page carries one line for it above the claims and no price on a claim\'s row, the page\'s script says how many on the button and never what they cost, and the four locales carry the one line ("Each fact-check is {amount}.") and none of the row\'s or the button\'s price words',
+      home.text.includes('<p class="price-line" id="price-line" hidden></p>') && home.text.indexOf('id="price-line"') < home.text.indexOf('id="claims-list"') && !home.text.includes('card-price')
+        && appJs.includes("t('price.each'") && !/card-price|setPriceLabel|'price\.(test|hint|free)|'credit\.balance'/.test(appJs) && lineOk,
+      JSON.stringify(Object.fromEntries(Object.entries(bundles).map(([c, b]) => [c, { price: b.price, credit: Object.keys(b.credit) }]))));
     const words = { en: ['Refunds', 'an Operating Equity company', 'Determinations are made by an AI model'], es: ['Reembolsos', 'una empresa de Operating Equity', 'Las determinaciones las hace un modelo de IA'], fr: ['Remboursements', "une société d'Operating Equity", "Les déterminations sont faites par un modèle d'IA"], de: ['Erstattungen', 'ein Unternehmen von Operating Equity', 'Die Feststellungen trifft ein KI-Modell'] };
     for (const [code, [refunds, parent, ai]] of Object.entries(words)) {
       const l = await page(`/locales/${code}.js`);

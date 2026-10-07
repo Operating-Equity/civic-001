@@ -67,7 +67,7 @@ function renderActivity() {
     else if (l.kind === 'purchase') { what = t('account.page.addCredit'); amount = `+${money(l.amountCents)}`; plus = true; }
     else if (l.kind === 'test') {
       const n = l.n ?? '·';
-      if (l.state === 'free') { what = t('account.page.free', { n, verdict: verdictWord(l.verdict) }); amount = t('price.free'); }
+      if (l.state === 'free') { what = t('account.page.free', { n, verdict: verdictWord(l.verdict) }); amount = t('account.page.freeAmount'); }
       else if (l.state === 'charged') { what = t('account.page.charged', { n, verdict: verdictWord(l.verdict) }); amount = `−${money(l.amountCents)}`; }
       else if (l.state === 'released') { what = t('account.page.released', { n }); amount = money(0); }
       else { what = t('account.page.held', { n }); amount = `−${money(l.amountCents)}`; }

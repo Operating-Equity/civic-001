@@ -7,15 +7,16 @@
 //
 // What this module decides, and nothing else:
 //   the tier    a run's tier is fixed when its extraction starts and holds for that document:
-//               tier 1 prices every claim, tiers 2, 3 and 4 give the first one, two or three
-//               claims the reader chooses free. The tiers rotate every CIVIC_TIER_HOURS in
-//               CIVIC_TIER_ORDER, and each day the rotation starts CIVIC_TIER_SHIFT tiers later,
-//               so over four days every tier meets every time of day. CIVIC_TIER_FIXED holds one.
-//   the price   one price for everyone, fixed at each window's start: the measured average cost
-//               of a determination over the last CIVIC_PRICE_WINDOW_DAYS, marked up by
-//               CIVIC_PRICE_MARKUP_PERCENT and rounded up to the cent, once CIVIC_PRICE_MIN_SAMPLE
-//               determinations have been measured; before that CIVIC_PRICE_START_CENTS, and with
-//               no start figure nothing is priced until the sample exists. No figure of ours.
+//               tier 1 prices every claim, tiers 2 and 3 give the first one or two claims the
+//               reader chooses free (and a tier 4 in CIVIC_TIER_ORDER three). The tiers rotate
+//               every CIVIC_TIER_HOURS in CIVIC_TIER_ORDER (1,2,3 since 6 October: "0, 1, or 2
+//               answers, not 3"), and each day the rotation starts CIVIC_TIER_SHIFT tiers later,
+//               so every tier meets every time of day. CIVIC_TIER_FIXED holds one.
+//   the price   one list price for everyone and every window, CIVIC_LIST_PRICE_CENTS (the
+//               operator's of 6 October: "Remove all pricing from the application except the list
+//               price ... each fact-check is $1.25"). Unset, nothing is priced. The measured average
+//               cost of a determination over CIVIC_PRICE_WINDOW_DAYS is still measured, for the
+//               operator's check page, and never sets the price. No figure of ours.
 //   the guard   CIVIC_TIER_LOSS_GUARD_USD: when the current window's margin falls below minus
 //               that figure, every new run goes to tier 1 and stays there until the margin
 //               earned since covers the loss; then the rotation resumes. Unset, off.
@@ -51,7 +52,7 @@ export function nextChangeAt(ms, hours = config.tierHours) { return windowStartA
 /** The rotation's tier at an instant: order[(window index + day index × shift) mod the order's length], or the fixed tier. */
 export function tierAt(ms, { hours = config.tierHours, order = config.tierOrder, shift = config.tierShift, fixed = config.tierFixed } = {}) {
   if (Number.isInteger(fixed) && fixed > 0) return fixed;
-  const list = Array.isArray(order) && order.length ? order : [1, 2, 3, 4];
+  const list = Array.isArray(order) && order.length ? order : [1, 2, 3];
   const w = hoursOf(hours);
   const windowIndex = Math.floor(ms / w);
   const dayIndex = Math.floor(ms / DAY);
@@ -60,17 +61,17 @@ export function tierAt(ms, { hours = config.tierHours, order = config.tierOrder,
   return list[k];
 }
 
-/** Claims the reader may test free on one document under a tier: tier 1 none, tier 2 one, tier 3 two, tier 4 three. */
+/** Claims the reader may test free on one document under a tier: tier 1 none, tier 2 one, tier 3 two (and a tier 4 three). */
 export function freeFor(tier) { return Math.max(0, (Number.parseInt(tier, 10) || 1) - 1); }
 
-/** The price in cents from an average cost in dollars: marked up, rounded up to the cent, with the float noise taken out first. */
-export function priceFromAverage(avgUsd, markupPercent = config.priceMarkupPercent) {
-  if (!(avgUsd > 0)) return null;
-  return Math.ceil(Number((avgUsd * (100 + (Number(markupPercent) || 0))).toFixed(6)));
-}
+/** The list price, in cents, or null when the operator has set none (then nothing is priced). */
+export function listPrice() { return Number.isInteger(config.listPriceCents) && config.listPriceCents >= 0 ? config.listPriceCents : null; }
+
+/** Settings of the price as it was measured before 6 October, that nothing reads any more: named while they are still set. */
+export function retiredSettings() { return ['CIVIC_PRICE_START_CENTS', 'CIVIC_PRICE_MIN_SAMPLE'].filter((n) => String(process.env[n] || '').trim()); }
 
 // ---- the rows -------------------------------------------------------------------------------------
-const mem = { runs: new Map(), dets: new Map(), windows: new Map(), guard: [], lines: [] };   // lines: { at, kind, ms, searches } of finished calls, for the durations
+const mem = { runs: new Map(), dets: new Map(), windows: new Map(), guard: [], lines: [] };   // lines: { at, kind, ms, searches, tokens } of finished calls, for the durations
 // The attempts this instance has open, `${id}@${attempt}` → { id, attempt, holdId }: failed as `deploy` when it is told to
 // stop. Keyed by attempt, so a job stopped while the same claim is taken up again here (the page's next request) closes
 // its own attempt and never the new one.
@@ -132,33 +133,27 @@ async function measured(until, days = config.priceWindowDays) {
 }
 
 /**
- * The window's price. A window that has its price keeps it until the next window: that is what "one price
- * for everyone, fixed at each window's start" means. A window that has none is not fixed: it is asked
- * again each time, so the start figure applies the moment the operator sets it (the operator's instruction
- * of 2 October, 49 cents, was not to wait for midnight), and the measured price arrives at the first
- * window after the sample is complete, since the sample is always the days before the window's start.
+ * The window's price: the list price, whatever the window held before. A row priced otherwise (the 49 cents a window
+ * was fixed at before 6 October, or a list price the operator has since changed) is rewritten the next time it is
+ * asked, so the price changes from the deploy that brings it, the current window included; a document listed before
+ * keeps the price it was told (runs.price_cents). The measured average and its sample go on the row as they stand
+ * then, for the operator's history of the windows; they never set the price.
  */
 export async function priceForWindow(ws) {
+  const priceCents = listPrice();
+  const basis = priceCents === null ? 'none' : 'list';
   const existing = await windowRow(ws);
-  if (existing && Number.isInteger(existing.priceCents)) return existing;
+  if (existing && existing.priceCents === priceCents && existing.basis === basis) return existing;
   const m = await measured(ws);
-  let priceCents = null, basis = 'none';
-  if (m.sample >= config.priceMinSample && m.avgUsd !== null) { priceCents = priceFromAverage(m.avgUsd); basis = 'measured'; }
-  else if (Number.isInteger(config.priceStartCents) && config.priceStartCents >= 0) { priceCents = config.priceStartCents; basis = 'start'; }
   const row = { windowStart: ws, tier: tierAt(ws), priceCents, avgCostUsd: m.avgUsd, sample: m.sample, basis };
   if (dbOn()) {
-    if (!existing) {
-      await query('INSERT INTO windows (window_start, tier, price_cents, avg_cost_usd, sample, basis) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (window_start) DO NOTHING',
-        [new Date(ws), row.tier, priceCents, m.avgUsd, m.sample, basis]);
-    } else if (priceCents !== null) {
-      await query('UPDATE windows SET price_cents = $2, avg_cost_usd = $3, sample = $4, basis = $5 WHERE window_start = $1 AND price_cents IS NULL', [new Date(ws), priceCents, m.avgUsd, m.sample, basis]);
-    }
+    await query(`INSERT INTO windows (window_start, tier, price_cents, avg_cost_usd, sample, basis) VALUES ($1, $2, $3, $4, $5, $6)
+      ON CONFLICT (window_start) DO UPDATE SET tier = EXCLUDED.tier, price_cents = EXCLUDED.price_cents, avg_cost_usd = EXCLUDED.avg_cost_usd, sample = EXCLUDED.sample, basis = EXCLUDED.basis`,
+    [new Date(ws), row.tier, priceCents, m.avgUsd, m.sample, basis]);
     return (await windowRow(ws)) || row;
   }
-  const had = mem.windows.get(ws);
-  if (!had) mem.windows.set(ws, row);
-  else if (priceCents !== null && had.priceCents === null) Object.assign(had, row);
-  return mem.windows.get(ws);
+  mem.windows.set(ws, row);
+  return row;
 }
 
 // ---- the loss guard -------------------------------------------------------------------------------
@@ -455,19 +450,26 @@ export function costLine(line, ctx = {}) {
   }
   if (ctx.determinationId && kind === 'evaluate') { const d = mem.dets.get(ctx.determinationId); if (d) { d.costUsd += usd; d.priced = d.priced && priced; d.searches += searches; } }
   else if (ctx.runId && kind === 'extract') { const r = mem.runs.get(ctx.runId); if (r) r.extractUsd += usd; }
-  if (line.ok !== false && Number.isFinite(Number(line.ms))) { mem.lines.push({ at: Number(line.ts) || now(), kind, ms: Number(line.ms), searches }); if (mem.lines.length > 20000) mem.lines.splice(0, mem.lines.length - 15000); }
+  if (line.ok !== false && Number.isFinite(Number(line.ms))) { mem.lines.push({ at: Number(line.ts) || now(), kind, ms: Number(line.ms), searches, tokens: tokensOf(line.usage) }); if (mem.lines.length > 20000) mem.lines.splice(0, mem.lines.length - 15000); }
 }
+
+/** The tokens one call put through the provider: what it read (its cached part included: OpenAI's minute counts it too) and what it wrote. */
+const tokensOf = (u) => { const t = (Number(u?.input) || 0) + (Number(u?.output) || 0); return t > 0 ? t : null; };
 
 /**
  * How long the model's calls take, from the ledger lines of finished calls over the window: the count, the mean and the
  * 75th percentile of each kind's milliseconds (which begin before admission, so a wait at the gate is inside them),
- * and the mean web searches per determination. The figures the operator decides the extraction's effort by.
+ * the mean web searches per determination, and the mean tokens per determination (read and written, cached included).
+ * The figures the operator decides the extraction's effort by, and the key's capacity: a determination's tokens over its
+ * minutes is what one running determination takes of the key's minute.
  */
 async function durations(since) {
   let rows;
   if (dbOn()) {
-    const r = await query("SELECT kind, (line->>'ms')::float8 AS ms, COALESCE((line->>'searches')::float8, 0) AS searches FROM cost_lines WHERE at >= $1 AND ok IS NOT FALSE AND kind IN ('evaluate', 'extract') AND line->>'ms' IS NOT NULL", [new Date(since)]);
-    rows = r.rows.map((x) => ({ kind: x.kind, ms: Number(x.ms), searches: Number(x.searches) }));
+    const r = await query(`SELECT kind, (line->>'ms')::float8 AS ms, COALESCE((line->>'searches')::float8, 0) AS searches,
+        COALESCE((line->'usage'->>'input')::float8, 0) + COALESCE((line->'usage'->>'output')::float8, 0) AS tokens
+      FROM cost_lines WHERE at >= $1 AND ok IS NOT FALSE AND kind IN ('evaluate', 'extract') AND line->>'ms' IS NOT NULL`, [new Date(since)]);
+    rows = r.rows.map((x) => ({ kind: x.kind, ms: Number(x.ms), searches: Number(x.searches), tokens: Number(x.tokens) > 0 ? Number(x.tokens) : null }));
   } else rows = mem.lines.filter((l) => l.at >= since && (l.kind === 'evaluate' || l.kind === 'extract'));
   const stat = (list) => {
     const ms = list.map((l) => l.ms).filter((v) => Number.isFinite(v)).sort((a, b) => a - b);
@@ -476,8 +478,10 @@ async function durations(since) {
   };
   const dets = rows.filter((l) => l.kind === 'evaluate');
   const d = stat(dets);
+  const counted = dets.filter((l) => l.tokens > 0);
   return {
-    determinations: { ...d, meanSearches: dets.length ? Math.round((dets.reduce((a, l) => a + (l.searches || 0), 0) / dets.length) * 10) / 10 : null },
+    determinations: { ...d, meanSearches: dets.length ? Math.round((dets.reduce((a, l) => a + (l.searches || 0), 0) / dets.length) * 10) / 10 : null,
+      meanTokens: counted.length ? Math.round(counted.reduce((a, l) => a + l.tokens, 0) / counted.length) : null, tokensMeasured: counted.length },
     extractions: stat(rows.filter((l) => l.kind === 'extract')),
   };
 }
@@ -543,7 +547,10 @@ export async function report() {
   return {
     at: new Date(t).toISOString(),
     currency: config.currency,
-    price: { cents: win.priceCents, basis: win.basis, windowStart: new Date(ws).toISOString(), windowAvgUsd: win.avgCostUsd, windowSample: win.sample, measuredAvgUsd: soFar.avgUsd, measuredSample: soFar.sample, minSample: config.priceMinSample, days: config.priceWindowDays, markupPercent: config.priceMarkupPercent, startCents: config.priceStartCents },
+    // The list price, and what it covers: the measured average cost of a determination over the window's days, and the list
+    // price against that cost plus the markup (1.00: exactly covered). The average never sets the price.
+    price: { cents: win.priceCents, basis: win.basis, listCents: listPrice(), windowStart: new Date(ws).toISOString(), measuredAvgUsd: soFar.avgUsd, measuredSample: soFar.sample, days: config.priceWindowDays, markupPercent: config.priceMarkupPercent,
+      coverage: Number.isInteger(win.priceCents) && soFar.avgUsd > 0 ? coverageOf(win.priceCents / 100, soFar.avgUsd) : null, retired: retiredSettings() },
     tier: { now: tier, freeFacts: freeFor(tier), hours: config.tierHours, order: config.tierOrder, shift: config.tierShift, fixed: config.tierFixed, nextChangeAt: new Date(nextChangeAt(t)).toISOString(), underGuard: Boolean(guard.engaged) },
     guard: { ...guard, since: guard.since ? new Date(guard.since).toISOString() : null, windowStart: guard.windowStart ? new Date(guard.windowStart).toISOString() : null, released: guard.released ? new Date(guard.released).toISOString() : null },
     byTier, byUser, byWindow,
@@ -555,9 +562,32 @@ export async function report() {
 }
 
 // ---- boot and stop -----------------------------------------------------------------------------------
+/** The price as the boot line says it: the list price or none, and any setting of the measured price still on the service. */
+function priceWords() {
+  const list = listPrice();
+  const retired = retiredSettings();
+  return `${list === null ? 'no list price is set (CIVIC_LIST_PRICE_CENTS), so nothing is priced' : `the list price is ${list} cents a fact-check`} · the rotation ${config.tierOrder.join(',')}`
+    + `${retired.length ? ` · no longer read: ${retired.join(', ')}` : ''}`;
+}
+
+/**
+ * What one running determination takes of the key's minute, from the last days' measurements: on average T tokens (read and
+ * written, cached included) over M minutes, so R = T ÷ M tokens a minute each. The key's own minute figure divided by R is
+ * how many can run at once. For the operator, in the host's log: nothing of any reader's, and no key.
+ */
+async function capacityLine() {
+  const d = (await durations(now() - config.priceWindowDays * DAY)).determinations;
+  const days = `last ${config.priceWindowDays} day${config.priceWindowDays === 1 ? '' : 's'}`;
+  if (!d.n || !(d.meanTokens > 0) || !(d.meanMs > 0)) return `[capacity] ${days}: no fact-check measured yet`;
+  const minutes = d.meanMs / 60000;
+  const perMinute = Math.round(d.meanTokens / minutes);
+  const n = (v) => Number(v).toLocaleString('en-US');
+  return `[capacity] ${days}: ${n(d.n)} fact-check${d.n === 1 ? '' : 's'}, on average ${n(d.meanTokens)} tokens over ${Number(minutes.toPrecision(3))} min (${n(perMinute)} a minute each)`;
+}
+
 export async function boot() {
   if (!enabled()) { console.log('[economics] pricing is off (CIVIC_PRICING_ENABLED=false): nothing is priced or measured beyond the ledger'); return; }
-  if (!dbOn()) { console.log('[economics] no DATABASE_URL: prices and tiers work; the measurement lives in this instance\'s memory until it restarts'); return; }
+  if (!dbOn()) { console.log(`[economics] no DATABASE_URL: prices and tiers work; the measurement lives in this instance's memory until it restarts · ${priceWords()}`); return; }
   const m = await migrate();
   // Rows an instance left running when it died without a word (a crash): failed as lost, cost kept.
   await query("UPDATE determinations SET status = 'failed', failure = 'lost', ended_at = now(), price_cents = 0 WHERE status = 'running' AND NOT rerun AND started_at < now() - interval '12 hours'").catch((err) => warn('lost rows could not be closed', err));
@@ -566,5 +596,6 @@ export async function boot() {
   const settled = await credit.reconcile().catch((err) => { warn('holds could not be settled', err); return null; });
   if (settled && (settled.charged || settled.released)) console.log(`[economics] holds settled at boot: ${settled.charged} charged, ${settled.released} released`);
   await query("UPDATE runs SET status = 'failed' WHERE status = 'running' AND started_at < now() - interval '12 hours'").catch((err) => warn('lost runs could not be closed', err));
-  console.log(`[economics] measuring in Postgres${m.applied.length ? ` · schema ${m.applied.join(', ')} applied` : ''}${config.clock ? ` · the clock reads ${new Date(now()).toISOString()}` : ''}`);
+  console.log(`[economics] measuring in Postgres${m.applied.length ? ` · schema ${m.applied.join(', ')} applied` : ''}${config.clock ? ` · the clock reads ${new Date(now()).toISOString()}` : ''} · ${priceWords()}`);
+  console.log(await capacityLine().catch((err) => `[capacity] could not be read: ${err?.message || err}`));
 }

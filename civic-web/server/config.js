@@ -223,19 +223,21 @@ export const config = {
   termsVersion: env('CIVIC_TERMS_VERSION', '2026-10-03'),        // the Terms an account agreed to: the operator's launch text of 3 October
 
   // Facts have a price, and every user is measured (server/economics.js; the operator's program of
-  // 2 October). Listing the claims is always free; testing one is priced, and a run's tier says how
-  // many of the claims the reader chooses on a document are free (tier 1: none; 2: one; 3: two; 4:
-  // three). The price is the measured average cost of a determination marked up by the percentage
-  // below, or the start figure until the sample is big enough; nothing is charged yet, revenue is
-  // booked at list price and marked not collected. Every figure here is the operator's.
+  // 2 October). Listing the claims is always free; testing one costs the list price, and a run's tier
+  // says how many of the claims the reader chooses on a document are free (tier 1: none; 2: one; 3:
+  // two). On 6 October the operator replaced the measured price with one list price ("Remove all
+  // pricing from the application except the list price ... each fact-check is $1.25"): it prices every
+  // window, and the measured average is kept for /check alone. Nothing is charged in money yet; revenue
+  // is booked at list price and marked not collected. Every figure here is the operator's.
   pricingEnabled: bool('CIVIC_PRICING_ENABLED', true),         // false: the page as before, nothing priced or measured beyond the ledger
-  priceMarkupPercent: num('CIVIC_PRICE_MARKUP_PERCENT', 25),    // "the average needs to be marked up 25% to start"
-  priceWindowDays: num('CIVIC_PRICE_WINDOW_DAYS', 7),           // the average is taken over this many days (a flagged default)
-  priceMinSample: int('CIVIC_PRICE_MIN_SAMPLE', 20),            // determinations the average needs before it sets the price (a flagged default)
-  priceStartCents: optInt('CIVIC_PRICE_START_CENTS'),           // the price until the sample exists; unset = nothing is priced until it does
+  listPriceCents: optInt('CIVIC_LIST_PRICE_CENTS'),             // "each fact-check is $1.25": 125; unset = nothing is priced
+  priceMarkupPercent: num('CIVIC_PRICE_MARKUP_PERCENT', 25),    // /check's coverage: the list price against the measured cost plus this markup ("marked up 25%")
+  priceWindowDays: num('CIVIC_PRICE_WINDOW_DAYS', 7),           // the days /check's measurement covers (a flagged default)
   currency: env('CIVIC_CURRENCY', 'USD'),
   tierHours: num('CIVIC_TIER_HOURS', 6),                        // "change every 6 hours"
-  tierOrder: list('CIVIC_TIER_ORDER', '1,2,3,4').map((x) => Number.parseInt(x, 10)).filter((x) => Number.isInteger(x) && x > 0),
+  // "The formula is going to test and return either 0, 1, or 2 answers, not 3" (the operator, 6 October): tier 4 is no
+  // longer in the default rotation, so a lost setting can never bring three free back.
+  tierOrder: list('CIVIC_TIER_ORDER', '1,2,3').map((x) => Number.parseInt(x, 10)).filter((x) => Number.isInteger(x) && x > 0),
   tierShift: int('CIVIC_TIER_SHIFT', 1),                        // each day the rotation starts one tier later, so every tier meets every time of day (0 = a fixed clock)
   tierLossGuardUsd: optNum('CIVIC_TIER_LOSS_GUARD_USD'),        // "unless one is very unprofitable and I am losing a lot of money. Become 1 until we earn it back"; unset = off
   tierFixed: optInt('CIVIC_TIER_FIXED'),                        // one tier for everyone, for when the data has spoken

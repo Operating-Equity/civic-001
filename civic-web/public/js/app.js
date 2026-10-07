@@ -7,7 +7,7 @@
 //      and the reasoning summary, the search trail, the cited sources and the raw text are all
 //      on the card. When the verdict cannot be read from the model's own Conclusion, the card
 //      says so instead of guessing.
-import { t, setLocale, initLocale, LOCALES, currentLocale, fmtNumber, fmtSeconds, fmtUsd } from './i18n.js';
+import { t, setLocale, initLocale, LOCALES, currentLocale, fmtNumber, fmtSeconds, fmtUsd, numberWord } from './i18n.js';
 import * as api from './api.js';
 import { $, $$, el, renderMarkdown, renderMath, setBar, toast, easeChars, easeTime, bump, copyText } from './render.js';
 import { field } from './field.js';   // the mathematics behind the glass follows the run's phase
@@ -88,7 +88,7 @@ function cacheElements() {
     buildStamp: $('#build-stamp'),
     results: $('#results'), resetTop: $('#btn-reset-top'), reset: $('#btn-reset'),
     langSelect: $('#lang-select'), signin: $('#btn-signin'), signup: $('#btn-signup'), signout: $('#btn-signout'),
-    navBalance: $('#nav-balance'), navAccount: $('#nav-account'), balanceLine: $('#balance-line'),
+    navBalance: $('#nav-balance'), navAccount: $('#nav-account'), balanceLine: $('#balance-line'), priceLine: $('#price-line'),
     accountBox: $('#account-box'), accountLede: $('#account-box-lede'), tabSignup: $('#tab-signup'), tabSignin: $('#tab-signin'),
     formSignup: $('#form-signup'), signupEmail: $('#signup-email'), signupPassword: $('#signup-password'), signupPasswordHint: $('#signup-password-hint'),
     signupAgree: $('#signup-agree'), signupAgreeText: $('#signup-agree-text'), signupNote: $('#signup-note'), signupSubmit: $('#signup-submit'),
@@ -1086,49 +1086,55 @@ function renderBeyondTools() {
   ui.selectAll.textContent = t(allSelected ? 'claims.clearAll' : 'claims.selectAll');
   ui.testSelected.hidden = open.length === 0;
   ui.testSelected.disabled = selected === 0 || busy;
-  // With a price on this run, the button says what the selection costs: the first of the document's
-  // free ones go free, the rest at the price; without one, the count alone, as before.
-  const price = pricingNow();
-  if (price && selected > 0) {
-    const freeN = Math.min(freeRemaining(), selected);
-    const priced = selected - freeN;
-    const amount = fmtMoney(priced * price.priceCents, price.currency);
-    ui.testSelected.textContent = freeN === 0 ? t('price.testPriced', { n: selected, amount }) : priced === 0 ? t('price.testFree', { n: selected }) : t('price.testMixed', { n: selected, free: freeN, amount });
-  } else ui.testSelected.textContent = t('claims.testSelected', { n: selected });
-  renderBalanceLine(price, selected);
+  // The button says how many, never what they cost: the price is said once, above the claims (the operator, 6 October).
+  ui.testSelected.textContent = t('claims.testSelected', { n: selected });
+  renderBalanceLine(selected);
   let hint = '';
   if (busy) hint = t('claims.afterFirst');
-  else if (price) hint = [t('price.hint', { amount: fmtMoney(price.priceCents, price.currency) }), price.freeFacts > 0 ? t('price.hintFree', { n: price.freeFacts }) : '', price.note || ''].filter(Boolean).join(' ');
-  else if (state.accounting && averageCost() !== null) hint = t('claims.avgCost', { usd: fmtUsd(averageCost()) });
+  else if (!pricingNow() && state.accounting && averageCost() !== null) hint = t('claims.avgCost', { usd: fmtUsd(averageCost()) });
   ui.beyondHint.textContent = hint;
-  renderPriceLabels();
+  renderPriceLine();
+}
+
+/** The price, said once above the claims: "Each fact-check is $1.25.", the document's free ones when it has any, and the operator's note. */
+function renderPriceLine() {
+  const price = pricingNow();
+  ui.priceLine.hidden = !price;
+  if (!price) { ui.priceLine.textContent = ''; return; }
+  const free = Number(price.freeFacts) || 0;
+  ui.priceLine.textContent = [
+    t('price.each', { amount: fmtMoney(price.priceCents, price.currency) }),
+    free > 0 ? t('price.eachFree', { n: free, w: numberWord(free) }) : '',
+    price.note || '',
+  ].filter(Boolean).join(' ');
 }
 
 /**
- * The reader's balance under the claims, and what the selection would cost against it: a selection the balance cannot
- * cover holds the button back with a sentence (the server refuses it anyway, before any model is asked).
+ * A selection the reader's balance cannot cover holds the button back with a sentence naming how many it covers (the
+ * document's free ones and as many as the balance pays for), never a total; the server refuses it anyway, before any
+ * model is asked. And the sentence of a run that stopped for credit or the monthly limit. Otherwise nothing: the
+ * balance itself is in the menu bar.
  */
-function renderBalanceLine(price, selected) {
+function renderBalanceLine(selected) {
+  const price = pricingNow();
   const bal = required() && state.session ? state.session.balanceCents : null;
-  const show = Number.isFinite(bal) && Boolean(price);
-  ui.balanceLine.hidden = !show && !state.creditStop;
   ui.balanceLine.classList.remove('is-over');
   if (state.creditStop) {
     const s = state.creditStop;
+    ui.balanceLine.hidden = false;
     ui.balanceLine.classList.add('is-over');
     ui.balanceLine.textContent = s.code === 'month_limit'
       ? t('credit.stoppedLimit', { limit: fmtMoney(s.limitCents) })
       : t('credit.stopped', { balance: fmtMoney(s.balanceCents), price: fmtMoney(s.priceCents) });
     return;
   }
-  if (!show) { ui.balanceLine.textContent = ''; return; }
-  const freeN = Math.min(freeRemaining(), selected);
-  const cost = (selected - freeN) * price.priceCents;
-  if (selected > 0 && cost > bal) {
+  const covers = Number.isFinite(bal) && price ? freeRemaining() + Math.floor(Math.max(0, bal) / price.priceCents) : null;
+  if (covers !== null && selected > covers) {
     ui.testSelected.disabled = true;
+    ui.balanceLine.hidden = false;
     ui.balanceLine.classList.add('is-over');
-    ui.balanceLine.textContent = t('credit.over', { cost: fmtMoney(cost), balance: fmtMoney(bal) });
-  } else ui.balanceLine.textContent = t('credit.balance', { balance: fmtMoney(bal) });
+    ui.balanceLine.textContent = covers > 0 ? t('credit.over', { n: covers, w: numberWord(covers) }) : t('credit.overNone');
+  } else { ui.balanceLine.hidden = true; ui.balanceLine.textContent = ''; }
 }
 
 // ---------- prices: what the server said this run's claims cost ---------------------------------------
@@ -1152,42 +1158,6 @@ function fmtMoney(cents, currency) {
   const amount = (Number(cents) || 0) / 100;
   try { return new Intl.NumberFormat(currentLocale(), { style: 'currency', currency: currency || state.pricing?.currency || 'USD' }).format(amount); }
   catch { return `${amount.toFixed(2)} ${currency || ''}`.trim(); }
-}
-
-function setPriceLabel(card, text, free) {
-  const node = card && $('.card-price', card);
-  if (!node) return;
-  node.textContent = text;
-  node.hidden = !text;
-  node.classList.toggle('is-free', Boolean(free));
-}
-
-/** A tested row's label is what the server said: Free, the price, or nothing when nothing was priced. */
-function renderPriceLabel(i) {
-  const r = state.results[i];
-  const card = cardOf(i);
-  if (!r || !card) return;
-  if (r.free === true) setPriceLabel(card, t('price.free'), true);
-  else if (Number.isInteger(r.priceCents) && r.priceCents > 0) setPriceLabel(card, fmtMoney(r.priceCents), false);
-  else setPriceLabel(card, '', false);
-}
-
-/**
- * The rows still to choose from: the free marks sit on the rows that would be free if the reader
- * pressed now (the chosen ones first, in the list's order, then the rest), and every other row shows
- * the price. So a tick moves the marks, and the button's sum and the marks always agree.
- */
-function renderPriceLabels() {
-  for (let i = 0; i < state.results.length; i++) renderPriceLabel(i);
-  const price = pricingNow();
-  const open = state.beyond.filter((b) => !b.tested && b.node);
-  if (!price) { for (const b of open) setPriceLabel(b.node, '', false); return; }
-  let left = freeRemaining();
-  for (const b of [...open.filter((b) => b.selected), ...open.filter((b) => !b.selected)]) {
-    const free = left > 0;
-    if (free) left--;
-    setPriceLabel(b.node, free ? t('price.free') : fmtMoney(price.priceCents, price.currency), free);
-  }
 }
 
 function toggleSelectAll() {
@@ -1370,7 +1340,7 @@ function handleEvalEvent(ev, mapIndex) {
       scheduleEntryRender(i);
       break;
     case 'trail': r.trail.push(ev.step); renderCardStatus(i); break;
-    case 'quote': r.free = ev.free ?? null; r.priceCents = ev.priceCents ?? null; if (Number.isFinite(ev.balanceCents)) setBalance(ev.balanceCents); renderPriceLabel(i); renderBeyondTools(); break;   // free, or the price: the server's word, and the balance after its hold
+    case 'quote': r.free = ev.free ?? null; r.priceCents = ev.priceCents ?? null; if (Number.isFinite(ev.balanceCents)) setBalance(ev.balanceCents); renderBeyondTools(); break;   // free, or the price: the server's word, and the balance after its hold
     case 'source': r.sources.push(ev.source); break;
     case 'note': if (ev.code === 'no_reasoning_summary') r.noSummary = true; break;
     case 'retry':
