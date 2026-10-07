@@ -666,10 +666,12 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
   $10 as a temporary number".
   - Their answers: the list price is $1.25; 0, 1 or 2 free per document stays (the rotation without tier 4); one line
     only, with the balance kept in the menu bar.
-  - The key's limit: their screenshot of OpenAI's Limits page (it reached the session on 7 October; the badge reads
-    Grow, the table is set to Launch) gives gpt-5.6-sol 4,000,000 tokens and 10,000 requests a minute. On 3 October
-    the key's own replies reported 40,000,000 and 15,000. The gate always paces by the figures OpenAI returns, and
-    /check shows them with the count they allow.
+  - The key's limit: their screenshot of OpenAI's Limits page (it reached the session on 7 October) shows Launch
+    mode's specs, which the operator has not turned on ("I have not turned on launch mode. I am giving you specs."):
+    gpt-5.6-sol at 4,000,000 tokens and 10,000 requests a minute. The organization's current mode reads Grow. On 3
+    October the key's own replies reported 40,000,000 and 15,000, which does not fit Launch being the higher mode, so
+    the key on the service may belong to another OpenAI organization than the one in the screenshot (Vivid Labs). The
+    gate always paces by the figures OpenAI returns, and /check shows them with the count they allow.
   - Built: `CIVIC_LIST_PRICE_CENTS` prices every window (`server/economics.js`); a window row at another price is
     rewritten the first time it is asked, and a document listed before keeps its own. The measured average is kept
     for /check's coverage figure and never sets the price. `CIVIC_PRICE_START_CENTS` and `CIVIC_PRICE_MIN_SAMPLE` are
@@ -694,9 +696,10 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
     - The boot lines: "the list price is 125 cents a fact-check · the rotation 1,2,3 · no longer read:
       CIVIC_PRICE_START_CENTS", and "[capacity] last 7 days: 6 fact-checks, on average 509,305 tokens over 3.86 min
       (132,075 a minute each)".
-    - So about 30 fact-checks run at once at the 4,000,000 tokens a minute of the operator's screenshot (three readers
-      at ten each), or about 302 at the 40,000,000 the key reported on 3 October. Beyond that a fact-check waits its
-      turn at the gate; it never fails. 10,000 requests a minute do not bind: 30 at once make about 8 requests a minute.
+    - So with Launch mode on (4,000,000 tokens a minute for gpt-5.6-sol), about 30 fact-checks run at once: three
+      readers at ten each. Beyond that a fact-check waits its turn at the gate; it never fails. Launch's 10,000 requests
+      a minute do not bind: 30 at once make about 8 requests a minute. Today's count, with Launch off, is the key's own
+      figure divided by the same 132,075; /check shows both after the next fact-check.
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 
