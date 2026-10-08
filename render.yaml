@@ -1,7 +1,7 @@
 # Hosting on Render (render.com). Render reads this file from the repository (New → Blueprint) and
 # creates the CIVIC web service; a service created through Render's API carries the same settings.
-# After the service exists, the two prompts go in as Secret Files named extract.txt and
-# evaluate.txt (mounted at /etc/secrets/, never in the repository), and the values marked
+# After the service exists, the prompts go in as Secret Files named extract.txt, evaluate.txt and
+# chat.txt (mounted at /etc/secrets/, never in the repository), and the values marked
 # sync: false are set in Render and nowhere else: the operator's OpenAI key, the listing's key on
 # Fireworks (5 October; DeepSeek's own, 4 October, if the listing goes there instead), the operator's address and
 # the hash of the one-time link that makes the operator's account (civic-web/server/accounts.js), and the database's
@@ -30,6 +30,10 @@ services:
         value: /etc/secrets/extract.txt
       - key: CIVIC_PROMPT_EVALUATE_FILE
         value: /etc/secrets/evaluate.txt
+      - key: CIVIC_PROMPT_CHAT_FILE        # the operator's chat prompt, uploaded as the secret file chat.txt
+        value: /etc/secrets/chat.txt
+      - key: CIVIC_CHAT                    # the conversation under every result: the operator's trial (8 October)
+        value: operator
       - key: CIVIC_LEDGER_FILE
         value: /var/data/civic-ledger.jsonl
       - key: CIVIC_ERROR_LOG

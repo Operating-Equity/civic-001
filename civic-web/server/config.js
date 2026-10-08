@@ -183,10 +183,19 @@ export const config = {
   artDirectionModels: list('CIVIC_IMAGE_ART_DIRECTION_MODELS', 'gpt-5.6-luna,gpt-5.6-terra,gpt-5.4-mini'),
   artDirectionEffort: env('CIVIC_IMAGE_ART_DIRECTION_EFFORT', 'low'),
 
-  // Challenge — mechanics run, but the OpenAI call is withheld until the prompt is certified.
-  challengeEnabled: bool('CIVIC_CHALLENGE_ENABLED', false),
-  challengeMaxFiles: 5,
-  challengeMaxFileBytes: 20 * 1024 * 1024,
+  // The conversation under every fact-check, in place of the challenge (server/chat.js; the operator, 7–8 October: "My
+  // goal is to change challenge to chat"). Off unless set. `operator` opens it to the operator's account alone, for the
+  // trial ("This chat feature is highly experimental right now ... I will not launch it until it's perfected"); readers
+  // wait for a reply's price. At most this many questions to a result ("a defined limit of user questions, up to 4 ...
+  // I want to be safe"), a setting so the figure moves without a release. The titles are skipped for the inspector's
+  // letter ("Dr. Orin Vale" is O). Evidence in one message: the challenge's five items of 20 MB, kept.
+  chat: env('CIVIC_CHAT', 'off').trim().toLowerCase(),
+  chatMaxTurns: (() => { const v = optInt('CIVIC_CHAT_MAX_TURNS'); return v !== null && v >= 0 ? v : 4; })(),
+  chatTitles: list('CIVIC_CHAT_TITLES', 'Dr,Prof,Sir,Mr,Mrs,Ms,Lord,Lady,St'),
+  chatMaxFiles: 5,
+  chatMaxFileBytes: 20 * 1024 * 1024,
+  // The most one request may carry: a whole document to list, or a conversation with its evidence (express.json's limit).
+  maxRequestBytes: 64 * 1024 * 1024,
 
   // Internal accounting (operator view, not a customer feature).
   accounting: bool('CIVIC_INTERNAL_ACCOUNTING', true),
@@ -282,8 +291,6 @@ export function publicConfig(promptStatus) {
     inFlight: config.evalConcurrency,   // the page paces itself by this, so the operator changes it with one setting
     maxSourceChars: config.maxSourceChars,
     maxUploadBytes: config.maxUploadBytes,
-    challengeEnabled: config.challengeEnabled,
-    challengeMaxFiles: config.challengeMaxFiles,
     illustrateEnabled: config.illustrateEnabled,
     accounting: config.accounting,
     reasoningSummary: Boolean(config.evalReasoningSummary),

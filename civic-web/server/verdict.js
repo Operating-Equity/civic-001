@@ -107,11 +107,50 @@ export function parseEntry(raw) {
   const conf = text.match(/Confidence\**\s*[:\-–—]?\s*\**\s*(\d{1,3})\s*%/i);
   const confidence = conf ? Math.min(100, Number(conf[1])) : null;
 
-  const name = text.match(/\*\*Name\*\*\s*[:\-–—]?\s*\**\s*([^\n*]+)/i) || text.match(/^\s*0\.\s*\**Name\**\s*[:\-–—]?\s*([^\n]+)/im);
-  const inspector = name ? name[1].replace(/[\[\]]/g, '').trim().slice(0, 160) : null;
+  const inspector = inspectorOf(text);
 
   // text is returned untouched.
   return { verdict, verdictSource: source, confidence, inspector, conclusion, text };
+}
+
+// The entry's Name line, in whatever form the model wrote its label: "Name: X", "**Name:** X", "**Name**: X",
+// "0. **Name:** X", "- Name — X", "### Name: X". The label opens its line, so a sentence of the body that happens to say
+// "name" is never read as one.
+const NAME_LINE = /^[ \t]*(?:[-*+][ \t]+|\d+[.)][ \t]*|#{1,6}[ \t]*)?(?:\*\*|__|\*|_)?[ \t]*name[ \t]*(?:\*\*|__|\*|_)?[ \t]*[:\-–—][ \t]*(.*)$/im;
+const SUFFIX = /^(?:jr|sr|ii|iii|iv)\.?$/i;
+
+/** A name as a name: without Markdown's marks or brackets, up to the first mark that ends one ("Orin Vale (geologist)" is Orin Vale). */
+export function cleanName(raw) {
+  let s = String(raw ?? '').replace(/[*_`~]/g, '').replace(/[[\]]/g, '').trim();
+  s = s.split(/\s[-–—]\s|[,;:(|/]|[–—]/)[0];
+  s = s.replace(/\s+/g, ' ').trim().replace(/^["“'‘]+|["”'’]+$/g, '').trim();
+  const words = s.split(' ');
+  const last = words[words.length - 1] || '';
+  if (words.length > 1 && /\.$/.test(last) && last.length > 3 && !SUFFIX.test(last)) s = s.replace(/\.$/, '');
+  return /\p{L}/u.test(s) ? s.slice(0, 160) : null;
+}
+
+/** The inspector the entry names on its Name line (the label's own line, or the line after a label left bare), or null. */
+export function inspectorOf(text) {
+  const m = String(text ?? '').match(NAME_LINE);
+  if (!m) return null;
+  const same = cleanName(m[1]);
+  if (same) return same;
+  const after = String(text).slice(m.index + m[0].length).split('\n').map((l) => l.trim()).find(Boolean) || '';
+  return /^[\p{L}][\p{L} .'’-]*$/u.test(after.replace(/[*_]/g, '').trim()) ? cleanName(after) : null;
+}
+
+/**
+ * The inspector's letter in a conversation, by which the conversation calls it (the operator, 8 October: the first
+ * letter of the first name): the first letter of the name's first word that is not a title in `titles`
+ * (CIVIC_CHAT_TITLES), in capitals. "Orin Vale" and "Dr. Orin Vale" are O, "Sir Edwin Cardale" E.
+ */
+export function inspectorLetter(name, titles = []) {
+  const words = String(name ?? '').split(/\s+/).filter(Boolean);
+  const skip = new Set(titles.map((x) => String(x).toLowerCase().replace(/\.$/, '')));
+  const own = words.find((w) => !skip.has(w.toLowerCase().replace(/\.$/, ''))) || words[0] || '';
+  const letter = own.match(/\p{L}/u);
+  return letter ? letter[0].toLocaleUpperCase() : null;
 }
 
 /** The entry around its last "Conclusion", for the record of a verdict that could not be read. */

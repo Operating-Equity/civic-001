@@ -255,14 +255,11 @@ export async function illustrate({ text, signal }) {
   return res.json();
 }
 
-export async function challenge({ claim, verdict, originalEntry, message, files, signal }) {
-  const form = new FormData();
-  form.append('claim', claim);
-  form.append('verdict', verdict || '');
-  form.append('originalEntry', originalEntry || '');
-  form.append('message', message || '');
-  for (const f of files || []) form.append('files', f, f.name);
-  const res = await call('api/challenge', { method: 'POST', body: form, signal });
-  if (!res.ok) await throwFromResponse(res);
-  return res.json();
+/**
+ * One reply of the conversation under a result (server/chat.js): the page sends the conversation it holds, with the
+ * server's seal over it, and the reader's message; the reply's story ends with the reply (`done`) or its error. A cut
+ * connection is opened again against the same reply, as a determination's is.
+ */
+export function chat({ jobId, body, signal, onEvent, onCut, onAttached }) {
+  return streamNdjson('api/chat', { jobId, ...body }, { signal, onEvent, onCut, onAttached, isEnd: (ev) => ev.t === 'done' || ev.t === 'error' });
 }

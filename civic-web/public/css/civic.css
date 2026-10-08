@@ -317,7 +317,7 @@ body {
 .card-check { width: 16px; height: 16px; margin: 5px 0 0; accent-color: var(--blue); }
 .card-brief { margin: 6px 0 0 34px; font-size: 14px; line-height: 1.45; color: var(--ink-2); cursor: pointer; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 .card.is-open .card-brief { display: none; }
-.card:not(.is-open) .entry, .card:not(.is-open) .card-detail, .card:not(.is-open) .card-foot, .card:not(.is-open) .card-note, .card:not(.is-open) .challenge { display: none !important; }
+.card:not(.is-open) .entry, .card:not(.is-open) .card-detail, .card:not(.is-open) .card-foot, .card:not(.is-open) .card-note, .card:not(.is-open) .chat { display: none !important; }
 .card-error .btn { margin-inline-start: 6px; vertical-align: baseline; }
 .claims-beyond { margin-block-start: 16px; padding-block-start: 12px; border-block-start: 1px dashed var(--line); }
 .claims-beyond-head { display: flex; justify-content: space-between; align-items: center; gap: 10px 16px; flex-wrap: wrap; }
@@ -430,16 +430,33 @@ body {
 .prose hr { border: 0; border-block-start: 1px solid var(--line); margin: 14px 0; }
 .card[data-state="running"] .prose::after { content: "▍"; color: var(--blue); animation: pulse 1s steps(2) infinite; }
 
-/* challenge */
-.challenge { margin-block-start: 14px; padding: 16px 18px; border-radius: var(--radius-sm); background: rgba(255, 255, 255, .52); border: 1px solid var(--line); display: grid; gap: 10px; animation: open .22s ease-out; }
-.challenge-title { margin: 0; font-family: var(--font-display); font-weight: 600; font-size: 22px; }
-.challenge-lede { margin: 0; font-size: 14px; color: var(--ink-2); }
-.challenge-text { resize: vertical; min-height: 96px; }
-.challenge-files { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
-.challenge-list { list-style: none; margin: 0; padding: 0; display: flex; gap: 6px; flex-wrap: wrap; width: 100%; }
-.challenge-list li { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; padding: 4px 6px 4px 10px; border-radius: 999px; background: var(--blue-soft); color: var(--blue-deep); }
-.challenge-list button { border: 0; background: transparent; color: inherit; cursor: pointer; font-size: 15px; line-height: 1; padding: 2px 4px; border-radius: 50%; }
-.challenge-list button:hover { background: rgba(47, 86, 196, .15); }
+/* the conversation with the inspector: the reader's messages, the replies whole, one box */
+.chat { margin-block-start: 14px; padding: 16px 18px; border-radius: var(--radius-sm); background: rgba(255, 255, 255, .52); border: 1px solid var(--line); display: grid; gap: 10px; animation: open .22s ease-out; }
+.chat-head { margin: 0; font-family: var(--font-display); font-weight: 600; font-size: 22px; }
+.chat-lede { margin: 0; font-size: 14px; color: var(--ink-2); }
+.chat-thread { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.chat-thread:empty { display: none; }
+.chat-turn { padding: 10px 12px; border-radius: var(--radius-sm); border: 1px solid var(--line-soft); }
+.chat-question { background: var(--blue-soft); border-color: transparent; justify-self: end; max-width: min(100%, 46rem); }
+.chat-reply { background: rgba(255, 255, 255, .7); }
+.chat-who { margin: 0 0 4px; font-size: 12px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--ink-2); }
+.chat-words { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 15px; line-height: 1.5; }
+.chat-evidence, .chat-flags { margin: 6px 0 0; }
+.chat-body > :first-child { margin-block-start: 0; }
+.chat-body > :last-child { margin-block-end: 0; }
+.chat-reply .raw { margin-block-start: 8px; }
+.chat-status { margin: 0; }
+.chat-note { margin: 0; font-size: 14px; color: var(--ink-2); }
+.chat-note.is-closed { color: var(--ink); }
+.chat-form { display: grid; gap: 10px; }
+.chat-text { resize: vertical; min-height: 84px; }
+.chat-files { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.chat-list { list-style: none; margin: 0; padding: 0; display: flex; gap: 6px; flex-wrap: wrap; width: 100%; }
+.chat-list:empty { display: none; }
+.chat-list li { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; padding: 4px 6px 4px 10px; border-radius: 999px; background: var(--blue-soft); color: var(--blue-deep); max-width: 100%; overflow-wrap: anywhere; }
+.chat-list button { border: 0; background: transparent; color: inherit; cursor: pointer; font-size: 15px; line-height: 1; padding: 2px 4px; border-radius: 50%; }
+.chat-list button:hover { background: rgba(47, 86, 196, .15); }
+.chat-form .actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 
 .run-end { display: flex; justify-content: center; gap: 12px; flex-wrap: wrap; padding: 12px 0 8px; }
 

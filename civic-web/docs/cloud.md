@@ -700,6 +700,36 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
       readers at ten each. Beyond that a fact-check waits its turn at the gate; it never fails. Launch's 10,000 requests
       a minute do not bind: 30 at once make about 8 requests a minute. Today's count, with Launch off, is the key's own
       figure divided by the same 132,075; /check shows both after the next fact-check.
+- **7 and 8 October, the conversation with the inspector, in place of the challenge.** The operator, 7 October: "My
+  goal is to change challenge to chat", from a guide of their own (its text stays theirs and is in no file here):
+  the fact-check stays turn 1, unchanged, and every later reply carries their continuation text, the whole
+  conversation word for word, and the current question once. On 8 October: in the conversation the inspector is
+  called by the first letter of its first name ("Inspector A") and never by its name, the same inspector throughout;
+  "The reasoning will not be remembered unless you prompt it identically for every response"; "up to 4" questions;
+  "highly experimental … if it doesn't perform as well as the initial outputs in terms of reasoning and stability, I
+  will not launch it until it's perfected"; and the prompt-extraction danger as "one of my significant concerns".
+  - Their answers (AskUserQuestion, 8 October): a reply reaches the page whole, after the server's screen; in the
+    trial a reply that says the name is shown as written and counted; the model's private thinking is not carried
+    from one reply to the next (the guide's §9: each reply thinks afresh under the same instructions over the
+    visible record); the letter is the first after a title ("Dr. Orin Vale" is O).
+  - What "no reasoning items are replayed" means, as told to the operator: OpenAI's model thinks privately before each
+    answer, and the API can hand that thinking back sealed so a later request carries it; the guide does not use it.
+    The prompt's reasoning structure is another thing: it is in the chat prompt's instructions, sent whole and
+    identically on every reply.
+  - Built (`server/chat.js`, `seal.js`, `screen.js`, `respond.js`; migration `003-chat.sql`): the chat prompt as a
+    third vault prompt (`chat`, three slots, split at its `{{QUESTION}}` line); the name parser widened to every form
+    of the entry's Name line; the fact-check's `done` carrying the letter, the answer's messages with their phases
+    and a seal; each reply a job (`<fact-check>.c<turn>`) through the gate as a determination, its request built from
+    the seal; the reply screened (any five words of a prompt held back, the name counted) and delivered whole; a
+    reply a `determinations` row of kind `chat`, never free, priced at nothing on the trial, measured by turn on
+    /check; the challenge's code, route, button, keys and template removed. Found on the way and fixed: a delivered
+    fact-check's free second go now requires the same claim (a fingerprint on the row).
+  - Settings: `CIVIC_CHAT=operator` (the operator's account alone), `CIVIC_CHAT_MAX_TURNS` 4, `CIVIC_CHAT_TITLES`
+    Dr,Prof,Sir,Mr,Mrs,Ms,Lord,Lady,St; the prompt as the Render secret file `chat.txt` at
+    `CIVIC_PROMPT_CHAT_FILE=/etc/secrets/chat.txt`, uploaded when the operator sends it. Until then /check says the
+    chat prompt is not installed and no result offers a conversation.
+  - Retired: `CIVIC_CHALLENGE_ENABLED` and `CIVIC_PROMPT_CHALLENGE(_FILE)`, read by nothing; /check names them while
+    set.
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 

@@ -47,7 +47,7 @@ jobs:
       - name: No real prompt file is committed
         run: |
           tracked=$(git ls-files server/prompts | sort | tr '\n' ' ')
-          expected="server/prompts/.gitignore server/prompts/README.md server/prompts/challenge.example.txt server/prompts/evaluate.example.txt server/prompts/extract.example.txt "
+          expected="server/prompts/.gitignore server/prompts/README.md server/prompts/chat.example.txt server/prompts/evaluate.example.txt server/prompts/extract.example.txt "
           if [ "$tracked" != "$expected" ]; then
             echo "The prompt vault contains a file it must not: $tracked"; exit 1
           fi

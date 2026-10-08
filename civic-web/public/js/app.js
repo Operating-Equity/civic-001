@@ -690,6 +690,7 @@ function newResult() {
     usage: null, cost: null, ms: null, trail: [], sources: [], incomplete: null, renderAt: 0,
     jobId: null, cutFrom: null,   // the claim's job at the server, and what the row said before its connection was cut
     free: null, priceCents: null, // what the server said this one costs: one of the document's free ones, or the price
+    chat: null,                   // the conversation with this result's inspector, once the result carries one (server/chat.js)
   };
 }
 
@@ -1430,8 +1431,6 @@ function buildCard(claim, n) {
   $('.card-status', node).textContent = t('card.pending');
   // The row's place in the run is known only once its batch starts; everything reads it then.
   const idx = () => Number(node.dataset.index);
-  $('.btn-challenge', node).textContent = t('card.challenge');
-  $('.btn-challenge', node).addEventListener('click', () => toggleChallenge(idx()));
   $('.btn-retry', node).textContent = t('card.retryBtn');
   $('.btn-retry', node).addEventListener('click', () => retryClaim(idx()));
   const copy = $('.btn-copy', node);
@@ -1451,11 +1450,11 @@ function buildCard(claim, n) {
   $('.card-brief', node).addEventListener('click', toggle);
   // An open row closes on a click or tap anywhere in its length (the operator's ask of 18
   // September: at the end of a long entry the way back up is far), and the next row comes into
-  // view, since that is where the reader goes next. Controls, links, the fold-out summaries and
-  // a text selection in progress are left alone.
+  // view, since that is where the reader goes next. Controls, links, the fold-out summaries,
+  // a text selection in progress and the conversation (read and written in place) are left alone.
   node.addEventListener('click', (e) => {
     if (!node.classList.contains('is-open')) return;
-    if (e.target.closest('button, a, input, label, textarea, select, summary')) return;
+    if (e.target.closest('button, a, input, label, textarea, select, summary, .chat')) return;
     if (head.contains(e.target) || $('.card-brief', node).contains(e.target)) return;   // the head has its own toggle
     if (window.getSelection?.()?.toString()) return;
     toggleCard(node);
@@ -1464,7 +1463,7 @@ function buildCard(claim, n) {
     (next || node).scrollIntoView({ behavior: 'smooth', block: 'start' });
   });
   head.addEventListener('keydown', (e) => { if (e.target === head && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); toggleCard(node); } });
-  wireChallengeForm(node, idx);
+  wireChat(node, idx);
   return node;
 }
 
@@ -1533,6 +1532,8 @@ function finalizeCard(i, ev) {
     model: ev.model || null, requested: ev.requested || null, fellBack: ev.fellBack || null, effort: ev.effort || null, mode: ev.mode || null,
     trail: ev.trail?.length ? ev.trail : r.trail, sources: ev.sources?.length ? ev.sources : r.sources,
     incomplete: ev.incomplete || r.incomplete || null,
+    // The conversation goes on from exactly this: the inspector's letter, the answer's messages, the server's seal.
+    chat: ev.chat ? { letter: ev.chat.letter || null, seal: ev.chat.seal || null, items: ev.chat.items || null, unavailable: ev.chat.unavailable || null, turns: [], pending: null, closed: null, note: null, files: [], draft: '' } : null,
   });
   const card = cardOf(i);
   card.classList.remove('verdict-true', 'verdict-false', 'verdict-unverified', 'verdict-unread');
@@ -1544,6 +1545,7 @@ function finalizeCard(i, ev) {
   renderCardDetail(i);
   renderCardNote(i);
   renderCardFoot(i);
+  renderChat(i);
 
   if (r.verdict) state.counts[r.verdict] = (state.counts[r.verdict] || 0) + 1;
   else state.unread++;
@@ -1642,7 +1644,6 @@ function renderCardFoot(i) {
   } else costNode.hidden = true;
   $('.btn-copy', card).textContent = t('card.copy');
   $('.btn-copy', card).hidden = r.status !== 'done';
-  $('.btn-challenge', card).textContent = t('card.challenge');
   $('.btn-retry', card).hidden = r.status !== 'error';
 }
 
@@ -1673,7 +1674,7 @@ function renderCardError(i) {
   $('.card-brief', card).hidden = true;
   const foot = $('.card-foot', card);
   foot.hidden = false;
-  $('.btn-challenge', card).hidden = true;
+  $('.chat', card).hidden = true;
   $('.btn-copy', card).hidden = true;
   $('.btn-retry', card).hidden = false;
   $('.btn-retry', card).textContent = t('card.retryBtn');
@@ -1687,9 +1688,10 @@ async function retryClaim(i) {
   $('.card-error', card)?.remove();
   $('.card-brief', card).hidden = true;
   $('.btn-retry', card).hidden = true;
-  $('.btn-challenge', card).hidden = false;
   $('.card-foot', card).hidden = true;
-  Object.assign(r, { status: 'running', phase: 'starting', startedAt: Date.now(), text: '', reasoning: '', chars: 0, error: null, trail: [], sources: [], jobId: null, cutFrom: null });
+  // A claim tested again starts a conversation of its own, with the new result.
+  Object.assign(r, { status: 'running', phase: 'starting', startedAt: Date.now(), text: '', reasoning: '', chars: 0, error: null, trail: [], sources: [], jobId: null, cutFrom: null, chat: null });
+  renderChat(i);
   setCardState(i, 'running');
   renderCardStatus(i);
   const tick = setInterval(() => {
@@ -1721,76 +1723,261 @@ function renderScoreboard(bumped) {
   if (bumped) bump({ true: ui.scoreTrue, false: ui.scoreFalse, unverified: ui.scoreUnv }[bumped]);
 }
 
-// ---------- challenge -------------------------------------------------------------------------
+// ---------- the conversation with the inspector (server/chat.js) ------------------------------------
+// Under every finished result the reader talks with the inspector the model named for it, by its
+// letter (the operator, 8 October: "inspector A, based on the first letter of the first name"): a
+// question, evidence, or why the result is wrong (the challenge, folded in). The page holds the
+// conversation and sends it whole with each message, with the server's seal over what the server
+// delivered; a reply arrives whole, once written and screened, and meanwhile the box says what the
+// model is doing and for how long. The card's verdict stays the fact-check's.
 
-const MAX_CHALLENGE_FILES = 5;
-const MAX_CHALLENGE_BYTES = 20 * 1024 * 1024;
+const EVIDENCE_IMAGES = new Set(['.png', '.jpg', '.jpeg', '.webp', '.gif']);
+const chatFigures = () => state.server?.chat || null;
+const extOf = (name) => { const m = /\.[^.]+$/.exec(String(name || '').toLowerCase()); return m ? m[0] : ''; };
+const readAsDataUrl = (file) => new Promise((resolve, reject) => { const fr = new FileReader(); fr.onload = () => resolve(String(fr.result)); fr.onerror = () => reject(fr.error); fr.readAsDataURL(file); });
 
-function wireChallengeForm(card, idx) {
-  const form = $('.challenge', card);
-  const files = [];
-  const input = $('.challenge-file', form);
-  const list = $('.challenge-list', form);
-  const count = $('.challenge-count', form);
-
-  const renderFiles = () => {
-    list.replaceChildren(...files.map((f, idx) => el('li', {}, [f.name, el('button', { type: 'button', 'aria-label': `${t('challenge.removeFile')} ${f.name}`, text: '×', onclick: () => { files.splice(idx, 1); renderFiles(); } })])));
-    count.textContent = t('challenge.attached', { n: files.length, max: MAX_CHALLENGE_FILES });
-  };
-  const labels = () => {
-    $('.challenge-title', form).textContent = t('challenge.title');
-    $('.challenge-lede', form).textContent = t('challenge.lede', { n: MAX_CHALLENGE_FILES });
-    $('.challenge-text', form).placeholder = t('challenge.placeholder');
-    $('.challenge-attach-label', form).textContent = t('challenge.attach');
-    $('.challenge-submit', form).textContent = t('challenge.submit');
-    $('.challenge-cancel', form).textContent = t('challenge.cancel');
-    renderFiles();
-  };
-  form.relabel = labels;
-  labels();
-
-  input.addEventListener('change', () => {
-    for (const f of Array.from(input.files || [])) {
-      if (files.length >= MAX_CHALLENGE_FILES) { toast(t('challenge.tooMany', { n: MAX_CHALLENGE_FILES }), { error: true }); break; }
-      if (f.size > MAX_CHALLENGE_BYTES) { toast(t('challenge.tooLarge', { name: f.name }), { error: true }); continue; }
-      files.push(f);
-    }
+function wireChat(card, idx) {
+  const box = $('.chat', card);
+  const input = $('.chat-file', box);
+  input.addEventListener('change', async () => {
+    const files = Array.from(input.files || []);
     input.value = '';
-    renderFiles();
+    await addEvidence(idx(), files);
   });
-  $('.challenge-cancel', form).addEventListener('click', () => closeChallenge(idx(), { clear: false }));
-  form.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const message = $('.challenge-text', form).value.trim();
-    if (!message && !files.length) { toast(t('challenge.empty'), { error: true }); return; }
-    const i = idx();
-    const r = state.results[i];
-    const submit = $('.challenge-submit', form);
-    submit.disabled = true;
+  $('.chat-text', box).addEventListener('input', (e) => { const c = state.results[idx()]?.chat; if (c) c.draft = e.target.value; });
+  $('.chat-form', box).addEventListener('submit', (e) => { e.preventDefault(); sendChat(idx()); });
+}
+
+/** What the conversation would send with one more message: the whole of it, as the server is to check it. */
+function chatBody(i, question, attachments) {
+  const r = state.results[i];
+  const c = r.chat;
+  const claim = state.cards[i];
+  return {
+    factId: r.jobId, seal: c.seal, claim: claim.entry || claim.text, text: state.source, source: state.sourceMeta, items: c.items,
+    turns: c.turns.map((x) => ({ question: x.question, attachments: x.attachments, reply: x.reply.items })),
+    question, attachments,
+  };
+}
+const sizeOf = (body) => new Blob([JSON.stringify(body)]).size;
+
+/** Evidence for the next message: a photo as it is, a document read to its text first (the source's own reader). */
+async function addEvidence(i, files) {
+  const c = state.results[i]?.chat;
+  const figures = chatFigures();
+  if (!c || !figures) return;
+  for (const f of files) {
+    if (c.files.length >= figures.maxFiles) { toast(t('chat.tooMany', { n: figures.maxFiles }), { error: true }); break; }
+    if (f.size > figures.maxFileBytes) { toast(t('chat.tooLarge', { name: f.name, mb: Math.round(figures.maxFileBytes / 1048576) }), { error: true }); continue; }
+    const ext = extOf(f.name);
+    if (!figures.acceptedExt.includes(ext)) { toast(t('chat.badType', { name: f.name }), { error: true }); continue; }
     try {
-      // Every step runs for real; the server withholds only the final call to OpenAI.
-      await api.challenge({ claim: state.cards[i].text, verdict: r?.verdict, originalEntry: r?.text, message, files });
-      files.length = 0;
-      $('.challenge-text', form).value = '';
-      closeChallenge(i, { clear: true });
+      const item = EVIDENCE_IMAGES.has(ext)
+        ? { kind: 'image', name: f.name, dataUrl: await readAsDataUrl(f) }
+        : { kind: 'document', name: f.name, text: (await api.parseFile(f)).text || '' };
+      // Checked before it is added: the whole conversation, with this, within what one request may carry.
+      if (sizeOf(chatBody(i, c.draft || '', [...c.files, item])) > figures.maxRequestBytes) { toast(t('chat.tooBig'), { error: true }); continue; }
+      c.files.push(item);
     } catch (err) {
-      toast(t('errors.generic', { message: err.message }), { error: true });
-    } finally {
-      submit.disabled = false;
+      toast(t('errors.file', { message: err?.message || '' }), { error: true });
     }
-  });
+  }
+  renderChat(i);
 }
 
-function toggleChallenge(i) {
-  const form = $('.challenge', cardOf(i));
-  form.hidden = !form.hidden;
-  if (!form.hidden) { form.relabel?.(); $('.challenge-text', form).focus(); }
+/** The words for what the model is doing while a reply is written, with the time since the message went. */
+function chatDoing(p) {
+  const time = fmtSeconds(Date.now() - p.startedAt);
+  if (p.phase === 'queued') return t('chat.queued', { time });
+  if (p.phase === 'reconnecting') return t('chat.reconnecting');
+  if (p.phase === 'retry' && p.retryReason === 'connection') return t('chat.waitingConnection', { why: netWords(p.retryCode, p.retryWhy), time });
+  if (p.phase === 'retry') return t('chat.queued', { time });
+  if (p.phase === 'reasoning') return t('chat.thinking', { time });
+  if (p.phase === 'searching') return p.searches ? t('chat.searchingN', { n: p.searches, time }) : t('chat.searching', { time });
+  if (p.phase === 'reading') return t('chat.reading', { time });
+  if (p.phase === 'writing') return t('chat.writing', { time });
+  return t('chat.starting', { time });
 }
 
-function closeChallenge(i, { clear }) {
-  const form = $('.challenge', cardOf(i));
-  if (clear) { $('.challenge-text', form).value = ''; $('.challenge-list', form).replaceChildren(); }
-  form.hidden = true;
+function evidenceNames(list) { return (list || []).map((a) => a.name).join(', '); }
+
+function questionNode(question, attachments) {
+  const li = el('li', { class: 'chat-turn chat-question' }, [el('p', { class: 'chat-who', text: t('chat.you') })]);
+  if (question) li.append(el('p', { class: 'chat-words', text: question }));
+  if (attachments?.length) li.append(el('p', { class: 'hint chat-evidence', text: t('chat.evidence', { names: evidenceNames(attachments) }) }));
+  return li;
+}
+
+function replyNode(c, reply) {
+  const li = el('li', { class: 'chat-turn chat-reply' }, [el('p', { class: 'chat-who', text: t('chat.head', { letter: c.letter }) })]);
+  const body = el('div', { class: 'prose chat-body' });
+  body.innerHTML = renderMarkdown(reply.text || '');   // the whole reply, as delivered
+  renderMath(body);
+  li.append(body);
+  if (reply.trail?.length) {
+    li.append(el('details', { class: 'raw' }, [
+      el('summary', { class: 'raw-summary', text: t('card.details.trail', { n: reply.trail.length }) }),
+      el('ol', { class: 'trail-list' }, reply.trail.map((s) => el('li', {}, [el('span', { class: 'trail-kind mono', text: s.kind === 'tool' ? s.name || 'tool' : s.kind || 'search' }), el('span', { text: s.query ? `“${s.query}”` : s.url || s.pattern || s.kind })]))),
+    ]));
+  }
+  if (reply.sources?.length) {
+    li.append(el('details', { class: 'raw' }, [
+      el('summary', { class: 'raw-summary', text: t('card.details.sources', { n: reply.sources.length }) }),
+      el('ol', { class: 'sources-list' }, reply.sources.map((s) => el('li', {}, [el('a', { href: s.url, target: '_blank', rel: 'noopener', text: s.title || s.url })]))),
+    ]));
+  }
+  const notes = [];
+  if (reply.held) notes.push(t('chat.held'));
+  // The operator's trial: what the reply said that it should not have (FactEngine's own counts, on /check too).
+  if (reply.slips?.name) notes.push(t('chat.slipName', { n: reply.slips.name }));
+  if (reply.slips?.sources) notes.push(t('chat.slipSources', { n: reply.slips.sources }));
+  if (notes.length) li.append(el('p', { class: 'hint chat-flags', text: notes.join(' ') }));
+  return li;
+}
+
+/** The conversation under result `i`: shown on a finished result whose reader may hold one, whole, each time. */
+function renderChat(i) {
+  const card = cardOf(i);
+  if (!card) return;
+  const box = $('.chat', card);
+  const r = state.results[i];
+  const c = r?.chat;
+  const figures = chatFigures();
+  const show = Boolean(figures?.open && r?.status === 'done' && c);
+  box.hidden = !show;
+  if (!show) return;
+  $('.chat-head', box).textContent = c.letter ? t('chat.head', { letter: c.letter }) : t('chat.headNone');
+  const form = $('.chat-form', box);
+  const note = $('.chat-note', box);
+  if (c.unavailable || !c.seal) {
+    $('.chat-lede', box).textContent = c.unavailable === 'no_name' ? t('chat.noName') : t('chat.unavailable');
+    $('.chat-thread', box).replaceChildren();
+    $('.chat-status', box).hidden = true;
+    note.hidden = true;
+    form.hidden = true;
+    return;
+  }
+  $('.chat-lede', box).textContent = t('chat.lede');
+  const thread = [];
+  for (const turn of c.turns) thread.push(questionNode(turn.question, turn.attachments), replyNode(c, turn.reply));
+  if (c.pending) thread.push(questionNode(c.pending.question, c.pending.attachments));
+  $('.chat-thread', box).replaceChildren(...thread);
+  const status = $('.chat-status', box);
+  status.hidden = !c.pending;
+  if (c.pending) status.textContent = chatDoing(c.pending);
+  const max = Number(figures.maxTurns) || 0;
+  const left = Math.max(0, max - c.turns.length);
+  const closed = c.closed || (left === 0 ? 'limit' : null);
+  const closedWords = {
+    limit: t('chat.closed', { n: max, w: numberWord(max) }),
+    prompt_changed: t('chat.promptChanged'), altered: t('chat.altered'), moved_on: t('chat.movedOn'), too_long: t('chat.tooLong'), off: t('chat.off'),
+  };
+  note.textContent = closed ? closedWords[closed] || closedWords.altered : c.note || '';
+  note.hidden = !note.textContent;
+  note.classList.toggle('is-closed', Boolean(closed));
+  form.hidden = Boolean(closed);
+  if (closed) return;
+  const text = $('.chat-text', box);
+  text.placeholder = t('chat.placeholder');
+  if (text.value !== c.draft) text.value = c.draft || '';
+  $('.chat-attach-label', box).textContent = t('chat.attach');
+  $('.chat-count', box).textContent = c.files.length ? t('chat.attached', { n: c.files.length, max: figures.maxFiles }) : '';
+  $('.chat-list', box).replaceChildren(...c.files.map((f, k) => el('li', {}, [f.name, el('button', { type: 'button', 'aria-label': `${t('chat.removeFile')} ${f.name}`, text: '×', onclick: () => { c.files.splice(k, 1); renderChat(i); } })])));
+  const send = $('.chat-send', box);
+  send.textContent = t('chat.send');
+  send.disabled = Boolean(c.pending);
+  $('.chat-file', box).disabled = Boolean(c.pending);
+  $('.chat-left', box).textContent = t('chat.left', { n: left, w: numberWord(left) });
+}
+
+/** The server's refusal of a message, as the conversation's own state: closed for good, or a sentence and the message kept. */
+function chatRefused(c, err) {
+  const code = err?.code || '';
+  if (code === 'chat_limit') c.closed = 'limit';
+  else if (code === 'prompt_changed') c.closed = 'prompt_changed';
+  else if (code === 'conversation_altered') c.closed = 'altered';
+  else if (code === 'conversation_moved_on' || code === 'already_tested') c.closed = 'moved_on';
+  else if (code === 'chat_closed') c.closed = 'off';
+  else if (code === 'context_length_exceeded') c.closed = 'too_long';
+  else if (code === 'too_large' || code === 'file_too_large') c.note = t('chat.tooBig');
+  else if (code === 'empty_message') c.note = t('chat.empty');
+  else if (code === 'too_many_files') c.note = t('chat.tooMany', { n: chatFigures()?.maxFiles || 5 });
+  else c.note = t('chat.failed');
+}
+
+/** One message to the inspector, as one job at the server: the reply comes back whole, or the message stays in the box. */
+async function sendChat(i) {
+  const r = state.results[i];
+  const c = r?.chat;
+  const figures = chatFigures();
+  if (!c || !figures?.open || c.pending || c.closed || !c.seal) return;
+  const card = cardOf(i);
+  const question = ($('.chat-text', card).value || '').trim();
+  const attachments = c.files.slice();
+  if (!question && !attachments.length) { toast(t('chat.empty'), { error: true }); return; }
+  if (c.turns.length >= (Number(figures.maxTurns) || 0)) { c.closed = 'limit'; renderChat(i); return; }
+  const body = chatBody(i, question, attachments);
+  if (sizeOf(body) > figures.maxRequestBytes) { toast(t('chat.tooBig'), { error: true }); return; }
+  // The server names the reply after the fact-check and its turn: a page that comes back joins the same reply.
+  let job = `${r.jobId}.c${c.turns.length + 1}`;
+  state.jobs.add(job);
+  c.pending = { question, attachments, startedAt: Date.now(), phase: 'starting', searches: 0 };
+  c.note = null;
+  c.draft = '';
+  c.files = [];
+  renderChat(i);
+  const tick = setInterval(() => { if (c.pending) { const s = $('.chat-status', cardOf(i)); if (s) s.textContent = chatDoing(c.pending); } }, 1000);
+  state.timers.push(tick);
+  const p = c.pending;
+  let delivered = null;
+  let failed = null;
+  const signal = (state.abort || new AbortController()).signal;
+  try {
+    for (;;) {
+      let wait = false;
+      try {
+        await api.chat({
+          jobId: job, body, signal,
+          onEvent: (ev) => {
+            if (ev.t === 'start') { p.phase = 'starting'; }
+            else if (ev.t === 'phase') { p.phase = ev.phase === 'incomplete' ? p.phase : ev.phase; if (ev.searches) p.searches = ev.searches; }
+            else if (ev.t === 'retry') { p.phase = 'retry'; p.retryReason = ev.reason || null; p.retryCode = ev.code || null; p.retryWhy = ev.why || null; }
+            else if (ev.t === 'done') delivered = ev;
+            else if (ev.t === 'error') failed = ev;
+            const s = $('.chat-status', cardOf(i));
+            if (s && c.pending) s.textContent = chatDoing(p);
+          },
+          onCut: () => { if (!delivered) { p.cutFrom = p.phase; p.phase = 'reconnecting'; } },
+          onAttached: (ev) => {
+            if (ev?.job && ev.job !== job) { state.jobs.delete(job); job = ev.job; state.jobs.add(job); }
+            if (p.phase === 'reconnecting') { p.phase = p.cutFrom || 'starting'; p.cutFrom = null; }
+          },
+        });
+      } catch (err) {
+        if (err?.name === 'AbortError' || signal.aborted) return;
+        if (err instanceof api.ApiError && err.code === 'books_wait') wait = true;   // FactEngine's records will answer: a wait
+        else failed = err;
+      }
+      if (!wait) break;
+      p.phase = 'reconnecting';
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+    }
+  } finally {
+    clearInterval(tick);
+    releaseJob(job);
+  }
+  c.pending = null;
+  if (delivered) {
+    c.turns.push({ question, attachments, reply: { items: delivered.items || [], text: delivered.text || '', trail: delivered.trail || [], sources: delivered.sources || [], held: Boolean(delivered.held), slips: delivered.slips || null, ms: delivered.ms ?? null } });
+    c.seal = delivered.seal || c.seal;
+    if (delivered.left === 0) c.closed = 'limit';
+  } else {
+    // The message is not lost: it goes back in the box, with its evidence, and a sentence says why.
+    c.draft = question;
+    c.files = attachments;
+    chatRefused(c, failed);
+  }
+  renderChat(i);
 }
 
 // ---------- visual echo -----------------------------------------------------------------------
@@ -1877,7 +2064,7 @@ function refreshDynamicText() {
     if (r.status === 'done') { renderBadge(i); renderCardDetail(i); renderCardNote(i); renderCardFoot(i); }
     else renderCardStatus(i);
     if (r.status === 'error') renderCardError(i);
-    $('.challenge', cardOf(i))?.relabel?.();
+    renderChat(i);
   });
 }
 
