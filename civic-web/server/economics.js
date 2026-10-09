@@ -71,7 +71,7 @@ export function listPrice() { return Number.isInteger(config.listPriceCents) && 
 export function retiredSettings() { return ['CIVIC_PRICE_START_CENTS', 'CIVIC_PRICE_MIN_SAMPLE'].filter((n) => String(process.env[n] || '').trim()); }
 
 // ---- the rows -------------------------------------------------------------------------------------
-const mem = { runs: new Map(), dets: new Map(), windows: new Map(), guard: [], lines: [] };   // lines: { at, kind, ms, searches, tokens } of finished calls, for the durations
+const mem = { runs: new Map(), dets: new Map(), windows: new Map(), guard: [], lines: [], chat: [] };   // lines: { at, kind, ms, searches, tokens } of finished calls, for the durations; chat: the replies' ledger lines
 // The attempts this instance has open, `${id}@${attempt}` → { id, attempt, holdId }: failed as `deploy` when it is told to
 // stop. Keyed by attempt, so a job stopped while the same claim is taken up again here (the page's next request) closes
 // its own attempt and never the new one.
@@ -81,7 +81,7 @@ const attemptKey = (id, attempt) => `${id}@${attempt}`;
 const ms = (v) => (v === null || v === undefined ? null : (v instanceof Date ? v.getTime() : Number(v)));
 const num = (v) => (v === null || v === undefined ? 0 : Number(v));
 const rowRun = (r) => ({ id: r.id, owner: r.owner, email: r.email, userId: r.user_id === null || r.user_id === undefined ? null : Number(r.user_id), codeFp: r.code_fp, startedAt: ms(r.started_at), tier: r.tier, windowStart: ms(r.window_start), priceCents: r.price_cents, freeAllowed: r.free_allowed, chars: r.chars, claimsTotal: r.claims_total, extractUsd: num(r.extract_usd), status: r.status });
-const rowDet = (d) => ({ id: d.id, runId: d.run_id, n: d.n, startedAt: ms(d.started_at), endedAt: ms(d.ended_at), status: d.status, failure: d.failure, free: d.free, priceCents: d.price_cents, costUsd: num(d.cost_usd), priced: d.priced, searches: d.searches, verdict: d.verdict, model: d.model, chars: d.chars, collected: d.collected, holdId: d.hold_id === null || d.hold_id === undefined ? null : Number(d.hold_id), attempt: Number(d.attempt || 1), rerun: Boolean(d.rerun) });
+const rowDet = (d) => ({ id: d.id, runId: d.run_id, n: d.n, startedAt: ms(d.started_at), endedAt: ms(d.ended_at), status: d.status, failure: d.failure, free: d.free, priceCents: d.price_cents, costUsd: num(d.cost_usd), priced: d.priced, searches: d.searches, verdict: d.verdict, model: d.model, chars: d.chars, collected: d.collected, holdId: d.hold_id === null || d.hold_id === undefined ? null : Number(d.hold_id), attempt: Number(d.attempt || 1), rerun: Boolean(d.rerun), kind: d.kind || 'fact', parentId: d.parent_id ?? null, turn: d.turn ?? null, fingerprint: d.fingerprint ?? null });
 const rowWindow = (w) => ({ windowStart: ms(w.window_start), tier: w.tier, priceCents: w.price_cents, avgCostUsd: w.avg_cost_usd === null ? null : num(w.avg_cost_usd), sample: w.sample, basis: w.basis });
 const rowGuard = (g) => ({ at: ms(g.at), engaged: g.engaged, windowStart: ms(g.window_start), lossUsd: num(g.loss_usd), earnedUsd: num(g.earned_usd) });
 
@@ -98,9 +98,10 @@ async function runsSince(sinceMs) {
   return [...mem.runs.values()].filter((r) => r.startedAt >= sinceMs);
 }
 
+/** The fact-checks started in [from, to): the price, the tiers, the guard and the money are theirs. A conversation's replies are measured apart (chatReport). */
 async function determinationsBetween(fromMs, toMs) {
-  if (dbOn()) return (await query('SELECT * FROM determinations WHERE started_at >= $1 AND started_at < $2 ORDER BY started_at', [new Date(fromMs), new Date(Math.min(toMs, 8.64e15))])).rows.map(rowDet);
-  return [...mem.dets.values()].filter((d) => d.startedAt >= fromMs && d.startedAt < toMs);
+  if (dbOn()) return (await query("SELECT * FROM determinations WHERE started_at >= $1 AND started_at < $2 AND kind = 'fact' ORDER BY started_at", [new Date(fromMs), new Date(Math.min(toMs, 8.64e15))])).rows.map(rowDet);
+  return [...mem.dets.values()].filter((d) => d.startedAt >= fromMs && d.startedAt < toMs && (d.kind || 'fact') === 'fact');
 }
 
 /** Revenue at list, cost and margin of the determinations started in [from, to). A failed one keeps its cost and books nothing. */
@@ -266,13 +267,18 @@ const alreadyTested = () => expected(new ApiError(409, 'already_tested', 'This c
  * Each start is an attempt with a hold of its own. The same id coming back with no job behind it here (a deploy's new
  * instance, a crash, a stop and a new request) opens the next attempt: decided and held again, the earlier attempt's
  * hold released, and only the newest attempt can be charged. A claim already delivered gets one more go, never charged
- * again (its result was lost on the way); after that, 409.
+ * again (its result was lost on the way), and only for the same claim: the row keeps a fingerprint of what was asked,
+ * so the free second go cannot test another claim under a delivered one's id; after that one go, 409.
+ *
+ * A conversation's reply (server/chat.js) is a row of kind `chat` under its fact-check (`parentId`, `turn`): never one
+ * of the document's free ones, and not priced while the operator's trial runs (nothing is held for it).
  *
  * Returns the quote, { free, priceCents }, with the attempt, its hold and the balance after it.
  */
-export async function openDetermination({ id, runId = null, n = null, chars = null, userId = null, owner = null, limitCents = null, requireRun = false }) {
+export async function openDetermination({ id, runId = null, n = null, chars = null, userId = null, owner = null, limitCents = null, requireRun = false, kind = 'fact', parentId = null, turn = null, fingerprint = null }) {
   if (!enabled() || !id) return null;
   const at = now();
+  const chat = kind === 'chat';
   if (dbOn()) {
     return tx(async (c) => {
       const hadRow = (await c.query('SELECT * FROM determinations WHERE id = $1 FOR UPDATE', [id])).rows[0];
@@ -282,18 +288,18 @@ export async function openDetermination({ id, runId = null, n = null, chars = nu
       if (rid) { const r = await c.query('SELECT * FROM runs WHERE id = $1 FOR UPDATE', [rid]); run = r.rows[0] ? rowRun(r.rows[0]) : null; }
       if (requireRun && (!run || (run.owner ?? null) !== (owner ?? null))) throw runRequired();
       if (had && had.status === 'done') {
-        if (had.rerun) throw alreadyTested();
+        if (had.rerun || (had.fingerprint && fingerprint && had.fingerprint !== fingerprint)) throw alreadyTested();
         const attempt = had.attempt + 1;
         await c.query("UPDATE determinations SET status = 'running', attempt = $2, rerun = true, hold_id = NULL WHERE id = $1", [id, attempt]);
         inFlight.set(attemptKey(id, attempt), { id, attempt, holdId: null });
         return { ...quoteOf({ free: had.free }, run), attempt, holdId: null, balanceCents: null, rerun: true };
       }
       let free = false;
-      if (run) {
+      if (run && !chat) {
         const used = Number((await c.query("SELECT count(*) FROM determinations WHERE run_id = $1 AND free AND status <> 'failed' AND id <> $2", [run.id, id])).rows[0].count);
         free = used < run.freeAllowed;
       }
-      const price = run && !free && Number.isInteger(run.priceCents) ? run.priceCents : 0;
+      const price = run && !free && !chat && Number.isInteger(run.priceCents) ? run.priceCents : 0;
       let holdId = null, balanceCents = null;
       if (userId && price > 0) {
         const h = await credit.hold(userId, price, { determinationId: id, runId: run.id, atMs: at, limitCents }, c);
@@ -304,11 +310,11 @@ export async function openDetermination({ id, runId = null, n = null, chars = nu
       if (had) {
         attempt = had.attempt + 1;
         if (had.holdId) await credit.settle(had.holdId, 'release', c);   // the earlier attempt's hold: its price comes back
-        await c.query("UPDATE determinations SET status = 'running', started_at = $2, ended_at = NULL, failure = NULL, free = $3, price_cents = $4, hold_id = $5, attempt = $6, rerun = false WHERE id = $1",
-          [id, new Date(at), free, price, holdId, attempt]);
+        await c.query("UPDATE determinations SET status = 'running', started_at = $2, ended_at = NULL, failure = NULL, free = $3, price_cents = $4, hold_id = $5, attempt = $6, rerun = false, fingerprint = COALESCE($7, fingerprint) WHERE id = $1",
+          [id, new Date(at), free, price, holdId, attempt, fingerprint]);
       } else {
-        await c.query('INSERT INTO determinations (id, run_id, n, started_at, status, free, price_cents, chars, hold_id, attempt) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 1)',
-          [id, run ? run.id : null, n, new Date(at), 'running', free, price, chars, holdId]);
+        await c.query('INSERT INTO determinations (id, run_id, n, started_at, status, free, price_cents, chars, hold_id, attempt, kind, parent_id, turn, fingerprint) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 1, $10, $11, $12, $13)',
+          [id, run ? run.id : null, n, new Date(at), 'running', free, price, chars, holdId, chat ? 'chat' : 'fact', parentId, turn, fingerprint]);
       }
       inFlight.set(attemptKey(id, attempt), { id, attempt, holdId });
       return { ...quoteOf({ free }, run), attempt, holdId, balanceCents };
@@ -319,19 +325,19 @@ export async function openDetermination({ id, runId = null, n = null, chars = nu
   const run = (had ? had.runId : runId) ? mem.runs.get(had ? had.runId : runId) || null : null;
   if (requireRun && (!run || (run.owner ?? null) !== (owner ?? null))) throw runRequired();
   if (had && had.status === 'done') {
-    if (had.rerun) throw alreadyTested();
+    if (had.rerun || (had.fingerprint && fingerprint && had.fingerprint !== fingerprint)) throw alreadyTested();
     const attempt = had.attempt + 1;
     Object.assign(had, { status: 'running', attempt, rerun: true, holdId: null });
     inFlight.set(attemptKey(id, attempt), { id, attempt, holdId: null });
     return { ...quoteOf(had, run), attempt, holdId: null, balanceCents: null, rerun: true };
   }
   let free = false;
-  if (run) {
+  if (run && !chat) {
     let used = 0;
     for (const d of mem.dets.values()) if (d.runId === run.id && d.id !== id && d.free && d.status !== 'failed') used++;
     free = used < run.freeAllowed;
   }
-  const price = run && !free && Number.isInteger(run.priceCents) ? run.priceCents : 0;
+  const price = run && !free && !chat && Number.isInteger(run.priceCents) ? run.priceCents : 0;
   let holdId = null, balanceCents = null;
   if (userId && price > 0) {
     const h = credit.holdNow(userId, price, { determinationId: id, runId: run.id, atMs: at, limitCents });
@@ -342,9 +348,9 @@ export async function openDetermination({ id, runId = null, n = null, chars = nu
   if (had) {
     attempt = had.attempt + 1;
     if (had.holdId) credit.settleNow(had.holdId, 'release');
-    Object.assign(had, { status: 'running', startedAt: at, endedAt: null, failure: null, free, priceCents: price, holdId, attempt, rerun: false });
+    Object.assign(had, { status: 'running', startedAt: at, endedAt: null, failure: null, free, priceCents: price, holdId, attempt, rerun: false, fingerprint: fingerprint ?? had.fingerprint });
   } else {
-    const det = { id, runId: run ? run.id : null, n, startedAt: at, endedAt: null, status: 'running', failure: null, free, priceCents: price, costUsd: 0, priced: true, searches: 0, verdict: null, model: null, chars, collected: false, holdId, attempt: 1, rerun: false };
+    const det = { id, runId: run ? run.id : null, n, startedAt: at, endedAt: null, status: 'running', failure: null, free, priceCents: price, costUsd: 0, priced: true, searches: 0, verdict: null, model: null, chars, collected: false, holdId, attempt: 1, rerun: false, kind: chat ? 'chat' : 'fact', parentId, turn, fingerprint };
     // Memory is not a database: a long-lived instance without one lets its oldest finished rows go past twenty thousand.
     if (mem.dets.size >= 20000) { for (const [k, d] of mem.dets) { if (d.status !== 'running') { mem.dets.delete(k); if (mem.dets.size < 15000) break; } } }
     mem.dets.set(id, det);
@@ -441,16 +447,60 @@ export function costLine(line, ctx = {}) {
     query('INSERT INTO cost_lines (at, kind, run_id, determination_id, owner, model, usd, priced, ok, line) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)',
       [new Date(line.ts || now()), kind || 'unknown', ctx.runId || null, ctx.determinationId || null, ctx.owner || null, line.model || null, usd, line.priced ?? null, line.ok ?? null, JSON.stringify(line)])
       .catch((err) => warn('a cost line could not be kept', err));
-    if (ctx.determinationId && kind === 'evaluate') {
+    if (ctx.determinationId && (kind === 'evaluate' || kind === 'chat')) {
       query('UPDATE determinations SET cost_usd = cost_usd + $2, priced = priced AND $3, searches = searches + $4 WHERE id = $1', [ctx.determinationId, usd, priced, searches]).catch((err) => warn('a determination\'s cost could not be kept', err));
     } else if (ctx.runId && kind === 'extract') {
       query('UPDATE runs SET extract_usd = extract_usd + $2 WHERE id = $1', [ctx.runId, usd]).catch((err) => warn('a run\'s listing cost could not be kept', err));
     }
     return;
   }
-  if (ctx.determinationId && kind === 'evaluate') { const d = mem.dets.get(ctx.determinationId); if (d) { d.costUsd += usd; d.priced = d.priced && priced; d.searches += searches; } }
+  if (ctx.determinationId && (kind === 'evaluate' || kind === 'chat')) { const d = mem.dets.get(ctx.determinationId); if (d) { d.costUsd += usd; d.priced = d.priced && priced; d.searches += searches; } }
   else if (ctx.runId && kind === 'extract') { const r = mem.runs.get(ctx.runId); if (r) r.extractUsd += usd; }
   if (line.ok !== false && Number.isFinite(Number(line.ms))) { mem.lines.push({ at: Number(line.ts) || now(), kind, ms: Number(line.ms), searches, tokens: tokensOf(line.usage) }); if (mem.lines.length > 20000) mem.lines.splice(0, mem.lines.length - 15000); }
+  if (kind === 'chat' && line.ok !== false) { mem.chat.push({ at: Number(new Date(line.ts)) || now(), line }); if (mem.chat.length > 20000) mem.chat.splice(0, mem.chat.length - 15000); }
+}
+
+/** The latest turn a fact-check's conversation has had delivered (0: none): a page's older history cannot go on past it. */
+export async function latestReply(parentId) {
+  if (!enabled() || !parentId) return 0;
+  if (dbOn()) return Number((await query("SELECT COALESCE(max(turn), 0) AS turn FROM determinations WHERE parent_id = $1 AND kind = 'chat' AND status = 'done'", [parentId])).rows[0].turn) || 0;
+  let turn = 0;
+  for (const d of mem.dets.values()) if (d.parentId === parentId && d.kind === 'chat' && d.status === 'done') turn = Math.max(turn, d.turn || 0);
+  return turn;
+}
+
+/**
+ * The conversation's replies over the window, measured apart from the fact-checks (the operator's trial): how many, and
+ * for each turn the mean tokens (read and written, cached included), cost and minutes; and, for each version of the chat
+ * prompt, how many replies said the inspector's name (and how often), had a prompt's words held back, or cited a source
+ * that names the inspector. From the ledger's lines, which carry no text.
+ */
+async function chatReport(since) {
+  let lines;
+  if (dbOn()) lines = (await query("SELECT line FROM cost_lines WHERE at >= $1 AND kind = 'chat' AND ok IS NOT FALSE", [new Date(since)])).rows.map((r) => r.line);
+  else lines = mem.chat.filter((x) => x.at >= since).map((x) => x.line);
+  const byTurn = new Map();
+  const byVersion = new Map();
+  for (const l of lines) {
+    const turn = Number(l.turn) || 0;
+    if (!byTurn.has(turn)) byTurn.set(turn, { turn, replies: 0, tokens: 0, counted: 0, usd: 0, ms: 0 });
+    const t = byTurn.get(turn);
+    t.replies++; t.usd += Number(l.usd) || 0; t.ms += Number(l.ms) || 0;
+    const tokens = tokensOf(l.usage);
+    if (tokens) { t.tokens += tokens; t.counted++; }
+    const version = l.prompts?.chat || 'unknown';
+    if (!byVersion.has(version)) byVersion.set(version, { version, replies: 0, named: 0, nameSaid: 0, held: 0, sourcesNaming: 0 });
+    const v = byVersion.get(version);
+    v.replies++;
+    if (Number(l.nameSaid) > 0) { v.named++; v.nameSaid += Number(l.nameSaid); }
+    if (Number(l.promptHeld) > 0) v.held++;
+    if (Number(l.sourcesNaming) > 0) v.sourcesNaming++;
+  }
+  return {
+    replies: lines.length,
+    byTurn: [...byTurn.values()].sort((a, b) => a.turn - b.turn).map((t) => ({ turn: t.turn, replies: t.replies, meanTokens: t.counted ? Math.round(t.tokens / t.counted) : null, meanUsd: t.replies ? Math.round((t.usd / t.replies) * 10000) / 10000 : null, meanMs: t.replies ? Math.round(t.ms / t.replies) : null })),
+    byVersion: [...byVersion.values()],
+  };
 }
 
 /** The tokens one call put through the provider: what it read (its cached part included: OpenAI's minute counts it too) and what it wrote. */
@@ -555,6 +605,7 @@ export async function report() {
     guard: { ...guard, since: guard.since ? new Date(guard.since).toISOString() : null, windowStart: guard.windowStart ? new Date(guard.windowStart).toISOString() : null, released: guard.released ? new Date(guard.released).toISOString() : null },
     byTier, byUser, byWindow,
     durations: took,   // over the price window: how long a determination and a listing take, and the searches per determination
+    chat: await chatReport(t - config.priceWindowDays * DAY).catch((err) => { warn('the replies could not be read', err); return null; }),   // the conversation's replies, apart
     store: dbOn() ? 'postgres' : 'memory',
     credit: await credit.totals().catch((err) => { warn('the credit totals could not be read', err); return null; }),
     note: 'Revenue is at list price; nothing is collected yet.',

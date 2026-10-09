@@ -21,7 +21,8 @@ import { sourceMeta, sourceBlock } from './source.js';
 import { runExtraction } from './extract.js';
 import { runEvaluation } from './evaluate.js';
 import { runIllustration } from './illustrate.js';
-import { runChallenge, ACCEPTED_CHALLENGE_EXT } from './challenge.js';
+import { mountChatRoute, chatOpenFor, publicChat, chatMode } from './chat.js';
+import { loadSealKey, sha } from './seal.js';
 import { selftest } from './selftest.js';
 import { whereTheShellSetsIt } from './key.js';
 import { record as recordFailure } from './diagnostics.js';
@@ -91,8 +92,9 @@ app.use('/api/account', express.json({ limit: '16kb' }));
 app.use('/api/operator', express.json({ limit: '16kb' }));
 app.use('/api', gate);
 
-// Big enough to carry a whole document; no limit of ours applies unless CIVIC_MAX_SOURCE_CHARS is set.
-app.use(express.json({ limit: '64mb' }));
+// Big enough to carry a whole document, or a conversation with its evidence; no limit of ours applies to a document
+// unless CIVIC_MAX_SOURCE_CHARS is set.
+app.use(express.json({ limit: config.maxRequestBytes }));
 
 // Vendor scripts for the browser (served read-only from node_modules).
 const nodeModules = path.join(here, '..', 'node_modules');
@@ -102,7 +104,7 @@ app.use('/vendor/katex', express.static(path.join(nodeModules, 'katex', 'dist'),
 
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: config.maxUploadBytes, files: config.challengeMaxFiles + 1 },
+  limits: { fileSize: config.maxUploadBytes, files: 1 },   // a source, or one item of a conversation's evidence, read to text
 });
 
 const wrap = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
@@ -138,7 +140,8 @@ app.get('/api/health', wrap(async (req, res) => {
   // the operator's note. Never a cost. Null when pricing is off, or when it cannot be read just now.
   const pricing = await economics.publicState().catch((err) => { console.error('[economics] the price could not be read:', err.message); return null; });
   res.json({
-    ok: true, build: BUILD, ...publicConfig(promptStatus()), readUrl: true, acceptedSourceExt: ACCEPTED_SOURCE_EXT, acceptedChallengeExt: ACCEPTED_CHALLENGE_EXT,
+    ok: true, build: BUILD, ...publicConfig(promptStatus()), readUrl: true, acceptedSourceExt: ACCEPTED_SOURCE_EXT,
+    chat: publicChat(req),                                               // the conversation under each result: open to this reader, or null
     active: jobs.active(),                                              // runs in flight right now, whatever their connections are doing; an update waits for zero
     access: {
       required: signinRequired(),
@@ -304,8 +307,10 @@ app.post('/api/evaluate', wrap(async (req, res) => {
   if (claims.length > config.maxClaims) throw new ApiError(400, 'too_many_claims', `At most ${config.maxClaims} claims can be tested in one run.`);
   // The source the claims came from goes ahead of the prompt in every determination, exactly as
   // the extractor received it, so "the speech" has a speaker and a date when a claim is tested.
+  // The day it is stamped with is kept, so a conversation can send it again exactly (server/chat.js).
+  const stampedAt = new Date();
   const source = req.body?.text ? normalise(req.body.text) : null;
-  const document = source && source.chars >= 20 ? sourceBlock(source.text, sourceMeta(req.body?.source)) : '';
+  const document = source && source.chars >= 20 ? sourceBlock(source.text, sourceMeta(req.body?.source), stampedAt) : '';
 
   // Each claim's row (server/economics.js): the server decides, never the page, whether it is one of
   // the document's free ones or priced at the run's price, and the page is told before the model is
@@ -331,6 +336,7 @@ app.post('/api/evaluate', wrap(async (req, res) => {
       quotes.push(await economics.openDetermination({
         id: detIds[i], runId, n: claims.length === 1 ? n : null, chars: claims[i].length,
         userId: user?.id ?? null, owner, limitCents: user?.monthlyLimitCents ?? null, requireRun: signinRequired(),
+        fingerprint: sha(claims[i]),   // a delivered claim's free second go is for the same claim, never another
       }).catch((err) => {
         if (err?.expected) throw err;   // a refusal the reader must see: the credit, the limit, a run that is not theirs
         console.error('[economics] the determination could not be recorded:', err.message);
@@ -347,7 +353,9 @@ app.post('/api/evaluate', wrap(async (req, res) => {
     opened();
   }
   const attempts = quotes.map((q, i) => (q ? { id: detIds[i], attempt: q.attempt } : null)).filter(Boolean);
-  const ctx = { runId, owner, determinationIds: detIds, jobId: id };
+  // `chat`: the reader may converse with the inspector (server/chat.js), so each result carries what the conversation
+  // goes on with. The request to OpenAI is the same either way.
+  const ctx = { runId, owner, determinationIds: detIds, jobId: id, n: claims.length === 1 ? n : null, day: stampedAt.toISOString().slice(0, 10), chat: chatOpenFor(req) };
   // The rows were awaited: a second request for this job meanwhile joins it rather than starting it twice.
   const meanwhile = jobs.get(id, owner);
   if (meanwhile) { meanwhile.attach(openStream(req, res), req.body?.cursor); return; }   // not reached while `opening` holds the id; kept as the safe answer
@@ -398,18 +406,8 @@ app.post('/api/illustrate', wrap(async (req, res) => {
   }
 }));
 
-app.post('/api/challenge', upload.array('files', config.challengeMaxFiles), wrap(async (req, res) => {
-  const apiKey = operatorKey();
-  const result = await runChallenge({
-    apiKey,
-    claim: req.body?.claim,
-    verdict: req.body?.verdict,
-    originalEntry: req.body?.originalEntry,
-    message: req.body?.message,
-    files: req.files || [],
-  });
-  res.json(result);
-}));
+// The conversation under a result, in place of the challenge (server/chat.js): one reply, as a job.
+mountChatRoute(app, { wrap, ownerOf, seesCost, withoutCost, booksWait });
 
 // ---- Static site ---------------------------------------------------------------------------
 
@@ -479,7 +477,7 @@ function banner() {
   }
   const v = promptVersions();
   const mark = (n) => (status[n] ? `${n} ${v[n].version} (${v[n].chars} chars)` : `${n} MISSING`);
-  console.log(`prompts installed: ${mark('extract')} · ${mark('evaluate')} · challenge=${status.challenge}` + (config.challengeEnabled ? '' : ' (challenge API step withheld)'));
+  console.log(`prompts installed: ${mark('extract')} · ${mark('evaluate')} · ${status.chat ? mark('chat') : 'chat not installed'} · conversations ${chatMode() === 'off' ? 'off' : `open to the operator (at most ${config.chatMaxTurns} questions)`}`);
   const shape = requestShape();
   const placing = shape.extract.source === 'inserted' ? 'the prompt verbatim with the source in place of its final bracketed line, as the only message' : 'the prompt verbatim as instructions · the document whole as the only message';
   // On Fireworks the listing names FactEngine's tool server for its searches and says store: false.
@@ -565,6 +563,7 @@ try {
   // Accounts live in Postgres on Render: in memory, every deploy would delete every account and its credit.
   if (accounts.accountsOn() && !dbOn() && process.env.RENDER) throw new Error('accounts are on and DATABASE_URL is not set, so every account would end with this instance');
   if (dbOn()) await migrate();
+  await loadSealKey();   // the key of a conversation's seal (server/seal.js): made once, kept in Postgres
   console.log(accounts.bootLine());
   await economics.boot();
 } catch (err) {

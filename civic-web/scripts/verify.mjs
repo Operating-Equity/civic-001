@@ -718,7 +718,7 @@ async function accountChecks(label, dbUrl) {
     const refused = await Promise.all([
       c.json('/api/extract', { method: 'POST', body: { text: ACCT_TEXT } }), c.json('/api/evaluate', { method: 'POST', body: { claims: ['x'] } }),
       c.json('/api/read-url', { method: 'POST', body: { url: 'https://example.com/' } }), c.json('/api/find-copies', { method: 'POST', body: { url: 'https://example.com/' } }),
-      c.json('/api/illustrate', { method: 'POST', body: { text: ACCT_TEXT } }), c.json('/api/challenge', { method: 'POST', body: {} }), c.json('/api/parse', { method: 'POST', body: {} }),
+      c.json('/api/illustrate', { method: 'POST', body: { text: ACCT_TEXT } }), c.json('/api/chat', { method: 'POST', body: {} }), c.json('/api/parse', { method: 'POST', body: {} }),
       c.json('/api/selftest'), c.json('/api/account'), c.json('/api/operator/accounts'), c.json('/api/cancel', { method: 'POST', body: { jobIds: ['x'] } }),
     ]);
     check(`accounts (${label}): without a session every route that spends or shows anything is refused (401 signin_required), and nothing reaches the model`,
@@ -2534,6 +2534,339 @@ async function fireworksChecks() {
   }
 }
 await fireworksChecks();
+
+// ---- the conversation under every fact-check, in place of the challenge (7–8 October) --------------------------------
+// The operator: "My goal is to change challenge to chat", the inspector called by its letter (the first letter of its
+// first name: "Inspector A"), at most four questions, the fact-check's prompt and output unchanged. The guard's chat
+// prompt is a stand-in written for it: the three slots and words of its own, never the operator's text and never their
+// guide's. Every name below is invented.
+const STANDIN_CHAT = [
+  'The guard\'s stand-in for the conversation prompt, written for the checks below and holding no operator text.',
+  'Inspector of record: {{INSPECTOR}}. The stand-in answers as Inspector {{LETTER}} and gives no other label.',
+  'Reader: {{QUESTION}}',
+  'Reply in plain prose, as briefly as the question allows.',
+].join('\n');
+const CHAT_NAME = 'Aurelio Quennell Vantwest';   // the stand-in's inspector: an invented name found nowhere else
+
+async function chatChecks() {
+  const { inspectorOf, inspectorLetter } = await import('../server/verdict.js');
+  const { nameMatchers, screenName, screenReply } = await import('../server/screen.js');
+  const TITLES = ['Dr', 'Prof', 'Sir', 'Mr', 'Mrs', 'Ms', 'Lord', 'Lady', 'St'];
+
+  // 1. In process: the name in every form the model writes its label in, and never from the body; the letter.
+  const FORMS_OF_NAME = [
+    ['**Name**: Orin Vale\n\nbody', 'Orin Vale', 'O'],
+    ['**Name:** Orin Vale', 'Orin Vale', 'O'],
+    ['Name: Orin Vale', 'Orin Vale', 'O'],
+    ['0. **Name:** Orin Vale', 'Orin Vale', 'O'],
+    ['0. **Name**: [Orin Vale]', 'Orin Vale', 'O'],
+    ['- **Name** — Ibn al-Qarrad (optics)', 'Ibn al-Qarrad', 'I'],
+    ['### Name: Sir Edwin Cardale, physicist', 'Sir Edwin Cardale', 'E'],
+    ['1. **Name:** Dr. Orin Vale.', 'Dr. Orin Vale', 'O'],
+    ['**Name:**\nLena Sorvik\n\nmore', 'Lena Sorvik', 'L'],
+    ['Preamble line\n  **NAME:** jonas earl wren', 'jonas earl wren', 'J'],
+    ['The name of the act: Something\nno label here', null, null],
+    ['Named: Bob', null, null],
+  ];
+  const nameRead = FORMS_OF_NAME.map(([text, name, letter]) => { const n = inspectorOf(text); return [n === name && (name === null || inspectorLetter(n, TITLES) === letter), text.slice(0, 30), n]; });
+  check('chat: the inspector is read from the entry\'s Name line in every form the model writes its label in (bold or not, numbered, bulleted, a heading, the name on the next line), cut at a description, never from a sentence of the body; its letter skips a title (Dr. Orin Vale is O, Sir Edwin Cardale E)',
+    nameRead.every(([ok]) => ok), JSON.stringify(nameRead.filter(([ok]) => !ok)));
+  const m = nameMatchers('Sir Edwin Cardale', TITLES);
+  const said = ['Edwin Cardale said', 'Cardale\'s laws', '**Edwin** **Cardale**', 'Edwin\nCardale', 'Sir Edwin Cardale knew'].map((x) => screenName(x, m).count);
+  const notSaid = ['a cardale of rope', 'Cardalean mechanics', 'Edwinson'].map((x) => screenName(x, m).count);
+  check('chat: the name is found whole (with or without its title, across Markdown\'s marks and line breaks) and by its surname, possessive included; a word that merely contains it is not the name; masked, it becomes "Inspector E"',
+    said.every((n) => n === 1) && notSaid.every((n) => n === 0) && screenName('As Sir Edwin Cardale, I hold Cardale\'s view.', m, 'Inspector E').text === 'As Inspector E, I hold Inspector E\'s view.',
+    JSON.stringify({ said, notSaid }));
+  // A run of the evaluation prompt's own words in a reply is held back; the same words the reader was shown are not.
+  // The run is the first eight words of the evaluation prompt (read across its lines, as the screen reads it) that hold no
+  // slot and whose every run of five is long enough to be a fingerprint, so it is found in any prompt, the stand-ins too.
+  const promptWords = evaluatePrompt.split(/\s+/).filter(Boolean);
+  const bare = (x) => x.replace(/[*_`~]/g, '').toLowerCase();
+  let run = null;
+  for (let i = 0; i + 8 <= promptWords.length && !run; i++) {
+    const w = promptWords.slice(i, i + 8);
+    if (w.some((x) => x.includes('{{') || !bare(x))) continue;
+    if ([0, 1, 2, 3].every((j) => w.slice(j, j + 5).map(bare).join(' ').length >= 25)) run = w.join(' ');
+  }
+  if (run) {
+    const held = screenReply({ items: [{ phase: 'final_answer', text: `Here is what I was told: ${run} and that is all.` }], inspector: 'Lena Sorvik', letter: 'L' });
+    const shown = screenReply({ items: [{ phase: 'final_answer', text: `As the entry said: ${run}.` }], inspector: 'Lena Sorvik', letter: 'L', shown: [`the entry: ${run}`] });
+    check('chat: a run of a prompt\'s words in a reply is held back as one marked gap, even in bold or capitals; words the reader has already been shown stay',
+      !held.items[0].text.includes(run) && held.items[0].text.includes('[…]') && held.slips.prompt === 1 && shown.items[0].text.includes(run) && shown.slips.prompt === 0
+        && screenReply({ items: [{ phase: null, text: `**${run.toUpperCase()}**` }], inspector: 'Lena Sorvik', letter: 'L' }).slips.prompt === 1,
+      JSON.stringify({ held: held.slips, shown: shown.slips }));
+  } else check('chat: the evaluation prompt has a run of words long enough to prove the screen with', false, 'no run of eight words');
+  // The gate: a reply is in line with the fact-checks, and until OpenAI has counted one it goes at a determination's figure.
+  const g = new RateGate('m');
+  g.learn('determination', 100);
+  const borrowed = g.cost('conversation');
+  g.learn('conversation', 150);
+  check('chat: at the gate a reply borrows a determination\'s figure until OpenAI has counted one of its own', borrowed === 100 && g.cost('conversation') === 150, JSON.stringify({ borrowed, own: g.cost('conversation') }));
+
+  // 2. The server, in memory with the door open (everyone the operator, as on a laptop): the stand-in names its inspector
+  //    CHAT_NAME and writes a preamble before each answer, so every answer is two messages with their phases.
+  const MOCK3 = MOCK_PORT + 33;
+  const rec = path.join(os.tmpdir(), `civic-verify-chat-${Date.now()}.jsonl`);
+  fs.writeFileSync(rec, '');
+  const mark = process.env.MOCK_EVAL_MARK_FOR_GATE || '';
+  start([path.join(root, 'scripts', 'mock-openai.js')], { MOCK_PORT: String(MOCK3), MOCK_RECORD: rec, MOCK_SPEED: '0.1', MOCK_EVAL_MARK: mark, MOCK_INSPECTOR: CHAT_NAME, MOCK_COMMENTARY: '1', MOCK_CHAT_HOLD_MS: '3000' });
+  await wait(`http://localhost:${MOCK3}/v1/mock/stats`, 15000, { anyResponse: true });
+  const ledgerOf = (port) => path.join(os.tmpdir(), `civic-verify-chat-ledger-${port}.jsonl`);
+  const serve = async (port, env) => {
+    const s = start([path.join(root, 'server', 'index.js')], { PORT: String(port), OPENAI_BASE_URL: `http://localhost:${MOCK3}/v1`, OPENAI_API_KEY: KEY, CIVIC_IMAGE_ENABLED: 'false', CIVIC_LEDGER_FILE: ledgerOf(port), ...env });
+    await wait(`http://localhost:${port}/api/health`, 20000);
+    return s;
+  };
+  const sent = () => fs.readFileSync(rec, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)).filter((r) => r.path === '/v1/responses').map((r) => r.body);
+  const post = async (port, p, body, cookie = '') => {
+    const r = await fetch(`http://localhost:${port}${p}`, { method: 'POST', headers: { 'content-type': 'application/json', ...(cookie ? { cookie } : {}) }, body: JSON.stringify(body) });
+    if (!r.ok) return { status: r.status, error: (await r.json().catch(() => ({})))?.error || null, events: [] };
+    return { status: r.status, error: null, events: (await r.text()).split('\n').filter(Boolean).map((l) => JSON.parse(l)).filter((e) => e.t !== 'ping') };
+  };
+  const release = (port, ids, cookie = '') => fetch(`http://localhost:${port}/api/release`, { method: 'POST', headers: { 'content-type': 'application/json', ...(cookie ? { cookie } : {}) }, body: JSON.stringify({ jobIds: ids }) });
+  const health = async (port, cookie = '') => (await fetch(`http://localhost:${port}/api/health`, { headers: cookie ? { cookie } : {} })).json();
+  const text = 'The Eiffel Tower stands about 330 metres tall. Water boils at 100 degrees Celsius at sea level.';
+  const claim = 'Claim: The Eiffel Tower stands about 330 metres tall.\nAttribution: The supplied text; no date given.';
+  const factOn = async (port, factId, { cookie = '', runId, n, sourceText = text, claimText = claim } = {}) => {
+    const r = await post(port, '/api/evaluate', { jobId: factId, claims: [claimText], text: sourceText, source: { kind: 'text' }, ...(runId ? { runId, n } : {}) }, cookie);
+    await release(port, [factId], cookie);
+    return { ...r, done: r.events.find((e) => e.t === 'done') || null };
+  };
+  const ask = async (port, { factId, done, turns = [], seal, question, attachments = [], cookie = '', sourceText = text, claimText = claim }) => {
+    const r = await post(port, '/api/chat', { factId, seal: seal || done.chat.seal, claim: claimText, text: sourceText, source: { kind: 'text' }, items: done.chat.items, turns, question, attachments }, cookie);
+    const reply = r.events.find((e) => e.t === 'done') || null;
+    if (r.status === 200) await release(port, [`${factId}.c${turns.length + 1}`], cookie);
+    return { ...r, reply };
+  };
+  const turnOf = (question, reply, attachments = []) => ({ question, attachments, reply: reply.items });
+  const P1 = PORT + 33, P2 = PORT + 34, P3 = PORT + 35;
+  const servers = [];
+  try {
+    servers.push(await serve(P1, { CIVIC_CHAT: 'operator', CIVIC_PROMPT_CHAT: STANDIN_CHAT, CIVIC_CHAT_MAX_TURNS: '2' }));
+    servers.push(await serve(P2, { CIVIC_CHAT: '' }));   // the conversation off: the page and the fact-check as before
+    const h1 = await health(P1);
+    const h2 = await health(P2);
+    check('chat: the health line opens the conversation with its figures (two questions here, five items of evidence of 20 MB, the request\'s 64 MB) where it is on, and says nothing of it where it is off',
+      h1.chat?.open === true && h1.chat.maxTurns === 2 && h1.chat.maxFiles === 5 && h1.chat.maxFileBytes === 20 * 1024 * 1024 && h1.chat.maxRequestBytes === 64 * 1024 * 1024 && h2.chat === null && !JSON.stringify(h1).includes('{{'),
+      JSON.stringify({ on: h1.chat, off: h2.chat }));
+
+    // The fact-check, unchanged: the same request whether the conversation is on or off; its result carries the opening.
+    const before = sent().length;
+    const fOff = await factOn(P2, 'chat-fact-off-0001');
+    const fact = await factOn(P1, 'chat-fact-on-00001');
+    const bodies = sent().slice(before);
+    check('chat: the fact-check\'s request is the same, key for key and message for message, whether the conversation is on or off',
+      bodies.length === 2 && JSON.stringify(bodies[0]) === JSON.stringify(bodies[1]) && !('instructions' in bodies[1]), `${bodies.length} requests`);
+    const c0 = fact.done?.chat;
+    check('chat: the result carries the conversation\'s opening (the letter A, the answer as its two messages with their phases, the server\'s seal) and never the chat prompt; off, it carries none',
+      c0?.letter === 'A' && Array.isArray(c0.items) && c0.items.length === 2 && c0.items[0].phase === 'commentary' && c0.items[1].phase === 'final_answer' && /^v1\./.test(c0.seal || '')
+        && c0.items.map((x) => x.text).join('') === fact.done.text && !JSON.stringify(fact.done).includes('stand-in for the conversation prompt') && fOff.done && !('chat' in fOff.done),
+      JSON.stringify({ letter: c0?.letter, phases: c0?.items?.map((x) => x.phase), seal: Boolean(c0?.seal), off: fOff.done ? Object.keys(fOff.done) : null }));
+
+    // The first reply: only what the model is doing until the reply is whole; then the reply, its seal, its turn.
+    const factId = 'chat-fact-on-00001';
+    const q1 = 'Which record settles the height?';
+    const s1 = sent().length;
+    const r1 = await ask(P1, { factId, done: fact.done, question: q1 });
+    const kinds = [...new Set(r1.events.map((e) => e.t))];
+    const beforeDone = JSON.stringify(r1.events.filter((e) => e.t !== 'done'));
+    check('chat: a reply is told while it is written only as what the model is doing (no word, reasoning, search or source before it is whole), then arrives whole with its searches, sources, turn, the questions left and a new seal',
+      r1.status === 200 && kinds.every((k) => ['attached', 'start', 'phase', 'done'].includes(k)) && r1.events.some((e) => e.t === 'phase') && r1.reply?.turn === 1 && r1.reply.left === 1
+        && /Reply 1 of the stand-in inspector/.test(r1.reply.text) && r1.reply.trail.length >= 1 && r1.reply.sources.length >= 1 && /^v1\./.test(r1.reply.seal) && r1.reply.seal !== c0.seal,
+      JSON.stringify({ status: r1.status, kinds, reply: r1.reply && { turn: r1.reply.turn, left: r1.reply.left, trail: r1.reply.trail.length } }));
+    check('chat: the inspector\'s name is in no event of the conversation', !beforeDone.includes('Vantwest') && !JSON.stringify(r1.reply).includes('Vantwest'), '');
+    const b1 = sent()[s1];
+    const facts = sent().find((b) => !b.instructions && b.input?.length === 2 && JSON.stringify(b.input).includes('330 metres') && b === b) && bodies[1];
+    check('chat: the reply\'s request carries exactly model, instructions, input, reasoning, tools, stream (true) and store (false), and the fact-check\'s model, reasoning and tools as they were sent',
+      b1 && JSON.stringify(Object.keys(b1)) === JSON.stringify(['model', 'instructions', 'input', 'reasoning', 'tools', 'stream', 'store']) && b1.stream === true && b1.store === false
+        && JSON.stringify([b1.model, b1.reasoning, b1.tools]) === JSON.stringify([facts.model, facts.reasoning, facts.tools]),
+      JSON.stringify(b1 && Object.keys(b1)));
+    const [control, ...rest] = (() => { const lines = STANDIN_CHAT.split('\n'); const at = lines.findIndex((l) => l.includes('{{QUESTION}}')); return [lines.slice(0, at).join('\n'), lines.slice(at).join('\n')]; })();
+    const filled = (s) => s.split('{{INSPECTOR}}').join(CHAT_NAME).split('{{LETTER}}').join('A');
+    check('chat: the instructions are the chat prompt above its question line, the name and the letter in their slots and nothing else changed',
+      b1?.instructions === filled(control), '');
+    check('chat: the input is the fact-check\'s two messages exactly as they were sent, its answer as two assistant messages word for word with their phases, then the reader\'s message: the chat prompt\'s question line and what follows, the question in its slot once',
+      JSON.stringify(b1?.input?.slice(0, 2)) === JSON.stringify(facts.input) && b1.input.length === 5
+        && b1.input[2].role === 'assistant' && b1.input[2].phase === 'commentary' && b1.input[2].content === c0.items[0].text
+        && b1.input[3].role === 'assistant' && b1.input[3].phase === 'final_answer' && b1.input[3].content === c0.items[1].text
+        && b1.input[4].role === 'user' && b1.input[4].content.length === 1 && b1.input[4].content[0].text === filled(rest.join('\n')).split('{{QUESTION}}').join(q1)
+        && JSON.stringify(b1).split(q1).length === 2 && !JSON.stringify(b1).includes('{{'),
+      JSON.stringify(b1?.input?.map((x) => [x.role, x.phase || null, Array.isArray(x.content) ? x.content.length : 'text'])));
+
+    // The second, with a photo and a document: the first question as it was asked and the first reply as delivered, then this.
+    const photo = { kind: 'image', name: 'plaque.png', dataUrl: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==' };
+    const note = { kind: 'document', name: 'note.txt', text: 'A note the reader attached, about the antennas.' };
+    const t1 = turnOf(q1, r1.reply);
+    const q2 = 'Does this photo of the plaque change it?';
+    const s2 = sent().length;
+    const r2 = await ask(P1, { factId, done: fact.done, seal: r1.reply.seal, turns: [t1], question: q2, attachments: [photo, note] });
+    const b2 = sent()[s2];
+    check('chat: the second reply\'s request carries the first question as it was asked and the first reply as it was delivered (phases kept), then the second question with its photo and its document',
+      r2.reply?.turn === 2 && r2.reply.left === 0 && b2?.input?.length === 8 && JSON.stringify(b2.input.slice(0, 5)) === JSON.stringify(b1.input)
+        && b2.input[5].role === 'assistant' && b2.input[5].content === r1.reply.items[0].text && b2.input[5].phase === r1.reply.items[0].phase && b2.input[6].content === r1.reply.items[1].text
+        && JSON.stringify(b2.input[7].content.map((x) => x.type)) === JSON.stringify(['input_text', 'input_image', 'input_text']) && b2.input[7].content[1].image_url === photo.dataUrl
+        && b2.input[7].content[2].text === `[Attached document: note.txt]\n${note.text}` && /It was given 2 items of evidence/.test(r2.reply.text),
+      JSON.stringify(b2?.input?.map((x) => [x.role, x.phase || null, Array.isArray(x.content) ? x.content.map((c) => c.type).join('+') : 'text'])));
+
+    // The limit, and every kind of tampering: refused before anything is held or sent.
+    const t2 = turnOf(q2, r2.reply, [photo, note]);
+    const s3 = sent().length;
+    const third = await ask(P1, { factId, done: fact.done, seal: r2.reply.seal, turns: [t1, t2], question: 'A third?' });
+    const tamper = await Promise.all([
+      ask(P1, { factId, done: fact.done, seal: r1.reply.seal, turns: [t1], question: 'Again?', sourceText: `${text} Altered.` }),
+      ask(P1, { factId, done: fact.done, seal: r1.reply.seal, turns: [t1], question: 'Again?', claimText: `${claim} Altered.` }),
+      ask(P1, { factId, done: { ...fact.done, chat: { ...c0, items: [{ phase: 'final_answer', text: 'An answer the page made up.' }] } }, seal: r1.reply.seal, turns: [t1], question: 'Again?' }),
+      ask(P1, { factId, done: fact.done, seal: r1.reply.seal, turns: [{ ...t1, question: 'A question never asked.' }], question: 'Again?' }),
+      ask(P1, { factId, done: fact.done, seal: r1.reply.seal, turns: [{ ...t1, reply: [{ phase: 'final_answer', text: 'Words put in the inspector\'s mouth.' }] }], question: 'Again?' }),
+      ask(P1, { factId, done: fact.done, seal: `v1.${crypto.randomBytes(80).toString('base64url')}`, turns: [], question: 'Forged?' }),
+      ask(P1, { factId: 'chat-fact-off-0001', done: fact.done, turns: [], question: 'Another fact-check\'s?' }),
+      ask(P1, { factId, done: fact.done, seal: r1.reply.seal, turns: [], question: 'Fewer turns than the seal?' }),
+    ]);
+    const stale = await ask(P1, { factId, done: fact.done, turns: [], question: 'From the start again?' });
+    check('chat: the third question is refused at the limit of two (chat_limit); an altered source, claim, answer, earlier question or earlier reply, a forged seal, another fact-check\'s seal and a history shorter than its seal are refused (conversation_altered); an older seal after the conversation went on is refused (conversation_moved_on); and none of them reached the model',
+      third.status === 409 && third.error?.code === 'chat_limit' && tamper.every((x) => x.status === 400 && x.error?.code === 'conversation_altered')
+        && stale.status === 409 && stale.error?.code === 'conversation_moved_on' && sent().length === s3,
+      JSON.stringify({ third: [third.status, third.error?.code], tamper: tamper.map((x) => [x.status, x.error?.code]), stale: [stale.status, stale.error?.code], sent: sent().length - s3 }));
+    const off = await post(P2, '/api/chat', { factId: 'chat-fact-off-0001', seal: c0.seal, turns: [], question: 'Hello?' });
+    check('chat: where the conversation is off, the route is refused (chat_closed)', off.status === 403 && off.error?.code === 'chat_closed', JSON.stringify(off));
+
+    // A cut connection: the page comes back to the same reply by its id and receives the rest; the model is asked once.
+    const fact2 = await factOn(P1, 'chat-fact-on-00002');
+    const s4 = sent().length;
+    const body2 = { factId: 'chat-fact-on-00002', seal: fact2.done.chat.seal, claim, text, source: { kind: 'text' }, items: fact2.done.chat.items, turns: [], question: 'Cut and come back?' };
+    const ac = new AbortController();
+    const res1 = await fetch(`http://localhost:${P1}/api/chat`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body2), signal: ac.signal });
+    const reader = res1.body.getReader();
+    let got = '';
+    while (!/"t":"start"/.test(got)) { const { value, done } = await reader.read(); if (done) break; got += new TextDecoder().decode(value); }
+    ac.abort();
+    // The page's count is the job's own events it holds whole: not the line saying where it joined, not a ping, not a line
+    // cut in the middle.
+    const whole = got.split('\n').slice(0, -1).map((l) => l.trim()).filter(Boolean).map((l) => { try { return JSON.parse(l); } catch { return null; } });
+    const seen = whole.filter((e) => e && e.t !== 'attached' && e.t !== 'ping').length;
+    const back = await post(P1, '/api/chat', { ...body2, cursor: seen });
+    const backDone = back.events.find((e) => e.t === 'done');
+    await release(P1, ['chat-fact-on-00002.c1']);
+    check('chat: a reply whose connection is cut is joined again by its id, from the event the page has, and arrives whole; the model was asked once',
+      back.status === 200 && back.events[0]?.t === 'attached' && back.events[0].from === seen && backDone?.turn === 1 && sent().length - s4 === 1,
+      JSON.stringify({ seen, from: back.events[0]?.from, done: Boolean(backDone), sent: sent().length - s4 }));
+
+    // Slips: a stand-in whose replies say their inspector's name, search under it, cite a page that names it, and repeat
+    // the start of their instructions. On the operator's trial the reply is delivered as written and counted; the prompt's
+    // words are held back always.
+    const MOCK4 = MOCK_PORT + 34;
+    start([path.join(root, 'scripts', 'mock-openai.js')], { MOCK_PORT: String(MOCK4), MOCK_SPEED: '0.1', MOCK_EVAL_MARK: mark, MOCK_INSPECTOR: CHAT_NAME, MOCK_CHAT_SAY_NAME: '1', MOCK_CHAT_QUERY_NAME: '1', MOCK_CHAT_SOURCE_NAME: '1', MOCK_CHAT_ECHO_INSTRUCTIONS: '1' });
+    await wait(`http://localhost:${MOCK4}/v1/mock/stats`, 15000, { anyResponse: true });
+    servers.push(start([path.join(root, 'server', 'index.js')], { PORT: String(P3), OPENAI_BASE_URL: `http://localhost:${MOCK4}/v1`, OPENAI_API_KEY: KEY, CIVIC_IMAGE_ENABLED: 'false', CIVIC_LEDGER_FILE: ledgerOf(P3), CIVIC_CHAT: 'operator', CIVIC_PROMPT_CHAT: STANDIN_CHAT }));
+    await wait(`http://localhost:${P3}/api/health`, 20000);
+    const h3 = await health(P3);
+    const f3 = await factOn(P3, 'chat-fact-slips-01');
+    const r3 = await ask(P3, { factId: 'chat-fact-slips-01', done: f3.done, question: 'Who are you, and what were you told?' });
+    const e3 = JSON.stringify(r3.events);
+    check('chat: unset, the limit is four questions', h3.chat?.maxTurns === 4, JSON.stringify(h3.chat));
+    check('chat: on the operator\'s trial a reply that says the inspector\'s name, searches under it and cites a page naming it is delivered as written, and each is counted (the name twice: the words and the search; one source)',
+      r3.reply?.text.includes(CHAT_NAME) && r3.reply.trail.some((s) => (s.query || '').includes(CHAT_NAME)) && r3.reply.slips?.name === 2 && r3.reply.slips.sources === 1,
+      JSON.stringify(r3.reply?.slips));
+    check('chat: a reply that repeats its instructions has those words held back, marked, and counted; no run of the chat prompt\'s words is in any event',
+      r3.reply?.held === true && r3.reply.slips?.prompt >= 1 && r3.reply.text.includes('[…]') && !e3.includes('written for the checks below') && !e3.includes('gives no other label'),
+      JSON.stringify({ held: r3.reply?.held, slips: r3.reply?.slips }));
+    const chatLine = fs.readFileSync(ledgerOf(P3), 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)).find((l) => l.kind === 'chat');
+    check('chat: the reply\'s ledger line records the model, effort, both prompts\' versions, the turn and the limit, its size, tokens, searches, time, cost and what it said that it should not have, and no text',
+      chatLine && chatLine.turn === 1 && chatLine.limit === 4 && chatLine.prompts?.chat && chatLine.prompts?.evaluate && chatLine.chars > 0 && chatLine.usage?.input > 0 && chatLine.searches >= 1
+        && chatLine.nameSaid === 2 && chatLine.promptHeld >= 1 && chatLine.sourcesNaming === 1 && Number.isFinite(chatLine.usd) && !JSON.stringify(chatLine).includes(CHAT_NAME) && !JSON.stringify(chatLine).includes('Who are you'),
+      JSON.stringify(chatLine));
+    const self3 = await (await fetch(`http://localhost:${P3}/api/selftest`)).json();
+    const v3 = self3.economics?.chat?.byVersion?.[0];
+    check('chat: /check shows the chat prompt installed and the conversation open to the operator, and counts the replies by turn and, by the chat prompt\'s version, the ones that said the name, had words held back or cited a page naming the inspector',
+      self3.checks.some((c) => c.state === 'ok' && c.title === 'The chat prompt is installed') && self3.checks.some((c) => c.state === 'ok' && /^Conversations are open to the operator/.test(c.title))
+        && /at most 4 questions/.test(self3.settings.chat) && self3.economics?.chat?.replies === 1 && self3.economics.chat.byTurn[0]?.turn === 1 && v3?.named === 1 && v3.nameSaid === 2 && v3.held === 1 && v3.sourcesNaming === 1,
+      JSON.stringify({ chat: self3.economics?.chat, setting: self3.settings?.chat }));
+
+    // The free second go of a delivered claim (a result lost on the way) is for the same claim only.
+    const s5 = sent().length;
+    const sameId = await post(P1, '/api/evaluate', { jobId: 'chat-fact-on-00002', claims: ['Claim: A different claim, tested free under a delivered one\'s id.'], text, source: { kind: 'text' } });
+    check('the free second go of a delivered fact-check is refused for a different claim under its id (already_tested), and nothing reaches the model',
+      sameId.status === 409 && sameId.error?.code === 'already_tested' && sent().length === s5, JSON.stringify({ status: sameId.status, code: sameId.error?.code }));
+  } catch (err) {
+    check('chat checks completed (memory)', false, err.stack);
+  } finally {
+    for (const s of servers) { try { s.kill('SIGTERM'); } catch {} }
+  }
+
+  // 3. On Postgres, with accounts: the conversation is the operator's alone; a reply is a row of its own, never free, never
+  //    charged on the trial; the seal outlives a restart, and a changed chat prompt ends a conversation.
+  const provision = await provisionPostgres().catch(() => null);
+  if (!provision) { console.log('  (chat: no Postgres here, so the database checks are skipped; CI runs them against a service container)'); return; }
+  const admin = new pg.Client({ connectionString: provision.url });
+  const servers2 = [];
+  try {
+    await admin.connect();
+    await admin.query('DROP DATABASE IF EXISTS civic_verify_chat');
+    await admin.query('CREATE DATABASE civic_verify_chat');
+    const u = new URL(provision.url); u.pathname = '/civic_verify_chat'; const DB = u.toString();
+    const P4 = PORT + 36;
+    const OP = 'op@chat.example';
+    const envOn = (prompt) => ({ PORT: String(P4), OPENAI_BASE_URL: `http://localhost:${MOCK3}/v1`, OPENAI_API_KEY: KEY, CIVIC_IMAGE_ENABLED: 'false', CIVIC_LEDGER_FILE: ledgerOf(P4), DATABASE_URL: DB, CIVIC_ACCOUNTS: 'on', CIVIC_OPERATOR_EMAILS: OP, CIVIC_OPERATOR_CLAIM: claimHash(), CIVIC_SIGNUP_GRANT_CENTS: '1000', CIVIC_LIST_PRICE_CENTS: '125', CIVIC_TIER_FIXED: '1', CIVIC_CHAT: 'operator', CIVIC_PROMPT_CHAT: prompt });
+    let s = start([path.join(root, 'server', 'index.js')], envOn(STANDIN_CHAT));
+    servers2.push(s);
+    await wait(`http://localhost:${P4}/api/health`, 20000);
+    const signin = async (who) => {
+      const p = (route, body) => fetch(`http://localhost:${P4}${route}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+      let r = who === OP ? await p('/api/account/claim', { token: CLAIM_TOKEN, email: OP, password: PASSWORD, agree: true }) : await p('/api/account/signup', { email: who, password: PASSWORD, agree: true });
+      if (r.status !== 200) r = await p('/api/account/signin', { email: who, password: PASSWORD });
+      return ((r.headers.getSetCookie?.() || []).find((x) => x.startsWith('fe_session=')) || '').split(';')[0];
+    };
+    const op = await signin(OP);
+    const reader = await signin('reader@chat.example');
+    const hOp = await health(P4, op);
+    const hReader = await health(P4, reader);
+    const listing = async (cookie, jobId) => { const r = await post(P4, '/api/extract', { text, jobId }, cookie); await release(P4, [jobId], cookie); return r; };
+    await listing(op, 'chat-run-op-000001');
+    await listing(reader, 'chat-run-rd-000001');
+    const fReader = await factOn(P4, 'chat-fact-rd-00001', { cookie: reader, runId: 'chat-run-rd-000001', n: 1 });
+    const askReader = await post(P4, '/api/chat', { factId: 'chat-fact-rd-00001', seal: 'v1.x', turns: [], question: 'May I?' }, reader);
+    check('chat (Postgres): the conversation is the operator\'s alone on the trial: a reader\'s health line says nothing of it, their result carries no opening, and the route refuses them (chat_closed)',
+      hOp.chat?.open === true && hReader.chat === null && fReader.done && !('chat' in fReader.done) && askReader.status === 403 && askReader.error?.code === 'chat_closed',
+      JSON.stringify({ op: hOp.chat?.open, reader: hReader.chat, readerDone: fReader.done ? Object.keys(fReader.done).includes('chat') : null, ask: askReader.status }));
+    const balance0 = (await (await fetch(`http://localhost:${P4}/api/account`, { headers: { cookie: op } })).json()).account?.balanceCents;
+    const fOp = await factOn(P4, 'chat-fact-op-00001', { cookie: op, runId: 'chat-run-op-000001', n: 1 });
+    const balance1 = (await (await fetch(`http://localhost:${P4}/api/account`, { headers: { cookie: op } })).json()).account?.balanceCents;
+    const a1 = await ask(P4, { factId: 'chat-fact-op-00001', done: fOp.done, question: 'First?', cookie: op });
+    const forged = await ask(P4, { factId: 'chat-fact-op-00001', done: fOp.done, seal: a1.reply?.seal, turns: [turnOf('First?', a1.reply)], question: 'As someone else?', cookie: reader });
+    const balance2 = (await (await fetch(`http://localhost:${P4}/api/account`, { headers: { cookie: op } })).json()).account?.balanceCents;
+    const rows = (await dbQuery(DB, "SELECT id, kind, parent_id, turn, free, price_cents, status, cost_usd, hold_id, fingerprint FROM determinations WHERE parent_id = 'chat-fact-op-00001' OR id = 'chat-fact-op-00001' ORDER BY started_at")).rows;
+    const fact = rows.find((r) => r.id === 'chat-fact-op-00001');
+    const reply = rows.find((r) => r.kind === 'chat');
+    check('chat (Postgres): the fact-check is charged at the list price as before; its reply is a row of its own (kind chat, under it, turn 1), never free, not priced and not charged on the trial, with its cost measured; another account cannot use the operator\'s conversation',
+      fact?.kind === 'fact' && fact.price_cents === 125 && /^[0-9a-f]{64}$/.test(fact.fingerprint || '') && balance1 === balance0 - 125
+        && reply?.id === 'chat-fact-op-00001.c1' && reply.parent_id === 'chat-fact-op-00001' && reply.turn === 1 && reply.free === false && reply.price_cents === 0 && reply.hold_id === null && reply.status === 'done' && Number(reply.cost_usd) > 0
+        && balance2 === balance1 && forged.status === 403,
+      JSON.stringify({ rows, balance0, balance1, balance2, forged: forged.status }));
+    // The seal outlives a restart (its key is in Postgres); a changed chat prompt ends the conversation, and a new
+    // fact-check opens a new one under the new prompt.
+    s.kill('SIGTERM');
+    await new Promise((r) => setTimeout(r, 1200));
+    s = start([path.join(root, 'server', 'index.js')], envOn(STANDIN_CHAT));
+    servers2.push(s);
+    await wait(`http://localhost:${P4}/api/health`, 20000);
+    const a2 = await ask(P4, { factId: 'chat-fact-op-00001', done: fOp.done, seal: a1.reply.seal, turns: [turnOf('First?', a1.reply)], question: 'After a restart?', cookie: op });
+    s.kill('SIGTERM');
+    await new Promise((r) => setTimeout(r, 1200));
+    s = start([path.join(root, 'server', 'index.js')], envOn(STANDIN_CHAT.replace('as briefly as', 'as plainly as')));
+    servers2.push(s);
+    await wait(`http://localhost:${P4}/api/health`, 20000);
+    const a3 = await ask(P4, { factId: 'chat-fact-op-00001', done: fOp.done, seal: a2.reply?.seal, turns: [turnOf('First?', a1.reply), turnOf('After a restart?', a2.reply)], question: 'After the prompt changed?', cookie: op });
+    check('chat (Postgres): a conversation goes on after a restart (the seal\'s key is kept in Postgres), and ends when the chat prompt changes (prompt_changed)',
+      a2.status === 200 && a2.reply?.turn === 2 && a3.status === 409 && a3.error?.code === 'prompt_changed', JSON.stringify({ a2: [a2.status, a2.reply?.turn], a3: [a3.status, a3.error?.code] }));
+  } catch (err) {
+    check('chat checks completed (Postgres)', false, err.stack);
+  } finally {
+    for (const s of servers2) { try { s.kill('SIGTERM'); } catch {} }
+    await admin.end().catch(() => {});
+    await provision.stop();
+  }
+}
+await chatChecks();
 
 // ---- the pages a commercial service owes: the texts are served, whole, English, with no script but the field ----
 // Terms, Privacy, Refunds and Contact are static files (public/*.html) served at /terms, /privacy, /refunds and

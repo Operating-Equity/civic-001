@@ -1,0 +1,11 @@
+TEMPLATE ONLY. This is not a prompt FactEngine runs, and it holds none of the operator's words.
+Copy it to chat.txt (gitignored), or set CIVIC_PROMPT_CHAT or CIVIC_PROMPT_CHAT_FILE, and replace
+every line with the operator's own text. The server fills the three slots and changes nothing else.
+Everything above the line holding the question slot is sent as the reply's instructions.
+
+The inspector named by the fact-check: {{INSPECTOR}}
+How that inspector is called in this conversation: Inspector {{LETTER}}
+[The operator's rules for the conversation go here.]
+
+Message from the reader: {{QUESTION}}
+[The operator's requirements for the reply go here.]

@@ -3,7 +3,8 @@
 The functional main page: paste or upload text, FactEngine extracts every empirical claim, lists them with
 checkboxes, runs the ones the reader chooses ten at a time (or the first `CIVIC_AUTO_TEST_FIRST` of them
 without a press, when that setting is above 0), and shows each determination (True / False / Unverified)
-with the full encyclopedia-style entry, a live scoreboard, a challenge panel per result, and a reset.
+with the full encyclopedia-style entry, a live scoreboard, a conversation with each result's inspector (the
+operator's trial, `CIVIC_CHAT`), and a reset.
 
 Two rules the code exists to keep:
 
@@ -27,7 +28,10 @@ civic-web/
 │   ├── extract.js     Step 1: streaming claim extraction, claims parsed as they arrive.
 │   ├── evaluate.js    Step 2: the claims, ten at a time, verdict read from the Conclusion, streaming.
 │   ├── illustrate.js  Visual echo: art direction, then the fast image model.
-│   ├── challenge.js   Challenge mechanics; the OpenAI call is withheld until certified.
+│   ├── chat.js        The conversation under a result: each reply's request, its seal, its screen, its row.
+│   ├── seal.js        The server's seal over what it delivered (AES-256-GCM; its key kept in Postgres).
+│   ├── screen.js      A reply held to the secrets: the inspector's name counted, a prompt's words held back.
+│   ├── respond.js     A reply's stream and its retries, shared by the determination and the conversation.
 │   └── documents.js   .pdf / .docx / text parsing for uploads.
 ├── public/            The page. No build step. Plain ES modules.
 │   ├── index.html · css/civic.css
@@ -262,6 +266,57 @@ settings (`CIVIC_ACCESS_CODES`, `CIVIC_OPERATOR_CODES`, `CIVIC_CODE_USES`, `CIVI
 `CIVIC_SESSION_SECRET`) are read by nothing; the startup line and /check name any still set, for the operator to
 delete in Render when convenient.
 
+## The conversation with the inspector
+
+Under every finished result the reader can talk with the inspector the model named for that fact: ask a question,
+add evidence, or say why the result is wrong (the challenge of September, folded in). The operator, 7 and 8 October:
+"My goal is to change challenge to chat"; in the conversation the inspector is called by the first letter of its
+first name ("Inspector A"), never by its name; "up to 4" questions; and "highly experimental": it is not offered to
+readers until it reasons as well and as steadily as the fact-check. So it runs as the operator's trial
+(`CIVIC_CHAT=operator`), on the operator's account alone.
+
+- **The fact-check is unchanged.** Its request is byte for byte what it was (the guard sends it with the conversation
+  on and off and compares), and its result is shown as before. Its `done` event gains only what a conversation needs:
+  the letter, the answer's messages with their `phase`, and the server's seal.
+- **What the page shows:** "Inspector A" at the head (the first letter of the name's first word after a title in
+  `CIVIC_CHAT_TITLES`: "Dr. Orin Vale" and "Orin Vale" are O, "Sir Edwin Cardale" is E), the thread, and
+  one box, "Ask a question, or challenge the result…", with up to five photos or documents of 20 MB each. A reply is
+  never streamed: while it is written the page says what the model is doing ("Thinking · 1:12", "Searching",
+  "Reading", "Writing"), and the reply, its searches and its sources arrive together, whole, once the server has
+  screened it. After `CIVIC_CHAT_MAX_TURNS` questions (4) the box closes: "This conversation has had its four
+  questions." A result whose inspector cannot be read gets no conversation, and the card says so; no inspector is
+  invented. A reload ends the conversation, as it ends the results.
+- **Each reply's request** (see "What is sent, exactly"): the fact-check's own model, effort and tools, read from its
+  seal; the chat prompt above its question line as the instructions, the same on every reply; the fact-check's two
+  messages exactly as sent and its answer word for word; every earlier question as asked and every reply as
+  delivered; then the reader's message once. The model's private thinking is not carried from one reply to the next
+  (the guide's §9): each reply thinks afresh, under the same instructions, over the whole visible record.
+- **The conversation lives in the page, sealed by the server.** The server keeps no text of it. What it delivered is
+  sealed (AES-256-GCM, `server/seal.js`; the key is random, made by the server and kept in Postgres, `server_keys`;
+  without a database each process makes its own, so a restart there ends its conversations). A history the page
+  altered (the source, the claim, the answer, a question, a reply, or one cut short) is refused before anything is
+  held or sent (`conversation_altered`); an older one after the conversation went on in another window
+  (`conversation_moved_on`); a changed evaluation or chat prompt ends it (`prompt_changed`), and a new fact-check
+  opens a new one. A cut connection comes back to the same reply by its id (`<fact-check>.c<turn>`), and the model is
+  asked once.
+- **The secrets.** Every reply is screened before the page sees a word of it (`server/screen.js`): any run of five
+  words of 25 characters or more from any prompt is held back as `[…]`, except words the reader has already been
+  shown; the inspector's name (whole, without its title, and its surname, possessives included, through Markdown's
+  marks) is looked for in the reply, its searches and its sources. On the trial a reply that says the name is
+  delivered as written and counted, so the experiment is measured, not hidden; the counts go on the ledger line and,
+  by chat prompt version, on /check. The name never enters a chat event; the card above the conversation still shows
+  the fact-check as the model wrote it, name included, by the operator's rule.
+- **Money.** A reply is a row of `determinations` of kind `chat`, under its fact-check (`parent_id`, `turn`), so holds,
+  charges, releases and the boot reconciliation treat it as they treat a fact-check. It is never one of a document's
+  free ones, and on the trial it is priced at nothing. Its cost, tokens and time are measured apart, by turn, on
+  /check; the fact-checks' averages and the capacity figure leave replies out.
+- **The prompt** is the operator's, installed like the other two: `CIVIC_PROMPT_CHAT`, `CIVIC_PROMPT_CHAT_FILE` (a
+  Render secret file, `/etc/secrets/chat.txt`) or `server/prompts/chat.txt`, with `{{INSPECTOR}}`, `{{LETTER}}` and
+  exactly one `{{QUESTION}}` line (see `server/prompts/README.md`). Until it is installed, /check says so and no
+  result offers a conversation.
+- **The free second go of a delivered fact-check** (a result lost on the way) is now for the same claim only: the
+  claim's fingerprint is on its row, and a different claim under a delivered id is refused (`already_tested`).
+
 ## Reading a link
 
 A reader can paste a web address into the box instead of text. The server fetches it and puts the
@@ -483,6 +538,17 @@ with the claim's whole entry, Claim, Attribution and Unspecified lines, in place
 were tested in; a claim tested bare, "the speech" with no speaker or date, was being tested
 without the context the extraction prompt had written for it.
 
+**A reply of the conversation** (`CIVIC_CHAT`): `model`, `instructions` (the chat prompt above its `{{QUESTION}}`
+line, verbatim, with the inspector's name in `{{INSPECTOR}}` and its letter in `{{LETTER}}`: the same on every reply
+of every conversation), `input` (in order: the determination's two messages exactly as it sent them, the source
+rebuilt with the day it was stamped with; its answer word for word, as assistant messages with their `phase`; each
+earlier question as it was sent and each reply as it was delivered; then the chat prompt's question line and what
+follows, the reader's message in its slot once, with any photo as an image and any document as text), `reasoning`
+and `tools` exactly as the determination sent them (read from its seal, never from today's settings or the page),
+`stream: true`, `store: false`. Nothing else: no reasoning items replayed, no conversation kept at OpenAI, no
+truncation. The guard reads the body sent and fails on any other key, any change to the first messages, or a
+question put in twice.
+
 Nothing else. No output token cap. No reasoning mode. No verbosity. No search context size. No
 truncation setting. No fallback model. No size limit of ours on the document.
 
@@ -497,6 +563,7 @@ truncation setting. No fallback model. No size limit of ours on the document.
 | Claims run automatically | `CIVIC_AUTO_TEST_FIRST` of them (10 unless set; 0 = none: every claim found waits for the reader's checkbox and runs when chosen), ten at a time (`CIVIC_EVAL_CONCURRENCY`, the operator's figure of 3 October on a minute budget of 40,000,000 tokens), each on its own request, the whole selection in one batch. The page is told both figures by the server (`autoTestFirst` and `inFlight` on `/api/health`), so what runs and how fast change with one setting and no release. The intake sentences follow the figures too. | Operator's rule; 0 since 1 October |
 | Prices and tiers | Listing free; a determination at one list price for everyone, `CIVIC_LIST_PRICE_CENTS` (125: "each fact-check is $1.25"; unset, nothing priced), said once above the claims and on no row or button; a run's tier (1: nothing free; 2, 3: one, two of the reader's choices free per document) rotating every six hours in `CIVIC_TIER_ORDER` (1,2,3) with a daily shift; a loss guard to tier 1 when a window loses more than `CIVIC_TIER_LOSS_GUARD_USD`; revenue at list, not collected; every user measured in Postgres, and /check's figure of how many fact-checks the key runs at once. See "Facts have a price". | Operator's program, 2 October; the list price and 0, 1 or 2 free, 6 October; every figure theirs |
 | Accounts and credit | On unless `CIVIC_ACCOUNTS=off`: an account by email and password before anything runs; the operator's account only through the one-time link (`CIVIC_OPERATOR_CLAIM`, its SHA-256; `CIVIC_OPERATOR_EMAILS`, the reserved address); `CIVIC_SIGNUP_GRANT_CENTS` (1000) of credit to start; a test's price held when it starts, charged when it is delivered, released when it is not; a monthly limit of the reader's own. Flagged defaults, the operator's to change: `CIVIC_PASSWORD_MIN_CHARS` 8, `CIVIC_SESSION_DAYS` 400, `CIVIC_SIGNIN_TRIES` 10 an hour, `CIVIC_RESET_LINK_HOURS` 24; off unless set: `CIVIC_SIGNIN_TRIES_PER_ADDRESS`, `CIVIC_SIGNUPS_PER_ADDRESS_PER_DAY`. See "Accounts and credit". | Operator, 5 October |
+| Conversation | `CIVIC_CHAT`: off unless set; `operator` opens it to the operator's account alone (`on` is read as `operator`, and /check says so, until readers have its texts and price). `CIVIC_CHAT_MAX_TURNS` 4 questions; `CIVIC_CHAT_TITLES` Dr,Prof,Sir,Mr,Mrs,Ms,Lord,Lady,St (skipped before the letter). Evidence: five items of 20 MB each in one message, within the 64 MB a request may carry. See "The conversation with the inspector". | Operator, 7 and 8 October |
 | Pacing | OpenAI keeps a bucket of the key's minute limit that refills continuously at that limit per minute; each request costs what OpenAI estimates for it, and a request the bucket cannot hold is refused with exactly the wait that refills the difference (its refusals say so, to the millisecond). FactEngine reads those figures from every reply and every refusal. A request goes when the bucket, less what is reserved by the sends whose headers have not yet arrived (each at what OpenAI has shown for its kind), holds its cost; when the headers arrive their figure replaces the reservation. So many readers' requests leave together, bounded by the bucket, instead of one after another. The first request ever, and the first of each kind of request (a listing, a determination), goes alone into a full minute so its reply shows its cost exactly; a refusal's Requested figure is learned too, so a larger cost is met once and never twice. The line is an order, not a figure: listings before determinations (listing is the free first step), and among determinations the readers take turns, so one reader's thirty queued claims never starve another's first three; a request OpenAI turns back waits exactly what OpenAI asked and goes again first. The check page's pacing row shows the key's figures, what is in the air with its reservations, what waits by kind and by reader, and the refusals. | Built from OpenAI's refusals of 16 September; parallel sends, the order and the turns on 3 October |
 | Rate limits | Never a failure, never an error on a row. A refusal at the door sets the bucket to OpenAI's figures; the refused request waits exactly what OpenAI asked and goes first. A refusal can also arrive inside a running reply, when the response's own later call (after a web search) finds the minute short and OpenAI ends the response with its figures in an error event: it is read the same way, the claim waits exactly what OpenAI asked, and goes again whole. This is why the pace per reader is a figure rather than everything at once: a running reply is charged again at each of its later calls (67,000 to 89,000 each in September's readings), by far more than its admission showed, and the gate cannot see those charges, so many parallel claims can starve one another; the limits are per organization and model, so every reader shares the key's minute. The key's minute read 500,000 tokens on 16 September, 2,000,000 on 18 September and 40,000,000 on 3 October (the check page's pacing row is the authoritative reading), so the pace went one, two, three, four, three, and ten on 3 October on the operator's word; a larger budget still is OpenAI's to grant on request. The figure is a setting, so it moves without a release. A used-up quota is reported in words. | OpenAI's own numbers |
 | Retries | None counted on a connection that could not be made or was cut: that is the operating system's report ("no route to host", "connection refused", "connection reset"), never OpenAI's, and nothing was decided by it. The claim waits for the connection and goes again a second after the failed go began, however long the route is missing; a go that finds no route costs nothing. The row says why it waits, in the system's words, and /check records the outage with its start, its cause, its length and the machine's addresses at the time. 8 on a 5xx, which costs nothing. No back-off of ours: a failed attempt rejoins the line at the gate, and OpenAI's own retry-after, when given, comes first. | Never on a model or parameter error |
@@ -567,6 +634,9 @@ The prompts are the product. The design keeps them out of every place a reader c
   can quote part of a request inside an error message.
 - Prompt text is never logged. `server/prompts.js` also redacts it from `console.error` if a
   library ever tried to print it.
+- A reply of the conversation is never streamed. It reaches the page whole, after the server has held back
+  every run of five words of a prompt and counted every mention of the inspector's name; the four-question limit
+  bounds how long a reader can work at the prompts.
 - Nothing is added to the author's prompt. No system instruction, no verdict tag, no formatting
   note. The extraction prompt is sent as the instructions field verbatim; the evaluation prompt is
   sent as the sole user message with the claim substituted for `{{CLAIM}}`, and nothing else.

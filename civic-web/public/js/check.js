@@ -56,6 +56,7 @@ function renderSettings(s, build, pacing, silent, tools, readers) {
       : [['Model', s.model], ['Reasoning effort', s.effort]]),
     ['Web search', s.webSearch ? 'on, for both steps' : 'off'],
     ['Claims per run', String(s.claimsPerRun)],
+    ...(s.chat ? [['Conversations', s.chat]] : []),
     ['Key comes from', s.keySource],
     ['Prompt versions', s.prompts || 'none installed'],
     ['Version', build],
@@ -141,6 +142,13 @@ function economicsLines(e, { pacing = null, model = null } = {}) {
       (d.extractions.n ? `; a listing takes ${mins(d.extractions.meanMs)} on average (three in four within ${mins(d.extractions.p75Ms)}, ${d.extractions.n} measured)` : '; no listing measured yet') +
       '. The times run from the request to its end, so a wait at the gate is inside them.');
   } else lines.push('No durations measured yet: the first runs put how long a determination and a listing take here.');
+  // The conversation's replies (the operator's trial), apart from the fact-checks: by turn, and by version of the chat prompt.
+  const ch = e.chat;
+  if (ch?.replies) {
+    const each = ch.byTurn.map((x) => `turn ${x.turn}: ${x.replies} ${x.replies === 1 ? 'reply' : 'replies'}${x.meanTokens ? `, about ${n(x.meanTokens)} tokens` : ''}${x.meanUsd !== null ? `, ${money(x.meanUsd, c)}` : ''}${x.meanMs ? `, ${mins(x.meanMs)}` : ''} each`).join('; ');
+    const kept = ch.byVersion.map((v) => `with chat prompt ${v.version}, ${v.named} of ${v.replies} ${v.replies === 1 ? 'reply' : 'replies'} said the inspector's name (${v.nameSaid} ${v.nameSaid === 1 ? 'time' : 'times'} in all), ${v.held} had the instructions' words held back, and ${v.sourcesNaming} cited a source that names the inspector`).join('; ');
+    lines.push(`The conversation's replies over the last ${p.days} days, measured apart from the fact-checks: ${ch.replies} in all (${each}). ${kept.charAt(0).toUpperCase()}${kept.slice(1)}. Nothing is charged for a reply yet.`);
+  } else if (ch) lines.push(`No reply of a conversation has been measured in the last ${p.days} days.`);
   lines.push(`${e.note} The rows live in ${e.store === 'postgres' ? 'Postgres and outlive every deploy' : 'this instance\'s memory and reset when it restarts'}.`);
   return lines;
 }

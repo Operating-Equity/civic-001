@@ -5,6 +5,13 @@
 // The prompts are sent to OpenAI VERBATIM. Nothing is prepended, appended, or injected.
 // The claim is substituted for {{CLAIM}} exactly as extracted. The verdict is read out of
 // the model's own Conclusion section afterwards, not requested by an added instruction.
+//
+// The chat prompt (8 October, in place of the challenge's) is the operator's text for the conversation under a
+// fact-check (server/chat.js). It has three slots, and nothing else of it changes: {{INSPECTOR}}, the name the
+// fact-check gave its inspector, so the model knows who it is; {{LETTER}}, that name's letter, so the operator's own
+// words say how the model refers to itself ("Inspector {{LETTER}}"); and {{QUESTION}}, the reader's message, once.
+// Everything above the line that holds {{QUESTION}} is the instructions, the same on every reply; that line and
+// everything below it is the reader's message, with the reader's words in the slot.
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -12,7 +19,7 @@ import { fileURLToPath } from 'node:url';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const vaultDir = path.join(here, 'prompts');
-const NAMES = ['extract', 'evaluate', 'challenge'];
+const NAMES = ['extract', 'evaluate', 'chat'];
 
 function readSource(name) {
   const upper = name.toUpperCase();
@@ -95,13 +102,92 @@ export function evaluationPrompt(claim) {
   return vault.get('evaluate').split('{{CLAIM}}').join(String(claim).trim());
 }
 
-/** Challenge prompt with all placeholders substituted. Only used once certified. */
-export function challengePrompt({ claim, verdict, originalEntry, challenge }) {
-  return vault.get('challenge')
-    .split('{{CLAIM}}').join(String(claim).trim())
-    .split('{{VERDICT}}').join(String(verdict || ''))
-    .split('{{ORIGINAL_ENTRY}}').join(String(originalEntry || ''))
-    .split('{{CHALLENGE}}').join(String(challenge || ''));
+// ---- the chat prompt ------------------------------------------------------------------------------------------------
+const QUESTION = '{{QUESTION}}';
+
+/** The chat prompt as two parts, split at the line that holds {{QUESTION}}, or why it cannot be used. */
+const CHAT = (() => {
+  const text = vault.get('chat');
+  if (!text) return { ready: false, reason: 'missing' };
+  const count = text.split(QUESTION).length - 1;
+  if (count !== 1) return { ready: false, reason: count ? 'question_twice' : 'no_question', count };
+  const lines = text.split('\n');
+  const at = lines.findIndex((l) => l.includes(QUESTION));
+  return { ready: true, reason: null, control: lines.slice(0, at).join('\n'), message: lines.slice(at).join('\n'),
+    slots: { inspector: text.includes('{{INSPECTOR}}'), letter: text.includes('{{LETTER}}') } };
+})();
+
+/** Safe to report: whether the chat prompt can be used, why not, and which of its slots it uses. Never its text. */
+export function chatPromptStatus() { return { ready: CHAT.ready, reason: CHAT.reason, slots: CHAT.slots || null }; }
+
+const fillName = (s, { inspector, letter }) => s.split('{{INSPECTOR}}').join(String(inspector)).split('{{LETTER}}').join(String(letter));
+
+/** The chat prompt's instructions (above its question line), the name and the letter in their slots. Nothing else changes. */
+export function chatInstructions({ inspector, letter }) { return fillName(CHAT.control, { inspector, letter }); }
+
+/** The chat prompt's message (its question line and what follows), the name and the letter in their slots, then the reader's words once. */
+export function chatMessage({ inspector, letter, question }) { return fillName(CHAT.message, { inspector, letter }).split(QUESTION).join(String(question)); }
+
+// ---- a conversation's reply, held to the prompts ---------------------------------------------------------------------
+// The leak check's rule (scripts/leak-check.mjs): any run of five consecutive words of a prompt, 25 characters or more,
+// is a fingerprint of it. Read here word by word, without Markdown's marks and in lower case, so a reply that repeats a
+// prompt in bold, in capitals or across a line break is found all the same.
+const WINDOW = 5;
+const MIN_CHARS = 25;
+const GAP = '[…]';
+const wordOf = (w) => w.replace(/[*_`~]/g, '').toLowerCase();
+
+function windowsOf(text) {
+  const out = new Set();
+  const words = String(text ?? '').split(/\s+/).map(wordOf).filter(Boolean);
+  for (let i = 0; i + WINDOW <= words.length; i++) {
+    const w = words.slice(i, i + WINDOW).join(' ');
+    if (w.length >= MIN_CHARS) out.add(w);
+  }
+  return out;
+}
+
+let fingerprints = null;   // every prompt's runs of five words, made once: the prompts are read once
+function promptFingerprints() {
+  if (!fingerprints) {
+    fingerprints = new Set();
+    for (const name of NAMES) { const t = vault.get(name); if (t) for (const w of windowsOf(t)) fingerprints.add(w); }
+  }
+  return fingerprints;
+}
+
+/**
+ * A reply of the conversation, with every run of five words that repeats a prompt held back: each stretch of such words
+ * becomes one marked gap. Words the reader has already been shown (`shown`: the source, the claim, the fact-check's
+ * answer, the conversation so far) are no secret and stay. Returns the text and how many gaps it has.
+ */
+export function holdBackPromptText(text, { shown = [] } = {}) {
+  const raw = String(text ?? '');
+  const prints = promptFingerprints();
+  if (!raw || !prints.size) return { text: raw, held: 0 };
+  const seen = new Set();
+  for (const s of shown) for (const w of windowsOf(s)) seen.add(w);
+  const tokens = [];
+  for (const m of raw.matchAll(/\S+/g)) tokens.push({ start: m.index, end: m.index + m[0].length, w: wordOf(m[0]) });
+  const words = tokens.map((t, k) => (t.w ? k : -1)).filter((k) => k >= 0);
+  const marked = new Array(tokens.length).fill(false);
+  for (let j = 0; j + WINDOW <= words.length; j++) {
+    const w = words.slice(j, j + WINDOW).map((k) => tokens[k].w).join(' ');
+    if (w.length >= MIN_CHARS && prints.has(w) && !seen.has(w)) for (let q = j; q < j + WINDOW; q++) marked[words[q]] = true;
+  }
+  let out = '';
+  let last = 0;
+  let held = 0;
+  for (let k = 0; k < tokens.length; k++) {
+    if (!marked[k]) continue;
+    let e = k;
+    while (e + 1 < tokens.length && marked[e + 1]) e++;
+    out += raw.slice(last, tokens[k].start) + GAP;
+    last = tokens[e].end;
+    held++;
+    k = e;
+  }
+  return { text: out + raw.slice(last), held };
 }
 
 /**

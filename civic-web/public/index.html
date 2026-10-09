@@ -289,26 +289,31 @@
       <span class="card-model mono"></span>
       <span class="card-cost mono" hidden></span>
       <button type="button" class="btn btn-small btn-text btn-copy"></button>
-      <button type="button" class="btn btn-small btn-outline btn-challenge"></button>
       <button type="button" class="btn btn-small btn-text btn-retry" hidden></button>
     </footer>
-    <form class="challenge" hidden>
-      <h3 class="challenge-title"></h3>
-      <p class="challenge-lede"></p>
-      <textarea class="challenge-text input" rows="4"></textarea>
-      <div class="challenge-files">
-        <label class="btn btn-outline btn-small file-btn">
-          <span class="challenge-attach-label"></span>
-          <input type="file" class="challenge-file" multiple accept=".pdf,.png,.jpg,.jpeg,.webp,.gif,.txt,.md,.docx,.csv,.json,.html,.srt,.vtt" hidden>
-        </label>
-        <span class="hint challenge-count"></span>
-        <ul class="challenge-list"></ul>
-      </div>
-      <div class="actions">
-        <button type="submit" class="btn btn-primary btn-small challenge-submit"></button>
-        <button type="button" class="btn btn-text btn-small challenge-cancel"></button>
-      </div>
-    </form>
+    <!-- The conversation with this result's inspector: questions, evidence, challenges. Its replies arrive whole. -->
+    <section class="chat" hidden>
+      <h3 class="chat-head"></h3>
+      <p class="chat-lede"></p>
+      <ol class="chat-thread"></ol>
+      <p class="chat-status hint" hidden></p>
+      <p class="chat-note" hidden></p>
+      <form class="chat-form">
+        <textarea class="chat-text input" rows="3"></textarea>
+        <div class="chat-files">
+          <label class="btn btn-outline btn-small file-btn">
+            <span class="chat-attach-label"></span>
+            <input type="file" class="chat-file" multiple accept=".pdf,.png,.jpg,.jpeg,.webp,.gif,.txt,.md,.docx,.csv,.json,.html,.srt,.vtt" hidden>
+          </label>
+          <span class="hint chat-count"></span>
+          <ul class="chat-list"></ul>
+        </div>
+        <div class="actions">
+          <button type="submit" class="btn btn-primary btn-small chat-send"></button>
+          <span class="hint chat-left"></span>
+        </div>
+      </form>
+    </section>
   </article>
 </template>
 

@@ -66,18 +66,22 @@ function sse(res) {
   return (event) => res.write(`event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`);
 }
 
+// A message's content is a list of parts, or (an earlier answer sent back in a conversation) a string.
+const partsText = (content) => (typeof content === 'string' ? content : (content || []).map((c) => c.text || '').join('\n'));
 function inputText(body) {
   const input = body.input;
   if (typeof input === 'string') return input;
-  return (input || []).flatMap((m) => (m.content || []).map((c) => c.text || '')).join('\n');
+  return (input || []).map((m) => partsText(m.content)).join('\n');
 }
 /** The last message: the prompt, when a source travels ahead of it. */
 function lastText(body) {
   const input = body.input;
   if (typeof input === 'string') return input;
   const last = (input || [])[(input || []).length - 1];
-  return ((last && last.content) || []).map((c) => c.text || '').join('\n');
+  return partsText(last && last.content);
 }
+/** A conversation's reply (server/chat.js): the input carries an earlier answer of the model's. */
+const isConversation = (body) => Array.isArray(body.input) && body.input.some((m) => m.role === 'assistant');
 
 // Reading a model's description, which is what the self-check uses to prove a key may use a model.
 // It costs no tokens, so the mock answers it the same way the real API does.
@@ -96,9 +100,10 @@ app.post('/v1/responses', async (req, res) => {
   // (MOCK_EVAL_MARK, derived at run time from whatever evaluation prompt is installed, never
   // written down here); by hand, a message that opens "Prompt =" is taken to be one.
   const prompt = lastText(body);
-  const isEvaluation = process.env.MOCK_EVAL_MARK ? prompt.includes(process.env.MOCK_EVAL_MARK) : /^\s*Prompt\s*=/.test(prompt);
-  const isArtDirection = /art director/i.test(String(body.instructions || ''));
-  const kind = isEvaluation ? 'determination' : isArtDirection ? 'art' : 'extraction';
+  const isChat = isConversation(body);
+  const isEvaluation = !isChat && (process.env.MOCK_EVAL_MARK ? prompt.includes(process.env.MOCK_EVAL_MARK) : /^\s*Prompt\s*=/.test(prompt));
+  const isArtDirection = !isChat && /art director/i.test(String(body.instructions || ''));
+  const kind = isChat ? 'conversation' : isEvaluation ? 'determination' : isArtDirection ? 'art' : 'extraction';
   // The limiter decides first, as the real one does; a refusal carries its figures and its headers.
   const entry = admitOrRefuse(res, body.model, kind, LIMIT.has(ordinal));
   if (!entry) return;
@@ -140,8 +145,10 @@ app.post('/v1/responses', async (req, res) => {
   send({ type: 'response.created', response: { id, status: 'in_progress' } });
 
   let output;
-  if (isEvaluation) {
-    const claim = prompt.split('\n')[0].replace(/^\s*Prompt\s*=\s*/, '').trim();
+  let reply = null;   // a conversation's: what the stand-in found in the request (server/chat.js)
+  if (isEvaluation || isChat) {
+    if (isChat) reply = mockReply(body);
+    const claim = isChat ? reply.asked : prompt.split('\n')[0].replace(/^\s*Prompt\s*=\s*/, '').trim();
 
     if (body.reasoning?.summary) {
       for (const part of MOCK_REASONING) {
@@ -157,7 +164,8 @@ app.post('/v1/responses', async (req, res) => {
     }
 
     if (body.tools?.some((t) => t.type === 'web_search')) {
-      const queries = pickQueries(claim);
+      // MOCK_CHAT_QUERY_NAME=1: a conversation's reply searches under its inspector's name, as a model may.
+      const queries = [...pickQueries(claim), ...(isChat && reply.name && process.env.MOCK_CHAT_QUERY_NAME === '1' ? [`${reply.name} on the record`] : [])];
       for (let k = 0; k < queries.length; k++) {
         send({ type: 'response.web_search_call.in_progress', item_id: `ws_${k}` });
         send({ type: 'response.web_search_call.searching', item_id: `ws_${k}` });
@@ -191,9 +199,9 @@ app.post('/v1/responses', async (req, res) => {
       }
       TOKENS.level -= need;
     }
-    const hold = Number(process.env.MOCK_EVAL_HOLD_MS || 0);
+    const hold = Number(process.env[isChat ? 'MOCK_CHAT_HOLD_MS' : 'MOCK_EVAL_HOLD_MS'] || 0);
     if (hold) await sleep(hold);
-    output = mockEntry(claim);
+    output = isChat ? reply.text : mockEntry(claim);
   } else {
     // Extraction at a high reasoning effort is a long silence followed by a burst of text. The real
     // API behaves that way and the page has to stay alive through it, so the stand-in can too:
@@ -221,6 +229,16 @@ app.post('/v1/responses', async (req, res) => {
     output = mockClaims(body.instructions || cut < 0 ? text : text.slice(cut + 2).replace(/^[^\n]*:[ \t]*\n/, ''));
   }
 
+  // An answer comes as message items, each with its phase (OpenAI's newer models label a preamble `commentary` and the
+  // answer `final_answer`, and ask for the phase to be sent back on replay). MOCK_COMMENTARY=1: a short preamble first.
+  const answering = isEvaluation || isChat;
+  const preamble = answering && process.env.MOCK_COMMENTARY === '1' ? 'Stand-in preamble: looking at the record first. ' : '';
+  if (preamble) {
+    send({ type: 'response.output_item.added', output_index: 30, item: { id: 'msg_0', type: 'message', role: 'assistant', status: 'in_progress', content: [], phase: 'commentary' } });
+    send({ type: 'response.output_text.delta', item_id: 'msg_0', delta: preamble });
+    send({ type: 'response.output_item.done', output_index: 30, item: { id: 'msg_0', type: 'message', role: 'assistant', status: 'completed', content: [{ type: 'output_text', text: preamble, annotations: [] }], phase: 'commentary' } });
+  }
+  if (answering) send({ type: 'response.output_item.added', output_index: 31, item: { id: 'msg_1', type: 'message', role: 'assistant', status: 'in_progress', content: [], phase: 'final_answer' } });
   const chunks = output.match(/[\s\S]{1,28}/g) || [];
   for (const [k, delta] of chunks.entries()) {
     if (res.writableEnded || res.destroyed) return;
@@ -228,24 +246,27 @@ app.post('/v1/responses', async (req, res) => {
     send({ type: 'response.output_text.delta', delta });
     await sleep(isEvaluation ? 18 : 25);
   }
-  if (isEvaluation && body.tools?.some((t) => t.type === 'web_search')) {
-    for (const src of MOCK_SOURCES) {
+  if (answering && body.tools?.some((t) => t.type === 'web_search')) {
+    // MOCK_CHAT_SOURCE_NAME=1: a reply cites a page that names its inspector (the web's words, counted, never changed).
+    const cited = [...MOCK_SOURCES, ...(isChat && reply.name && process.env.MOCK_CHAT_SOURCE_NAME === '1' ? [{ url: `https://example.org/people/${encodeURIComponent(reply.name.replace(/\s+/g, '_'))}`, title: `${reply.name} (mock source)` }] : [])];
+    for (const src of cited) {
       send({ type: 'response.output_text.annotation.added', item_id: 'msg_1', output_index: 0, content_index: 0, annotation_index: 0, annotation: { type: 'url_citation', url: src.url, title: src.title, start_index: 0, end_index: 0 } });
     }
   }
   send({ type: 'response.output_text.done', text: output });
+  if (answering) send({ type: 'response.output_item.done', output_index: 31, item: { id: 'msg_1', type: 'message', role: 'assistant', status: 'completed', content: [{ type: 'output_text', text: output, annotations: [] }], phase: 'final_answer' } });
   send({
     type: 'response.completed',
     response: {
       id,
       status: 'completed',
       model: body.model,
-      output_text: output,
+      output_text: preamble + output,
       usage: {
         input_tokens: Math.round(text.length / 4),
         input_tokens_details: { cached_tokens: 0 },
-        output_tokens: Math.round(output.length / 4) + (isEvaluation ? 6000 : 0),
-        output_tokens_details: { reasoning_tokens: isEvaluation ? 6000 : 0 },
+        output_tokens: Math.round((preamble + output).length / 4) + (answering ? 6000 : 0),
+        output_tokens_details: { reasoning_tokens: answering ? 6000 : 0 },
         total_tokens: 0,
       },
     },
@@ -624,12 +645,33 @@ function mockClaims(source) {
   ].join('\n')).join('\n');
 }
 
-const INSPECTORS = ['Karl Popper', 'Richard Feynman', 'Florence Nightingale', 'Ibn al-Haytham', 'Marie Curie', 'John Snow', 'Ronald Fisher', 'Galileo Galilei', 'Barbara McClintock', 'Charles Sanders Peirce'];
+const INSPECTORS = ['Orin Vale', 'Tessa Marlowe', 'Edwin Cardale', 'Lena Sorvik', 'Halvard Brecke', 'Mira Okafor-Hale', 'Jonas Wren', 'Ilse Varga', 'Tomas Ferrand', 'Ruth Abernathy-Cole'];   // invented: the stand-in names no real person
+
+/**
+ * A conversation's reply (server/chat.js), invented for development: which turn it is (the reader's messages since the
+ * first answer), the first line of what was asked, how much evidence came with it, and the inspector the first answer
+ * named. Knobs: MOCK_CHAT_SAY_NAME=1 has the reply say its inspector's name (a slip the server counts);
+ * MOCK_CHAT_ECHO_INSTRUCTIONS=1 has it repeat the start of its instructions (held back by the server).
+ */
+function mockReply(body) {
+  const input = body.input || [];
+  const first = input.findIndex((m) => m.role === 'assistant');
+  const turn = input.slice(first).filter((m) => m.role === 'user').length;
+  const last = input[input.length - 1] || {};
+  const asked = partsText(Array.isArray(last.content) ? last.content.slice(0, 1) : last.content).split('\n').map((l) => l.trim()).find(Boolean) || '';
+  const evidence = Array.isArray(last.content) ? last.content.slice(1).filter((c) => c.type === 'input_image' || /^\[Attached document: /.test(c.text || '')).length : 0;
+  const name = input.filter((m) => m.role === 'assistant').map((m) => (partsText(m.content).match(/\*\*Name\*\*:\s*([^\n]+)/) || [])[1]?.trim()).find(Boolean) || null;
+  const words = [`Reply ${turn} of the stand-in inspector, to: "${asked.slice(0, 140)}".`, evidence ? `It was given ${evidence} item${evidence === 1 ? '' : 's'} of evidence.` : '',
+    'It kept the earlier answer as context and found nothing in the record that changes it.'];
+  if (process.env.MOCK_CHAT_SAY_NAME === '1' && name) words.push(`Spoken as ${name}.`);
+  if (process.env.MOCK_CHAT_ECHO_INSTRUCTIONS === '1' && body.instructions) words.push(`It was told: ${String(body.instructions).split(/\s+/).slice(0, 16).join(' ')}`);
+  return { text: words.filter(Boolean).join(' '), turn, asked, name };
+}
 
 function mockEntry(claim) {
   const roll = Math.random();
   const verdict = roll < 0.45 ? 'True' : roll < 0.75 ? 'False' : 'Uncertain';
-  const who = INSPECTORS[Math.floor(Math.random() * INSPECTORS.length)];
+  const who = process.env.MOCK_INSPECTOR || INSPECTORS[Math.floor(Math.random() * INSPECTORS.length)];
   const conf = verdict === 'Uncertain' ? 35 + Math.floor(Math.random() * 25) : 78 + Math.floor(Math.random() * 20);
   // Invented filler for development only. It deliberately does NOT follow the operator's output
   // format: no part of the real prompt, including its section names, exists in this repository.

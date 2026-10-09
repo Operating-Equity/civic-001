@@ -666,10 +666,12 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
   $10 as a temporary number".
   - Their answers: the list price is $1.25; 0, 1 or 2 free per document stays (the rotation without tier 4); one line
     only, with the balance kept in the menu bar.
-  - The key's limit: their screenshot of OpenAI's Limits page (it reached the session on 7 October; the badge reads
-    Grow, the table is set to Launch) gives gpt-5.6-sol 4,000,000 tokens and 10,000 requests a minute. On 3 October
-    the key's own replies reported 40,000,000 and 15,000. The gate always paces by the figures OpenAI returns, and
-    /check shows them with the count they allow.
+  - The key's limit: their screenshot of OpenAI's Limits page (it reached the session on 7 October) shows Launch
+    mode's specs, which the operator has not turned on ("I have not turned on launch mode. I am giving you specs."):
+    gpt-5.6-sol at 4,000,000 tokens and 10,000 requests a minute. The organization's current mode reads Grow. On 3
+    October the key's own replies reported 40,000,000 and 15,000, which does not fit Launch being the higher mode, so
+    the key on the service may belong to another OpenAI organization than the one in the screenshot (Vivid Labs). The
+    gate always paces by the figures OpenAI returns, and /check shows them with the count they allow.
   - Built: `CIVIC_LIST_PRICE_CENTS` prices every window (`server/economics.js`); a window row at another price is
     rewritten the first time it is asked, and a document listed before keeps its own. The measured average is kept
     for /check's coverage figure and never sets the price. `CIVIC_PRICE_START_CENTS` and `CIVIC_PRICE_MIN_SAMPLE` are
@@ -683,6 +685,51 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
     host's log, for the operator.
   - Settings written before the merge: `CIVIC_LIST_PRICE_CENTS=125`, `CIVIC_TIER_ORDER=1,2,3`. The pace per reader
     (`CIVIC_EVAL_CONCURRENCY` 10) is unchanged.
+  - **Live:** PR #69 squash d1d64f2, deploy dep-db37m8h5efls73c4nc7g at 17:03 UTC on 7 October, build a2f7f816a43b.
+    - The guard passed 331/331 three times: with the real prompts on Postgres, and in both CI shapes. CI was green in
+      both shapes, and the browser check passed 15/15 on a desktop and a phone.
+    - The health line read 125 cents at once, tier 3 (two free); the 49-cent window took the list price on its first
+      asking.
+    - Live proof 6/6 (`scratchpad/live-price.mjs`): the served page carries the one line and no row price. A check
+      account's three-sentence document was told 125 cents with two free, its balance stayed $10.00, and it deleted
+      itself.
+    - The boot lines: "the list price is 125 cents a fact-check · the rotation 1,2,3 · no longer read:
+      CIVIC_PRICE_START_CENTS", and "[capacity] last 7 days: 6 fact-checks, on average 509,305 tokens over 3.86 min
+      (132,075 a minute each)".
+    - So with Launch mode on (4,000,000 tokens a minute for gpt-5.6-sol), about 30 fact-checks run at once: three
+      readers at ten each. Beyond that a fact-check waits its turn at the gate; it never fails. Launch's 10,000 requests
+      a minute do not bind: 30 at once make about 8 requests a minute. Today's count, with Launch off, is the key's own
+      figure divided by the same 132,075; /check shows both after the next fact-check.
+- **7 and 8 October, the conversation with the inspector, in place of the challenge.** The operator, 7 October: "My
+  goal is to change challenge to chat", from a guide of their own (its text stays theirs and is in no file here):
+  the fact-check stays turn 1, unchanged, and every later reply carries their continuation text, the whole
+  conversation word for word, and the current question once. On 8 October: in the conversation the inspector is
+  called by the first letter of its first name ("Inspector A") and never by its name, the same inspector throughout;
+  "The reasoning will not be remembered unless you prompt it identically for every response"; "up to 4" questions;
+  "highly experimental … if it doesn't perform as well as the initial outputs in terms of reasoning and stability, I
+  will not launch it until it's perfected"; and the prompt-extraction danger as "one of my significant concerns".
+  - Their answers (AskUserQuestion, 8 October): a reply reaches the page whole, after the server's screen; in the
+    trial a reply that says the name is shown as written and counted; the model's private thinking is not carried
+    from one reply to the next (the guide's §9: each reply thinks afresh under the same instructions over the
+    visible record); the letter is the first after a title ("Dr. Orin Vale" is O).
+  - What "no reasoning items are replayed" means, as told to the operator: OpenAI's model thinks privately before each
+    answer, and the API can hand that thinking back sealed so a later request carries it; the guide does not use it.
+    The prompt's reasoning structure is another thing: it is in the chat prompt's instructions, sent whole and
+    identically on every reply.
+  - Built (`server/chat.js`, `seal.js`, `screen.js`, `respond.js`; migration `003-chat.sql`): the chat prompt as a
+    third vault prompt (`chat`, three slots, split at its `{{QUESTION}}` line); the name parser widened to every form
+    of the entry's Name line; the fact-check's `done` carrying the letter, the answer's messages with their phases
+    and a seal; each reply a job (`<fact-check>.c<turn>`) through the gate as a determination, its request built from
+    the seal; the reply screened (any five words of a prompt held back, the name counted) and delivered whole; a
+    reply a `determinations` row of kind `chat`, never free, priced at nothing on the trial, measured by turn on
+    /check; the challenge's code, route, button, keys and template removed. Found on the way and fixed: a delivered
+    fact-check's free second go now requires the same claim (a fingerprint on the row).
+  - Settings: `CIVIC_CHAT=operator` (the operator's account alone), `CIVIC_CHAT_MAX_TURNS` 4, `CIVIC_CHAT_TITLES`
+    Dr,Prof,Sir,Mr,Mrs,Ms,Lord,Lady,St; the prompt as the Render secret file `chat.txt` at
+    `CIVIC_PROMPT_CHAT_FILE=/etc/secrets/chat.txt`, uploaded when the operator sends it. Until then /check says the
+    chat prompt is not installed and no result offers a conversation.
+  - Retired: `CIVIC_CHALLENGE_ENABLED` and `CIVIC_PROMPT_CHALLENGE(_FILE)`, read by nothing; /check names them while
+    set.
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 

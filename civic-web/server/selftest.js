@@ -24,6 +24,7 @@ import { registry } from './tools/index.js';
 import { toolsOn, gatewayOn } from './tools/request.js';
 import { openDoor, doorsOpen } from './tools/doors.js';
 import { listPrice, retiredSettings } from './economics.js';
+import { chatChecks, chatMode } from './chat.js';
 
 const ok = (title, detail = '') => ({ state: 'ok', title, detail });
 const bad = (title, detail = '', fix = '') => ({ state: 'bad', title, detail, fix });
@@ -224,9 +225,9 @@ export async function selftest({ apiKey, build, operator = true }) {
     else checks.push(bad(`The ${label} prompt is missing`, 'Without it, nothing can be tested.',
       `Point CIVIC_PROMPT_${name.toUpperCase()}_FILE at the prompt file, or place it at server/prompts/${name}.txt.`));
   }
-  if (!prompts.challenge) {
-    checks.push(warn('The challenge prompt is not installed', 'Challenges are collected but not sent, as intended until that prompt is certified.'));
-  }
+  // The conversation under each result (server/chat.js): whether it is open, the chat prompt, the limit, and any setting
+  // of the challenge it replaced still on the service.
+  checks.push(...chatChecks());
 
   if (config.key?.conflict) {
     const at = whereTheShellSetsIt();
@@ -293,6 +294,7 @@ export async function selftest({ apiKey, build, operator = true }) {
       effort: config.evalEffort,
       webSearch: true,
       claimsPerRun: config.maxClaims,
+      chat: chatMode() === 'off' ? 'off' : `open to the operator's account, at most ${config.chatMaxTurns} question${config.chatMaxTurns === 1 ? '' : 's'} to a result`,
       keySource: config.serverKey ? config.key.source : 'the browser',
       prompts: Object.entries(versions).map(([n, v]) => `${n} ${v.version}`).join(', '),
     },
