@@ -742,6 +742,17 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
       conversation (`chat_closed`), found /api/challenge gone, kept its $10.00, and deleted itself.
     - Next, the operator's: their chat prompt, uploaded as the secret file `chat.txt`. Until then no result offers a
       conversation.
+  - **The chat prompt is installed** (9 October). The operator asked for a starting point and was given a draft in the
+    session's own words, built on their rules of 8 October. It points the inspector at the fact-check prompt, which
+    every reply already carries word for word, rather than copying that prompt.
+    - The operator saved it in Render's Secret Files as `chat.txt`, and the service restarted at 23:37 UTC. A deploy
+      at 23:42 (dep-db4nnm9srm7s73ap6820, build 5047e1767734) read it again.
+    - Checked through Render's API by counts alone: 2,674 characters, version 1b681213, `{{QUESTION}}` once,
+      `{{INSPECTOR}}` once, `{{LETTER}}` three times, and no other braces. None of its 314 runs of five words is in a
+      committed file.
+    - Both boot lines read "chat 1b681213 (2674 chars) · conversations open to the operator (at most 4 questions)".
+    - The operator's first conversation is the live proof of the request's shape; /check reports it by turn and by
+      chat prompt version.
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 
