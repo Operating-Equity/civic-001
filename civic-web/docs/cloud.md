@@ -730,6 +730,18 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
     chat prompt is not installed and no result offers a conversation.
   - Retired: `CIVIC_CHALLENGE_ENABLED` and `CIVIC_PROMPT_CHALLENGE(_FILE)`, read by nothing; /check names them while
     set.
+  - **Live:** PR #70 squash a40b2e6, deploy dep-db4mjg3ncjis73a2dmjg at 22:25 UTC on 9 October, build 5047e1767734.
+    - The guard passed 356/356 in all three shapes (the real prompts on Postgres, both CI stand-ins), CI was green in
+      both, and the browser check passed 9/9 on a desktop and a phone.
+    - Written before the merge: `CIVIC_CHAT=operator`, `CIVIC_PROMPT_CHAT_FILE=/etc/secrets/chat.txt`.
+    - The boot line: "prompts installed: extract fad6cbae · evaluate c52121a0 · chat not installed · conversations
+      open to the operator (at most 4 questions)". The seal's key was read from Postgres at boot, so migration 003 is
+      applied (the key's table is the migration's).
+    - Live proof 8/8 (`scratchpad/chat/live-chat.mjs`): the health line's `chat` key; the served page with the
+      conversation and no challenge; "Inspector {letter}" in English and German. A check account was refused a
+      conversation (`chat_closed`), found /api/challenge gone, kept its $10.00, and deleted itself.
+    - Next, the operator's: their chat prompt, uploaded as the secret file `chat.txt`. Until then no result offers a
+      conversation.
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 
