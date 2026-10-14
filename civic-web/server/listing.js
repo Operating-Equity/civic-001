@@ -1,7 +1,7 @@
 // The listing's provider (step 1): OpenAI, as the determinations; DeepSeek's own service (server/deepseek.js, the
 // operator's choice of 4 October); or Fireworks, the same model served from the US (server/fireworks.js, 5 October).
 // One setting chooses, CIVIC_EXTRACT_PROVIDER; extract.js, index.js and selftest.js ask here, and each provider's
-// own rules live in its own file. Determinations are always OpenAI's.
+// own rules live in its own file. The readers' determinations are OpenAI's; the operator's trial is server/trial.js.
 import { config } from './config.js';
 import { ApiError, operatorKey, clientFor } from './openai.js';
 import { openaiHost } from './providers.js';

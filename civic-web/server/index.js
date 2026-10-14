@@ -21,6 +21,8 @@ import { findCopies, searchOn } from './copies.js';
 import { sourceMeta, sourceBlock } from './source.js';
 import { runExtraction } from './extract.js';
 import { runEvaluation } from './evaluate.js';
+import { trialOf, trialState } from './trial.js';
+import * as deepseekProvider from './deepseek.js';
 import { runIllustration } from './illustrate.js';
 import { selftest } from './selftest.js';
 import { whereTheShellSetsIt } from './key.js';
@@ -149,6 +151,8 @@ app.get('/api/health', wrap(async (req, res) => {
     },
     accounting: config.accounting && (!signinRequired() || isOperator(session)),   // FactEngine's own costs: the operator's alone
     pricing,
+    // The operator's trial (server/trial.js): the models they may choose on the page, and whether it can run. Nobody else's.
+    trial: !signinRequired() || isOperator(session) ? trialState() : null,
   });
 }));
 
@@ -299,7 +303,10 @@ app.post('/api/evaluate', wrap(async (req, res) => {
   const known = jobs.get(id, owner);
   if (known) { known.attach(openStream(req, res), req.body?.cursor); return; }
 
-  const apiKey = operatorKey();
+  // The operator's trial (server/trial.js): a model of their choosing, on their own runs alone. Anyone else's choice of
+  // model is ignored, and their request is the readers' determination, as always.
+  const trial = trialOf(req.body, { operator: !signinRequired() || isOperator(req.account) });
+  const apiKey = trial?.provider === 'deepseek' ? deepseekProvider.key() : operatorKey();
   if (!hasPrompt('evaluate')) throw new ApiError(503, 'prompt_missing', 'The evaluation prompt is not installed on this server.');
   const claims = Array.isArray(req.body?.claims) ? req.body.claims.map((c) => String(c || '').trim()).filter(Boolean) : [];
   if (!claims.length) throw new ApiError(400, 'no_claims', 'No claims to test.');
@@ -334,6 +341,7 @@ app.post('/api/evaluate', wrap(async (req, res) => {
         id: detIds[i], runId, n: claims.length === 1 ? n : null, chars: claims[i].length,
         userId: user?.id ?? null, owner, limitCents: user?.monthlyLimitCents ?? null, requireRun: signinRequired(),
         fingerprint: fingerprintOf(claims[i]),   // a delivered claim's free second go is for the same claim, never another
+        trial: Boolean(trial),                    // the operator's trial: never charged, never in the readers' measurements
       }).catch((err) => {
         if (err?.expected) throw err;   // a refusal the reader must see: the credit, the limit, a run that is not theirs
         console.error('[economics] the determination could not be recorded:', err.message);
@@ -367,7 +375,7 @@ app.post('/api/evaluate', wrap(async (req, res) => {
       else if (ev.t === 'error' && ev.i !== undefined) economics.book(detIds[ev.i], { attempt: q?.attempt ?? null, status: 'failed', failure: ev.code || 'error' });
     };
     try {
-      await runEvaluation({ apiKey, claims, document, send: sendAndBook, signal, ctx });
+      await runEvaluation({ apiKey, claims, document, send: sendAndBook, signal, ctx, trial });
     } catch (err) {
       const safe = describeError(err);
       send({ t: 'error', code: safe.code, message: safe.message, status: safe.status });

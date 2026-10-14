@@ -708,6 +708,27 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
   - **Live** (14 October, 15:29 UTC): PR #71 squash 5115c4c, build 1544499c304c; live proof 6/6. The boot lines read
     "prompts installed: extract fad6cbae · evaluate c52121a0" and "[capacity] last 7 days: 9 fact-checks, on average
     101,680 tokens over 2.62 min".
+- **14 October, the operator's trial on DeepSeek.** The operator, rejecting a plan of measurement and caching: "I think
+  the best experiment is to use the new DeepSeek deep reasoning model through the already connected API. … Before
+  optimizing caching on OpenAI, I would rather use DeepSeek's newest model, built for the second and most important
+  stage." Also: 63 claims from a short Reuters article, about five of which matter ("The idea is to catch important
+  lies, not prove people know their own names"), a summary beside the picture, and more specifics to follow.
+  - **DeepSeek's API today** (its pages, read through search): `deepseek-flash` (V4.1 Flash, 10 September) and
+    `deepseek-v4-pro` (V4 Pro, general release 13 August); V4.1 Pro named, not released in early October. V4 Pro
+    writes at about 35 tokens a second on DeepSeek's own service (DeepInfra's measurement), a sixth of Flash.
+  - **DeepSeek does not search.** Its Responses API guide lists `web_search`, `mcp` and every other built-in tool as
+    "Ignored", silently. I wrote on 4 October that it searched on its own side; that was wrong. The listing sent
+    `web_search` from 5 to 14 October and never searched; it now sends none.
+  - **The trial** (the operator's page alone): the model and effort chosen above the claims, side by side with the
+    readers' model if wanted. The model searches and reads through FactEngine's own tools, offered as functions, round
+    after round; its reasoning goes back to DeepSeek each round, as DeepSeek requires, and nowhere else. Never charged,
+    kept out of the readers' figures, summed on /check per model. Readers' fact-checks stay on OpenAI, so their texts
+    stay true.
+  - **Fixed on the way, for every determination:** a reply that stops before its last event is a cut, taken up again,
+    never delivered or charged; an error event mid-reply is a wait or a retry; a claim taken up again shows only the
+    delivered go's searches and sources, and its cost counts every search made.
+  - **Waiting for the operator:** the summary window and the cut to the claims that carry the document (their prompts
+    and specifics); whether DeepSeek confirmed the opt-out request drafted on 4 October.
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 

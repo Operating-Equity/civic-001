@@ -6,7 +6,7 @@
 // check reads the model's description rather than running it, so no tokens are consumed.
 import fs from 'node:fs';
 import path from 'node:path';
-import { config } from './config.js';
+import { config, requestShape } from './config.js';
 import { dbOn } from './db.js';
 import { promptStatus, promptVersions, extractionShape } from './prompts.js';
 import { clientFor, describeError } from './openai.js';
@@ -24,6 +24,8 @@ import { registry } from './tools/index.js';
 import { toolsOn, gatewayOn } from './tools/request.js';
 import { openDoor, doorsOpen } from './tools/doors.js';
 import { listPrice, retiredSettings } from './economics.js';
+import * as deepseek from './deepseek.js';
+import { trialReady, isDeepSeekModel, modelLabel } from './trial.js';
 
 const ok = (title, detail = '') => ({ state: 'ok', title, detail });
 const bad = (title, detail = '', fix = '') => ({ state: 'bad', title, detail, fix });
@@ -169,6 +171,35 @@ async function checkListing({ operator }) {
 }
 
 /**
+ * The operator's trial (server/trial.js): whether their determinations on DeepSeek can run, and whether DeepSeek lists the
+ * trial's models (GET /models: no tokens). Never "bad": the trial is the operator's alone, and readers are unaffected.
+ */
+async function checkTrial() {
+  const checks = [];
+  if (!config.evalTrialModels.length) return checks;
+  const names = config.evalTrialModels.map(modelLabel).join(' and ');
+  const ready = trialReady();
+  if (!ready.ok) {
+    checks.push(warn('Your trial on DeepSeek cannot run', ready.why, 'Readers are unaffected: their fact-checks stay on ' + modelLabel(config.evalModels[0]) + '.'));
+    return checks;
+  }
+  checks.push(ok('Your trial on DeepSeek can run', `${names}, chosen on the page beside ${modelLabel(config.evalModels[0])}, for your account alone. DeepSeek has no web search of its own, so the model searches and reads through FactEngine's own tools.`));
+  const ids = config.evalTrialModels.filter(isDeepSeekModel);
+  if (!ids.length) return checks;
+  try {
+    const page = await deepseek.client(deepseek.key()).models.list();
+    const listed = new Set((page?.data || []).map((m) => m.id));
+    const missing = ids.filter((id) => !listed.has(id));
+    if (missing.length) checks.push(warn(`DeepSeek does not list ${missing.join(' or ')}`, `It lists ${[...listed].join(', ') || 'no model'}.`, 'Set CIVIC_EVAL_TRIAL_MODELS to models DeepSeek lists.'));
+    else checks.push(ok(`DeepSeek lists ${ids.join(' and ')}`, 'No tokens were used.'));
+  } catch (err) {
+    const safe = deepseek.failure(err);
+    checks.push(warn('DeepSeek could not be asked for its models', safe.detail || safe.message));
+  }
+  return checks;
+}
+
+/**
  * The listing on Fireworks searches through FactEngine's tool server: Fireworks' servers call it at the address the
  * listing's request gives, through a door opened for that listing alone (tools/doors.js). Asked here as they ask it: a
  * door is opened for this check, the tool server is asked for its tools at its public address through that door, and
@@ -236,6 +267,7 @@ export async function selftest({ apiKey, build, operator = true }) {
 
   checks.push(...await checkKeyAndModel(apiKey));
   checks.push(...await checkListing({ operator }));
+  if (operator) checks.push(...await checkTrial());
 
   if (config.accounting && config.ledgerFile) {
     try {
@@ -288,6 +320,8 @@ export async function selftest({ apiKey, build, operator = true }) {
       listingEffort: config.extractEffort,
       model: config.evalModels[0],
       effort: config.evalEffort,
+      trialModels: config.evalTrialModels.join(', ') || 'off',
+      listingWebSearch: requestShape().extract.webSearch,   // the listing on DeepSeek does not search: DeepSeek ignores web search
       webSearch: true,
       claimsPerRun: config.maxClaims,
       keySource: config.serverKey ? config.key.source : 'the browser',

@@ -241,6 +241,23 @@ export function streamFailure(event, fallback) {
 }
 
 /**
+ * An `error` event in the middle of a stream reaches a caller from the SDK as an error with no status. It is read as
+ * the stream's own failure (streamFailure), so a rate limit there is a wait and an overload a retry, as at the door.
+ * Anything else passes as it is.
+ */
+export function asStreamFailure(err, fallback) {
+  if (err?.status !== undefined || !err?.error || isConnectionDrop(err)) return err;
+  const e = err.error?.error || err.error || {};
+  return streamFailure({ type: 'response.failed', response: { error: { message: e.message || err.message, code: e.code || e.type || null } } }, fallback);
+}
+
+/** The wait before the next go when nobody named one: until CONNECTION_RETRY_MS after this go began, never at once. */
+export const spacedWaitMs = (attemptAt, now = Date.now()) => Math.max(0, CONNECTION_RETRY_MS - (now - attemptAt));
+
+/** A reply that stopped without its last event (completed, incomplete or failed) was cut, however politely. */
+export const cutReply = () => new Error('terminated: the reply ended before its last event');
+
+/**
  * Sends one request through the gate for its model: waits until the key's minute holds it, sends
  * it, gives the gate the reply's headers, and hands back the reply. `data` is the Stream for a
  * streaming request, the response object otherwise. The caller must call `release()` when the

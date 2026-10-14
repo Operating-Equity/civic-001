@@ -225,6 +225,8 @@ app.post('/v1/responses', async (req, res) => {
   for (const [k, delta] of chunks.entries()) {
     if (res.writableEnded || res.destroyed) return;
     if (k === 3 && DROP.has(ordinal)) { res.socket.destroy(); return; }   // see MOCK_DROP_REQUESTS
+    if (k === 3 && END_EARLY.has(ordinal)) { res.end(); return; }          // see MOCK_END_EARLY_REQUESTS
+    if (k === 3 && ERROR_EVENT.has(ordinal)) { res.write(`event: error\ndata: ${JSON.stringify({ type: 'error', error: { message: 'The server is overloaded.', code: 'server_error' } })}\n\n`); res.end(); return; }
     send({ type: 'response.output_text.delta', delta });
     await sleep(isEvaluation ? 18 : 25);
   }
@@ -332,17 +334,23 @@ async function playMcp(mcp, send, calls, { style = 'openai' } = {}) {
 // The listing on DeepSeek (server/deepseek.js) talks to this when CIVIC_DEEPSEEK_BASE_URL points here
 // (http://localhost:<port>/deepseek). It speaks DeepSeek's dialect of the Responses API as its pages describe it:
 // a chain of thought streamed as reasoning_text (carrying a marker the guard looks for wherever it must not be),
-// no reasoning summary, web search run on its own side, usage in OpenAI's shape, no x-ratelimit headers, and its
-// own refusals: 429 with no wait figure, 503 overloaded, 402 balance used up; keep-alive comments while queued,
-// a stream closed with no event at all (what DeepSeek does to a request not started inside ten minutes), and an
-// `error` event in the middle of a stream. Each knob lists the request ordinals it applies to (1-based).
+// no reasoning summary, built-in tools (web search among them) ignored, usage in OpenAI's shape, no x-ratelimit
+// headers, and its own refusals: 429 with no wait figure, 503 overloaded, 402 balance used up; keep-alive comments
+// while queued, a stream closed with no event at all (what DeepSeek does to a request not started inside ten minutes),
+// and an `error` event in the middle of a stream. Each knob lists the request ordinals it applies to (1-based).
+//
+// The operator's trial (server/evaluate.js) determines here too, with FactEngine's own tools offered as functions. The
+// stand-in plays three rounds, as a model that searches, reads a page and then writes would: round 1 calls search_web;
+// round 2, with that call's answer in its input, calls read_page (MOCK_DS_READ_URL, or the first page the search
+// found); round 3 writes the entry. A round whose input carries a call without the reasoning that came with it, or
+// without the call's answer, is refused with a 400, as DeepSeek refuses it.
 const DS_MODELS = ['deepseek-flash', 'deepseek-v4-pro'];
 const DS_EFFORTS = new Set(['none', 'low', 'high', 'max', 'minimal', 'medium', 'xhigh']);
 const dsSet = (name) => new Set(String(process.env[name] || '').split(',').map(Number).filter(Boolean));
 const DS_429 = dsSet('MOCK_DS_429'), DS_503 = dsSet('MOCK_DS_503'), DS_402 = dsSet('MOCK_DS_402'), DS_CLOSE = dsSet('MOCK_DS_CLOSE'), DS_ERROR_EVENT = dsSet('MOCK_DS_ERROR_EVENT');
 const DS_KEEPALIVE_MS = Number(process.env.MOCK_DS_KEEPALIVE_MS || 0);
 const DS_COT = 'DSCOT-7f3a';   // the chain of thought's marker: never on a page, a replay, a ledger line or a failure record
-const dsStats = { requests: 0, streams: 0, inFlight: 0, maxInFlight: 0 };
+const dsStats = { requests: 0, streams: 0, inFlight: 0, maxInFlight: 0, rounds: 0, refusedRounds: 0, lastTools: null, lastToolTypes: null, lastInput: null };
 let dsOrdinal = 0;
 
 app.get('/deepseek/models', (req, res) => res.json({ object: 'list', data: DS_MODELS.map((id) => ({ id, object: 'model', owned_by: 'deepseek' })) }));
@@ -361,6 +369,25 @@ app.post('/deepseek/responses', async (req, res) => {
   if (DS_402.has(ordinal)) return res.status(402).json({ error: { message: 'Insufficient Balance', type: 'unknown_error' } });
   if (DS_429.has(ordinal)) return res.status(429).json({ error: { message: 'Rate Limit Reached', type: 'rate_limit_reached' } });
   if (DS_503.has(ordinal)) return res.status(503).json({ error: { message: 'Server Overloaded', type: 'server_overloaded' } });
+  // A determination (the operator's trial): the prompt is the last of the input's own messages; later rounds end with
+  // the calls' answers. What the guard asks of each round's input is kept in the stats, never a text.
+  const items = Array.isArray(body.input) ? body.input : [];
+  const users = items.filter((m) => m && m.role === 'user');
+  const promptText = users.length ? (users[users.length - 1].content || []).map((c) => c.text || '').join('\n') : '';
+  const isEvaluation = process.env.MOCK_EVAL_MARK ? promptText.includes(process.env.MOCK_EVAL_MARK) : /^\s*Prompt\s*=/.test(promptText);
+  if (isEvaluation) {
+    const calls = items.filter((x) => x?.type === 'function_call');
+    const answers = items.filter((x) => x?.type === 'function_call_output');
+    const reasonings = items.filter((x) => x?.type === 'reasoning');
+    dsStats.rounds++;
+    dsStats.lastTools = (body.tools || []).filter((t) => t.type === 'function').map((t) => t.name);
+    dsStats.lastToolTypes = (body.tools || []).map((t) => t.type);
+    dsStats.lastInput = { items: items.length, users: users.length, calls: calls.length, answers: answers.length, reasonings: reasonings.length, keys: Object.keys(body).sort() };
+    if (calls.length && (reasonings.length < calls.length || calls.some((c) => !answers.some((a) => a.call_id === c.call_id)))) {
+      dsStats.refusedRounds++;
+      return res.status(400).json({ error: { message: 'The reasoning_content and the tool results of earlier turns must be passed back in the input.', type: 'invalid_request_error' } });
+    }
+  }
   dsStats.streams++;
   dsStats.inFlight++;
   dsStats.maxInFlight = Math.max(dsStats.maxInFlight, dsStats.inFlight);
@@ -378,6 +405,7 @@ app.post('/deepseek/responses', async (req, res) => {
   const send = (event) => res.write(`event: ${event.type}\ndata: ${JSON.stringify({ ...event, sequence_number: seq++ })}\n\n`);
   const id = 'resp_ds_' + Math.random().toString(36).slice(2);
   send({ type: 'response.created', response: { id, object: 'response', status: 'in_progress', model: body.model } });
+  if (isEvaluation) { await dsRound({ res, body, send, id, promptText, items, ordinal }); return; }
   send({ type: 'response.output_item.added', output_index: 0, item: { type: 'reasoning', id: 'rs_1', status: 'in_progress', content: [] } });
   const thought = [`${DS_COT} reading the instructions and the document. `, 'Listing every empirical claim in order. ', `${DS_COT} done.`];
   for (const delta of thought) { send({ type: 'response.reasoning_text.delta', item_id: 'rs_1', output_index: 0, content_index: 0, delta }); await sleep(20); }
@@ -388,10 +416,7 @@ app.post('/deepseek/responses', async (req, res) => {
     res.end();
     return;
   }
-  if ((body.tools || []).some((t) => t.type === 'web_search')) {
-    send({ type: 'response.web_search_call.in_progress', output_index: 1, item_id: 'ws_1' });
-    send({ type: 'response.output_item.done', output_index: 1, item: { type: 'web_search_call', id: 'ws_1', status: 'completed', action: { type: 'search', query: 'the document\'s first claim' } } });
-  }
+  // DeepSeek ignores built-in tools, web search among them: nothing is searched, whatever the request says.
   const text = inputText(body);
   const cut = text.lastIndexOf('\n\n');
   const output = mockClaims(body.instructions || cut < 0 ? text : text.slice(cut + 2).replace(/^[^\n]*:[ \t]*\n/, ''));
@@ -412,6 +437,58 @@ app.post('/deepseek/responses', async (req, res) => {
   });
   res.end();
 });
+
+/** One round of a determination on DeepSeek (see above): a call to FactEngine's tools, or the entry. */
+async function dsRound({ res, body, send, id, promptText, items, ordinal }) {
+  const answers = items.filter((x) => x?.type === 'function_call_output');
+  const tools = new Set((body.tools || []).filter((t) => t.type === 'function').map((t) => t.name));
+  const claim = promptText.split('\n')[0].replace(/^\s*Prompt\s*=\s*/, '').trim();
+  const thought = `${DS_COT} weighing what the claim needs (round ${answers.length + 1}).`;
+  const reasoningItem = { type: 'reasoning', id: `rs_${ordinal}`, status: 'completed', content: [{ type: 'reasoning_text', text: thought }], summary: [] };
+  // The usage of a round: its input, most of it read again at the cache's price after the first.
+  const inputTokens = Math.round(JSON.stringify(items).length / 4);
+  const usage = (out) => ({ input_tokens: inputTokens, input_tokens_details: { cached_tokens: answers.length ? Math.round(inputTokens * 0.8) : 0 }, output_tokens: out + 50, output_tokens_details: { reasoning_tokens: 50 }, total_tokens: 0 });
+  // Which call this round makes, if any: a search first, then a page, then the entry.
+  let call = null;
+  if (answers.length === 0 && tools.has('search_web')) call = { name: 'search_web', args: { query: `evidence for ${claim.slice(0, 60)}` } };
+  else if (answers.length <= 1 && tools.has('read_page')) {
+    let url = process.env.MOCK_DS_READ_URL || '';
+    if (!url) { try { url = JSON.parse(answers[0]?.output || '{}').items?.[0]?.url || ''; } catch { /* no page found */ } }
+    if (url) call = { name: 'read_page', args: { url } };
+  }
+  send({ type: 'response.output_item.added', output_index: 0, item: { type: 'reasoning', id: reasoningItem.id, status: 'in_progress', content: [] } });
+  send({ type: 'response.reasoning_text.delta', item_id: reasoningItem.id, output_index: 0, content_index: 0, delta: thought });
+  send({ type: 'response.output_item.done', output_index: 0, item: reasoningItem });
+  if (DS_ERROR_EVENT.has(ordinal)) {
+    res.write(`event: error\ndata: ${JSON.stringify({ type: 'error', error: { message: 'Server Overloaded', code: 'server_overloaded' } })}\n\n`);
+    res.end();
+    return;
+  }
+  if (call) {
+    const item = { type: 'function_call', id: `fc_${ordinal}`, call_id: `call_${ordinal}`, name: call.name, arguments: JSON.stringify(call.args), status: 'completed' };
+    send({ type: 'response.output_item.added', output_index: 1, item: { ...item, arguments: '', status: 'in_progress' } });
+    send({ type: 'response.function_call_arguments.delta', item_id: item.id, output_index: 1, delta: item.arguments });
+    send({ type: 'response.function_call_arguments.done', item_id: item.id, output_index: 1, arguments: item.arguments });
+    send({ type: 'response.output_item.done', output_index: 1, item });
+    send({ type: 'response.completed', response: { id, object: 'response', status: 'completed', model: body.model, store: false, error: null, incomplete_details: null, output: [reasoningItem, item], usage: usage(40) } });
+    res.end();
+    return;
+  }
+  const hold = Number(process.env.MOCK_EVAL_HOLD_MS || 0);
+  if (hold) await sleep(hold);
+  const output = mockEntry(claim);
+  send({ type: 'response.output_item.added', output_index: 1, item: { type: 'message', id: `msg_${ordinal}`, status: 'in_progress', role: 'assistant', content: [] } });
+  for (const delta of output.match(/[\s\S]{1,28}/g) || []) {
+    if (res.writableEnded || res.destroyed) return;
+    send({ type: 'response.output_text.delta', item_id: `msg_${ordinal}`, output_index: 1, content_index: 0, delta });
+    await sleep(8);
+  }
+  const message = { type: 'message', id: `msg_${ordinal}`, status: 'completed', role: 'assistant', content: [{ type: 'output_text', text: output, annotations: [] }] };
+  send({ type: 'response.output_text.done', item_id: message.id, output_index: 1, content_index: 0, text: output });
+  send({ type: 'response.output_item.done', output_index: 1, item: message });
+  send({ type: 'response.completed', response: { id, object: 'response', status: 'completed', model: body.model, store: false, error: null, incomplete_details: null, output: [reasoningItem, message], usage: usage(Math.round(output.length / 4)) } });
+  res.end();
+}
 
 // ---- Fireworks ---------------------------------------------------------------------------
 // The listing on Fireworks (server/fireworks.js) talks to this when CIVIC_FIREWORKS_BASE_URL points here
@@ -527,6 +604,11 @@ function pickQueries(claim) {
 // MOCK_DROP_REQUESTS=2,5: those requests, counted from the first this process receives, lose their
 // connection a few chunks in, the way a real stream dies when a socket is cut.
 const DROP = new Set(String(process.env.MOCK_DROP_REQUESTS || '').split(',').map(Number).filter(Boolean));
+// MOCK_END_EARLY_REQUESTS: the reply ends politely a few chunks in, with no last event (completed, incomplete, failed):
+// a cut, however polite, which the server must take up again rather than deliver. MOCK_ERROR_EVENT_REQUESTS: the reply
+// ends a few chunks in with an `error` event of an overloaded server, which the SDK throws with no status.
+const END_EARLY = new Set(String(process.env.MOCK_END_EARLY_REQUESTS || '').split(',').map(Number).filter(Boolean));
+const ERROR_EVENT = new Set(String(process.env.MOCK_ERROR_EVENT_REQUESTS || '').split(',').map(Number).filter(Boolean));
 // MOCK_RATE_LIMIT_REQUESTS=2: before those requests the bucket is drained, as another user of the
 // key would drain it, so they are refused with the real limiter's figures and fit again 700 ms on.
 const LIMIT = new Set(String(process.env.MOCK_RATE_LIMIT_REQUESTS || '').split(',').map(Number).filter(Boolean));

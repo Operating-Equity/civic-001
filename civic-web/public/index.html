@@ -215,6 +215,14 @@
             <button type="button" class="btn btn-primary btn-small" id="btn-test-selected" disabled></button>
           </div>
         </div>
+        <!-- The operator's trial (14 October): their own fact-checks on another model, beside the readers' one. Shown to
+             the operator's account alone, in English, like /check; the server ignores the choice from anyone else. -->
+        <div class="trial-bar" id="trial-bar" hidden>
+          <label class="trial-choice">Determined by <select id="trial-model"></select></label>
+          <label class="trial-choice" id="trial-effort-choice">at effort <select id="trial-effort"></select></label>
+          <label class="trial-choice" id="trial-compare-choice"><input type="checkbox" id="trial-compare"> <span id="trial-compare-words">Side by side</span></label>
+          <span class="hint trial-why" id="trial-why" hidden></span>
+        </div>
         <p class="hint claims-beyond-hint" id="claims-beyond-hint"></p>
         <p class="balance-line" id="balance-line" hidden></p>
         <ol class="claims-list is-beyond" id="claims-beyond-list" start="21"></ol>
