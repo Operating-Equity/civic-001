@@ -731,6 +731,10 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
     the two, found still running and charged as a new attempt.
   - **Waiting for the operator:** the summary window and the cut to the claims that carry the document (their prompts
     and specifics); whether DeepSeek confirmed the opt-out request drafted on 4 October.
+  - **Live** (14 October, 16:52 UTC): PR #72 squash 0abf7dc, build 918c967295f4; live proof 8/8, nothing determined.
+    The health line shows the listing with `webSearch: false` and no `tools`, and the readers' request unchanged. The
+    boot lines read "no tools (DeepSeek ignores web search)" and "[trial] … ready, with FactEngine's search and page
+    reader as the model's tools". The operator's first trial runs are the measure, on /check's trial table.
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 
