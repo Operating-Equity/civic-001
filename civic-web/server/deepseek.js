@@ -1,11 +1,13 @@
 // DeepSeek's own service, for the listing when the operator puts it there (CIVIC_EXTRACT_PROVIDER=deepseek): the
 // operator's choice of 4 October, "I want use DeepSeek flash for the generating of empirical claims. It is 10 times
-// faster and better." Determinations stay on OpenAI and never come near this file. (On 5 October the operator moved
-// the listing's plan to the same model served from the US, server/fireworks.js; this stays as one setting.)
+// faster and better." (On 5 October the operator moved the listing's plan to the same model served from the US,
+// server/fireworks.js; this stays as one setting.) Since 14 October the operator's own determinations may run here too,
+// in their trial (server/trial.js, server/evaluate.js); the readers' determinations stay on OpenAI.
 //
 // DeepSeek answers OpenAI's Responses API at its own address (https://api.deepseek.com, POST /responses), so the
-// listing keeps its request, its stream and its web search, and the SDK is the same one. Three things are DeepSeek's
-// own and are handled here, through server/listing.js:
+// listing keeps its request and its stream, and the SDK is the same one. DeepSeek's Responses API ignores built-in
+// tools (web search among them), silently, so the listing sends none, and the trial offers FactEngine's own tools as
+// functions. Three things are DeepSeek's own and are handled here, through server/listing.js and server/evaluate.js:
 //   - Its key. The client carries DeepSeek's own key and nothing of OpenAI's (server/providers.js).
 //   - Its failures. A key it rejects (401) or a balance used up (402) is shown to a reader as FactEngine's own
 //     sentence, naming no provider and no key (the rule of 3 October); DeepSeek's own words go to the record on
@@ -43,7 +45,7 @@ export function key({ optional = false } = {}) {
   return k;
 }
 
-/** The client the listing talks to: DeepSeek's key and address, nothing of OpenAI's. */
+/** The client the listing (and the operator's trial) talks to: DeepSeek's key and address, nothing of OpenAI's. */
 export function client(k) {
   if (!k) throw new ApiError(503, 'no_operator_key', '', 'No DeepSeek key: nothing is sent to DeepSeek without one.');
   return ownClient({ key: k, baseURL: config.deepseekBaseUrl });

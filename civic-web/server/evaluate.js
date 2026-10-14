@@ -1,5 +1,5 @@
 // Step 2 — each claim is tested by the protected evaluation prompt, sent verbatim.
-// Three claims at a time (config.evalConcurrency). What is tested is the claim's whole entry as the
+// Ten claims at a time (config.evalConcurrency). What is tested is the claim's whole entry as the
 // extractor wrote it (Claim, Attribution, what the source leaves unspecified), and the source goes
 // ahead of the prompt as its own message, as the conversation carried it in the workflow the
 // prompts were tested in. A claim tested bare, with "the speech" and no speaker or date, was
@@ -10,20 +10,45 @@
 // it cited. The verdict is read out of the model's own Conclusion, in whatever form the model
 // wrote it (server/verdict.js); an entry that states no verdict at all is Unverified, by the
 // operator's ruling, and its closing words are recorded for /check.
+//
+// The operator's trial (14 October, server/trial.js) runs the same two messages on DeepSeek, for the operator's own
+// runs alone. DeepSeek's Responses API ignores web search, so there the model is offered FactEngine's own tools as
+// functions (the search service and the page reader, server/tools) and FactEngine runs each call it makes, round after
+// round, until it writes its entry. Its private reasoning never reaches the page, the record or /check: it is held in
+// memory for that one fact-check only, to go back with each round, as DeepSeek requires of a model using tools.
 import { config } from './config.js';
 import { evaluationPrompt } from './prompts.js';
-import { clientFor, withModelFallback, usageOf, isRetryable, isRateLimit, isConnectionDrop, connectionWait, rateLimitWaitMs, sleep, describeError, throughGate, streamFailure } from './openai.js';
-import { noteFailure } from './reach.js';
+import { clientFor, withModelFallback, usageOf, isRetryable, isRateLimit, isConnectionDrop, connectionWait, rateLimitWaitMs, sleep, describeError, throughGate, streamFailure, asStreamFailure, spacedWaitMs, cutReply } from './openai.js';
+import { openaiHost } from './providers.js';
+import * as deepseek from './deepseek.js';
+import { noteFailure, noteReply } from './reach.js';
 import { gateFor, parseRefusal } from './gate.js';
 import { record as recordFailure } from './diagnostics.js';
 import { estimateTextCost } from './pricing.js';
 import { record, claimHash } from './ledger.js';
 import { parseEntry, conclusionExcerpt } from './verdict.js';
 import { requestTools, toolStep, searchCount } from './tools/request.js';
+import { registry } from './tools/index.js';
 export { parseEntry, VERDICTS } from './verdict.js';
 
-export async function runEvaluation({ apiKey, claims, document = '', send, signal, ctx = {} }) {
-  const client = clientFor(apiKey);
+const round4 = (v) => Math.round(v * 10000) / 10000;
+
+/** The tools a model on DeepSeek is offered: FactEngine's own, as functions, in the words the model reads (server/tools/verbs.js). */
+export const trialTools = () => registry.table.map((t) => ({ type: 'function', name: t.name, description: t.description, parameters: t.inputSchema }));
+
+/** How many of a trial's steps were searches, and how many read a page or a transcript. */
+const searchesOf = (trail) => trail.filter((s) => s.kind === 'tool' && s.name === 'search_web').length;
+const readsOf = (trail) => trail.filter((s) => s.kind === 'tool' && s.name !== 'search_web').length;
+
+export async function runEvaluation({ apiKey, claims, document = '', send, signal, ctx = {}, trial = null }) {
+  // `trial`: null for the readers' determination; else the operator's choice (server/trial.js): DeepSeek's model and
+  // effort, or the readers' own model beside it, recorded as a trial.
+  const onDeepSeek = trial?.provider === 'deepseek';
+  const client = onDeepSeek ? deepseek.client(apiKey) : clientFor(apiKey);
+  const models = onDeepSeek ? [trial.model] : config.evalModels;
+  const effort = onDeepSeek ? trial.effort : config.evalEffort;
+  const mode = onDeepSeek ? null : config.evalReasoningMode || null;
+  const kind = trial ? 'trial' : 'evaluate';
   // Whose work each claim's line is: the run, the sign-in, and the determination's own id (server/economics.js).
   const lineCtx = (i) => ({ runId: ctx.runId || null, owner: ctx.owner || null, determinationId: ctx.determinationIds?.[i] || null });
   // Whose turn the request takes at the gate: the sign-in when the door is shut, else the run, else the job.
@@ -31,7 +56,7 @@ export async function runEvaluation({ apiKey, claims, document = '', send, signa
   const total = claims.length;
   let completed = 0;
   const started = Date.now();
-  send({ t: 'batch-start', total, at: started, model: config.evalModels[0], effort: config.evalEffort, mode: config.evalReasoningMode || null });
+  send({ t: 'batch-start', total, at: started, model: models[0], effort, mode, ...(trial ? { trial: true, provider: trial.provider } : {}) });
 
   const tools = requestTools(); // web search always (the prompts were tested with it); CIVIC's own tools when the gateway is set
 
@@ -48,6 +73,12 @@ export async function runEvaluation({ apiKey, claims, document = '', send, signa
     send({ t: 'gate', model, limit: g.tokens.limit, cost: g.costs.determination, ...g.determination });
   };
 
+  /** The two messages every determination begins with: the source ahead, as its own message, then the prompt verbatim with the entry in its slot. */
+  const firstInput = (prompt) => [
+    ...(document ? [{ role: 'user', content: [{ type: 'input_text', text: document }] }] : []),
+    { role: 'user', content: [{ type: 'input_text', text: prompt }] },
+  ];
+
   const evaluateOne = async (claim, i) => {
     const prompt = evaluationPrompt(claim);
     const startedAt = Date.now();
@@ -58,9 +89,10 @@ export async function runEvaluation({ apiKey, claims, document = '', send, signa
     let incomplete = null;
     let wantSummary = Boolean(config.evalReasoningSummary);
     let fellBack = null;
-    const trail = [];   // every web action the model took
-    const sources = []; // every URL it cited
+    const trail = [];   // every web action the model took, in the attempt that delivered
+    const sources = []; // every URL it cited, in that attempt
     const seen = new Set();
+    let spentSearches = 0;   // the searches of attempts cut short: OpenAI ran them, so they are paid for
 
     const request = (model) => {
       // The operator's tested configuration and nothing else. No cap, no mode, no verbosity,
@@ -70,11 +102,7 @@ export async function runEvaluation({ apiKey, claims, document = '', send, signa
       if (wantSummary) reasoning.summary = config.evalReasoningSummary;
       const body = {
         model,
-        // The source ahead, as its own message, then the prompt verbatim with the entry in its slot.
-        input: [
-          ...(document ? [{ role: 'user', content: [{ type: 'input_text', text: document }] }] : []),
-          { role: 'user', content: [{ type: 'input_text', text: prompt }] },
-        ],
+        input: firstInput(prompt),
         reasoning,
         tools,
         stream: true,
@@ -86,15 +114,24 @@ export async function runEvaluation({ apiKey, claims, document = '', send, signa
 
     for (let tries = 0; ; tries++) {
       const attemptAt = Date.now();
+      // Each go starts its own record, as the page starts its row again at `start`: what a go cut short had found is not
+      // the entry's, though the searches it made were made, and are counted in the cost.
+      spentSearches += searchCount(trail);
+      trail.length = 0;
+      sources.length = 0;
+      seen.clear();
+      usage = null;
+      incomplete = null;
       try {
         text = '';
         reasoning = '';
-        await withModelFallback('evaluate', config.evalModels, async (model) => {
+        await withModelFallback('evaluate', models, async (model) => {
           const { data: stream, release } = await request(model);
           modelUsed = model;
           announceGate(model);
+          let ended = false;   // completed or incomplete: the reply's own last word
           try {
-          send({ t: 'start', i, model, requested: config.evalModels[0], at: Date.now() });
+          send({ t: 'start', i, model, requested: models[0], at: Date.now() });
           for await (const event of stream) {
             if (signal.aborted) return;
             switch (event.type) {
@@ -149,9 +186,11 @@ export async function runEvaluation({ apiKey, claims, document = '', send, signa
               }
 
               case 'response.completed':
+                ended = true;
                 usage = usageOf(event.response);
                 break;
               case 'response.incomplete':
+                ended = true;
                 usage = usageOf(event.response);
                 incomplete = event.response?.incomplete_details?.reason || 'incomplete';
                 send({ t: 'phase', i, phase: 'incomplete', reason: incomplete });
@@ -163,13 +202,19 @@ export async function runEvaluation({ apiKey, claims, document = '', send, signa
                 break;
             }
           }
+          // A reply that stops without its last word was cut, however politely: it goes again, as a cut connection does.
+          // It is never delivered as an entry, and never charged as one.
+          if (!ended && !signal.aborted) throw cutReply();
           } finally {
             release();   // the gate learns the request is over, whatever ended it
           }
         }, (f) => { fellBack = f; send({ t: 'warning', i, code: 'model_fallback', ...f }); });
         break;
-      } catch (err) {
+      } catch (caught) {
         if (signal.aborted) return;
+        // An `error` event in the middle of the stream reaches here with no status: it is read as the stream's own
+        // failure, so a rate limit there is a wait and an overload a retry, as at the door.
+        const err = asStreamFailure(caught, 'evaluation failed');
         // Reasoning summaries need a verified organisation on some accounts. Drop them and keep going.
         if (wantSummary && err?.status === 400 && /summar/i.test(String(err?.error?.message || err?.message || ''))) {
           wantSummary = false;
@@ -182,7 +227,7 @@ export async function runEvaluation({ apiKey, claims, document = '', send, signa
           // turning the request back at the door. The figures go to the gate as any refusal's do;
           // the claim waits exactly what OpenAI asked and goes again, whole. Never a failure.
           const refusal = parseRefusal(err);
-          gateFor(modelUsed || config.evalModels[0]).refusedInStream('determination', refusal);
+          gateFor(modelUsed || models[0]).refusedInStream('determination', refusal);
           send({ t: 'retry', i, attempt: tries + 1, status: 429, reason: 'rate_limit', waitMs: refusal.waitMs || 0 });
           if (refusal.waitMs) await sleep(refusal.waitMs);
           continue;
@@ -211,7 +256,7 @@ export async function runEvaluation({ apiKey, claims, document = '', send, signa
           continue;
         }
         const safe = describeError(err);
-        record({ kind: 'evaluate', ok: false, code: safe.code, model: modelUsed, effort: config.evalEffort, claim: claimHash(claim), ms: Date.now() - startedAt }, lineCtx(i));
+        record({ kind, ok: false, code: safe.code, ...(trial ? { provider: 'openai' } : {}), model: modelUsed, effort: config.evalEffort, claim: claimHash(claim), ms: Date.now() - startedAt }, lineCtx(i));
         send({ t: 'error', i, code: safe.code, message: safe.message });
         completed++;
         send({ t: 'batch-progress', completed, total });
@@ -225,11 +270,12 @@ export async function runEvaluation({ apiKey, claims, document = '', send, signa
     // Conclusion is kept for /check, so the reader can be corrected to the form the model wrote.
     if (parsed.verdictSource === 'unread') recordFailure({ where: 'server:verdict', code: 'verdict_unread', message: conclusionExcerpt(text) });
     const ms = Date.now() - startedAt;
-    const cost = estimateTextCost({ model: modelUsed, usage, searches: searchCount(trail) });
+    const searches = searchCount(trail) + spentSearches;
+    const cost = estimateTextCost({ model: modelUsed, usage, searches });
     record({
-      kind: 'evaluate', ok: true, model: modelUsed, effort: config.evalEffort, mode: config.evalReasoningMode || null, webSearch: true,
+      kind, ok: true, ...(trial ? { provider: 'openai' } : {}), model: modelUsed, effort: config.evalEffort, mode: config.evalReasoningMode || null, webSearch: true,
       claim: claimHash(claim), chars: claim.length, fellBack: fellBack?.used || null, verdict: parsed.verdict, verdictSource: parsed.verdictSource,
-      confidence: parsed.confidence, usage, searches: searchCount(trail), sources: sources.length, incomplete, ms,
+      confidence: parsed.confidence, usage, searches, sources: sources.length, incomplete, ms,
       usd: cost.usd, priced: cost.priced,
     }, lineCtx(i));
     completed++;
@@ -240,17 +286,196 @@ export async function runEvaluation({ apiKey, claims, document = '', send, signa
       text: parsed.text,            // complete, unmodified
       reasoning: reasoning.trim() || null,
       trail, sources,
-      model: modelUsed, requested: config.evalModels[0], fellBack, effort: config.evalEffort, mode: config.evalReasoningMode || null, // no token figures go to the page; the ledger keeps them
+      model: modelUsed, requested: models[0], fellBack, effort: config.evalEffort, mode: config.evalReasoningMode || null, // no token figures go to the page; the ledger keeps them
       searches: searchCount(trail), ms, cost, incomplete,
+      ...(trial ? { trial: true, provider: 'openai' } : {}),
     });
     send({ t: 'batch-progress', completed, total });
   };
 
+  // ---- the operator's trial on DeepSeek ---------------------------------------------------------------------------
+
+  const tables = onDeepSeek ? trialTools() : null;
+
+  /**
+   * One round on DeepSeek: the conversation so far, the model's reply streamed, and the round's own output items (its
+   * reasoning and its calls, to go back with the next round). A wait is a wait, as for the listing: a 429 waits for
+   * DeepSeek's figure or a second from the go's start, a 5xx is spaced the same way on the operator's count, a mid-stream
+   * error is read for its status, and a round that stops before its last event goes again. Nothing else is repeated.
+   */
+  const deepseekRound = async ({ input, i, onDelta }) => {
+    for (let tries = 0; ; tries++) {
+      const attemptAt = Date.now();
+      try {
+        // The model, the conversation, the effort, FactEngine's tools as functions, and nothing else: DeepSeek has no
+        // mode, makes no summary and keeps nothing (so no `store`), and ignores built-in tools.
+        const body = { model: trial.model, input, reasoning: { effort: trial.effort }, tools: tables, stream: true };
+        const { data: stream } = await client.responses.create(body, { signal }).withResponse();
+        noteReply('DeepSeek');
+        let text = '';
+        let output = null;
+        let usage = null;
+        let incompleteReason = null;
+        let ended = false;
+        let thinking = false;
+        for await (const event of stream) {
+          if (signal.aborted) return null;
+          switch (event.type) {
+            case 'response.output_text.delta':
+              text += event.delta || '';
+              onDelta(event.delta || '');
+              break;
+            case 'response.reasoning_text.delta':
+            case 'response.reasoning_summary_text.delta':
+              // DeepSeek's chain of thought: neither sent nor kept beyond this fact-check (the operator's answer of
+              // 4 October). The row says only that the model is thinking.
+              if (!thinking) { thinking = true; send({ t: 'phase', i, phase: 'reasoning' }); }
+              break;
+            case 'response.completed':
+              ended = true;
+              output = event.response?.output || [];
+              usage = usageOf(event.response);
+              break;
+            case 'response.incomplete':
+              ended = true;
+              output = event.response?.output || [];
+              usage = usageOf(event.response);
+              incompleteReason = event.response?.incomplete_details?.reason || 'incomplete';
+              send({ t: 'phase', i, phase: 'incomplete', reason: incompleteReason });
+              break;
+            case 'response.failed':
+            case 'error':
+              throw streamFailure(event, 'evaluation failed');
+            default:
+              break;
+          }
+        }
+        if (!ended) throw cutReply();
+        return { text, output, usage, incomplete: incompleteReason, at: attemptAt };
+      } catch (caught) {
+        if (signal.aborted) return null;
+        const err = asStreamFailure(caught, 'evaluation failed');
+        if (isRateLimit(err)) {
+          const waitMs = parseRefusal(err).waitMs || spacedWaitMs(attemptAt);
+          send({ t: 'retry', i, attempt: tries + 1, status: 429, reason: 'rate_limit', waitMs });
+          if (waitMs > 0) await sleep(waitMs);
+          continue;
+        }
+        if (isConnectionDrop(err)) {
+          const wait = connectionWait(err, attemptAt);
+          const why = String(wait.why || '').split(openaiHost()).join(deepseek.host());
+          const { since } = noteFailure({ code: wait.code, why, who: deepseek.NAME });
+          send({ t: 'retry', i, attempt: tries + 1, status: null, reason: 'connection', code: wait.code, why, since, waitMs: wait.waitMs, at: Date.now() });
+          if (wait.waitMs > 0) await sleep(wait.waitMs);
+          continue;
+        }
+        if (tries < config.evalRetries && isRetryable(err)) {
+          const waitMs = rateLimitWaitMs(err) || spacedWaitMs(attemptAt);
+          send({ t: 'retry', i, attempt: tries + 1, status: err?.status ?? null, reason: 'error', waitMs });
+          if (waitMs > 0) await sleep(waitMs);
+          continue;
+        }
+        throw err;
+      }
+    }
+  };
+
+  const evaluateOnDeepSeek = async (claim, i) => {
+    const startedAt = Date.now();
+    const input = firstInput(evaluationPrompt(claim));
+    const trail = [];
+    const used = { input: 0, output: 0, reasoning: 0, cached: 0 };   // the tokens of every round
+    let tokenUsd = 0;
+    let toolUsd = 0;
+    let priced = true;
+    let rounds = 0;
+    let text = '';
+    let incomplete = null;
+    const tally = (round) => {
+      for (const k of Object.keys(used)) used[k] += Number(round.usage?.[k]) || 0;
+      const c = estimateTextCost({ model: trial.model, usage: round.usage, at: round.at });   // DeepSeek's price is the hour's
+      tokenUsd += Number(c.usd) || 0;
+      priced = priced && c.priced;
+    };
+    /** One call the model made, run through FactEngine's tools: a step of the trail, and its answer for the next round. */
+    const runTool = async (call) => {
+      const name = String(call?.name || '');
+      let args = {};
+      let unreadable = null;
+      try {
+        const parsed = call?.arguments ? JSON.parse(call.arguments) : {};
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) args = parsed;
+        else unreadable = 'they are not an object';
+      } catch { unreadable = 'they are not JSON'; }
+      send({ t: 'phase', i, phase: name === 'search_web' ? 'searching' : 'reading', ...(name === 'search_web' ? { searches: searchesOf(trail) + 1 } : {}) });
+      const result = unreadable
+        ? { content: [{ type: 'text', text: `The tool's arguments could not be read: ${unreadable}.` }], isError: true }
+        : await registry.call(name, args, { signal, filedUnder: lineCtx(i), onCost: (usd) => { toolUsd += usd; } });
+      const output = (result?.content || []).map((c) => (c && typeof c.text === 'string' ? c.text : '')).join('\n');
+      const step = toolStep({ name, arguments: args, status: result?.isError ? 'failed' : 'completed', error: result?.isError ? output.slice(0, 300) : null });
+      trail.push(step);
+      send({ t: 'trail', i, step, searches: searchesOf(trail) });
+      return { type: 'function_call_output', call_id: call?.call_id, output };
+    };
+
+    send({ t: 'start', i, model: trial.model, requested: trial.model, at: Date.now() });
+    try {
+      for (;;) {
+        rounds++;
+        const round = await deepseekRound({ input, i, onDelta: (d) => send({ t: 'delta', i, text: d }) });
+        if (!round || signal.aborted) return;
+        tally(round);
+        const calls = round.output.filter((item) => item?.type === 'function_call');
+        if (!calls.length || round.incomplete) { text = round.text; incomplete = round.incomplete; break; }
+        // The round goes back as DeepSeek wrote it (its reasoning, held for DeepSeek alone, and its calls), then each
+        // call's answer.
+        input.push(...round.output);
+        input.push(...await Promise.all(calls.map(runTool)));
+        if (signal.aborted) return;
+      }
+    } catch (err) {
+      if (signal.aborted) return;
+      const failure = deepseek.failure(err);
+      const safe = describeError(failure);
+      recordFailure({ where: 'trial:deepseek', code: safe.code, message: safe.message || safe.code, detail: failure.detail || null });
+      record({ kind: 'trial', ok: false, provider: 'deepseek', code: safe.code, model: trial.model, effort: trial.effort, claim: claimHash(claim), rounds, usage: used, ms: Date.now() - startedAt, usd: round4(tokenUsd + toolUsd), priced }, lineCtx(i));
+      send({ t: 'error', i, code: safe.code, message: safe.message });
+      completed++;
+      send({ t: 'batch-progress', completed, total: claims.length });
+      return;
+    }
+
+    const parsed = parseEntry(text);
+    if (parsed.verdictSource === 'unread') recordFailure({ where: 'trial:verdict', code: 'verdict_unread', message: conclusionExcerpt(text) });
+    const ms = Date.now() - startedAt;
+    const cost = { usd: round4(tokenUsd + toolUsd), priced };
+    record({
+      kind: 'trial', ok: true, provider: 'deepseek', model: trial.model, effort: trial.effort, mode: null,
+      claim: claimHash(claim), chars: claim.length, verdict: parsed.verdict, verdictSource: parsed.verdictSource, confidence: parsed.confidence,
+      usage: used, rounds, searches: searchesOf(trail), reads: readsOf(trail), incomplete, ms,
+      tokenUsd: round4(tokenUsd), toolUsd: round4(toolUsd), usd: cost.usd, priced,
+    }, lineCtx(i));
+    completed++;
+    send({
+      t: 'done', i,
+      verdict: parsed.verdict, verdictSource: parsed.verdictSource, confidence: parsed.confidence, inspector: parsed.inspector,
+      conclusion: parsed.conclusion,
+      text: parsed.text,
+      reasoning: null,   // DeepSeek makes no summary, and its chain of thought stays off the page
+      trail, sources: [],
+      model: trial.model, requested: trial.model, fellBack: null, effort: trial.effort, mode: null,
+      searches: searchesOf(trail), ms, cost, incomplete,
+      trial: true, provider: 'deepseek',
+    });
+    send({ t: 'batch-progress', completed, total: claims.length });
+  };
+
+  const run = onDeepSeek ? evaluateOnDeepSeek : evaluateOne;
   const queue = claims.map((c, i) => [c, i]);
   const workers = Array.from({ length: Math.min(config.evalConcurrency, total) }, async () => {
     while (queue.length && !signal.aborted) {
       const [claim, i] = queue.shift();
-      await evaluateOne(claim, i);
+      await run(claim, i);
     }
   });
   await Promise.all(workers);

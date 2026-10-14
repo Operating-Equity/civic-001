@@ -14,8 +14,9 @@ import { field } from './field.js';   // the mathematics behind the glass follow
 
 const MAX_CLAIMS = 10; // the most one request carries (the page sends one claim per request, so this bounds nothing it does); how many run without a press is the server's figure (autoFirst)
 const IN_FLIGHT = 10; // claims in flight at once when no server answers; the server's own figure wins (see inFlight below)
-const searchCount = (trail) => (trail || []).filter((s) => s.kind !== 'tool').length; // the web searches in a trail; a tool call is a step of its own
+const searchCount = (trail) => (trail || []).filter((s) => s.kind !== 'tool' || s.name === 'search_web').length; // the web searches in a trail, FactEngine's own search among them; reading a page is a step of its own
 const GLYPH = { true: '✓', false: '✕', unverified: '?', unread: '–' };
+const TRIAL_KEY = 'fe.trial';   // where this browser remembers the operator's trial choice (renderTrialBar)
 
 /** A connection failure in the reader's language, from the operating system's code; the server's own words otherwise. */
 function netWords(code, why) {
@@ -57,6 +58,7 @@ const state = {
   runId: '',           // this run's name; every job of the run is named after it
   extractJob: '',      // the extraction's job at the server (server/jobs.js)
   jobs: new Set(),     // every job of this run the server may still hold: cancelled on reset, on leaving
+  trialChoice: loadTrialChoice(),   // the operator's trial: { model, effort, compare }, remembered in this browser
   evalStartedAt: 0,
   gate: null,          // the key's minute figures, from the server, once OpenAI has given them
   pricing: null,       // this run's prices, from the server: { tier, freeFacts, priceCents, currency, note }; null = nothing priced
@@ -81,6 +83,8 @@ function cacheElements() {
     claims: $('#claims'), claimsSub: $('#claims-sub'), claimsList: $('#claims-list'),
     beyond: $('#claims-beyond'), beyondTitle: $('#claims-beyond-title'), beyondList: $('#claims-beyond-list'), beyondHint: $('#claims-beyond-hint'),
     selectAll: $('#btn-select-all'), testSelected: $('#btn-test-selected'),
+    trialBar: $('#trial-bar'), trialModel: $('#trial-model'), trialEffort: $('#trial-effort'), trialEffortChoice: $('#trial-effort-choice'),
+    trialCompare: $('#trial-compare'), trialCompareChoice: $('#trial-compare-choice'), trialCompareWords: $('#trial-compare-words'), trialWhy: $('#trial-why'),
     claimsRaw: $('#claims-raw'), claimsRawSummary: $('#claims-raw-summary'), claimsRawBody: $('#claims-raw-body'),
     scoreboard: $('#scoreboard'), scoreTrue: $('#score-true'), scoreFalse: $('#score-false'), scoreUnv: $('#score-unverified'),
     scoreUnread: $('#score-unread'), scoreUnreadWrap: $('#score-unread-wrap'),
@@ -149,6 +153,10 @@ async function boot() {
   // press is the operator's setting, and the rest is the reader's). The report button still says
   // reports come later.
   ui.testSelected.addEventListener('click', testSelected);
+  // The operator's trial (server/trial.js): the choice is theirs, remembered in this browser, sent with each claim.
+  ui.trialModel.addEventListener('change', () => { state.trialChoice.model = ui.trialModel.value; saveTrialChoice(); renderTrialBar(); renderBeyondTools(); });
+  ui.trialEffort.addEventListener('change', () => { state.trialChoice.effort = ui.trialEffort.value; saveTrialChoice(); });
+  ui.trialCompare.addEventListener('change', () => { state.trialChoice.compare = ui.trialCompare.checked; saveTrialChoice(); });
   ui.report.addEventListener('click', () => toast(t('report.soon')));
   // Leaving the page is the one way, besides Start a new test, that a run is stopped: the server
   // keeps working through a cut connection, so it has to be told when nobody will come back.
@@ -1094,6 +1102,64 @@ function renderBeyondTools() {
   else if (!pricingNow() && state.accounting && averageCost() !== null) hint = t('claims.avgCost', { usd: fmtUsd(averageCost()) });
   ui.beyondHint.textContent = hint;
   renderPriceLine();
+  renderTrialBar();
+}
+
+// ---------- the operator's trial (14 October): their own fact-checks on another model, beside the readers' one ----------
+
+function loadTrialChoice() {
+  try { const v = JSON.parse(localStorage.getItem(TRIAL_KEY) || '{}'); return { model: String(v.model || ''), effort: String(v.effort || ''), compare: Boolean(v.compare) }; }
+  catch { return { model: '', effort: '', compare: false }; }
+}
+function saveTrialChoice() {
+  try { localStorage.setItem(TRIAL_KEY, JSON.stringify(state.trialChoice)); } catch { /* a private window: the choice lasts the page */ }
+}
+
+/** The trial the server offers this page (the operator's alone), or null. */
+const trialOffer = () => state.server?.trial || null;
+
+/**
+ * What the next claims run on: null for the readers' determination, else { model, effort, compare }. Only a model the
+ * server offers counts; the readers' own model is no trial unless it runs beside one.
+ */
+function trialNow() {
+  const offer = trialOffer();
+  if (!offer || !offer.ready) return null;
+  const pick = offer.models.find((m) => m.id === state.trialChoice.model);
+  if (!pick) return null;
+  const effort = offer.efforts.includes(state.trialChoice.effort) ? state.trialChoice.effort : offer.effort;
+  return { model: pick.id, label: pick.label, effort, compare: Boolean(state.trialChoice.compare) };
+}
+
+function renderTrialBar() {
+  const offer = trialOffer();
+  const open = state.beyond.some((b) => !b.tested);
+  ui.trialBar.hidden = !offer || !open;
+  if (ui.trialBar.hidden) return;
+  const busy = state.phase === 'evaluating' || state.phase === 'extracting';
+  const options = [{ id: '', label: `${offer.readers.label} (readers)` }, ...offer.models];
+  const have = [...ui.trialModel.options].map((o) => o.value).join('|');
+  if (have !== options.map((o) => o.id).join('|')) ui.trialModel.replaceChildren(...options.map((o) => el('option', { value: o.id, text: o.label })));
+  ui.trialModel.value = options.some((o) => o.id === state.trialChoice.model) ? state.trialChoice.model : '';
+  if (ui.trialEffort.options.length !== offer.efforts.length) ui.trialEffort.replaceChildren(...offer.efforts.map((e) => el('option', { value: e, text: e })));
+  ui.trialEffort.value = offer.efforts.includes(state.trialChoice.effort) ? state.trialChoice.effort : offer.effort;
+  ui.trialCompare.checked = Boolean(state.trialChoice.compare);
+  ui.trialCompareWords.textContent = `Side by side with ${offer.readers.label}`;
+  const trial = ui.trialModel.value !== '';
+  ui.trialEffortChoice.hidden = !trial;
+  ui.trialCompareChoice.hidden = !trial;
+  for (const c of [ui.trialModel, ui.trialEffort, ui.trialCompare]) c.disabled = busy || !offer.ready;
+  ui.trialWhy.hidden = offer.ready;
+  ui.trialWhy.textContent = offer.ready ? '' : offer.why || '';
+}
+
+/** A claim's twin, side by side: the same claim on the readers' model, as a card right under the trial's own. */
+function twinCard(b, label) {
+  const card = buildCard(b, b.n);
+  card.classList.add('is-twin');
+  $('.card-claim', card).prepend(el('span', { class: 'card-twin mono', text: `Side by side · ${label}` }), el('br'));
+  b.node.closest('li').after(el('li', { class: 'is-twin' }, [card]));
+  return card;
 }
 
 /** The price, said once above the claims: "Each fact-check is $1.25.", the document's free ones when it has any, and the operator's note. */
@@ -1128,7 +1194,8 @@ function renderBalanceLine(selected) {
       : t('credit.stopped', { balance: fmtMoney(s.balanceCents), price: fmtMoney(s.priceCents) });
     return;
   }
-  const covers = Number.isFinite(bal) && price ? freeRemaining() + Math.floor(Math.max(0, bal) / price.priceCents) : null;
+  // The operator's trial is never charged, so the balance holds nothing back.
+  const covers = Number.isFinite(bal) && price && !trialNow() ? freeRemaining() + Math.floor(Math.max(0, bal) / price.priceCents) : null;
   if (covers !== null && selected > covers) {
     ui.testSelected.disabled = true;
     ui.balanceLine.hidden = false;
@@ -1177,7 +1244,20 @@ async function testSelected() {
   // The whole selection is one batch, run at the server's pace (one claim per request, `inFlight`
   // of them at once, the next starting as one ends): thirty chosen claims read "Testing 30 claims"
   // and run ten at a time with no pause between tens. Until 3 October they ran in batches of ten.
-  await runBatch(chosen.map(claimOf), chosen.map((b) => b.node));
+  // The operator's trial runs each on the model they chose, and side by side also on the readers' model.
+  const trial = trialNow();
+  const runs = [];
+  const nodes = [];
+  for (const b of chosen) {
+    runs.push({ ...claimOf(b), ...(trial ? { trial: { model: trial.model, effort: trial.effort } } : {}) });
+    nodes.push(b.node);
+    if (trial?.compare) {
+      const readers = trialOffer().readers;
+      runs.push({ ...claimOf(b), trial: { model: readers.id }, twin: true });
+      nodes.push(twinCard(b, readers.label));
+    }
+  }
+  await runBatch(runs, nodes, { claims: chosen.length });
 }
 
 function averageCost() {
@@ -1188,7 +1268,7 @@ function averageCost() {
 
 // ---------- step 2: one batch of determinations ---------------------------------------------------
 
-async function runBatch(claims, nodes) {
+async function runBatch(claims, nodes, { claims: count = claims.length } = {}) {
   const start = state.cards.length;
   state.cards.push(...claims);
   for (const _ of claims) state.results.push(newResult());
@@ -1198,7 +1278,7 @@ async function runBatch(claims, nodes) {
   field.setPhase('evaluating');
   state.evalStartedAt = Date.now();
 
-  ui.step2Title.textContent = start === 0 ? t('step2.title', { n: claims.length }) : t('step2.more', { n: claims.length });
+  ui.step2Title.textContent = start === 0 ? t('step2.title', { n: count }) : t('step2.more', { n: count });
   setStep(ui.step2, 'running');
   setBar(ui.bar2, 0);
   setStatus('step2', 'step2.progress', { done: 0, total: claims.length });
@@ -1266,6 +1346,7 @@ async function runClaim(i, signal, { keepGoing = () => true, onSettled = () => {
     try {
       await api.evaluate({
         jobId: job, claims: [claim.entry || claim.text], text: state.source, source: state.sourceMeta, signal, onEvent,
+        model: claim.trial?.model, effort: claim.trial?.effort,   // the operator's trial; the server ignores them from anyone else
         runId: state.extractJob, n: Number.isInteger(claim.n) ? claim.n : i + 1,   // the run is its extraction's job at the server, which is what the row is filed under; so the server can say whether this one is free
         // Whatever the row was saying (queued at the gate, inspecting, writing), it says the connection
         // was cut until a new one is open, then goes back to what it was saying.
@@ -1542,10 +1623,13 @@ function finalizeCard(i, ev) {
   renderCardNote(i);
   renderCardFoot(i);
 
-  if (r.verdict) state.counts[r.verdict] = (state.counts[r.verdict] || 0) + 1;
-  else state.unread++;
+  // A twin (the same claim on the readers' model, side by side) is a comparison, not a second verdict on the claim.
+  if (!state.cards[i]?.twin) {
+    if (r.verdict) state.counts[r.verdict] = (state.counts[r.verdict] || 0) + 1;
+    else state.unread++;
+  }
   addCost(r.cost);
-  renderScoreboard(r.verdict);
+  renderScoreboard(state.cards[i]?.twin ? undefined : r.verdict);
 }
 
 function renderBadge(i) {

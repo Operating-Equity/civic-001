@@ -3,7 +3,7 @@
 import { config } from './config.js';
 import { extractionRequest, extractionShape } from './prompts.js';
 import { sourceBlock } from './source.js';
-import { withModelFallback, usageOf, isRetryable, isRateLimit, isConnectionDrop, connectionWait, rateLimitWaitMs, sleep, throughGate, streamFailure, CONNECTION_RETRY_MS } from './openai.js';
+import { withModelFallback, usageOf, isRetryable, isRateLimit, isConnectionDrop, connectionWait, rateLimitWaitMs, sleep, throughGate, streamFailure, asStreamFailure, spacedWaitMs, cutReply } from './openai.js';
 import { onDeepSeek, onFireworks, onOwnProvider, listingClient, listingFailure, listingHost, listingProviderName, openaiHost } from './listing.js';
 import { ThoughtCut, usageFrom, noteEcho } from './fireworks.js';
 import { noteFailure, noteReply } from './reach.js';
@@ -92,16 +92,16 @@ export async function runExtraction({ apiKey, text, meta, send, signal, sourceWa
       }
     }
     if (deepseek) {
-      // DeepSeek: the model, the prompt verbatim, the effort and web search, and nothing else. DeepSeek has no
-      // mode, makes no summary and keeps nothing (so no `store`); CIVIC's own tools never go, since their
-      // pass is for OpenAI alone. Not through the gate: DeepSeek sends no per-minute figures to pace by, and
-      // its own limit (2,500 requests in flight) answers with a 429, which is a wait below.
+      // DeepSeek: the model, the prompt verbatim and the effort, and nothing else. DeepSeek has no mode, makes no
+      // summary and keeps nothing (so no `store`). Its Responses API ignores `web_search` and every other built-in
+      // tool, silently (its own guide, read 14 October), so none is sent: the listing reads the document it is given.
+      // Not through the gate: DeepSeek sends no per-minute figures to pace by, and its own limit (2,500 requests in
+      // flight) answers with a 429, which is a wait below.
       const body = {
         model,
         ...(request.instructions ? { instructions: request.instructions } : {}),
         input: [{ role: 'user', content: [{ type: 'input_text', text: request.message }] }],
         reasoning: { effort: config.extractEffort },
-        tools: [{ type: 'web_search' }],
         stream: true,
       };
       const { data, response } = await client.responses.create(body, { signal }).withResponse();
@@ -206,7 +206,7 @@ export async function runExtraction({ apiKey, text, meta, send, signal, sourceWa
         // A reply that stops without its last word was cut, however politely: DeepSeek closes a request that
         // has not started inside ten minutes. It goes again; it is never a listing of no claims (and what the
         // cut was holding goes with it: the next go starts its own).
-        if (!ended && !signal.aborted) throw new Error('terminated: the reply ended before its last event');
+        if (!ended && !signal.aborted) throw cutReply();
         } finally {
           release();
         }
@@ -214,13 +214,9 @@ export async function runExtraction({ apiKey, text, meta, send, signal, sourceWa
       break;
     } catch (caught) {
       if (signal.aborted) return null;
-      let err = caught;
       // An `error` event in the middle of a stream reaches here from the SDK with no status: it is read as
       // the stream's own failure, so a rate limit there is a wait and an overload a retry.
-      if (err?.status === undefined && err?.error && !isConnectionDrop(err)) {
-        const e = err.error?.error || err.error || {};
-        err = streamFailure({ type: 'response.failed', response: { error: { message: e.message || err.message, code: e.code || e.type || null } } }, 'extraction failed');
-      }
+      const err = asStreamFailure(caught, 'extraction failed');
       if (wantSummary && err?.status === 400 && /summar/i.test(String(err?.error?.message || err?.message || ''))) {
         wantSummary = false;
         send({ t: 'note', code: 'no_reasoning_summary' });
@@ -233,7 +229,7 @@ export async function runExtraction({ apiKey, text, meta, send, signal, sourceWa
         if (!own) gateFor(modelUsed || config.extractModels[0]).refusedInStream('extraction', refusal);
         // A refusal that names no wait (DeepSeek's never do; Fireworks' may) goes again a second after this go
         // began, the same second as a missing connection: never at once, which would be an endless loop.
-        const waitMs = refusal.waitMs || Math.max(0, CONNECTION_RETRY_MS - (Date.now() - attemptAt));
+        const waitMs = refusal.waitMs || spacedWaitMs(attemptAt);
         send({ t: 'retry', attempt: tries + 1, status: 429, reason: 'rate_limit', waitMs });
         if (waitMs > 0) await sleep(waitMs);
         continue;
@@ -255,7 +251,7 @@ export async function runExtraction({ apiKey, text, meta, send, signal, sourceWa
         // retry-after, when given, is honoured first; otherwise the go is spaced like a connection's
         // (a second after this go began), never eight in under a second. A refusal at OpenAI's door
         // never arrives here (the gate keeps it).
-        const waitMs = rateLimitWaitMs(err) || Math.max(0, CONNECTION_RETRY_MS - (Date.now() - attemptAt));
+        const waitMs = rateLimitWaitMs(err) || spacedWaitMs(attemptAt);
         send({ t: 'retry', attempt: tries + 1, status: err?.status ?? null, reason: 'error', waitMs });
         if (waitMs > 0) await sleep(waitMs);
         continue;

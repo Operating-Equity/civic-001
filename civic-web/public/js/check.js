@@ -54,7 +54,8 @@ function renderSettings(s, build, pacing, silent, tools, readers) {
     ...((s.listingModel && s.listingModel !== s.model) || (s.listingProvider && s.listingProvider !== 'OpenAI')
       ? [['Listing', `${s.listingModel} on ${s.listingProvider}, effort ${s.listingEffort}`], ['Determinations', `${s.model} on OpenAI, effort ${s.effort}`]]
       : [['Model', s.model], ['Reasoning effort', s.effort]]),
-    ['Web search', s.webSearch ? 'on, for both steps' : 'off'],
+    ['Web search', s.listingWebSearch === false ? 'on for the determinations; the listing does not search (DeepSeek ignores web search)' : s.webSearch ? 'on, for both steps' : 'off'],
+    ...(s.trialModels && s.trialModels !== 'off' ? [['Your trial', `${s.trialModels}, chosen on the page, for your account alone`]] : []),
     ['Claims per run', String(s.claimsPerRun)],
     ['Key comes from', s.keySource],
     ['Prompt versions', s.prompts || 'none installed'],
@@ -153,6 +154,7 @@ function renderEconomics(e, ctx = {}) {
   if (!e) return;
   box.append(el('h2', null, 'Prices, tiers and what each user costs'));
   if (e.error) { box.append(el('p', 'check-detail', `The measurement could not be read: ${e.error}`)); return; }
+  renderTrial(box, e);
   const ul = el('ul');
   for (const line of economicsLines(e, ctx)) ul.append(el('li', null, line));
   box.append(ul);
@@ -171,6 +173,20 @@ function renderEconomics(e, ctx = {}) {
     ? table(['Window (UTC)', 'Tier', 'Price', 'Users', 'Runs', 'Determinations', 'Failed', 'Free given', 'Cost', 'Listing cost', 'Revenue at list', 'Margin', 'Margin per user', 'Coverage'], e.byWindow.map((x) => [x.windowStart ? x.windowStart.slice(0, 16).replace('T', ' ') : '—', x.tier, cents(x.priceCents, c), ...row(x)]))
     : el('p', 'check-detail', 'No window has had a run yet.'));
   box.append(el('p', 'check-detail', 'Cost is each determination\'s own ledger line (the provider\'s token counts at the price table, plus its searches); the listing cost is each run\'s extraction, kept apart. Margin is revenue at list less the determinations\' cost. Coverage is revenue against cost plus the markup: 1.00 means the tokens and the markup are both covered. A free determination counts as given; a failed one keeps its cost and books nothing.'));
+}
+
+/** The operator's trial (14 October): their own fact-checks per model, beside the readers' model, over the price window. */
+function renderTrial(box, e) {
+  if (!Array.isArray(e.trial) || !e.trial.length) return;
+  const c = e.currency;
+  const mins = (ms) => (ms === null || ms === undefined ? '—' : ms >= 90000 ? `${(ms / 60000).toFixed(1)} min` : `${Math.round(ms / 1000)} s`);
+  // A trial's costs can be fractions of a cent, so they show to the hundredth of a cent.
+  const usd = (v) => { if (v === null || v === undefined) return '—'; try { return new Intl.NumberFormat('en-US', { style: 'currency', currency: c || 'USD', minimumFractionDigits: 2, maximumFractionDigits: 4 }).format(Number(v)); } catch { return `${Number(v).toFixed(4)} ${c || ''}`; } };
+  const who = (x) => `${x.model || '—'}${x.effort ? ` at ${x.effort}` : ''}${x.who === 'readers' ? ' (readers)' : x.provider === 'openai' ? ' (side by side)' : ''}`;
+  box.append(el('h2', null, `Your trial, over the last ${e.price.days} days`));
+  box.append(table(['Model', 'Delivered', 'Failed', 'Minutes, mean', 'Three in four within', 'Searches', 'Pages read', 'Cost each', 'Cost, all', 'True', 'False', 'Unverified', 'Verdict unread'],
+    e.trial.map((x) => [who(x), x.n, x.failed, mins(x.meanMs), mins(x.p75Ms), x.meanSearches ?? '—', x.who === 'trial' && x.provider === 'deepseek' ? x.meanReads ?? '—' : '—', usd(x.meanUsd), usd(x.totalUsd), x.verdicts.true, x.verdicts.false, x.verdicts.unverified, x.unread])));
+  box.append(el('p', 'check-detail', 'Your own fact-checks on the model you chose on the page, never charged and kept out of the readers\' figures below. On DeepSeek the model searches through FactEngine\'s search service and reads pages through FactEngine; its cost is DeepSeek\'s tokens at the hour\'s price plus each search\'s own. The readers\' row is their fact-checks over the same days.'));
 }
 
 function renderFailures(list) {

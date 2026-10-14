@@ -324,6 +324,17 @@ body {
 .claims-beyond-title { margin: 0; font-size: 13px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--ink-2); }
 .claims-beyond-tools { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .claims-beyond-hint { margin: 4px 0 6px; }
+/* The operator's trial (14 October): their account alone sees it. A line of small choices above the claims. */
+.trial-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px; margin: 6px 0 4px; padding: 8px 12px; border: 1px dashed var(--line-soft); border-radius: 10px; font-size: 13.5px; color: var(--ink-2); }
+.trial-choice { display: inline-flex; align-items: center; gap: 6px; }
+.trial-choice select { font: inherit; color: var(--ink); background: rgba(255,255,255,.66); border: 1px solid var(--line-soft); border-radius: 8px; padding: 3px 8px; max-width: 100%; }
+.trial-choice select:focus-visible, .trial-choice input:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+.trial-choice input[type="checkbox"] { width: 15px; height: 15px; margin: 0; accent-color: var(--blue); }
+.trial-why { flex-basis: 100%; margin: 0; }
+/* A claim's twin, side by side: the same claim on the readers' model, right under the trial's card. */
+.claims-list > li.is-twin { margin-block-start: -2px; }
+.card.is-twin { border-inline-start: 3px solid var(--line-soft); }
+.card-twin { font-size: 12px; color: var(--ink-3); letter-spacing: .02em; }
 .claims-list.is-beyond > li.selectable { grid-template-columns: 34px 22px 1fr auto; color: var(--ink); }
 .claims-list.is-beyond > li.selectable::before { color: var(--ink-3); }
 .claims-list.is-beyond > li.selectable input { width: 16px; height: 16px; margin: 3px 0 0; accent-color: var(--blue); }

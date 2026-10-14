@@ -11,7 +11,7 @@ import multer from 'multer';
 import { config, publicConfig, requestShape } from './config.js';
 import { promptStatus, hasPrompt, promptVersions } from './prompts.js';
 import { ApiError, operatorKey, describeError } from './openai.js';
-import { listingKey, onOwnProvider, onFireworks, listingHost, listingProviderName } from './listing.js';
+import { listingKey, onOwnProvider, onFireworks, onDeepSeek, listingHost, listingProviderName } from './listing.js';
 import { gatewayOn } from './tools/request.js';
 import { openStream } from './stream.js';
 import * as jobs from './jobs.js';
@@ -21,6 +21,8 @@ import { findCopies, searchOn } from './copies.js';
 import { sourceMeta, sourceBlock } from './source.js';
 import { runExtraction } from './extract.js';
 import { runEvaluation } from './evaluate.js';
+import { trialOf, trialState } from './trial.js';
+import * as deepseekProvider from './deepseek.js';
 import { runIllustration } from './illustrate.js';
 import { selftest } from './selftest.js';
 import { whereTheShellSetsIt } from './key.js';
@@ -149,6 +151,8 @@ app.get('/api/health', wrap(async (req, res) => {
     },
     accounting: config.accounting && (!signinRequired() || isOperator(session)),   // FactEngine's own costs: the operator's alone
     pricing,
+    // The operator's trial (server/trial.js): the models they may choose on the page, and whether it can run. Nobody else's.
+    trial: !signinRequired() || isOperator(session) ? trialState() : null,
   });
 }));
 
@@ -299,7 +303,10 @@ app.post('/api/evaluate', wrap(async (req, res) => {
   const known = jobs.get(id, owner);
   if (known) { known.attach(openStream(req, res), req.body?.cursor); return; }
 
-  const apiKey = operatorKey();
+  // The operator's trial (server/trial.js): a model of their choosing, on their own runs alone. Anyone else's choice of
+  // model is ignored, and their request is the readers' determination, as always.
+  const trial = trialOf(req.body, { operator: !signinRequired() || isOperator(req.account) });
+  const apiKey = trial?.provider === 'deepseek' ? deepseekProvider.key() : operatorKey();
   if (!hasPrompt('evaluate')) throw new ApiError(503, 'prompt_missing', 'The evaluation prompt is not installed on this server.');
   const claims = Array.isArray(req.body?.claims) ? req.body.claims.map((c) => String(c || '').trim()).filter(Boolean) : [];
   if (!claims.length) throw new ApiError(400, 'no_claims', 'No claims to test.');
@@ -334,6 +341,7 @@ app.post('/api/evaluate', wrap(async (req, res) => {
         id: detIds[i], runId, n: claims.length === 1 ? n : null, chars: claims[i].length,
         userId: user?.id ?? null, owner, limitCents: user?.monthlyLimitCents ?? null, requireRun: signinRequired(),
         fingerprint: fingerprintOf(claims[i]),   // a delivered claim's free second go is for the same claim, never another
+        trial: Boolean(trial),                    // the operator's trial: never charged, never in the readers' measurements
       }).catch((err) => {
         if (err?.expected) throw err;   // a refusal the reader must see: the credit, the limit, a run that is not theirs
         console.error('[economics] the determination could not be recorded:', err.message);
@@ -359,19 +367,25 @@ app.post('/api/evaluate', wrap(async (req, res) => {
     const send = showCost ? sendAll : (ev) => sendAll(withoutCost(ev));
     quotes.forEach((q, i) => { if (q) send({ t: 'quote', i, free: q.free, priceCents: q.priceCents, currency: config.currency, ...(Number.isInteger(q.balanceCents) ? { balanceCents: q.balanceCents } : {}) }); });
     // The books close with the claim's own end: done books its revenue at list and charges its hold; an error books
-    // nothing and releases it. Each attempt closes its own, never a later one's.
-    const sendAndBook = (ev) => {
-      send(ev);
+    // nothing and releases it. Each attempt closes its own, never a later one's. The claim is booked BEFORE the page is
+    // told of its end, and the events keep their order behind it: a request the page makes on hearing of the end (the
+    // same claim asked for again, its result lost) must find the claim booked, never still running, or it would be taken
+    // for a new attempt and charged (found by the guard on 14 October, a race of milliseconds).
+    let order = Promise.resolve();
+    const inOrder = (fn) => { order = order.then(fn).catch((err) => console.error('[economics] an event could not be passed on:', err?.message || err)); };
+    const sendAndBook = (ev) => inOrder(async () => {
       const q = ev.i !== undefined ? quotes[ev.i] : null;
-      if (ev.t === 'done' && ev.i !== undefined) economics.book(detIds[ev.i], { attempt: q?.attempt ?? null, status: 'done', verdict: ev.verdict || null, model: ev.model || null });
-      else if (ev.t === 'error' && ev.i !== undefined) economics.book(detIds[ev.i], { attempt: q?.attempt ?? null, status: 'failed', failure: ev.code || 'error' });
-    };
+      if (ev.t === 'done' && ev.i !== undefined) await economics.book(detIds[ev.i], { attempt: q?.attempt ?? null, status: 'done', verdict: ev.verdict || null, model: ev.model || null });
+      else if (ev.t === 'error' && ev.i !== undefined) await economics.book(detIds[ev.i], { attempt: q?.attempt ?? null, status: 'failed', failure: ev.code || 'error' });
+      send(ev);
+    });
     try {
-      await runEvaluation({ apiKey, claims, document, send: sendAndBook, signal, ctx });
+      await runEvaluation({ apiKey, claims, document, send: sendAndBook, signal, ctx, trial });
     } catch (err) {
       const safe = describeError(err);
-      send({ t: 'error', code: safe.code, message: safe.message, status: safe.status });
+      inOrder(() => send({ t: 'error', code: safe.code, message: safe.message, status: safe.status }));
     } finally {
+      await order;   // every event out, every claim's end booked, before the job ends
       // A claim the request ended without a result for (the page stopped the run, the request failed): failed, nothing booked, its hold released.
       await economics.closeOpen(attempts, signal.aborted ? 'cancelled' : 'ended');
     }
@@ -473,9 +487,13 @@ function banner() {
   const shape = requestShape();
   const placing = shape.extract.source === 'inserted' ? 'the prompt verbatim with the source in place of its final bracketed line, as the only message' : 'the prompt verbatim as instructions · the document whole as the only message';
   // On Fireworks the listing names FactEngine's tool server for its searches and says store: false.
-  const listingTools = onFireworks() ? `${gatewayOn() ? 'FactEngine\'s tool server (search_web, read_page, get_transcript) through a door opened for that listing alone' : 'no tools (the tool server has no public address)'} · store false` : 'web_search';
+  // On DeepSeek it names none: DeepSeek ignores web search, so the listing reads the document it is given.
+  const listingTools = onFireworks() ? `${gatewayOn() ? 'FactEngine\'s tool server (search_web, read_page, get_transcript) through a door opened for that listing alone' : 'no tools (the tool server has no public address)'} · store false` : onDeepSeek() ? 'no tools (DeepSeek ignores web search)' : 'web_search';
   console.log(`extraction requests ${onOwnProvider() ? `go to ${listingHost()} (${listingProviderName()}) and ` : ''}carry: model ${shape.extract.model} · reasoning.effort ${shape.extract.effort}${shape.extract.mode ? ` · reasoning.mode ${shape.extract.mode}` : ''}${shape.extract.summary ? ` · reasoning.summary ${shape.extract.summary}` : ''} · ${listingTools} · ${placing} · nothing else${shape.extract.fallback ? '  (FALLBACK LIST SET)' : ''}`);
   console.log(`determination requests carry: model ${shape.evaluate.model} · reasoning.effort ${shape.evaluate.effort}${shape.evaluate.mode ? ` · reasoning.mode ${shape.evaluate.mode}` : ''}${shape.evaluate.summary ? ` · reasoning.summary ${shape.evaluate.summary}` : ''} · web_search · the source as a message ahead of the prompt · the prompt verbatim with the claim's whole entry in its slot · nothing else${shape.evaluate.fallback ? '  (FALLBACK LIST SET)' : ''}`);
+  // The operator's trial (server/trial.js): whether it can run, for the host's log. No key, nothing of anyone's.
+  const trial = trialState();
+  if (trial) console.log(`[trial] the operator's own determinations may run on ${trial.models.map((m) => m.id).join(', ')}, chosen on their page: ${trial.ready ? 'ready, with FactEngine\'s search and page reader as the model\'s tools' : `not ready: ${trial.why}`}`);
   if (config.openaiBaseUrl) console.log(`OpenAI base URL override: ${config.openaiBaseUrl}`);
 }
 

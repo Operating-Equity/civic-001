@@ -95,8 +95,13 @@ export function buildRegistry(loaded, env = process.env) {
     verbs: table.map((t) => t.name),
   });
 
-  /** One tool call from the model: the source's answer, or what it kept back, in the model's hands. */
-  async function call(name, args = {}, { signal } = {}) {
+  /**
+   * One tool call from the model: the source's answer, or what it kept back, in the model's hands. `filedUnder` files
+   * the call's ledger line under the run and the determination it served, when the caller knows them (the operator's
+   * trial on DeepSeek, which runs the tools itself); `onCost` is told the call's cost, so that determination's own cost
+   * includes it. Through the gateway neither is given, as before.
+   */
+  async function call(name, args = {}, { signal, filedUnder = null, onCost = null } = {}) {
     const entries = byVerb.get(name);
     const refuse = (text) => ({ content: [{ type: 'text', text }], isError: true });
     if (!entries) return refuse(`No tool is named ${name}.`);
@@ -105,7 +110,11 @@ export function buildRegistry(loaded, env = process.env) {
     const { adapter } = entry;
     const ctx = { settings: entry.settings, signal, siteFetch, wait: (ms) => abortable(ms, signal) };
     const startedAt = Date.now();
-    const line = (extra) => ledger({ kind: 'tool', source: adapter.id, verb: name, ms: Date.now() - startedAt, usd: entry.usdPerCall, priced: true, ...extra });
+    const line = (extra) => {
+      const entry2 = { kind: 'tool', source: adapter.id, verb: name, ms: Date.now() - startedAt, usd: entry.usdPerCall, priced: true, ...extra };
+      ledger(entry2, filedUnder || undefined);
+      if (typeof onCost === 'function') onCost(Number(entry2.usd) || 0);
+    };
     try {
       let result;
       for (;;) {

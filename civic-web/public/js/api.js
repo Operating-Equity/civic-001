@@ -238,10 +238,11 @@ export function extract({ jobId, text, source, signal, onEvent, onCut, onAttache
   return streamNdjson('api/extract', { jobId, text, source }, { signal, onEvent, onCut, onAttached, isEnd: (ev) => ev.t === 'done' || ev.t === 'error' });
 }
 
-export function evaluate({ jobId, claims, text, source, runId, n, signal, onEvent, onCut, onAttached }) {
+export function evaluate({ jobId, claims, text, source, runId, n, model, effort, signal, onEvent, onCut, onAttached }) {
   // A determination's story ends when the server closes the batch, or with an error for the run itself.
   // The run's name and the claim's number go with it, so the server can say whether this one is free.
-  return streamNdjson('api/evaluate', { jobId, claims, text, source, runId: runId || undefined, n: Number.isInteger(n) ? n : undefined }, { signal, onEvent, onCut, onAttached, isEnd: (ev) => ev.t === 'complete' || (ev.t === 'error' && ev.i === undefined) });
+  // `model` and `effort` are the operator's trial (server/trial.js); the server ignores them from anyone else.
+  return streamNdjson('api/evaluate', { jobId, claims, text, source, runId: runId || undefined, n: Number.isInteger(n) ? n : undefined, model: model || undefined, effort: effort || undefined }, { signal, onEvent, onCut, onAttached, isEnd: (ev) => ev.t === 'complete' || (ev.t === 'error' && ev.i === undefined) });
 }
 
 export async function illustrate({ text, signal }) {

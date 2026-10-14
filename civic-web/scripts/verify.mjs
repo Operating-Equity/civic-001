@@ -2113,9 +2113,9 @@ async function deepseekChecks() {
     await wait(`${base}/api/health`);
     const health = await (await fetch(`${base}/api/health`)).json();
     const sx = health.request?.extract || {};
-    const wantKeys = [...(slot ? ['model', 'input'] : ['model', 'instructions', 'input']), 'reasoning', 'tools', 'stream'];
-    check('DeepSeek: the health line says the listing goes to DeepSeek\'s deepseek-flash at effort high with no mode and no summary, and lists its keys (no store); the determinations stay on OpenAI',
-      sx.provider === 'deepseek' && sx.model === 'deepseek-flash' && sx.effort === 'high' && sx.mode === null && sx.summary === null && JSON.stringify(health.request?.keys?.extract) === JSON.stringify(wantKeys) && health.request?.evaluate?.model === config.evalModels[0],
+    const wantKeys = [...(slot ? ['model', 'input'] : ['model', 'instructions', 'input']), 'reasoning', 'stream'];
+    check('DeepSeek: the health line says the listing goes to DeepSeek\'s deepseek-flash at effort high with no mode, no summary and no search (DeepSeek ignores it), and lists its keys (no tools, no store); the readers\' determinations stay on OpenAI',
+      sx.provider === 'deepseek' && sx.model === 'deepseek-flash' && sx.effort === 'high' && sx.mode === null && sx.summary === null && sx.webSearch === false && JSON.stringify(health.request?.keys?.extract) === JSON.stringify(wantKeys) && health.request?.evaluate?.model === config.evalModels[0],
       JSON.stringify({ extract: sx, keys: health.request?.keys?.extract }));
 
     const source = 'The Eiffel Tower stands about 330 metres tall. Water boils at 100 degrees Celsius at sea level. Mount Everest is 8,849 metres above sea level.';
@@ -2123,12 +2123,12 @@ async function deepseekChecks() {
     const a = await stream(`${base}/api/extract`, { text: source, jobId: jobA });
     const doneA = a.find((e) => e.t === 'done');
     const bodyA = dsBodies()[0]?.body;
-    check('DeepSeek: a listing completes with its claims, on deepseek-flash at effort high, no mode, its web search on the trail',
-      Boolean(doneA) && doneA.total >= 3 && doneA.model === 'deepseek-flash' && doneA.effort === 'high' && doneA.mode === null && (doneA.trail || []).some((t) => t.kind === 'search') && !a.some((e) => e.t === 'error'),
+    check('DeepSeek: a listing completes with its claims, on deepseek-flash at effort high, no mode, and nothing searched',
+      Boolean(doneA) && doneA.total >= 3 && doneA.model === 'deepseek-flash' && doneA.effort === 'high' && doneA.mode === null && (doneA.trail || []).length === 0 && !a.some((e) => e.t === 'error'),
       JSON.stringify(doneA && { total: doneA.total, model: doneA.model, effort: doneA.effort, mode: doneA.mode, trail: doneA.trail }));
-    check('DeepSeek: the listing\'s body carries exactly the model, the prompt, reasoning {effort: high}, web search and stream; no store, mode or summary, and not CIVIC\'s own tools though the gateway is set',
+    check('DeepSeek: the listing\'s body carries exactly the model, the prompt, reasoning {effort: high} and stream; no tools (DeepSeek ignores web search), no store, mode or summary, and not CIVIC\'s own tools though the gateway is set',
       Boolean(bodyA) && JSON.stringify(Object.keys(bodyA).sort()) === JSON.stringify([...wantKeys].sort()) && JSON.stringify(bodyA.reasoning) === JSON.stringify({ effort: 'high' })
-        && JSON.stringify(bodyA.tools) === JSON.stringify([{ type: 'web_search' }]) && bodyA.stream === true && bodyA.model === 'deepseek-flash' && !JSON.stringify(bodyA).includes(PASS),
+        && bodyA.tools === undefined && bodyA.stream === true && bodyA.model === 'deepseek-flash' && !JSON.stringify(bodyA).includes(PASS),
       JSON.stringify(bodyA && { keys: Object.keys(bodyA), reasoning: bodyA.reasoning, tools: bodyA.tools }));
     const textA = bodyA?.input?.[0]?.content?.[0]?.text;
     if (slot) {
@@ -2145,7 +2145,7 @@ async function deepseekChecks() {
     // A determination of the first claim: OpenAI, with OpenAI's key.
     const entry = doneA?.claims?.[0]?.entry || 'The Eiffel Tower stands about 330 metres tall.';
     const ev = await stream(`${base}/api/evaluate`, { claims: [entry], text: source, source: { kind: 'text' } });
-    check('DeepSeek: the determination still runs on OpenAI and completes', ev.some((e) => e.t === 'done') && !ev.some((e) => e.t === 'error'), JSON.stringify(ev.filter((e) => e.t === 'error')));
+    check('DeepSeek: a reader\'s determination still runs on OpenAI and completes', ev.some((e) => e.t === 'done') && !ev.some((e) => e.t === 'error'), JSON.stringify(ev.filter((e) => e.t === 'error')));
     const openaiRecs = records().filter((r) => r.path === '/v1/responses');
     const dsRecs = dsEntries();
     check('DeepSeek: the listing went to DeepSeek with DeepSeek\'s key and never OpenAI\'s; the determination went to OpenAI with OpenAI\'s key and never DeepSeek\'s',
@@ -2279,6 +2279,267 @@ async function deepseekChecks() {
   }
 }
 await deepseekChecks();
+
+// ---- The operator's trial: their own determinations on DeepSeek (14 October) ---------------------------------------
+// The operator: "I think the best experiment is to use the new DeepSeek deep reasoning model through the already
+// connected API." Their own runs alone, chosen on the page. DeepSeek ignores web search, so the model is offered
+// FactEngine's own tools as functions and FactEngine runs each call, round after round. Proved here: a reader's choice
+// of model is ignored and their request is OpenAI's, unchanged; the trial's body exactly, its tools the registry's, the
+// prompt as the readers' request carries it; three rounds, each sending back the model's reasoning and the calls'
+// answers; the search and the page read through FactEngine; the chain of thought on no page, replay, ledger line or
+// failure record; the cost DeepSeek's tokens plus the search's own; never charged, out of the readers' measurements, in
+// /check's trial table; every refusal a wait; the trial unavailable without the search service; side by side, the
+// readers' own request recorded as a trial; and the three fixes to OpenAI's loop.
+async function trialChecks() {
+  const TMOCK = MOCK_PORT + 90, TMOCK2 = MOCK_PORT + 91, SITE = PORT + 96;
+  const DSKEY = 'sk-dstrial00000000000000000000000';
+  const SKEY = 'search-key-trial-verify-7e1c';
+  const COT = 'DSCOT-7f3a';   // the stand-in's chain-of-thought marker
+  const stamp = Date.now();
+  const rec = path.join(os.tmpdir(), `civic-verify-trial-${stamp}.jsonl`);
+  const rec2 = path.join(os.tmpdir(), `civic-verify-trial2-${stamp}.jsonl`);
+  const ledger = path.join(os.tmpdir(), `civic-verify-trial-ledger-${stamp}.jsonl`);
+  const errlog = path.join(os.tmpdir(), `civic-verify-trial-errors-${stamp}.log`);
+  fs.writeFileSync(rec, ''); fs.writeFileSync(rec2, '');
+  const read = (f) => fs.readFileSync(f, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l));
+  const dsBodies = (f = rec) => read(f).filter((r) => r.path === '/deepseek/responses' && r.body);
+  const dsHeads = (f = rec) => read(f).filter((r) => r.deepseek && r.path !== '/deepseek/mock/stats');   // the guard's own stats reads carry the stand-in's key
+  const oaBodies = (f = rec) => read(f).filter((r) => r.path === '/v1/responses' && r.body);
+  const dsStats = async (port = TMOCK) => (await fetch(`http://localhost:${port}/deepseek/mock/stats`, { headers: { authorization: `Bearer ${KEY}` } })).json();
+  const lines = () => (fs.existsSync(ledger) ? fs.readFileSync(ledger, 'utf8') : '').split('\n').filter(Boolean).map((l) => JSON.parse(l));
+  // The search service the tools ask, in Exa's shape, and the page it finds; every call recorded.
+  const searchCalls = [];
+  const pageReads = [];
+  const site = http.createServer((req, res) => {
+    if (req.method === 'POST' && req.url.startsWith('/search')) {
+      let raw = '';
+      req.on('data', (c) => { raw += c; });
+      req.on('end', () => {
+        let body = {}; try { body = JSON.parse(raw); } catch {}
+        searchCalls.push({ key: req.headers['x-api-key'] || '', auth: req.headers.authorization || '', query: body.query || '' });
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ requestId: 'standin', results: [{ url: `http://localhost:${SITE}/tower`, title: 'The tower, measured', publishedDate: '2026-01-02T00:00:00.000Z', text: `${body.query}: the Eiffel Tower is about 330 metres tall.` }], costDollars: { total: 0.005 } }));
+      });
+      return;
+    }
+    if (req.url.startsWith('/tower')) { pageReads.push(req.url); res.writeHead(200, { 'content-type': 'text/html' }); res.end(`<html><head><title>The tower, measured</title></head><body><article><p>${'The Eiffel Tower is about 330 metres tall and stands on the Champ de Mars in Paris. '.repeat(6)}</p></article></body></html>`); return; }
+    res.writeHead(404); res.end();
+  });
+  await new Promise((r) => site.listen(SITE, r));
+  const procs = [];
+  const output = [];
+  const trialEnv = (mock) => ({
+    OPENAI_BASE_URL: `http://localhost:${mock}/v1`, OPENAI_API_KEY: KEY, CIVIC_IMAGE_ENABLED: 'false',
+    CIVIC_LEDGER_FILE: ledger, CIVIC_ERROR_LOG: errlog, DEEPSEEK_API_KEY: DSKEY, CIVIC_DEEPSEEK_BASE_URL: `http://localhost:${mock}/deepseek`,
+    CIVIC_SEARCH_URL: `http://localhost:${SITE}/search`, CIVIC_SEARCH_KEY: SKEY, CIVIC_ALLOW_PRIVATE_URLS: 'true',
+  });
+  const serve = (port, env) => {
+    const child = start([path.join(root, 'server', 'index.js')], { PORT: String(port), ...trialEnv(TMOCK), DATABASE_URL: '', ...env });
+    child.stdout.on('data', (d) => output.push(String(d)));
+    child.stderr.on('data', (d) => output.push(String(d)));
+    procs.push(child);
+    return `http://localhost:${port}`;
+  };
+  // Ordinals at the stand-in DeepSeek: 1-3 the first trial (search, page, entry); 4 a 429 with no wait, then 5-7; 8 a
+  // 503, then 9-11; 12 an error event mid-stream, then 13-15; 16 a stream closed with no event, then 17-19; 20 a 402.
+  // At the stand-in OpenAI: 1 a reader's determination; 2 the same claim side by side; 3 a reply that ends with no last
+  // event, then 4; 5 an error event mid-stream, then 6; 7 cut after its searches, then 8.
+  const evalMark = process.env.MOCK_EVAL_MARK_FOR_GATE || '';
+  start([path.join(root, 'scripts', 'mock-openai.js')], {
+    MOCK_PORT: String(TMOCK), MOCK_RECORD: rec, MOCK_SPEED: '0.2', MOCK_EVAL_MARK: evalMark, MOCK_DS_READ_URL: `http://localhost:${SITE}/tower`,
+    MOCK_DS_429: '4', MOCK_DS_503: '8', MOCK_DS_ERROR_EVENT: '12', MOCK_DS_CLOSE: '16', MOCK_DS_402: '20',
+    MOCK_END_EARLY_REQUESTS: '3', MOCK_ERROR_EVENT_REQUESTS: '5', MOCK_DROP_REQUESTS: '7',
+  });
+  start([path.join(root, 'scripts', 'mock-openai.js')], { MOCK_PORT: String(TMOCK2), MOCK_RECORD: rec2, MOCK_SPEED: '0.2', MOCK_EVAL_MARK: evalMark, MOCK_DS_READ_URL: `http://localhost:${SITE}/tower` });
+  try {
+    await wait(`http://localhost:${TMOCK}/v1/responses`, 15000, { anyResponse: true });
+    await wait(`http://localhost:${TMOCK2}/v1/responses`, 15000, { anyResponse: true });
+    // An open door (CIVIC_ACCOUNTS=off, a laptop of one's own) is the operator's: the trial is offered.
+    const base = serve(PORT + 97, { OPENAI_ORG_ID: 'org-verify-trial', OPENAI_CUSTOM_HEADERS: 'X-Verify-Leak: yes' });
+    await wait(`${base}/api/health`);
+    const health = await (await fetch(`${base}/api/health`)).json();
+    const tr = health.trial || {};
+    check('Trial: the operator\'s page is offered DeepSeek V4 Pro and V4.1 Flash, DeepSeek\'s four efforts opening on high, beside the readers\' model, and ready',
+      JSON.stringify((tr.models || []).map((m) => m.id)) === JSON.stringify(['deepseek-v4-pro', 'deepseek-flash']) && JSON.stringify(tr.efforts) === JSON.stringify(['none', 'low', 'high', 'max'])
+        && tr.effort === 'high' && tr.readers?.id === config.evalModels[0] && tr.ready === true && JSON.stringify(health.request?.keys?.trial) === JSON.stringify(['model', 'input', 'reasoning', 'tools', 'stream']),
+      JSON.stringify({ trial: tr, keys: health.request?.keys?.trial }));
+
+    const source = 'The Eiffel Tower stands about 330 metres tall. Water boils at 100 degrees Celsius at sea level.';
+    const claim = 'The Eiffel Tower stands about 330 metres tall.';
+    const evaluate = (extra = {}, label = 'x') => stream(`${base}/api/evaluate`, { claims: [claim], text: source, source: { kind: 'text' }, jobId: `tr-${label}-${stamp}`, ...extra });
+
+    // A reader's determination first, for the request the trial must match.
+    const r1 = await evaluate({}, 'reader');
+    const readerBody = oaBodies()[0]?.body;
+    check('Trial: a determination with no model chosen is the readers\' own, on OpenAI, delivered as always',
+      r1.some((e) => e.t === 'done' && !e.trial && !e.provider) && oaBodies().length === 1 && dsBodies().length === 0, JSON.stringify(r1.filter((e) => e.t === 'error')));
+
+    // The trial on DeepSeek V4 Pro at max: three rounds, a search and a page through FactEngine, then the entry.
+    const jobT = `tr-t1-${stamp}`;
+    const t1 = await stream(`${base}/api/evaluate`, { claims: [claim], text: source, source: { kind: 'text' }, jobId: jobT, model: 'deepseek-v4-pro', effort: 'max' });
+    const done1 = t1.find((e) => e.t === 'done');
+    const b = dsBodies().map((x) => x.body);
+    const st1 = await dsStats();
+    check('Trial: the operator\'s fact-check on DeepSeek V4 Pro at max is delivered, its verdict read, its trail a search and a page read through FactEngine, no reasoning box',
+      done1?.provider === 'deepseek' && done1.trial === true && done1.model === 'deepseek-v4-pro' && done1.effort === 'max' && done1.verdictSource !== 'unread' && done1.reasoning === null
+        && (done1.trail || []).length === 2 && done1.trail[0].name === 'search_web' && done1.trail[0].status === 'completed' && done1.trail[1].name === 'read_page' && done1.trail[1].url === `http://localhost:${SITE}/tower` && done1.trail[1].status === 'completed'
+        && done1.searches === 1 && !t1.some((e) => e.t === 'error'),
+      JSON.stringify(done1 && { provider: done1.provider, model: done1.model, effort: done1.effort, verdictSource: done1.verdictSource, trail: done1.trail, searches: done1.searches }));
+    check('Trial: three rounds went to DeepSeek, each carrying exactly the model, the conversation, reasoning {effort: max}, FactEngine\'s tools as functions and stream (no store, mode, summary, web search or mcp)',
+      b.length === 3 && b.every((x) => JSON.stringify(Object.keys(x).sort()) === JSON.stringify(['input', 'model', 'reasoning', 'stream', 'tools']) && JSON.stringify(x.reasoning) === JSON.stringify({ effort: 'max' }) && x.stream === true && x.model === 'deepseek-v4-pro')
+        && b.every((x) => x.tools.length >= 2 && x.tools.every((t) => t.type === 'function' && typeof t.name === 'string' && typeof t.description === 'string' && t.parameters?.type === 'object') && ['search_web', 'read_page'].every((n) => x.tools.some((t) => t.name === n))),
+      JSON.stringify(b.map((x) => ({ keys: Object.keys(x), reasoning: x.reasoning, tools: (x.tools || []).map((t) => `${t.type}:${t.name}`) }))));
+    check('Trial: the first round begins with exactly the two messages a reader\'s determination of the same claim carries (the source, then the prompt verbatim)',
+      Boolean(readerBody) && b.length > 0 && JSON.stringify(b[0].input) === JSON.stringify(readerBody.input), `${JSON.stringify(b[0]?.input).length} vs ${JSON.stringify(readerBody?.input).length} chars`);
+    check('Trial: each later round sends back the model\'s reasoning and its call, then the call\'s answer, and DeepSeek refused none',
+      b.length === 3 && b[1].input.length === 5 && JSON.stringify(b[1].input.slice(2).map((x) => x.type)) === JSON.stringify(['reasoning', 'function_call', 'function_call_output'])
+        && b[2].input.length === 8 && b[2].input[3].call_id === b[2].input[4].call_id && st1.refusedRounds === 0 && st1.rounds === 3,
+      JSON.stringify({ round2: b[1]?.input?.map((x) => x.type || x.role), round3: b[2]?.input?.map((x) => x.type || x.role), stats: st1 }));
+    check('Trial: the search went to FactEngine\'s search service with its key, in the model\'s words, and the page was read by FactEngine\'s reader',
+      searchCalls.length === 1 && searchCalls[0].key === SKEY && /evidence for/.test(searchCalls[0].query) && pageReads.length === 1, JSON.stringify({ searches: searchCalls.map((x) => x.query), pages: pageReads }));
+    const heads = dsHeads();
+    check('Trial: DeepSeek got DeepSeek\'s key alone: never OpenAI\'s, nor any setting of OpenAI\'s (organisation, custom header)',
+      heads.length >= 3 && heads.every((r) => r.auth === `Bearer ${DSKEY}` && !r.headers.includes('openai-organization') && !r.headers.includes('x-verify-leak')),
+      JSON.stringify([...new Set(heads.map((r) => r.auth))].map((x) => x.replace(DSKEY, 'DSKEY').replace(KEY, 'OPENAI KEY'))));
+    const replay = await stream(`${base}/api/evaluate`, { claims: [claim], text: source, jobId: jobT, cursor: 0, model: 'deepseek-v4-pro', effort: 'max' });
+    check('Trial: DeepSeek\'s chain of thought reaches no page: no reasoning event in the stream or its replay from the start, nothing of it in done',
+      replay.some((e) => e.t === 'done') && ![...t1, ...replay].some((e) => e.t === 'reasoning' || JSON.stringify(e).includes(COT)),
+      JSON.stringify([...t1, ...replay].filter((e) => e.t === 'reasoning' || JSON.stringify(e).includes(COT)).slice(0, 2)));
+    const tline = lines().find((l) => l.kind === 'trial' && l.provider === 'deepseek' && l.ok);
+    const toolLine = lines().find((l) => l.kind === 'tool' && l.verb === 'search_web' && l.determination === jobT);
+    check('Trial: its ledger line is a trial\'s (DeepSeek, V4 Pro at max, three rounds, one search, one page), its cost DeepSeek\'s tokens plus the search\'s own $0.005, which done carries too; the search\'s own line is filed under it',
+      Boolean(tline) && tline.model === 'deepseek-v4-pro' && tline.effort === 'max' && tline.rounds === 3 && tline.searches === 1 && tline.reads === 1 && tline.toolUsd === 0.005 && tline.tokenUsd > 0
+        && Math.abs(tline.usd - (tline.tokenUsd + tline.toolUsd)) < 0.0002 && done1?.cost?.usd === tline.usd && toolLine?.usd === 0.005,
+      JSON.stringify({ line: tline && { rounds: tline.rounds, searches: tline.searches, reads: tline.reads, tokenUsd: tline.tokenUsd, toolUsd: tline.toolUsd, usd: tline.usd }, done: done1?.cost, tool: toolLine?.usd }));
+
+    // Every refusal a wait: one trial each, in the order the stand-in was told.
+    const trialRun = async (label) => { const before = (await dsStats()).requests; const evs = await evaluate({ model: 'deepseek-v4-pro', effort: 'max' }, label); return { evs, sends: (await dsStats()).requests - before }; };
+    const w1 = await trialRun('429');
+    const rr = w1.evs.find((e) => e.t === 'retry');
+    check('Trial: a 429 from DeepSeek that names no wait is a wait of about a second, then the fact-check is delivered (four sends, no loop)',
+      rr?.reason === 'rate_limit' && rr.waitMs >= 600 && rr.waitMs <= 1000 && w1.sends === 4 && w1.evs.filter((e) => e.t === 'done').length === 1, JSON.stringify({ retry: rr, sends: w1.sends }));
+    const w2 = await trialRun('503');
+    check('Trial: an overloaded DeepSeek (503) is tried again a second later, and the fact-check is delivered',
+      w2.evs.some((e) => e.t === 'retry' && e.reason === 'error' && e.waitMs >= 600) && w2.sends === 4 && w2.evs.filter((e) => e.t === 'done').length === 1, JSON.stringify({ retries: w2.evs.filter((e) => e.t === 'retry'), sends: w2.sends }));
+    const w3 = await trialRun('error-event');
+    check('Trial: an error event in the middle of a round is read as that round\'s failure and the round goes again; delivered once',
+      w3.evs.some((e) => e.t === 'retry') && w3.sends === 4 && w3.evs.filter((e) => e.t === 'done').length === 1 && !w3.evs.some((e) => e.t === 'error'), JSON.stringify({ retries: w3.evs.filter((e) => e.t === 'retry'), sends: w3.sends }));
+    const w4 = await trialRun('closed');
+    check('Trial: a round that stops before its last event is a cut connection and goes again; never an entry of nothing',
+      w4.evs.some((e) => e.t === 'retry' && e.reason === 'connection') && w4.sends === 4 && w4.evs.filter((e) => e.t === 'done').length === 1 && (w4.evs.find((e) => e.t === 'done')?.text || '').length > 0,
+      JSON.stringify({ retries: w4.evs.filter((e) => e.t === 'retry'), sends: w4.sends }));
+    const w5 = await trialRun('402');
+    const err5 = w5.evs.find((e) => e.t === 'error');
+    const recent = (await (await fetch(`${base}/api/selftest`)).json()).recentFailures || [];
+    const rec402 = recent.find((x) => x.where === 'trial:deepseek' && x.code === 'balance_exhausted');
+    check('Trial: DeepSeek\'s balance used up (402) ends that fact-check with the code and no words of the provider\'s, and /check records DeepSeek\'s own',
+      err5?.code === 'balance_exhausted' && err5.message === '' && /DeepSeek answered 402 \(Insufficient Balance\)/.test(rec402?.detail || '') && w5.sends === 1,
+      JSON.stringify({ error: err5, record: rec402, sends: w5.sends }));
+
+    // The effort the page opens on, when none is sent; and a model outside the trial.
+    const f1 = await evaluate({ model: 'deepseek-flash' }, 'flash');
+    const fb = dsBodies().slice(-1)[0]?.body;
+    check('Trial: DeepSeek V4.1 Flash with no effort sent runs at high, the level the page opens on',
+      f1.some((e) => e.t === 'done' && e.model === 'deepseek-flash' && e.effort === 'high') && JSON.stringify(fb?.reasoning) === JSON.stringify({ effort: 'high' }) && fb?.model === 'deepseek-flash',
+      JSON.stringify({ done: f1.find((e) => e.t === 'done')?.effort, body: fb?.reasoning }));
+    const beforeOdd = (await dsStats()).requests;
+    const odd = await fetch(`${base}/api/evaluate`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ claims: [claim], text: source, jobId: `tr-odd-${stamp}`, model: 'deepseek-unknown' }) });
+    const oddBody = await odd.json().catch(() => ({}));
+    check('Trial: a model that is not one of the trial\'s is refused (400 trial_model) and nothing reaches DeepSeek',
+      odd.status === 400 && oddBody?.error?.code === 'trial_model' && (await dsStats()).requests === beforeOdd, JSON.stringify({ status: odd.status, body: oddBody }));
+
+    // Side by side: the readers' own model, asked for by the operator, is the readers' request, recorded as a trial.
+    const s1 = await evaluate({ model: config.evalModels[0] }, 'twin');
+    const twinBody = oaBodies()[1]?.body;
+    check('Trial: side by side, the readers\' model runs the readers\' request exactly, and is delivered and recorded as a trial',
+      s1.some((e) => e.t === 'done' && e.trial === true && e.provider === 'openai') && JSON.stringify(twinBody) === JSON.stringify(readerBody)
+        && lines().some((l) => l.kind === 'trial' && l.provider === 'openai' && l.ok),
+      JSON.stringify({ done: s1.find((e) => e.t === 'done')?.provider, same: JSON.stringify(twinBody) === JSON.stringify(readerBody) }));
+
+    // The three fixes to OpenAI's loop, on the readers' own path.
+    const e1 = await evaluate({}, 'openai-end-early');
+    const d1 = e1.filter((e) => e.t === 'done');
+    check('OpenAI: a reply that ends with no last event is a cut connection: the claim goes again and is delivered once, whole, never read as a finished entry',
+      e1.some((e) => e.t === 'retry' && e.reason === 'connection') && d1.length === 1 && d1[0].verdictSource !== 'unread' && (d1[0].text || '').length > 200,
+      JSON.stringify({ retries: e1.filter((e) => e.t === 'retry'), done: d1.map((d) => d.verdictSource) }));
+    const e2 = await evaluate({}, 'openai-error-event');
+    check('OpenAI: an error event in the middle of a reply (an overloaded server) is tried again, not a failed claim',
+      e2.some((e) => e.t === 'retry' && e.reason === 'error') && e2.filter((e) => e.t === 'done').length === 1 && !e2.some((e) => e.t === 'error'),
+      JSON.stringify({ retries: e2.filter((e) => e.t === 'retry'), errors: e2.filter((e) => e.t === 'error') }));
+    const e3 = await evaluate({}, 'openai-cut-after-search');
+    const d3 = e3.find((e) => e.t === 'done');
+    const l3 = lines().filter((l) => l.kind === 'evaluate' && l.ok).slice(-1)[0];
+    check('OpenAI: a claim taken up again after a cut keeps only the delivered go\'s searches and sources on its card, while the cost counts every search made',
+      Boolean(d3) && d3.trail.length === 2 && d3.searches === 2 && d3.sources.length === new Set(d3.sources.map((x) => x.url)).size && l3?.searches === 4,
+      JSON.stringify({ trail: d3?.trail?.length, searches: d3?.searches, line: l3?.searches }));
+
+    // Out of the readers' figures, and in /check's trial table.
+    const report = (await (await fetch(`${base}/api/selftest`)).json()).economics || {};
+    const trow = (report.trial || []).find((x) => x.who === 'trial' && x.provider === 'deepseek' && x.model === 'deepseek-v4-pro' && x.effort === 'max');
+    const rrow = (report.trial || []).find((x) => x.who === 'readers');
+    check('Trial: the readers\' durations count the readers\' four determinations and none of the trial\'s; /check\'s trial table has V4 Pro at max (five delivered, one failed, one search and one page each) beside the readers\'',
+      report.durations?.determinations?.n === 4 && trow?.n === 5 && trow.failed === 1 && trow.meanSearches === 1 && trow.meanReads === 1 && trow.meanUsd > 0 && rrow?.n === 4
+        && (report.trial || []).some((x) => x.who === 'trial' && x.provider === 'openai') && (report.trial || []).some((x) => x.model === 'deepseek-flash' && x.effort === 'high'),
+      JSON.stringify({ durations: report.durations?.determinations?.n, trial: report.trial }));
+    check('Trial: the chain of thought is in no ledger line and no failure record, and neither key is in the health line, the check data or the server\'s output',
+      !fs.readFileSync(ledger, 'utf8').includes(COT) && !(fs.existsSync(errlog) ? fs.readFileSync(errlog, 'utf8') : '').includes(COT)
+        && ![await (await fetch(`${base}/api/health`)).text(), await (await fetch(`${base}/api/selftest`)).text(), output.join('')].some((t) => t.includes(DSKEY) || t.includes(KEY) || t.includes(SKEY)), '');
+
+    // Without the search service the trial cannot search, so it does not run.
+    const baseC = serve(PORT + 98, { CIVIC_SEARCH_URL: '', CIVIC_SEARCH_KEY: '' });
+    await wait(`${baseC}/api/health`);
+    const hC = await (await fetch(`${baseC}/api/health`)).json();
+    const beforeC = (await dsStats()).requests;
+    const rC = await fetch(`${baseC}/api/evaluate`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ claims: [claim], text: source, jobId: `tr-nosearch-${stamp}`, model: 'deepseek-v4-pro' }) });
+    const bC = await rC.json().catch(() => ({}));
+    const stC = await (await fetch(`${baseC}/api/selftest`)).json();
+    check('Trial: without FactEngine\'s search service the trial is offered as unavailable with the reason, refused (503 trial_unavailable) and nothing reaches DeepSeek; /check warns, and is still ready for readers',
+      hC.trial?.ready === false && /search service/.test(hC.trial?.why || '') && rC.status === 503 && bC?.error?.code === 'trial_unavailable' && (await dsStats()).requests === beforeC
+        && stC.ready === true && (stC.checks || []).some((x) => x.state === 'warn' && x.title === 'Your trial on DeepSeek cannot run'),
+      JSON.stringify({ trial: hC.trial, status: rC.status, body: bC, ready: stC.ready }));
+
+    // With accounts on: the trial is the operator's alone, never charged; a reader's choice of model is ignored.
+    const P = PORT + 99;
+    const srv = accountServer(P, TMOCK2, { ...trialEnv(TMOCK2), CIVIC_OPERATOR_EMAILS: 'op@example.com', CIVIC_OPERATOR_CLAIM: claimHash(), CIVIC_LIST_PRICE_CENTS: '125', CIVIC_TIER_ORDER: '1' });
+    procs.push(srv.child);
+    await wait(`http://localhost:${P}/api/health`, 20000);
+    const people = accountClient(`http://localhost:${P}`);
+    const reader = (await people.signup('reader@example.com')).cookie;
+    const op = (await people.json('/api/account/claim', { method: 'POST', body: { token: CLAIM_TOKEN, email: 'op@example.com', password: PASSWORD, agree: true } })).cookie;
+    const hReader = (await people.json('/api/health', { cookie: reader })).body;
+    const hOp = (await people.json('/api/health', { cookie: op })).body;
+    check('Trial: a reader\'s health line offers no trial; the operator\'s does',
+      hReader?.trial === null && hOp?.trial?.ready === true, JSON.stringify({ reader: hReader?.trial, operator: hOp?.trial?.ready }));
+    const listAndTest = async (cookie, who, extra) => {
+      const runId = `tr-${who}-run-${stamp}`;
+      await people.stream('/api/extract', { jobId: runId, text: ACCT_TEXT }, cookie);
+      return people.stream('/api/evaluate', { jobId: `tr-${who}-c1-${stamp}`, claims: ['The Eiffel Tower stands about 330 metres tall.'], text: ACCT_TEXT, runId, n: 1, ...extra }, cookie);
+    };
+    const rBal0 = await people.balance(reader);
+    const dsBefore = (await dsStats(TMOCK2)).requests;
+    const rt = await listAndTest(reader, 'reader', { model: 'deepseek-v4-pro', effort: 'max' });
+    const rDone = rt.events.find((e) => e.t === 'done');
+    const isDetermination = (x) => (x.body?.input || []).some((m) => (m.content || []).some((c) => evalMark ? String(c.text || '').includes(evalMark) : /^\s*Prompt\s*=/.test(String(c.text || ''))));
+    const rBody = oaBodies(rec2).filter(isDetermination).slice(-1)[0]?.body;
+    check('Trial: a reader who names DeepSeek gets the readers\' determination on OpenAI, unchanged and charged as always; nothing reaches DeepSeek',
+      Boolean(rDone) && !rDone.trial && !rDone.provider && (await dsStats(TMOCK2)).requests === dsBefore && JSON.stringify(extraKeys(rBody, ALLOWED.evaluate)) === '[]' && rBody?.model === config.evalModels[0]
+        && (await people.balance(reader)) === rBal0 - 125,
+      JSON.stringify({ done: Boolean(rDone), trial: rDone?.trial, ds: (await dsStats(TMOCK2)).requests - dsBefore, balance: [rBal0, await people.balance(reader)] }));
+    const oBal0 = await people.balance(op);
+    const ot = await listAndTest(op, 'operator', { model: 'deepseek-v4-pro', effort: 'high' });
+    const oDone = ot.events.find((e) => e.t === 'done');
+    const quote = ot.events.find((e) => e.t === 'quote');
+    check('Trial: the operator\'s own fact-check on DeepSeek is delivered and never charged (free of price, not one of the document\'s free ones, the balance as it was)',
+      oDone?.provider === 'deepseek' && oDone.trial === true && quote?.free === false && quote?.priceCents === 0 && (await people.balance(op)) === oBal0,
+      JSON.stringify({ done: oDone?.provider, quote, balance: [oBal0, await people.balance(op)] }));
+  } catch (err) {
+    check('Trial checks completed', false, err.stack || err.message);
+  } finally {
+    for (const p of procs) { try { p.kill('SIGTERM'); } catch {} }
+    site.close();
+  }
+}
+await trialChecks();
 
 // ---- the listing on Fireworks: DeepSeek V4.1 Flash from a US company, FactEngine's own search, the chain of thought cut off ----
 // The operator's choice of 5 October. Against a stand-in that speaks Fireworks' dialect (scripts/mock-openai.js): the

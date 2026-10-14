@@ -47,9 +47,10 @@ const chosenKey = resolveKey({ settingsFile: new URL('../.env', import.meta.url)
 
 // The listing (step 1) on another provider than the determinations: the operator's choice of 4 October, "I want
 // use DeepSeek flash for the generating of empirical claims. It is 10 times faster and better." DeepSeek answers
-// OpenAI's Responses API at its own address and with its own key, runs web search on its own side, honours
-// reasoning.effort (none, low, high, max), makes no reasoning summary and has no mode; so on DeepSeek the request
-// carries the model, the prompt, the effort, web search and nothing else. The listing's effort is its own
+// OpenAI's Responses API at its own address and with its own key, honours reasoning.effort (none, low, high, max),
+// makes no reasoning summary and has no mode; its Responses API ignores `web_search` and every other built-in tool,
+// silently (its own guide, read 14 October: I had written on 4 October that it searched on its own side, and it never
+// did). So on DeepSeek the listing carries the model, the prompt, the effort and nothing else. The listing's effort is its own
 // (CIVIC_EXTRACT_EFFORT) and never inherited from CIVIC_EFFORT, so a change of OpenAI's effort cannot move the
 // listing: high, the operator's answer of 5 October after a small article took over seven minutes at max ("We may
 // need to reduce from max"); max was their answer of 4 October. Unset, the listing is on OpenAI exactly as before.
@@ -77,6 +78,13 @@ const PUBLIC_URL = env('RENDER_EXTERNAL_URL', '').trim().replace(/\/+$/, '');
 
 
 /** "ABCD234" or "ABCD234:150": the code as typed made canonical, and its own allowance of runs if given. */
+
+/** The trial's models (CIVIC_EVAL_TRIAL_MODELS): the two DeepSeek models unless the operator names others; `off` or
+ *  `none`, no trial. */
+function trialModels() {
+  const raw = env('CIVIC_EVAL_TRIAL_MODELS', 'deepseek-v4-pro,deepseek-flash').trim();
+  return /^(off|none)$/i.test(raw) ? [] : raw.split(',').map((m) => m.trim()).filter(Boolean);
+}
 
 export const config = {
   port: int('PORT', 3000),
@@ -122,6 +130,11 @@ export const config = {
   // check page's pacing row, after a run, is the figure to set this by.
   evalConcurrency: int('CIVIC_EVAL_CONCURRENCY', 10),
   evalRetries: int('CIVIC_EVAL_RETRIES', 8),           // rate limits and 5xx only; never on a model or parameter error
+  // The operator's trial (14 October): their own determinations on DeepSeek, chosen on the page beside the readers'
+  // model, which stays as it is. "I think the best experiment is to use the new DeepSeek deep reasoning model through
+  // the already connected API." These are the models the operator may choose there; a reader never can. DeepSeek's
+  // two models on its API today: V4 Pro (the deep-reasoning one) and V4.1 Flash. `off` ends the trial.
+  evalTrialModels: trialModels(),
 
   // Source documents. No limit of ours. If a document exceeds the model's context window the API
   // refuses it and that error is shown verbatim; nothing is ever read in part.
@@ -256,14 +269,21 @@ export const config = {
 /** Exactly what each request will carry. Printed at startup and reported by /api/health. */
 export function requestShape() {
   const source = extractionShape();
+  const onDeepSeek = config.extractProvider === 'deepseek';
   return {
     // On Fireworks the listing searches through FactEngine's tool server, so it can search when that has an address and a pass.
-    extract: { provider: config.extractProvider, model: config.extractModels[0], effort: config.extractEffort, mode: config.extractReasoningMode || null, summary: config.extractSummary || null, webSearch: config.extractProvider === 'fireworks' ? Boolean(config.gatewayUrl) : true, fallback: config.extractModels.length > 1, source },
+    // On DeepSeek the listing does not search: DeepSeek's Responses API ignores web search, so none is sent.
+    extract: { provider: config.extractProvider, model: config.extractModels[0], effort: config.extractEffort, mode: config.extractReasoningMode || null, summary: config.extractSummary || null, webSearch: config.extractProvider === 'fireworks' ? Boolean(config.gatewayUrl) : !onDeepSeek, fallback: config.extractModels.length > 1, source },
     evaluate: { model: config.evalModels[0], effort: config.evalEffort, mode: config.evalReasoningMode || null, summary: config.evalReasoningSummary || null, webSearch: true, fallback: config.evalModels.length > 1, source: 'ahead' },
     // Present in every request; never anything else.
-    // On DeepSeek the listing carries no `store` (DeepSeek keeps nothing and does not take the key); on Fireworks it
-    // carries `store: false`, as on OpenAI.
-    keys: { extract: [...(source === 'inserted' ? ['model', 'input'] : ['model', 'instructions', 'input']), 'reasoning', 'tools', 'stream', ...(config.extractProvider === 'deepseek' ? [] : ['store'])], evaluate: ['model', 'input', 'reasoning', 'tools', 'stream', 'store'] },
+    // On DeepSeek the listing carries no `tools` and no `store` (DeepSeek ignores the one and keeps nothing, so does not
+    // take the other); on Fireworks it carries `store: false`, as on OpenAI. The operator's trial on DeepSeek
+    // (evaluate.js) carries FactEngine's own tools, as functions, and no `store`.
+    keys: {
+      extract: [...(source === 'inserted' ? ['model', 'input'] : ['model', 'instructions', 'input']), 'reasoning', ...(onDeepSeek ? [] : ['tools']), 'stream', ...(onDeepSeek ? [] : ['store'])],
+      evaluate: ['model', 'input', 'reasoning', 'tools', 'stream', 'store'],
+      trial: ['model', 'input', 'reasoning', 'tools', 'stream'],
+    },
   };
 }
 
