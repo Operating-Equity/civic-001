@@ -556,7 +556,8 @@ A determination's reply that stops before its last event (completed, incomplete 
 the claim goes again, as for a cut connection, and is never delivered or charged as an entry. An error event in the
 middle of a reply (a rate limit, an overloaded server) is read for what it is, a wait or a retry, never a failed claim.
 A claim taken up again starts its card afresh (its searches and sources are the delivered go's), while its cost counts
-every search OpenAI ran (fixed 14 October).
+every search OpenAI ran. And a claim's end is booked before the page hears of it, so a request the page makes on
+hearing of it (the same claim asked for again) finds it booked, never still running (fixed 14 October).
 
 ### The guard
 

@@ -367,19 +367,25 @@ app.post('/api/evaluate', wrap(async (req, res) => {
     const send = showCost ? sendAll : (ev) => sendAll(withoutCost(ev));
     quotes.forEach((q, i) => { if (q) send({ t: 'quote', i, free: q.free, priceCents: q.priceCents, currency: config.currency, ...(Number.isInteger(q.balanceCents) ? { balanceCents: q.balanceCents } : {}) }); });
     // The books close with the claim's own end: done books its revenue at list and charges its hold; an error books
-    // nothing and releases it. Each attempt closes its own, never a later one's.
-    const sendAndBook = (ev) => {
-      send(ev);
+    // nothing and releases it. Each attempt closes its own, never a later one's. The claim is booked BEFORE the page is
+    // told of its end, and the events keep their order behind it: a request the page makes on hearing of the end (the
+    // same claim asked for again, its result lost) must find the claim booked, never still running, or it would be taken
+    // for a new attempt and charged (found by the guard on 14 October, a race of milliseconds).
+    let order = Promise.resolve();
+    const inOrder = (fn) => { order = order.then(fn).catch((err) => console.error('[economics] an event could not be passed on:', err?.message || err)); };
+    const sendAndBook = (ev) => inOrder(async () => {
       const q = ev.i !== undefined ? quotes[ev.i] : null;
-      if (ev.t === 'done' && ev.i !== undefined) economics.book(detIds[ev.i], { attempt: q?.attempt ?? null, status: 'done', verdict: ev.verdict || null, model: ev.model || null });
-      else if (ev.t === 'error' && ev.i !== undefined) economics.book(detIds[ev.i], { attempt: q?.attempt ?? null, status: 'failed', failure: ev.code || 'error' });
-    };
+      if (ev.t === 'done' && ev.i !== undefined) await economics.book(detIds[ev.i], { attempt: q?.attempt ?? null, status: 'done', verdict: ev.verdict || null, model: ev.model || null });
+      else if (ev.t === 'error' && ev.i !== undefined) await economics.book(detIds[ev.i], { attempt: q?.attempt ?? null, status: 'failed', failure: ev.code || 'error' });
+      send(ev);
+    });
     try {
       await runEvaluation({ apiKey, claims, document, send: sendAndBook, signal, ctx, trial });
     } catch (err) {
       const safe = describeError(err);
-      send({ t: 'error', code: safe.code, message: safe.message, status: safe.status });
+      inOrder(() => send({ t: 'error', code: safe.code, message: safe.message, status: safe.status }));
     } finally {
+      await order;   // every event out, every claim's end booked, before the job ends
       // A claim the request ended without a result for (the page stopped the run, the request failed): failed, nothing booked, its hold released.
       await economics.closeOpen(attempts, signal.aborted ? 'cancelled' : 'ended');
     }

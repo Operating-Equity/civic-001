@@ -726,7 +726,9 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
     stay true.
   - **Fixed on the way, for every determination:** a reply that stops before its last event is a cut, taken up again,
     never delivered or charged; an error event mid-reply is a wait or a retry; a claim taken up again shows only the
-    delivered go's searches and sources, and its cost counts every search made.
+    delivered go's searches and sources, and its cost counts every search made. And a claim's end is booked before the
+    page is told of it: the guard caught, once in three runs, the same claim asked for again in the milliseconds between
+    the two, found still running and charged as a new attempt.
   - **Waiting for the operator:** the summary window and the cut to the claims that carry the document (their prompts
     and specifics); whether DeepSeek confirmed the opt-out request drafted on 4 October.
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
