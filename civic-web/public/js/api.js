@@ -254,12 +254,3 @@ export async function illustrate({ text, signal }) {
   if (!res.ok) await throwFromResponse(res);
   return res.json();
 }
-
-/**
- * One reply of the conversation under a result (server/chat.js): the page sends the conversation it holds, with the
- * server's seal over it, and the reader's message; the reply's story ends with the reply (`done`) or its error. A cut
- * connection is opened again against the same reply, as a determination's is.
- */
-export function chat({ jobId, body, signal, onEvent, onCut, onAttached }) {
-  return streamNdjson('api/chat', { jobId, ...body }, { signal, onEvent, onCut, onAttached, isEnd: (ev) => ev.t === 'done' || ev.t === 'error' });
-}

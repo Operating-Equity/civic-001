@@ -140,19 +140,6 @@ export function inspectorOf(text) {
   return /^[\p{L}][\p{L} .'’-]*$/u.test(after.replace(/[*_]/g, '').trim()) ? cleanName(after) : null;
 }
 
-/**
- * The inspector's letter in a conversation, by which the conversation calls it (the operator, 8 October: the first
- * letter of the first name): the first letter of the name's first word that is not a title in `titles`
- * (CIVIC_CHAT_TITLES), in capitals. "Orin Vale" and "Dr. Orin Vale" are O, "Sir Edwin Cardale" E.
- */
-export function inspectorLetter(name, titles = []) {
-  const words = String(name ?? '').split(/\s+/).filter(Boolean);
-  const skip = new Set(titles.map((x) => String(x).toLowerCase().replace(/\.$/, '')));
-  const own = words.find((w) => !skip.has(w.toLowerCase().replace(/\.$/, ''))) || words[0] || '';
-  const letter = own.match(/\p{L}/u);
-  return letter ? letter[0].toLocaleUpperCase() : null;
-}
-
 /** The entry around its last "Conclusion", for the record of a verdict that could not be read. */
 export function conclusionExcerpt(text) {
   const s = String(text || '');

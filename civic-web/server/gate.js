@@ -130,14 +130,9 @@ export function parseRefusal(err) {
 function abortError() { const e = new Error('aborted'); e.name = 'AbortError'; return e; }
 
 // Before the determinations, the listing: it is the free first step and the reader's first
-// impression. A conversation's reply (server/chat.js) is in line with the determinations, the readers
-// taking turns. Anything else (the art direction, on its own model) comes after. An order, not a figure.
-const RANK = { extraction: 0, determination: 1, conversation: 1 };
+// impression. Anything else (the art direction, on its own model) comes after. An order, not a figure.
+const RANK = { extraction: 0, determination: 1 };
 const rankOf = (kind) => RANK[kind] ?? 2;
-// A kind OpenAI has not yet counted borrows the figure of the kind it carries: a reply carries a whole fact-check and
-// more, so until OpenAI has counted one, it goes at what a determination was counted, not alone into a full minute
-// (which, with fact-checks running, could be long in coming). A refusal teaches its own figure, as for any kind.
-const BORROWS = { conversation: 'determination' };
 
 export class RateGate {
   constructor(model) {
@@ -156,7 +151,7 @@ export class RateGate {
     this.last = null;         // the last figures seen, for the report
   }
 
-  cost(kind) { return this.costs.get(kind) ?? (BORROWS[kind] ? this.costs.get(BORROWS[kind]) ?? null : null); }
+  cost(kind) { return this.costs.get(kind) ?? null; }
 
   learn(kind, cost) {
     if (cost !== null && cost > 0 && cost > (this.costs.get(kind) ?? 0)) this.costs.set(kind, cost);
