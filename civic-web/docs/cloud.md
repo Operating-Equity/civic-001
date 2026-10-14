@@ -705,6 +705,9 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
   in the product, and its settings are gone from the service. Two fixes found on the way stay:
   - a delivered claim's free second go is for the same claim only (`fingerprint` on the row, migration 003);
   - the entry's Name line is read in every form the model writes its label in.
+  - **Live** (14 October, 15:29 UTC): PR #71 squash 5115c4c, build 1544499c304c; live proof 6/6. The boot lines read
+    "prompts installed: extract fad6cbae · evaluate c52121a0" and "[capacity] last 7 days: 9 fact-checks, on average
+    101,680 tokens over 2.62 min".
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 
