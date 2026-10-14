@@ -11,7 +11,7 @@ import multer from 'multer';
 import { config, publicConfig, requestShape } from './config.js';
 import { promptStatus, hasPrompt, promptVersions } from './prompts.js';
 import { ApiError, operatorKey, describeError } from './openai.js';
-import { listingKey, onOwnProvider, onFireworks, listingHost, listingProviderName } from './listing.js';
+import { listingKey, onOwnProvider, onFireworks, onDeepSeek, listingHost, listingProviderName } from './listing.js';
 import { gatewayOn } from './tools/request.js';
 import { openStream } from './stream.js';
 import * as jobs from './jobs.js';
@@ -481,9 +481,13 @@ function banner() {
   const shape = requestShape();
   const placing = shape.extract.source === 'inserted' ? 'the prompt verbatim with the source in place of its final bracketed line, as the only message' : 'the prompt verbatim as instructions · the document whole as the only message';
   // On Fireworks the listing names FactEngine's tool server for its searches and says store: false.
-  const listingTools = onFireworks() ? `${gatewayOn() ? 'FactEngine\'s tool server (search_web, read_page, get_transcript) through a door opened for that listing alone' : 'no tools (the tool server has no public address)'} · store false` : 'web_search';
+  // On DeepSeek it names none: DeepSeek ignores web search, so the listing reads the document it is given.
+  const listingTools = onFireworks() ? `${gatewayOn() ? 'FactEngine\'s tool server (search_web, read_page, get_transcript) through a door opened for that listing alone' : 'no tools (the tool server has no public address)'} · store false` : onDeepSeek() ? 'no tools (DeepSeek ignores web search)' : 'web_search';
   console.log(`extraction requests ${onOwnProvider() ? `go to ${listingHost()} (${listingProviderName()}) and ` : ''}carry: model ${shape.extract.model} · reasoning.effort ${shape.extract.effort}${shape.extract.mode ? ` · reasoning.mode ${shape.extract.mode}` : ''}${shape.extract.summary ? ` · reasoning.summary ${shape.extract.summary}` : ''} · ${listingTools} · ${placing} · nothing else${shape.extract.fallback ? '  (FALLBACK LIST SET)' : ''}`);
   console.log(`determination requests carry: model ${shape.evaluate.model} · reasoning.effort ${shape.evaluate.effort}${shape.evaluate.mode ? ` · reasoning.mode ${shape.evaluate.mode}` : ''}${shape.evaluate.summary ? ` · reasoning.summary ${shape.evaluate.summary}` : ''} · web_search · the source as a message ahead of the prompt · the prompt verbatim with the claim's whole entry in its slot · nothing else${shape.evaluate.fallback ? '  (FALLBACK LIST SET)' : ''}`);
+  // The operator's trial (server/trial.js): whether it can run, for the host's log. No key, nothing of anyone's.
+  const trial = trialState();
+  if (trial) console.log(`[trial] the operator's own determinations may run on ${trial.models.map((m) => m.id).join(', ')}, chosen on their page: ${trial.ready ? 'ready, with FactEngine\'s search and page reader as the model\'s tools' : `not ready: ${trial.why}`}`);
   if (config.openaiBaseUrl) console.log(`OpenAI base URL override: ${config.openaiBaseUrl}`);
 }
 
