@@ -5,6 +5,8 @@
 // The prompts are sent to OpenAI VERBATIM. Nothing is prepended, appended, or injected.
 // The claim is substituted for {{CLAIM}} exactly as extracted. The verdict is read out of
 // the model's own Conclusion section afterwards, not requested by an added instruction.
+// The ranking prompt (`rank`, the second pass of 16 October, server/rank.js) has two slots, {{TITLE}} and {{CLAIMS}},
+// filled the same way, and is optional: without it, or with its slots wrong, the claims are listed unranked.
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -12,7 +14,7 @@ import { fileURLToPath } from 'node:url';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const vaultDir = path.join(here, 'prompts');
-const NAMES = ['extract', 'evaluate'];
+const NAMES = ['extract', 'evaluate', 'rank'];
 
 function readSource(name) {
   const upper = name.toUpperCase();
@@ -93,6 +95,30 @@ export function extractionRequest(source) {
 /** Evaluation prompt with the claim substituted. Nothing else is changed. */
 export function evaluationPrompt(claim) {
   return vault.get('evaluate').split('{{CLAIM}}').join(String(claim).trim());
+}
+
+const count = (text, slot) => text.split(slot).length - 1;
+
+/**
+ * Why the ranking prompt cannot be used, or null when it can. It must hold {{CLAIMS}} exactly once, where the numbered
+ * claims go, and {{TITLE}} at most once, where the headline goes. A prompt that does not is never sent: the claims are
+ * listed unranked, and /check says why. The server still starts (the ranking is optional; the other two prompts are not).
+ */
+export function rankingProblem() {
+  const prompt = vault.get('rank');
+  if (!prompt) return 'The ranking prompt is not installed (CIVIC_PROMPT_RANK_FILE, or server/prompts/rank.txt).';
+  if (count(prompt, '{{CLAIMS}}') !== 1) return `The ranking prompt must hold {{CLAIMS}} exactly once, where the numbered claims go; it holds it ${count(prompt, '{{CLAIMS}}')} times.`;
+  if (count(prompt, '{{TITLE}}') > 1) return `The ranking prompt may hold {{TITLE}} once at most, where the headline goes; it holds it ${count(prompt, '{{TITLE}}')} times.`;
+  return null;
+}
+
+/**
+ * The ranking prompt with its two slots filled: the headline as published (or the words saying none was given) and the
+ * numbered claims. Both are filled in one pass, so a headline that happens to contain a slot's name stays as written.
+ * Nothing else is changed.
+ */
+export function rankingPrompt({ title, claims }) {
+  return vault.get('rank').replace(/\{\{(TITLE|CLAIMS)\}\}/g, (_, slot) => (slot === 'TITLE' ? String(title) : String(claims)));
 }
 
 /**

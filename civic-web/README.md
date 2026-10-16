@@ -461,6 +461,32 @@ per model and effort (delivered and failed, minutes, searches and pages read, co
 verdicts), beside the readers' model. Its cost is DeepSeek's tokens over its rounds, each at the hour's price, plus each
 search's own cost. Readers' texts (Privacy, Terms) are unchanged: their fact-checks stay on OpenAI.
 
+**The second pass: the claims a document rests on** (16 October). The operator: "We have way too many claims from a
+single article", and "I only want the top 25% of the most important claims, or 1/4, presented for testing. The rest are
+useless or not load-bearing and make the person pay to learn the obvious." After the listing, inside the same job and
+before the page is told the listing is done, the listing's own DeepSeek model reads the document and the claims it
+listed, under the operator's ranking prompt (the vault's third, `rank`: `server/prompts/rank.txt`, or Render's secret
+file `rank.txt` through `CIVIC_PROMPT_RANK_FILE`). The request carries `model` (the model the listing used), `input`
+(two messages: the source exactly as a determination is given it, then the prompt verbatim with `{{TITLE}}` filled with
+the page's own title, or "(none given)", and `{{CLAIMS}}` with each claim's number and whole entry), `reasoning.effort`
+(the listing's, unless `CIVIC_RANK_EFFORT`) and `stream`: nothing else. No tools (it reads what it is given) and no
+store. The answer is read by its headings, SUMMARY, HEADLINE, HEADLINE TYPE, HEADLINE CLAIM, RANKED and NOT EMPIRICAL,
+which a prompt the operator edits keeps. The page then shows:
+- the summary, as it is written, in a window beside the picture that scrolls inside itself (under the steps on a phone);
+- the headline first, tagged, when the model calls it an empirical statement and copied it word for word from the page's
+  title or the document (FactEngine never tests words of the model's own), so it is the first fact tested;
+- then the top quarter of the ranked claims (`CIVIC_RANK_KEEP_PERCENT`, 25, rounded up: the operator's answers), and
+  the rest, in their order, behind "Show the other N claims";
+- how many statements were set aside as not empirical.
+
+A listed claim that says what the headline says is not shown twice; one the model left out of its lists is kept at the
+end. A ranking that fails or cannot be read leaves the list whole, as before the second pass, and is recorded on /check.
+A wait is a wait, as for the listing, and a connection cut while the claims are ranked costs nothing (the page comes
+back to the same job). DeepSeek's chain of thought is neither sent nor kept. The ranking's ledger line is its own (kind
+`rank`), its cost joins the run's listing cost, and /check times it apart. `CIVIC_RANK` says whose runs are ranked:
+`operator` (unset; the operator's runs alone, their choice of 16 October), `on` (everyone's) or `off`. It runs on
+DeepSeek only: with the listing elsewhere, or no ranking prompt installed, the claims are listed unranked.
+
 **Fireworks is never used again** (the operator, 5 October: "Never go back to fireworks. That's like killing users by
 making them watch paint dry for 48 hours."). Its code stays, inert, and is described below for the record; the
 listing's fallback is `CIVIC_EXTRACT_PROVIDER=openai`.
@@ -513,6 +539,7 @@ truncation setting. No fallback model. No size limit of ours on the document.
 |---|---|---|
 | Model, both steps | `gpt-5.6-sol` | Operator, tested |
 | The listing's provider | `CIVIC_EXTRACT_PROVIDER`: `openai` (unset), `deepseek` (DeepSeek's own service: `deepseek-flash` on `DEEPSEEK_API_KEY`) or `fireworks` (the same model from the US: `accounts/fireworks/models/deepseek-v4p1-flash` on `FIREWORKS_API_KEY`, searching through FactEngine's tool server, `store: false`). Either runs at effort `high` (`CIVIC_EXTRACT_EFFORT`; the operator's answer of 5 October, `max` before); `CIVIC_EXTRACT_MODELS` changes the model. The keys are pasted by the operator in Render; a key is read under its name whatever its capitals (`DEEPSEEK_API_Key` is `DEEPSEEK_API_KEY`), the exact name winning, and two spellings holding different keys are used neither, /check naming both. `CIVIC_DEEPSEEK_BASE_URL` and `CIVIC_FIREWORKS_BASE_URL` are the providers' addresses (only the guard changes them). The readers' determinations stay on OpenAI. | Operator, 4 and 5 October |
+| The second pass | `CIVIC_RANK`: `operator` (unset: the operator's runs are ranked), `on` (everyone's) or `off`; `CIVIC_RANK_KEEP_PERCENT` (25: the part of the ranked claims shown, rounded up, behind an empirical headline); `CIVIC_RANK_EFFORT` (the listing's unless set); the ranking prompt, `rank` (optional; `CIVIC_PROMPT_RANK_FILE`). On the listing's DeepSeek model. See "The second pass" above. | Operator, 16 October |
 | The operator's trial | `CIVIC_EVAL_TRIAL_MODELS`: the DeepSeek models the operator may choose on the page for their own determinations (`deepseek-v4-pro,deepseek-flash` unless set; `off` ends it). Needs `DEEPSEEK_API_KEY` and the search service. Never charged, never in the readers' figures. | Operator, 14 October |
 | Reasoning effort, both steps on OpenAI | `xhigh` | Operator, 5 October: back to the setting before 21 September, when `max` in `pro` mode had taken a listing to fifteen minutes and $3.81 and a determination to almost seven minutes and $3.71. `max` from 21 September to 5 October. |
 | Reasoning mode, both steps on OpenAI | `standard` (no mode key sent) | Operator, 5 October, as above. `pro` (GPT-5.6's pro mode, OpenAI's "highest-intelligence API option": more model work per answer at the same per-token rates) from 21 September to 5 October; `CIVIC_REASONING_MODE=pro` brings it back. |
@@ -530,7 +557,8 @@ Environment variables: `CIVIC_MODEL`, `CIVIC_EFFORT` (both steps), or per step
 `CIVIC_EXTRACT_MODELS`, `CIVIC_EXTRACT_EFFORT`, `CIVIC_EVAL_MODELS`, `CIVIC_EVAL_EFFORT`,
 `CIVIC_EXTRACT_REASONING_SUMMARY`, `CIVIC_EVAL_REASONING_SUMMARY`; for the listing's provider,
 `CIVIC_EXTRACT_PROVIDER`, `DEEPSEEK_API_KEY`, `CIVIC_DEEPSEEK_BASE_URL`, `FIREWORKS_API_KEY` and
-`CIVIC_FIREWORKS_BASE_URL`. There is no setting that removes web search.
+`CIVIC_FIREWORKS_BASE_URL`; for the second pass, `CIVIC_RANK`, `CIVIC_RANK_KEEP_PERCENT` and `CIVIC_RANK_EFFORT`. There is
+no setting that removes web search.
 The server prints the exact shape of both requests at startup.
 
 The image is a picture, not a determination, and the operator asked for the fast model there
@@ -601,7 +629,8 @@ The prompts are the product. The design keeps them out of every place a reader c
 - Nothing is added to the author's prompt. No system instruction, no verdict tag, no formatting
   note. The extraction prompt is sent as the instructions field verbatim; the evaluation prompt is
   sent as the sole user message with the claim substituted for `{{CLAIM}}`, and nothing else.
-  The verdict is read afterwards from the model's own Conclusion section.
+  The verdict is read afterwards from the model's own Conclusion section. The ranking prompt (the second pass) gets
+  its two slots filled, `{{TITLE}}` and `{{CLAIMS}}`, and nothing else; the leak check covers it as it covers the others.
 
 When accounts arrive, the prompts should move to a secrets manager rather than files on disk.
 

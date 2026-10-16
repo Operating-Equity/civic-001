@@ -730,7 +730,32 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
     page is told of it: the guard caught, once in three runs, the same claim asked for again in the milliseconds between
     the two, found still running and charged as a new attempt.
   - **Waiting for the operator:** the summary window and the cut to the claims that carry the document (their prompts
-    and specifics); whether DeepSeek confirmed the opt-out request drafted on 4 October.
+    and specifics); DeepSeek's confirmation of the opt-out request, which the operator sent on 14 October from the
+    account's own address.
+  - **Live** (14 October, 16:52 UTC): PR #72 squash 0abf7dc, build 918c967295f4; live proof 8/8, nothing determined.
+    The health line shows the listing with `webSearch: false` and no `tools`, and the readers' request unchanged. The
+    boot lines read "no tools (DeepSeek ignores web search)" and "[trial] … ready, with FactEngine's search and page
+    reader as the model's tools". The operator's first trial runs are the measure, on /check's trial table.
+- **16 October, the claims a document rests on.** The operator: "We have way too many claims from a single article", and,
+  asked how the pointless ones had been cut: none were. FactEngine listed every empirical statement (the extraction
+  prompt's limit went from forty to a thousand on 18 September, on their word) and nothing ranked or removed a claim.
+  Their design, in their words where they are not the prompt's: a second pass in the same DeepSeek model reads the
+  article and writes a summary and the list; a claim that is not empirical is eliminated; the empirical ones are
+  force-ranked by how far the article would change, in its meaning and its worth, were each false; the headline, an
+  empirical statement by journalistic standards unless it is a question, is tested first, since a headline that
+  misrepresents is "a very bad thing"; "I only want the top 25% of the most important claims, or 1/4, presented for
+  testing." Their answers: I draft the ranking prompt and they approve it (sent to them privately, never in the
+  repository); the headline sits on top of the quarter; a quarter rounds up; their runs first, readers on their word.
+  - **What it does** (`server/rank.js`): inside the listing's job, before `done`, the listing's model reads the source
+    and the numbered claims and answers under six headings. The page draws the list once, in order: the headline, if
+    empirical and copied word for word from the page's title or the document; then the top quarter; the rest behind
+    "Show the other N claims"; a count of the statements set aside. The summary streams into a window beside the
+    picture. A ranking that fails or cannot be read leaves the list whole. Its cost joins the listing's; /check times it.
+  - **Found on the way, fixed:** a row nobody has chosen said "Queued" over an empty bar; /check called
+    `CIVIC_MAX_CLAIMS` "Claims per run", though it bounds nothing the page does; the list's heading kept its language
+    after a change of language.
+  - **Waiting for the operator:** their approval of the drafted prompt, then the secret file `rank.txt` on the service.
+    Their first ranked run (the Reuters article of 14 October) is the live measure.
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 

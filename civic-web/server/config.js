@@ -79,6 +79,24 @@ const PUBLIC_URL = env('RENDER_EXTERNAL_URL', '').trim().replace(/\/+$/, '');
 
 /** "ABCD234" or "ABCD234:150": the code as typed made canonical, and its own allowance of runs if given. */
 
+// The listing's effort: its own (CIVIC_EXTRACT_EFFORT), high on DeepSeek and Fireworks, OpenAI's otherwise. The ranking
+// (server/rank.js) runs at the same effort unless CIVIC_RANK_EFFORT says otherwise.
+const LISTING_EFFORT = OWN ? env('CIVIC_EXTRACT_EFFORT', 'high') : env('CIVIC_EXTRACT_EFFORT', EFFORT);
+
+/** Who the ranking is for (CIVIC_RANK): `operator` unless set, the operator's choice of 16 October (their runs first,
+ *  readers on their word); `on` for everyone; `off`. Anything else is off, and /check names the setting. */
+function rankMode() {
+  const raw = env('CIVIC_RANK', 'operator').trim().toLowerCase();
+  return ['off', 'operator', 'on'].includes(raw) ? raw : 'off';
+}
+
+/** The part of the ranked claims shown for testing (CIVIC_RANK_KEEP_PERCENT): 25, the operator's figure ("I only want
+ *  the top 25% of the most important claims, or 1/4, presented for testing"), unless they set another above 0. */
+function keepPercent() {
+  const v = num('CIVIC_RANK_KEEP_PERCENT', 25);
+  return v > 0 && v <= 100 ? v : 25;
+}
+
 /** The trial's models (CIVIC_EVAL_TRIAL_MODELS): the two DeepSeek models unless the operator names others; `off` or
  *  `none`, no trial. */
 function trialModels() {
@@ -93,7 +111,7 @@ export const config = {
   extractProvider: PROVIDER,
   extractProviderKnown: PROVIDERS.includes(PROVIDER),
   extractModels: list('CIVIC_EXTRACT_MODELS', DEEPSEEK ? 'deepseek-flash' : FIREWORKS ? 'accounts/fireworks/models/deepseek-v4p1-flash' : MODEL), // one id = no fallback
-  extractEffort: OWN ? env('CIVIC_EXTRACT_EFFORT', 'high') : env('CIVIC_EXTRACT_EFFORT', EFFORT),
+  extractEffort: LISTING_EFFORT,
   extractReasoningMode: OWN ? '' : modeOrNone(env('CIVIC_EXTRACT_REASONING_MODE', MODE)), // '' = no mode key in the request
   // Reasoning summaries are the model's own account of its reasoning, shown on the page. They do
   // not change the answer. 'auto' lets the API decide the form. Blank turns them off. DeepSeek and
@@ -135,6 +153,17 @@ export const config = {
   // the already connected API." These are the models the operator may choose there; a reader never can. DeepSeek's
   // two models on its API today: V4 Pro (the deep-reasoning one) and V4.1 Flash. `off` ends the trial.
   evalTrialModels: trialModels(),
+
+  // The second pass (16 October; server/rank.js): after the listing, the same DeepSeek model reads the document and the
+  // claims the listing wrote, writes a summary, names the headline, and puts the empirical claims in one order, most
+  // load-bearing first. The page shows the headline first when it is empirical, then the top quarter of the ranked claims,
+  // rounded up; the rest wait behind "Show the other claims". The operator's words: "I only want the top 25% of the most important
+  // claims, or 1/4, presented for testing. The rest are useless or not load-bearing and make the person pay to learn the
+  // obvious."
+  rank: rankMode(),
+  rankSetting: env('CIVIC_RANK', ''),        // as written, so /check can name a value it does not know
+  rankKeepPercent: keepPercent(),
+  rankEffort: env('CIVIC_RANK_EFFORT', LISTING_EFFORT),
 
   // Source documents. No limit of ours. If a document exceeds the model's context window the API
   // refuses it and that error is shown verbatim; nothing is ever read in part.
@@ -275,6 +304,9 @@ export function requestShape() {
     // On DeepSeek the listing does not search: DeepSeek's Responses API ignores web search, so none is sent.
     extract: { provider: config.extractProvider, model: config.extractModels[0], effort: config.extractEffort, mode: config.extractReasoningMode || null, summary: config.extractSummary || null, webSearch: config.extractProvider === 'fireworks' ? Boolean(config.gatewayUrl) : !onDeepSeek, fallback: config.extractModels.length > 1, source },
     evaluate: { model: config.evalModels[0], effort: config.evalEffort, mode: config.evalReasoningMode || null, summary: config.evalReasoningSummary || null, webSearch: true, fallback: config.evalModels.length > 1, source: 'ahead' },
+    // The second pass (server/rank.js): the listing's own model on DeepSeek, at this effort, for whom `mode` says; the
+    // top `keepPercent` of the ranked claims shown, rounded up. No search: it reads the document and the claims.
+    rank: { mode: config.rank, model: config.extractModels[0], effort: config.rankEffort, keepPercent: config.rankKeepPercent, webSearch: false, source: 'ahead' },
     // Present in every request; never anything else.
     // On DeepSeek the listing carries no `tools` and no `store` (DeepSeek ignores the one and keeps nothing, so does not
     // take the other); on Fireworks it carries `store: false`, as on OpenAI. The operator's trial on DeepSeek
@@ -283,6 +315,7 @@ export function requestShape() {
       extract: [...(source === 'inserted' ? ['model', 'input'] : ['model', 'instructions', 'input']), 'reasoning', ...(onDeepSeek ? [] : ['tools']), 'stream', ...(onDeepSeek ? [] : ['store'])],
       evaluate: ['model', 'input', 'reasoning', 'tools', 'stream', 'store'],
       trial: ['model', 'input', 'reasoning', 'tools', 'stream'],
+      rank: ['model', 'input', 'reasoning', 'stream'],
     },
   };
 }

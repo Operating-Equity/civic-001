@@ -447,13 +447,14 @@ export function costLine(line, ctx = {}) {
       .catch((err) => warn('a cost line could not be kept', err));
     if (ctx.determinationId && (kind === 'evaluate' || kind === 'trial')) {
       query('UPDATE determinations SET cost_usd = cost_usd + $2, priced = priced AND $3, searches = searches + $4 WHERE id = $1', [ctx.determinationId, usd, priced, searches]).catch((err) => warn('a determination\'s cost could not be kept', err));
-    } else if (ctx.runId && kind === 'extract') {
+    } else if (ctx.runId && (kind === 'extract' || kind === 'rank')) {
+      // The ranking (server/rank.js) is part of listing a document: its cost goes on the run's listing cost.
       query('UPDATE runs SET extract_usd = extract_usd + $2 WHERE id = $1', [ctx.runId, usd]).catch((err) => warn('a run\'s listing cost could not be kept', err));
     }
     return;
   }
   if (ctx.determinationId && (kind === 'evaluate' || kind === 'trial')) { const d = mem.dets.get(ctx.determinationId); if (d) { d.costUsd += usd; d.priced = d.priced && priced; d.searches += searches; } }
-  else if (ctx.runId && kind === 'extract') { const r = mem.runs.get(ctx.runId); if (r) r.extractUsd += usd; }
+  else if (ctx.runId && (kind === 'extract' || kind === 'rank')) { const r = mem.runs.get(ctx.runId); if (r) r.extractUsd += usd; }
   // What /check's trial table reads of a determination's line (trialTable): its model and what it found, never its text.
   const said = kind === 'evaluate' || kind === 'trial' ? { model: line.model || null, effort: line.effort || null, provider: line.provider || null, usd, verdict: line.verdict || null, verdictSource: line.verdictSource || null, reads: Number(line.reads) || 0, ok: line.ok !== false } : {};
   if (kind === 'trial' || (line.ok !== false && Number.isFinite(Number(line.ms)))) { mem.lines.push({ at: Number(line.ts) || now(), kind, ms: Number(line.ms), searches, tokens: tokensOf(line.usage), ...said }); if (mem.lines.length > 20000) mem.lines.splice(0, mem.lines.length - 15000); }
@@ -474,9 +475,9 @@ async function durations(since) {
   if (dbOn()) {
     const r = await query(`SELECT kind, (line->>'ms')::float8 AS ms, COALESCE((line->>'searches')::float8, 0) AS searches,
         COALESCE((line->'usage'->>'input')::float8, 0) + COALESCE((line->'usage'->>'output')::float8, 0) AS tokens
-      FROM cost_lines WHERE at >= $1 AND ok IS NOT FALSE AND kind IN ('evaluate', 'extract') AND line->>'ms' IS NOT NULL`, [new Date(since)]);
+      FROM cost_lines WHERE at >= $1 AND ok IS NOT FALSE AND kind IN ('evaluate', 'extract', 'rank') AND line->>'ms' IS NOT NULL`, [new Date(since)]);
     rows = r.rows.map((x) => ({ kind: x.kind, ms: Number(x.ms), searches: Number(x.searches), tokens: Number(x.tokens) > 0 ? Number(x.tokens) : null }));
-  } else rows = mem.lines.filter((l) => l.at >= since && (l.kind === 'evaluate' || l.kind === 'extract'));
+  } else rows = mem.lines.filter((l) => l.at >= since && (l.kind === 'evaluate' || l.kind === 'extract' || l.kind === 'rank'));
   const stat = (list) => {
     const ms = list.map((l) => l.ms).filter((v) => Number.isFinite(v)).sort((a, b) => a - b);
     if (!ms.length) return { n: 0, meanMs: null, p75Ms: null };
@@ -489,6 +490,7 @@ async function durations(since) {
     determinations: { ...d, meanSearches: dets.length ? Math.round((dets.reduce((a, l) => a + (l.searches || 0), 0) / dets.length) * 10) / 10 : null,
       meanTokens: counted.length ? Math.round(counted.reduce((a, l) => a + l.tokens, 0) / counted.length) : null, tokensMeasured: counted.length },
     extractions: stat(rows.filter((l) => l.kind === 'extract')),
+    rankings: stat(rows.filter((l) => l.kind === 'rank')),   // the second pass, timed apart from the listing it follows
   };
 }
 

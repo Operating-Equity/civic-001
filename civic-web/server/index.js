@@ -22,6 +22,7 @@ import { sourceMeta, sourceBlock } from './source.js';
 import { runExtraction } from './extract.js';
 import { runEvaluation } from './evaluate.js';
 import { trialOf, trialState } from './trial.js';
+import { rankFor, rankState } from './rank.js';
 import * as deepseekProvider from './deepseek.js';
 import { runIllustration } from './illustrate.js';
 import { selftest } from './selftest.js';
@@ -280,11 +281,14 @@ app.post('/api/extract', wrap(async (req, res) => {
   const meanwhile = jobs.get(id, owner);
   if (meanwhile) { meanwhile.attach(openStream(req, res), req.body?.cursor); return; }
   const showCost = seesCost(req);
+  // The second pass (server/rank.js): the claims ranked, the top quarter shown, for the operator's runs while CIVIC_RANK is
+  // `operator` (their choice of 16 October), for everyone's once it is `on`.
+  const rank = rankFor({ operator: !signinRequired() || isOperator(req.account) });
   jobs.start(id, 'extraction', async ({ send: sendAll, signal }) => {
     const send = showCost ? sendAll : (ev) => sendAll(withoutCost(ev));
     if (run) send({ t: 'pricing', tier: run.tier, freeFacts: run.freeAllowed, priceCents: run.priceCents, currency: config.currency, note: config.pricingNote || null });
     try {
-      const result = await runExtraction({ apiKey, text, meta, send, signal, sourceWarning, ctx });
+      const result = await runExtraction({ apiKey, text, meta, send, signal, sourceWarning, ctx, rank });
       economics.finishRun(id, { claimsTotal: result?.total ?? null, status: result ? 'done' : 'cancelled' });
     } catch (err) {
       economics.finishRun(id, { status: 'failed' });
@@ -483,7 +487,7 @@ function banner() {
   }
   const v = promptVersions();
   const mark = (n) => (status[n] ? `${n} ${v[n].version} (${v[n].chars} chars)` : `${n} MISSING`);
-  console.log(`prompts installed: ${mark('extract')} · ${mark('evaluate')}`);
+  console.log(`prompts installed: ${mark('extract')} · ${mark('evaluate')} · ${status.rank ? mark('rank') : 'rank not installed'}`);
   const shape = requestShape();
   const placing = shape.extract.source === 'inserted' ? 'the prompt verbatim with the source in place of its final bracketed line, as the only message' : 'the prompt verbatim as instructions · the document whole as the only message';
   // On Fireworks the listing names FactEngine's tool server for its searches and says store: false.
@@ -494,6 +498,11 @@ function banner() {
   // The operator's trial (server/trial.js): whether it can run, for the host's log. No key, nothing of anyone's.
   const trial = trialState();
   if (trial) console.log(`[trial] the operator's own determinations may run on ${trial.models.map((m) => m.id).join(', ')}, chosen on their page: ${trial.ready ? 'ready, with FactEngine\'s search and page reader as the model\'s tools' : `not ready: ${trial.why}`}`);
+  // The second pass (server/rank.js): for whom, at what effort, how much is shown; or why the claims are listed unranked.
+  const rs = rankState();
+  console.log(rs.ready
+    ? `[rank] the claims are ranked ${rs.mode === 'on' ? 'for every run' : 'for the operator\'s runs (CIVIC_RANK=operator)'} on ${rs.model} at ${rs.effort}: an empirical headline first, then the top ${rs.keepPercent}% of the ranked claims, rounded up`
+    : `[rank] the claims are listed unranked: ${rs.why}`);
   if (config.openaiBaseUrl) console.log(`OpenAI base URL override: ${config.openaiBaseUrl}`);
 }
 

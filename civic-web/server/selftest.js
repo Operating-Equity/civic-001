@@ -9,6 +9,7 @@ import path from 'node:path';
 import { config, requestShape } from './config.js';
 import { dbOn } from './db.js';
 import { promptStatus, promptVersions, extractionShape } from './prompts.js';
+import { rankState } from './rank.js';
 import { clientFor, describeError } from './openai.js';
 import { onDeepSeek, onFireworks, onOwnProvider, listingKey, listingClient, listingFailure, listingProviderName, listingHost } from './listing.js';
 import { HEADER_SAFE } from './key.js';
@@ -255,6 +256,17 @@ export async function selftest({ apiKey, build, operator = true }) {
     else checks.push(bad(`The ${label} prompt is missing`, 'Without it, nothing can be tested.',
       `Point CIVIC_PROMPT_${name.toUpperCase()}_FILE at the prompt file, or place it at server/prompts/${name}.txt.`));
   }
+  // The ranking (server/rank.js, 16 October) is the one optional prompt: without it the claims are listed unranked, as
+  // they were before, so its absence is said and never stops anything.
+  const ranking = rankState();
+  if (prompts.rank) checks.push(ok('The ranking prompt is installed', `Version ${versions.rank.version}, ${versions.rank.chars.toLocaleString('en-US')} characters. Its text is held in memory and never leaves this machine except inside a request to DeepSeek.`));
+  if (ranking.ready) {
+    checks.push(ok(`The claims are ranked ${ranking.mode === 'on' ? 'for every run' : 'for your runs alone'}`,
+      `After the listing, ${ranking.model} at effort ${ranking.effort} reads the document and the claims, writes a summary, and puts the empirical claims in order. The page shows an empirical headline first, then the top ${ranking.keepPercent}% of the ranked claims, rounded up; the rest wait behind "Show the other claims".`,
+      ranking.mode === 'operator' ? 'Readers\' claims are listed unranked until CIVIC_RANK is on.' : undefined));
+  } else if (config.rank !== 'off' || prompts.rank) {
+    checks.push(warn('The claims are listed unranked', ranking.why, prompts.rank ? undefined : 'Point CIVIC_PROMPT_RANK_FILE at the ranking prompt, or place it at server/prompts/rank.txt.'));
+  }
 
   if (config.key?.conflict) {
     const at = whereTheShellSetsIt();
@@ -321,6 +333,7 @@ export async function selftest({ apiKey, build, operator = true }) {
       model: config.evalModels[0],
       effort: config.evalEffort,
       trialModels: config.evalTrialModels.join(', ') || 'off',
+      rank: ranking.ready ? `${ranking.mode === 'on' ? 'every run' : 'your runs alone'}: an empirical headline first, then the top ${ranking.keepPercent}%, rounded up, on ${ranking.model} at ${ranking.effort}` : `unranked: ${ranking.why}`,
       listingWebSearch: requestShape().extract.webSearch,   // the listing on DeepSeek does not search: DeepSeek ignores web search
       webSearch: true,
       claimsPerRun: config.maxClaims,
