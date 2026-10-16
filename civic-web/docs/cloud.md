@@ -754,6 +754,13 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
   - **Found on the way, fixed:** a row nobody has chosen said "Queued" over an empty bar; /check called
     `CIVIC_MAX_CLAIMS` "Claims per run", though it bounds nothing the page does; the list's heading kept its language
     after a change of language.
+  - **Live** (16 October, 20:05 UTC): PR #73 squash 7459514, build 582cccebe4ab; live proof 8/8, nothing run. Before
+    the merge: the guard 389/389 in both stand-in shapes (29 ranking checks), the browser check 10/10, the leak check
+    clean with the draft installed. The health line carries `rank {mode: operator, model: deepseek-flash, effort: high,
+    keepPercent: 25, webSearch: false}` with its keys (model, input, reasoning, stream) and `prompts.rank: false`; the
+    listing's and the readers' requests are unchanged. The boot lines read "prompts installed: extract fad6cbae (8331
+    chars) · evaluate c52121a0 (15189 chars) · rank not installed" and "[rank] the claims are listed unranked: The
+    ranking prompt is not installed …", so every run is listed as before until the prompt is installed.
   - **Waiting for the operator:** their approval of the drafted prompt, then the secret file `rank.txt` on the service.
     Their first ranked run (the Reuters article of 14 October) is the live measure.
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
