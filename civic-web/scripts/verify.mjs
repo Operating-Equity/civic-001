@@ -73,8 +73,11 @@ const ACCOUNTS_OFF = { CIVIC_ACCOUNTS: 'off', DATABASE_URL: '', CIVIC_OPERATOR_E
 // And no price from the shell (since 6 October one list price, CIVIC_LIST_PRICE_CENTS, which a check sets when it needs one),
 // none of the measured price's retired settings, and the tiers' default rotation.
 const PRICES_OFF = { CIVIC_LIST_PRICE_CENTS: '', CIVIC_PRICE_START_CENTS: '', CIVIC_PRICE_MIN_SAMPLE: '', CIVIC_TIER_ORDER: '', CIVIC_TIER_FIXED: '' };
+// And no ranking unless a check turns it on (the second pass of 16 October, server/rank.js): no ranking prompt from the
+// shell or the vault's own file reaches an older check's listing, which makes one request to the model.
+const RANK_OFF = { CIVIC_RANK: 'off', CIVIC_PROMPT_RANK: '', CIVIC_PROMPT_RANK_FILE: '', CIVIC_RANK_KEEP_PERCENT: '', CIVIC_RANK_EFFORT: '' };
 const start = (args, extraEnv) => {
-  const child = spawn(process.execPath, args, { cwd: root, env: { ...process.env, ...DEEPSEEK_OFF, ...FIREWORKS_OFF, ...ACCOUNTS_OFF, ...PRICES_OFF, ...extraEnv }, stdio: ['ignore', 'pipe', 'pipe'] });
+  const child = spawn(process.execPath, args, { cwd: root, env: { ...process.env, ...DEEPSEEK_OFF, ...FIREWORKS_OFF, ...ACCOUNTS_OFF, ...PRICES_OFF, ...RANK_OFF, ...extraEnv }, stdio: ['ignore', 'pipe', 'pipe'] });
   child.stdout.on('data', () => {});
   child.stderr.on('data', (d) => process.stderr.write(`  [${path.basename(args[0])}] ${d}`));
   children.push(child);
@@ -690,7 +693,7 @@ function accountServer(port, mockPort, env = {}) {
   const out = [];
   const child = spawn(process.execPath, [path.join(root, 'server', 'index.js')], {
     cwd: root, stdio: ['ignore', 'pipe', 'pipe'],
-    env: { ...process.env, ...DEEPSEEK_OFF, ...FIREWORKS_OFF, ...ACCOUNTS_OFF, ...PRICES_OFF, CIVIC_ACCOUNTS: 'on', PORT: String(port), OPENAI_BASE_URL: `http://localhost:${mockPort}/v1`, OPENAI_API_KEY: KEY, CIVIC_IMAGE_ENABLED: 'false', CIVIC_LEDGER_FILE: path.join(os.tmpdir(), `civic-verify-accounts-ledger-${port}.jsonl`), ...env },
+    env: { ...process.env, ...DEEPSEEK_OFF, ...FIREWORKS_OFF, ...ACCOUNTS_OFF, ...PRICES_OFF, ...RANK_OFF, CIVIC_ACCOUNTS: 'on', PORT: String(port), OPENAI_BASE_URL: `http://localhost:${mockPort}/v1`, OPENAI_API_KEY: KEY, CIVIC_IMAGE_ENABLED: 'false', CIVIC_LEDGER_FILE: path.join(os.tmpdir(), `civic-verify-accounts-ledger-${port}.jsonl`), ...env },
   });
   child.stdout.on('data', (d) => out.push(String(d)));
   child.stderr.on('data', (d) => out.push(String(d)));
@@ -2540,6 +2543,267 @@ async function trialChecks() {
   }
 }
 await trialChecks();
+
+// ---- the second pass: the claims a document rests on, the top quarter shown, an empirical headline first (16 October) ----
+// The operator's rules: a claim that is not empirical is set aside; the empirical ones are force-ranked by how far the
+// article would change, in its meaning and its worth, were each one false; the headline, when it is an empirical
+// statement, is "the first fact tested"; "I only want the top 25% of the most important claims". The stand-in DeepSeek
+// ranks by a rule of its own (the last listed first, claim 2 set aside) and takes each case from a mark in the document.
+// The ranking prompt here is the guard's own stand-in, never the operator's.
+async function rankChecks() {
+  const RMOCK = MOCK_PORT + 60;
+  const DSKEY = 'sk-dsrank000000000000000000000000';
+  const MARK = 'RANKMOCK-9c1e';
+  const SUMMARY_MARK = 'RANKSUM-4d2a';
+  const COT = 'DSCOT-7f3a';
+  const RANK_PROMPT = `${MARK} The guard's own stand-in for the second pass, never the operator's.\nTitle given: {{TITLE}}\nNumbered claims:\n{{CLAIMS}}\nAnswer under the six headings this test reads.\n`;
+  const RANK_VERSION = crypto.createHash('sha256').update(RANK_PROMPT).digest('hex').slice(0, 8);
+  const stamp = Date.now();
+  const ledger = path.join(os.tmpdir(), `civic-verify-rank-ledger-${stamp}.jsonl`);
+  const errlog = path.join(os.tmpdir(), `civic-verify-rank-errors-${stamp}.log`);
+  const stats = async () => (await fetch(`http://localhost:${RMOCK}/deepseek/mock/stats`, { headers: { authorization: `Bearer ${KEY}` } })).json();
+  const procs = [];
+  const dsEnv = { CIVIC_EXTRACT_PROVIDER: 'deepseek', DEEPSEEK_API_KEY: DSKEY, CIVIC_DEEPSEEK_BASE_URL: `http://localhost:${RMOCK}/deepseek`, CIVIC_PROMPT_RANK: RANK_PROMPT, CIVIC_RANK: 'operator' };
+  const serve = (port, env = {}) => {
+    procs.push(start([path.join(root, 'server', 'index.js')], {
+      PORT: String(port), OPENAI_BASE_URL: `http://localhost:${RMOCK}/v1`, OPENAI_API_KEY: KEY, CIVIC_IMAGE_ENABLED: 'false',
+      CIVIC_LEDGER_FILE: ledger, CIVIC_ERROR_LOG: errlog, DATABASE_URL: '', ...dsEnv, ...env,
+    }));
+    return `http://localhost:${port}`;
+  };
+  // Thirteen sentences of over 25 characters: the stand-in lists thirteen claims, sets claim 2 aside and ranks twelve, a
+  // quarter of which, rounded up, is three. A case's mark goes inside the first sentence, so the count never changes.
+  const SENTENCES = [
+    'The moon pulls the tides twice a day around the world.', 'Some people find the full moon beautiful above the sea.',
+    'The moon orbits the Earth once every 27.3 days on average.', 'The moon is about 384,400 kilometres from the Earth.',
+    'Apollo 11 landed on the moon on 20 July 1969.', 'Two astronauts walked on the lunar surface that day.',
+    'The far side of the moon was first photographed in 1959.', 'Luna 3 took those first pictures of the far side.',
+    'The surface gravity of the moon is about one sixth of the Earth\'s.', 'The moon has no global magnetic field like the Earth\'s.',
+    'Its day and its night each last about two Earth weeks.', 'The largest crater on the near side is called Bailly.',
+    'Lunar dust clings to suits and equipment by static charge.',
+  ];
+  const doc = (mark = '') => SENTENCES.map((x, i) => (i === 0 && mark ? x.replace(/\.$/, ` [rank:${mark}].`) : x)).join(' ');
+  const META = { kind: 'link', url: 'https://news.example.org/2026/moon-tides', title: 'The moon pulls the tides twice a day around the world | The Stand-in Gazette', site: 'The Stand-in Gazette' };
+  const HEADLINE = 'The moon pulls the tides twice a day around the world';
+  const WANT = [13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 1];   // the stand-in's order: the last listed first, claim 2 set aside
+  const list = async (base, mark, extra = {}) => {
+    const jobId = `rank-${mark || 'base'}-${stamp}-${Math.random().toString(36).slice(2, 7)}`;
+    const before = (await stats()).requests;
+    const events = await stream(`${base}/api/extract`, { text: doc(mark), jobId, source: META, ...extra });
+    return { jobId, events, done: events.find((e) => e.t === 'done'), sends: (await stats()).requests - before };
+  };
+  // Request ordinals at the stand-in DeepSeek: 1 and 2 the first run's listing and ranking; 3 a listing, 4 its ranking
+  // refused with a 429 that names no wait, 5 the ranking again; 6 a listing, 7 its ranking closed before its first event,
+  // 8 the ranking again. Everything after is clean.
+  start([path.join(root, 'scripts', 'mock-openai.js')], {
+    MOCK_PORT: String(RMOCK), MOCK_SPEED: '0.2', MOCK_EVAL_MARK: process.env.MOCK_EVAL_MARK_FOR_GATE || '', MOCK_RANK_MARK: MARK,
+    MOCK_DS_429: '4', MOCK_DS_CLOSE: '7',
+  });
+  try {
+    await wait(`http://localhost:${RMOCK}/v1/responses`, 15000, { anyResponse: true });
+    const base = serve(PORT + 71);
+    await wait(`${base}/api/health`);
+    const health = await (await fetch(`${base}/api/health`)).json();
+    const rq = health.request?.rank || {};
+    check('Ranking: the health line says the claims are ranked for the operator\'s runs on the listing\'s own model (deepseek-flash at high), the top 25% shown, with no search; its request keys are model, input, reasoning and stream',
+      rq.mode === 'operator' && rq.model === 'deepseek-flash' && rq.effort === 'high' && rq.keepPercent === 25 && rq.webSearch === false
+        && JSON.stringify(health.request?.keys?.rank) === JSON.stringify(['model', 'input', 'reasoning', 'stream']) && health.prompts?.rank === true,
+      JSON.stringify({ rank: rq, keys: health.request?.keys?.rank, prompts: health.prompts }));
+
+    const a = await list(base, '');
+    const s1 = await stats();
+    const body = s1.lastRankBody;
+    check('Ranking: a listing makes two requests to DeepSeek, the listing and then the ranking, and completes',
+      a.sends === 2 && s1.rankRequests === 1 && Boolean(a.done) && !a.events.some((e) => e.t === 'error'), JSON.stringify({ sends: a.sends, rank: s1.rankRequests }));
+    check('Ranking: its body carries exactly the model, the input, reasoning {effort: high} and stream: no tools, no store, no mode or summary',
+      Boolean(body) && JSON.stringify(Object.keys(body).sort()) === JSON.stringify(['input', 'model', 'reasoning', 'stream']) && JSON.stringify(body.reasoning) === JSON.stringify({ effort: 'high' })
+        && body.model === 'deepseek-flash' && body.stream === true,
+      JSON.stringify(body && { keys: Object.keys(body), reasoning: body.reasoning }));
+    const listed = a.done?.claims || [];
+    const block = listed.map((c) => `${c.n}. ${String(c.entry).trim()}`).join('\n\n');
+    const expectPrompt = RANK_PROMPT.replace('{{TITLE}}', META.title).replace('{{CLAIMS}}', block);
+    const [m0, m1] = (body?.input || []).map((m) => (m.content || []).map((c) => c.text || '').join(''));
+    check('Ranking: the source goes first, exactly as a determination is given it (the page\'s title, site and address, then the text); the prompt second, verbatim but for its two slots: the headline as published, and each claim\'s number with its whole entry',
+      body?.input?.length === 2 && body.input.every((m) => m.role === 'user') && m0 === sourceBlock(doc(''), META) && m1 === expectPrompt && !m1.includes('{{'),
+      JSON.stringify({ messages: body?.input?.length, first: m0?.slice(0, 90), second: m1?.slice(0, 160) }));
+    const r = a.done?.ranking;
+    check('Ranking: the claims come back in the model\'s order with the one it found not empirical set aside; a quarter of the twelve ranked, rounded up, three, is what the page shows; the listing\'s own thirteen claims are unchanged',
+      r?.ok === true && JSON.stringify(r.order) === JSON.stringify(WANT) && r.keep === 3 && r.ranked === 12 && JSON.stringify(r.notEmpirical) === JSON.stringify([2]) && r.missing === 0
+        && listed.length === 13 && a.done.total === 13,
+      JSON.stringify(r && { order: r.order, keep: r.keep, ranked: r.ranked, notEmpirical: r.notEmpirical, claims: listed.length }));
+    check('Ranking: the headline, an empirical statement copied word for word from the page\'s title, is tested first',
+      r?.headline?.kind === 'empirical' && r.headline.tested === true && r.headline.text === HEADLINE, JSON.stringify(r?.headline));
+    const startEv = a.events.find((e) => e.t === 'start');
+    const phaseEv = a.events.find((e) => e.t === 'phase' && e.phase === 'ranking');
+    const streamed = a.events.filter((e) => e.t === 'summary').map((e) => e.delta || '').join('');
+    const iDone = a.events.findIndex((e) => e.t === 'done');
+    check('Ranking: the page is told at the start that the claims will be ranked, then when the ranking begins (with the count); the summary arrives as it is written, before done, and is the summary done carries',
+      startEv?.rank === true && phaseEv?.claims === 13 && a.events.findIndex((e) => e.t === 'summary') < iDone && streamed.trim() === r?.summary && String(r?.summary).startsWith(SUMMARY_MARK),
+      JSON.stringify({ start: startEv?.rank, phase: phaseEv, streamed, summary: r?.summary }));
+    const replay = await stream(`${base}/api/extract`, { text: doc(''), jobId: a.jobId, cursor: 0, source: META });
+    check('Ranking: the model\'s chain of thought reaches no page, in the stream or in its replay from the start, and no word of the ranking prompt reaches one either',
+      replay.some((e) => e.t === 'done' && e.ranking?.ok) && ![...a.events, ...replay].some((e) => JSON.stringify(e).includes(COT)) && ![...a.events, ...replay].some((e) => JSON.stringify(e).includes(MARK)),
+      JSON.stringify(replay.map((e) => e.t)));
+    const lines = () => fs.readFileSync(ledger, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l));
+    const rankLine = lines().find((l) => l.kind === 'rank' && l.run === a.jobId);
+    check('Ranking: its ledger line is its own (kind rank, beside the listing\'s), on the run, priced at DeepSeek\'s rate for the hour, with its tokens, its time and what it found; no chain of thought in the ledger',
+      Boolean(rankLine) && rankLine.provider === 'deepseek' && rankLine.model === 'deepseek-flash' && rankLine.effort === 'high' && rankLine.claims === 13 && rankLine.ranked === 12 && rankLine.kept === 3
+        && rankLine.notEmpirical === 1 && rankLine.headline === 'empirical' && rankLine.headlineTested === true && rankLine.priced === true && rankLine.usd > 0 && rankLine.ms >= 0 && rankLine.usage?.input > 0
+        && lines().some((l) => l.kind === 'extract' && l.run === a.jobId) && !fs.readFileSync(ledger, 'utf8').includes(COT),
+      JSON.stringify(rankLine));
+    const st = await (await fetch(`${base}/api/selftest`)).json();
+    const row = (re) => (st.checks || []).find((x) => re.test(x.title));
+    check('Ranking: /check shows the ranking prompt\'s version, that the claims are ranked for the operator\'s runs alone, and the setting; FactEngine is ready',
+      st.ready === true && row(/^The ranking prompt is installed$/)?.state === 'ok' && (row(/^The ranking prompt is installed$/)?.detail || '').includes(RANK_VERSION)
+        && row(/^The claims are ranked for your runs alone$/)?.state === 'ok' && st.settings?.rank === 'your runs alone: an empirical headline first, then the top 25%, rounded up, on deepseek-flash at high'
+        && (st.settings?.prompts || '').includes(`rank ${RANK_VERSION}`),
+      JSON.stringify({ rows: (st.checks || []).filter((x) => /rank/i.test(x.title)).map((x) => `${x.state}:${x.title}`), settings: st.settings?.rank, prompts: st.settings?.prompts }));
+
+    // A wait is a wait, for the ranking alone: the listing is not asked again.
+    const b = await list(base, '');
+    const w = b.events.find((e) => e.t === 'rank-retry');
+    check('Ranking: a 429 that names no wait is a wait of about a second for the ranking alone (the listing is not asked again); then the ranking completes',
+      w?.reason === 'rate_limit' && w.waitMs >= 600 && w.waitMs <= 1000 && b.sends === 3 && b.done?.ranking?.ok === true && !b.events.some((e) => e.t === 'retry'),
+      JSON.stringify({ retry: w, sends: b.sends, ok: b.done?.ranking?.ok }));
+    const c = await list(base, '');
+    const w2 = c.events.find((e) => e.t === 'rank-retry');
+    check('Ranking: an answer that stops before its last event is a cut connection, and the ranking goes again; the run completes ranked',
+      w2?.reason === 'connection' && c.sends === 3 && c.done?.ranking?.ok === true && JSON.stringify(c.done.ranking.order) === JSON.stringify(WANT),
+      JSON.stringify({ retry: w2, sends: c.sends, ok: c.done?.ranking?.ok }));
+
+    // A page whose connection is cut while the claims are ranked comes back to the same job and finds the ranking done.
+    const jobD = `rank-cut-${stamp}`;
+    const beforeD = (await stats()).requests;
+    const got = [];
+    const ac = new AbortController();
+    try {
+      const res = await fetch(`${base}/api/extract`, { method: 'POST', signal: ac.signal, headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text: doc(''), jobId: jobD, source: META }) });
+      const reader = res.body.getReader();
+      const dec = new TextDecoder();
+      let buf = '';
+      let cut = false;
+      while (!cut) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buf += dec.decode(value, { stream: true });
+        let nl;
+        while (!cut && (nl = buf.indexOf('\n')) >= 0) {
+          const line = buf.slice(0, nl).trim();
+          buf = buf.slice(nl + 1);
+          if (!line) continue;
+          const ev = JSON.parse(line);
+          got.push(ev);
+          if (ev.t === 'phase' && ev.phase === 'ranking') { cut = true; ac.abort(); }
+        }
+      }
+    } catch { /* the cut */ }
+    const rest = await stream(`${base}/api/extract`, { text: doc(''), jobId: jobD, cursor: got.length, source: META });
+    const doneD = rest.find((e) => e.t === 'done');
+    check('Ranking: a connection cut while the claims are being ranked costs nothing: the page comes back to the same job and receives the summary and the ranking, and nothing is asked twice',
+      got.some((e) => e.t === 'phase' && e.phase === 'ranking') && !got.some((e) => e.t === 'done') && rest[0]?.t === 'attached' && doneD?.ranking?.ok === true
+        && JSON.stringify(doneD.ranking.order) === JSON.stringify(WANT) && (await stats()).requests - beforeD === 2,
+      JSON.stringify({ before: got.map((e) => e.t), after: rest.map((e) => e.t), sends: (await stats()).requests - beforeD }));
+
+    // Each case, from a mark in the document.
+    const cases = {};
+    for (const mark of ['question', 'notemp-headline', 'none', 'invented', 'dup', 'missing', 'allnot', 'garbage', 'decor']) cases[mark] = (await list(base, mark)).done;
+    const R = (m) => cases[m]?.ranking;
+    const failures = async () => (await (await fetch(`${base}/api/selftest`)).json()).recentFailures || [];
+    check('Ranking: a headline phrased as a question is not tested, nor one that is not empirical, nor a page without one; the claims are ranked all the same',
+      R('question')?.headline?.kind === 'question' && R('question').headline.tested === false && R('notemp-headline')?.headline?.kind === 'not_empirical' && R('notemp-headline').headline.tested === false
+        && R('none')?.headline?.kind === 'none' && R('none').headline.tested === false && R('none').headline.text === null && R('question').keep === 3 && R('none').keep === 3,
+      JSON.stringify({ question: R('question')?.headline, notEmpirical: R('notemp-headline')?.headline, none: R('none')?.headline }));
+    check('Ranking: a headline the model wrote that is not, word for word, the page\'s title or a line of the document is never tested, and /check records it',
+      R('invented')?.headline?.kind === 'empirical' && R('invented').headline.tested === false && (await failures()).some((f) => f.where === 'server:ranking' && f.code === 'headline_unmatched'),
+      JSON.stringify(R('invented')?.headline));
+    check('Ranking: a listed claim that says what the headline says is not shown twice: the headline is that test, and a quarter of the other eleven, rounded up, is three',
+      R('dup')?.duplicate === 1 && !R('dup').order.includes(1) && R('dup').ranked === 11 && R('dup').keep === 3 && R('dup').headline?.tested === true,
+      JSON.stringify(R('dup') && { duplicate: R('dup').duplicate, order: R('dup').order, keep: R('dup').keep }));
+    check('Ranking: a claim the model left out of both lists is kept at the end of the order, behind the ones it ranked, never lost',
+      R('missing')?.missing === 1 && R('missing').order[R('missing').order.length - 1] === 13 && R('missing').ranked === 11 && R('missing').keep === 3,
+      JSON.stringify(R('missing') && { order: R('missing').order, missing: R('missing').missing }));
+    check('Ranking: when the model finds nothing empirical, nothing is offered to test but the headline, and every statement is counted as set aside',
+      R('allnot')?.ok === true && R('allnot').keep === 0 && R('allnot').order.length === 0 && R('allnot').notEmpirical.length === 13 && R('allnot').headline?.tested === true,
+      JSON.stringify(R('allnot') && { keep: R('allnot').keep, notEmpirical: R('allnot').notEmpirical.length }));
+    check('Ranking: an answer without its headings leaves the list whole, as before the ranking (the thirteen claims, unranked), shows no summary, and /check records it',
+      R('garbage')?.ok === false && R('garbage').summary === null && cases.garbage?.claims?.length === 13 && (await failures()).some((f) => f.where === 'server:ranking' && f.code === 'rank_unread'),
+      JSON.stringify(R('garbage')));
+    check('Ranking: headings in Markdown\'s decorations, and "1. 12" lines (a place, then the claim), are read as written',
+      R('decor')?.ok === true && JSON.stringify(R('decor').order) === JSON.stringify(WANT) && R('decor').keep === 3 && R('decor').headline?.tested === true,
+      JSON.stringify(R('decor') && { order: R('decor').order, keep: R('decor').keep }));
+
+    // The reading itself, in process.
+    const rk = await import(pathToFileURL(path.join(root, 'server', 'rank.js')).href);
+    check('Ranking: a quarter, rounded up, in whole millionths: 12 gives 3, 13 gives 4, 4 gives 1, 1 gives 1, 0 gives 0; 15% of 20 is 3, never 4; 33.4% of 10 is 4',
+      rk.keepCount(12, 25) === 3 && rk.keepCount(13, 25) === 4 && rk.keepCount(4, 25) === 1 && rk.keepCount(1, 25) === 1 && rk.keepCount(0, 25) === 0 && rk.keepCount(20, 15) === 3 && rk.keepCount(10, 33.4) === 4 && rk.keepCount(3, 100) === 3,
+      JSON.stringify([12, 13, 4, 1, 0].map((n) => rk.keepCount(n, 25))));
+    const five = [1, 2, 3, 4, 5].map((n) => ({ n, entry: `Claim ${n}.` }));
+    const p1 = rk.parseRanking('Summary: one line of summary.\nHEADLINE: A title here\nHEADLINE TYPE: Question\nRANKED: 3, 1, 9, 3\nNOT EMPIRICAL\nNONE\n', { claims: five, title: 'A title here | Site' });
+    check('Ranking: an answer is read as a model may write it: a summary on its heading\'s line, a list on its heading\'s line, a number outside the list or named twice passed over, a claim named nowhere kept at the end, NONE as none',
+      p1.ok && p1.summary === 'one line of summary.' && JSON.stringify(p1.order) === JSON.stringify([3, 1, 2, 4, 5]) && p1.ranked === 2 && p1.keep === 1 && p1.missing === 3 && p1.notEmpirical.length === 0 && p1.headline?.kind === 'question' && p1.headline.tested === false,
+      JSON.stringify(p1));
+    const partial = rk.summarySoFar('SUMMARY\nThe first line.\nThe second li');
+    const stopped = rk.summarySoFar('SUMMARY\nThe only line.\n\nHEADLI');
+    check('Ranking: the summary is sent in whole lines only, and never a heading that has begun to arrive',
+      partial === 'The first line.' && stopped.trim() === 'The only line.', JSON.stringify({ partial, stopped }));
+    check('Ranking: the headline as published is a page\'s own title; a link\'s host or the last part of its address (what the reader shows for a page without a title) and pasted text give none',
+      rk.titleOf({ kind: 'link', url: 'https://news.example.org/a/b', title: 'A real headline | Paper' }) === 'A real headline | Paper' && rk.titleOf({ kind: 'link', url: 'https://news.example.org/a/b', title: 'news.example.org' }) === ''
+        && rk.titleOf({ kind: 'link', url: 'https://news.example.org/files/report.pdf', title: 'report.pdf' }) === '' && rk.titleOf({ kind: 'text' }) === '' && rk.titleOf({ kind: 'file', name: 'x.pdf', title: 'The file\'s own title' }) === 'The file\'s own title',
+      '');
+
+    // The modes, and the places the ranking does not run.
+    const off = serve(PORT + 72, { CIVIC_RANK: 'off' });
+    await wait(`${off}/api/health`);
+    const o = await list(off, '');
+    check('Ranking: with CIVIC_RANK=off a listing is one request to DeepSeek; the page is told of no ranking, and done carries none',
+      o.sends === 1 && Boolean(o.done) && !o.done.ranking && !o.events.some((e) => e.t === 'start' && e.rank) && !o.events.some((e) => e.t === 'summary'), JSON.stringify({ sends: o.sends }));
+    const bad = serve(PORT + 73, { CIVIC_PROMPT_RANK: `${MARK} a stand-in prompt without its slot for the claims.\n` });
+    await wait(`${bad}/api/health`);
+    const bd = await list(bad, '');
+    const stBad = await (await fetch(`${bad}/api/selftest`)).json();
+    check('Ranking: a ranking prompt without {{CLAIMS}} is never sent: the claims are listed unranked, /check says why, and FactEngine is still ready',
+      bd.sends === 1 && Boolean(bd.done) && !bd.done.ranking && stBad.ready === true && (stBad.checks || []).some((x) => x.state === 'warn' && x.title === 'The claims are listed unranked' && /\{\{CLAIMS\}\}/.test(x.detail || '')),
+      JSON.stringify((stBad.checks || []).filter((x) => /rank/i.test(x.title)).map((x) => `${x.state}:${x.title}: ${x.detail}`)));
+    const oa = serve(PORT + 74, { CIVIC_EXTRACT_PROVIDER: '', CIVIC_RANK: 'on' });
+    await wait(`${oa}/api/health`);
+    const oaRun = await stream(`${oa}/api/extract`, { text: doc(''), jobId: `rank-openai-${stamp}`, source: META });
+    const stOa = await (await fetch(`${oa}/api/selftest`)).json();
+    check('Ranking: with the listing on OpenAI the claims are listed unranked (the ranking runs on the listing\'s DeepSeek model), and /check says so',
+      Boolean(oaRun.find((e) => e.t === 'done')) && !oaRun.find((e) => e.t === 'done')?.ranking && (stOa.checks || []).some((x) => x.state === 'warn' && x.title === 'The claims are listed unranked' && /DeepSeek/.test(x.detail || '')),
+      JSON.stringify((stOa.checks || []).filter((x) => /rank/i.test(x.title)).map((x) => `${x.state}:${x.title}: ${x.detail}`)));
+
+    // With accounts on: while CIVIC_RANK is `operator`, the operator's runs are ranked and a reader's are listed as before;
+    // `on` ranks everyone's.
+    const accountEnv = { ...dsEnv, CIVIC_OPERATOR_EMAILS: 'op@example.com', CIVIC_OPERATOR_CLAIM: claimHash() };
+    const P = PORT + 75;
+    const srv = accountServer(P, RMOCK, accountEnv);
+    procs.push(srv.child);
+    await wait(`http://localhost:${P}/api/health`, 20000);
+    const people = accountClient(`http://localhost:${P}`);
+    const reader = (await people.signup('reader@example.com')).cookie;
+    const op = (await people.json('/api/account/claim', { method: 'POST', body: { token: CLAIM_TOKEN, email: 'op@example.com', password: PASSWORD, agree: true } })).cookie;
+    const rr = await people.stream('/api/extract', { jobId: `rank-reader-${stamp}`, text: doc(''), source: META }, reader);
+    const orr = await people.stream('/api/extract', { jobId: `rank-op-${stamp}`, text: doc(''), source: META }, op);
+    const rDone = rr.events.find((e) => e.t === 'done');
+    check('Ranking: while CIVIC_RANK is operator, a reader\'s claims are listed unranked, as before, and the operator\'s are ranked',
+      Boolean(rDone) && !rDone.ranking && !rr.events.some((e) => e.t === 'summary' || (e.t === 'start' && e.rank)) && orr.events.find((e) => e.t === 'done')?.ranking?.ok === true,
+      JSON.stringify({ reader: rDone ? Boolean(rDone.ranking) : 'no done', operator: orr.events.find((e) => e.t === 'done')?.ranking?.ok }));
+    const P2 = PORT + 76;
+    const srv2 = accountServer(P2, RMOCK, { ...accountEnv, CIVIC_RANK: 'on' });
+    procs.push(srv2.child);
+    await wait(`http://localhost:${P2}/api/health`, 20000);
+    const people2 = accountClient(`http://localhost:${P2}`);
+    const reader2 = (await people2.signup('reader2@example.com')).cookie;
+    const rr2 = await people2.stream('/api/extract', { jobId: `rank-reader-on-${stamp}`, text: doc(''), source: META }, reader2);
+    check('Ranking: with CIVIC_RANK=on a reader\'s claims are ranked too',
+      rr2.events.find((e) => e.t === 'done')?.ranking?.ok === true, JSON.stringify(rr2.events.find((e) => e.t === 'done')?.ranking?.ok));
+  } catch (err) {
+    check('Ranking checks completed', false, err.stack || err.message);
+  } finally {
+    for (const p of procs) { try { p.kill('SIGTERM'); } catch {} }
+  }
+}
+await rankChecks();
 
 // ---- the listing on Fireworks: DeepSeek V4.1 Flash from a US company, FactEngine's own search, the chain of thought cut off ----
 // The operator's choice of 5 October. Against a stand-in that speaks Fireworks' dialect (scripts/mock-openai.js): the

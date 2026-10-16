@@ -11,7 +11,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
-const NAMES = ['extract', 'evaluate'];
+const NAMES = ['extract', 'evaluate', 'rank'];   // rank: the second pass's prompt (16 October), when installed
 const MIN_LEN = 25;  // shorter runs are ordinary English, not a fingerprint of the prompt
 const WINDOW = 5;    // consecutive words per fragment
 

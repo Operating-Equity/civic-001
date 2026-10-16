@@ -56,7 +56,8 @@ function renderSettings(s, build, pacing, silent, tools, readers) {
       : [['Model', s.model], ['Reasoning effort', s.effort]]),
     ['Web search', s.listingWebSearch === false ? 'on for the determinations; the listing does not search (DeepSeek ignores web search)' : s.webSearch ? 'on, for both steps' : 'off'],
     ...(s.trialModels && s.trialModels !== 'off' ? [['Your trial', `${s.trialModels}, chosen on the page, for your account alone`]] : []),
-    ['Claims per run', String(s.claimsPerRun)],
+    ...(s.rank ? [['Ranking the claims', s.rank]] : []),
+    ['Claims one request may carry', `${s.claimsPerRun} (the page sends one claim per request; this bounds nothing it does)`],
     ['Key comes from', s.keySource],
     ['Prompt versions', s.prompts || 'none installed'],
     ['Version', build],
@@ -140,6 +141,7 @@ function economicsLines(e, { pacing = null, model = null } = {}) {
   if (d && (d.determinations.n || d.extractions.n)) {
     lines.push((d.determinations.n ? `A determination takes ${mins(d.determinations.meanMs)} on average over the last ${e.price.days} days (three in four within ${mins(d.determinations.p75Ms)}, ${d.determinations.n} measured)${d.determinations.meanSearches !== null ? `, with ${d.determinations.meanSearches} web searches each` : ''}` : 'No determination measured yet') +
       (d.extractions.n ? `; a listing takes ${mins(d.extractions.meanMs)} on average (three in four within ${mins(d.extractions.p75Ms)}, ${d.extractions.n} measured)` : '; no listing measured yet') +
+      (d.rankings?.n ? `; ranking its claims, ${mins(d.rankings.meanMs)} more (three in four within ${mins(d.rankings.p75Ms)}, ${d.rankings.n} measured)` : '') +
       '. The times run from the request to its end, so a wait at the gate is inside them.');
   } else lines.push('No durations measured yet: the first runs put how long a determination and a listing take here.');
   lines.push(`${e.note} The rows live in ${e.store === 'postgres' ? 'Postgres and outlive every deploy' : 'this instance\'s memory and reset when it restarts'}.`);

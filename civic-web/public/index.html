@@ -190,6 +190,13 @@
         </div>
       </div>
 
+      <!-- The second pass's summary (16 October): what the document reports, and whether its headline says what it does,
+           as the model writes it, scrolling inside itself beside the picture. Shown on a ranked run alone. -->
+      <aside class="summary glass" id="summary" hidden aria-labelledby="summary-title">
+        <h2 class="summary-title" id="summary-title" data-i18n="summary.title">Summary</h2>
+        <div class="summary-body prose" id="summary-body"></div>
+      </aside>
+
       <figure class="echo" id="echo" hidden>
         <div class="echo-frame">
           <img id="echo-img" alt="Symbolic photograph of the document" data-i18n-alt="echo.alt" hidden>
@@ -226,6 +233,9 @@
         <p class="hint claims-beyond-hint" id="claims-beyond-hint"></p>
         <p class="balance-line" id="balance-line" hidden></p>
         <ol class="claims-list is-beyond" id="claims-beyond-list" start="21"></ol>
+        <!-- A ranked run (16 October): the claims the document rests on less wait here, in their order, until asked for. -->
+        <button type="button" class="btn btn-text btn-small claims-rest" id="btn-show-rest" aria-controls="claims-beyond-list" hidden></button>
+        <p class="hint claims-set-aside" id="claims-set-aside" hidden></p>
       </div>
       <details class="raw" id="claims-raw" hidden>
         <summary class="raw-summary" id="claims-raw-summary"></summary>

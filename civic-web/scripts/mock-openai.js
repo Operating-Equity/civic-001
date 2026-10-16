@@ -350,7 +350,7 @@ const dsSet = (name) => new Set(String(process.env[name] || '').split(',').map(N
 const DS_429 = dsSet('MOCK_DS_429'), DS_503 = dsSet('MOCK_DS_503'), DS_402 = dsSet('MOCK_DS_402'), DS_CLOSE = dsSet('MOCK_DS_CLOSE'), DS_ERROR_EVENT = dsSet('MOCK_DS_ERROR_EVENT');
 const DS_KEEPALIVE_MS = Number(process.env.MOCK_DS_KEEPALIVE_MS || 0);
 const DS_COT = 'DSCOT-7f3a';   // the chain of thought's marker: never on a page, a replay, a ledger line or a failure record
-const dsStats = { requests: 0, streams: 0, inFlight: 0, maxInFlight: 0, rounds: 0, refusedRounds: 0, lastTools: null, lastToolTypes: null, lastInput: null };
+const dsStats = { requests: 0, streams: 0, inFlight: 0, maxInFlight: 0, rounds: 0, refusedRounds: 0, lastTools: null, lastToolTypes: null, lastInput: null, rankRequests: 0, lastRankBody: null };
 let dsOrdinal = 0;
 
 app.get('/deepseek/models', (req, res) => res.json({ object: 'list', data: DS_MODELS.map((id) => ({ id, object: 'model', owned_by: 'deepseek' })) }));
@@ -375,6 +375,9 @@ app.post('/deepseek/responses', async (req, res) => {
   const users = items.filter((m) => m && m.role === 'user');
   const promptText = users.length ? (users[users.length - 1].content || []).map((c) => c.text || '').join('\n') : '';
   const isEvaluation = process.env.MOCK_EVAL_MARK ? promptText.includes(process.env.MOCK_EVAL_MARK) : /^\s*Prompt\s*=/.test(promptText);
+  // The second pass (server/rank.js): known by MOCK_RANK_MARK, a word of the guard's stand-in ranking prompt.
+  const isRanking = Boolean(process.env.MOCK_RANK_MARK) && promptText.includes(process.env.MOCK_RANK_MARK);
+  if (isRanking) { dsStats.rankRequests++; dsStats.lastRankBody = body; }
   if (isEvaluation) {
     const calls = items.filter((x) => x?.type === 'function_call');
     const answers = items.filter((x) => x?.type === 'function_call_output');
@@ -406,6 +409,7 @@ app.post('/deepseek/responses', async (req, res) => {
   const id = 'resp_ds_' + Math.random().toString(36).slice(2);
   send({ type: 'response.created', response: { id, object: 'response', status: 'in_progress', model: body.model } });
   if (isEvaluation) { await dsRound({ res, body, send, id, promptText, items, ordinal }); return; }
+  if (isRanking) { await dsRank({ res, send, id, body, promptText, items, ordinal }); return; }
   send({ type: 'response.output_item.added', output_index: 0, item: { type: 'reasoning', id: 'rs_1', status: 'in_progress', content: [] } });
   const thought = [`${DS_COT} reading the instructions and the document. `, 'Listing every empirical claim in order. ', `${DS_COT} done.`];
   for (const delta of thought) { send({ type: 'response.reasoning_text.delta', item_id: 'rs_1', output_index: 0, content_index: 0, delta }); await sleep(20); }
@@ -437,6 +441,75 @@ app.post('/deepseek/responses', async (req, res) => {
   });
   res.end();
 });
+
+/**
+ * The second pass on DeepSeek (server/rank.js): a summary, the headline and its kind, and the claims in an order of the
+ * stand-in's own (the last listed first), with claim 2 set aside as not empirical. Each case the guard needs is asked
+ * for by a mark in the document itself, so one stand-in serves them all:
+ *   [rank:question] [rank:notemp-headline] [rank:none] [rank:invented]   the headline asked, set aside, missing, or not the page's own
+ *   [rank:dup]       claim 1 says what the headline says          [rank:missing]  the last claim left out of both lists
+ *   [rank:allnot]    every claim not empirical                    [rank:garbage]  an answer without its headings
+ *   [rank:decor]     the headings in Markdown's decorations, and "1. 12" lines
+ * MOCK_RANK_HOLD_MS holds the answer after the chain of thought, so the guard and the browser check can see the ranking under way.
+ */
+async function dsRank({ res, send, id, body, promptText, items }) {
+  const users = items.filter((m) => m && m.role === 'user');
+  const source = users.length > 1 ? (users[0].content || []).map((c) => c.text || '').join('\n') : '';
+  const has = (mark) => source.includes(`[rank:${mark}]`);
+  const given = (promptText.match(/^Title given: (.*)$/m) || [])[1] || '';
+  const numbers = [...promptText.matchAll(/^(\d+)\. /gm)].map((m) => Number(m[1]));
+  const thought = `${DS_COT} weighing what the document rests on. `;
+  send({ type: 'response.output_item.added', output_index: 0, item: { type: 'reasoning', id: 'rs_r', status: 'in_progress', content: [] } });
+  send({ type: 'response.reasoning_text.delta', item_id: 'rs_r', output_index: 0, content_index: 0, delta: thought });
+  send({ type: 'response.output_item.done', output_index: 0, item: { type: 'reasoning', id: 'rs_r', status: 'completed', content: [{ type: 'reasoning_text', text: thought }], summary: [] } });
+  const hold = Number(process.env.MOCK_RANK_HOLD_MS || 0);
+  if (hold > 0) await sleep(hold);
+  const title = given && given !== '(none given)' ? given.split(' | ')[0].trim() : '';
+  let headline = title || 'NONE';
+  let kind = title ? 'EMPIRICAL' : 'NONE';
+  if (has('question')) kind = 'QUESTION';
+  if (has('notemp-headline')) kind = 'NOT EMPIRICAL';
+  if (has('none')) { headline = 'NONE'; kind = 'NONE'; }
+  if (has('invented')) { headline = 'A headline the stand-in made up, found nowhere'; kind = 'EMPIRICAL'; }
+  const notEmpirical = has('allnot') ? numbers : numbers.filter((n) => n === 2);
+  let ranked = numbers.filter((n) => !notEmpirical.includes(n)).reverse();
+  if (has('missing') && ranked.length) ranked = ranked.filter((n) => n !== Math.max(...numbers));
+  const decor = has('decor');
+  const h = (word) => (decor ? `**${word}**` : word);
+  const output = has('garbage') ? 'The stand-in could not rank these claims today.\n' : [
+    decor ? '## SUMMARY' : 'SUMMARY',
+    'RANKSUM-4d2a The stand-in reads the document and says what it reports.',
+    'A second line of the summary, written apart.',
+    '',
+    `${h('HEADLINE')}: ${headline}`,
+    `${h('HEADLINE TYPE')}: ${kind}`,
+    `${h('HEADLINE CLAIM')}: ${has('dup') ? '1' : 'NONE'}`,
+    '',
+    h('RANKED'),
+    ...ranked.map((n, i) => (decor ? `${i + 1}. ${n}` : String(n))),
+    '',
+    h('NOT EMPIRICAL'),
+    ...(notEmpirical.length ? notEmpirical.map(String) : ['NONE']),
+    '',
+  ].join('\n');
+  send({ type: 'response.output_item.added', output_index: 1, item: { type: 'message', id: 'msg_r', status: 'in_progress', role: 'assistant', content: [] } });
+  for (const delta of output.match(/[\s\S]{1,9}/g) || []) {
+    if (res.writableEnded || res.destroyed) return;
+    send({ type: 'response.output_text.delta', item_id: 'msg_r', output_index: 1, content_index: 0, delta });
+    await sleep(5);
+  }
+  send({ type: 'response.output_text.done', item_id: 'msg_r', output_index: 1, content_index: 0, text: output });
+  send({ type: 'response.output_item.done', output_index: 1, item: { type: 'message', id: 'msg_r', status: 'completed', role: 'assistant', content: [{ type: 'output_text', text: output, annotations: [] }] } });
+  const read = items.map((m) => (m.content || []).map((c) => c.text || '').join('')).join('').length;
+  send({
+    type: 'response.completed',
+    response: {
+      id, object: 'response', status: 'completed', model: body.model, error: null, incomplete_details: null,
+      usage: { input_tokens: Math.round(read / 4), input_tokens_details: { cached_tokens: 0 }, output_tokens: Math.round(output.length / 4) + 40, output_tokens_details: { reasoning_tokens: 40 }, total_tokens: 0 },
+    },
+  });
+  res.end();
+}
 
 /** One round of a determination on DeepSeek (see above): a call to FactEngine's tools, or the entry. */
 async function dsRound({ res, body, send, id, promptText, items, ordinal }) {

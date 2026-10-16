@@ -64,6 +64,10 @@ const state = {
   pricing: null,       // this run's prices, from the server: { tier, freeFacts, priceCents, currency, note }; null = nothing priced
   creditStop: null,    // a claim the reader's credit or monthly limit could not cover: { code, balanceCents, priceCents, limitCents }; no more start
   status: { step1: null, step2: null },
+  // The second pass (server/rank.js, 16 October): this run's claims are ranked before they are shown (rankRun); while
+  // that runs, `ranking` is { at, claims }; the summary arrives as it is written; once done, `rankedRun` says what the
+  // list shows: the headline, the claims it rests on most, and how many more wait behind "Show the other claims".
+  rankRun: false, ranking: null, rankedRun: null, summaryText: '', showRest: false,
 };
 
 const ui = {};
@@ -82,6 +86,7 @@ function cacheElements() {
     scoreSourceTitle: $('#score-source-title'), scoreSourceSub: $('#score-source-sub'), scorePhase: $('#score-phase'), claimsFrom: $('#claims-from'),
     claims: $('#claims'), claimsSub: $('#claims-sub'), claimsList: $('#claims-list'),
     beyond: $('#claims-beyond'), beyondTitle: $('#claims-beyond-title'), beyondList: $('#claims-beyond-list'), beyondHint: $('#claims-beyond-hint'),
+    showRest: $('#btn-show-rest'), setAside: $('#claims-set-aside'), summary: $('#summary'), summaryBody: $('#summary-body'),
     selectAll: $('#btn-select-all'), testSelected: $('#btn-test-selected'),
     trialBar: $('#trial-bar'), trialModel: $('#trial-model'), trialEffort: $('#trial-effort'), trialEffortChoice: $('#trial-effort-choice'),
     trialCompare: $('#trial-compare'), trialCompareChoice: $('#trial-compare-choice'), trialCompareWords: $('#trial-compare-words'), trialWhy: $('#trial-why'),
@@ -149,6 +154,7 @@ async function boot() {
   ui.resetTop.addEventListener('click', resetAll);
   ui.reset.addEventListener('click', resetAll);
   ui.selectAll.addEventListener('click', toggleSelectAll);
+  ui.showRest.addEventListener('click', toggleRest);
   // The reader's choice runs (unparked 1 October, with CIVIC_AUTO_TEST_FIRST: what runs without a
   // press is the operator's setting, and the rest is the reader's). The report button still says
   // reports come later.
@@ -717,7 +723,11 @@ function resetRunState() {
     batch: { start: 0, size: 0, done: 0 }, counts: { true: 0, false: 0, unverified: 0 }, unread: 0,
     cost: 0, unpriced: false,
     extractStartedAt: 0, extractChars: 0, found: 0, extractWait: null, extractQueued: null, extractCut: false, runId: '', extractJob: '', evalStartedAt: 0, gate: null, pricing: null, status: { step1: null, step2: null },
+    rankRun: false, ranking: null, rankedRun: null, summaryText: '', showRest: false,
   });
+  hideSummary();
+  ui.showRest.hidden = true;
+  ui.setAside.hidden = true;
   ui.runWarnings.replaceChildren();
   ui.runWarnings.hidden = true;
   ui.claimsList.replaceChildren();
@@ -877,7 +887,8 @@ async function runExtraction(text) {
   let finished = false;
   const onEvent = (ev) => {
     switch (ev.t) {
-      case 'claim': addClaim(ev.n, ev); break;
+      // A ranked run's claims are counted as they come and shown once, in their order, when the ranking is done.
+      case 'claim': if (!state.rankRun) addClaim(ev.n, ev); break;
       case 'progress': state.extractChars = ev.chars; state.found = Math.max(state.found, ev.found || 0); break;
       case 'reasoning':
         state.extractReasoning += ev.text || '';
@@ -886,7 +897,7 @@ async function runExtraction(text) {
       case 'trail':
         state.extractSearches = ev.searches || (state.extractSearches + 1);
         break;
-      case 'start': state.extractWait = null; state.extractQueued = null; break;   // the request went: the model is reading
+      case 'start': state.extractWait = null; state.extractQueued = null; if (ev.rank) state.rankRun = true; break;   // the request went: the model is reading
       case 'retry':
         // A connection failure is a wait for the connection, shown as such until the next go begins.
         state.extractWait = ev.reason === 'connection' ? { code: ev.code, why: ev.why, since: ev.since || Date.now() } : null;
@@ -895,6 +906,14 @@ async function runExtraction(text) {
       case 'phase':
         if (ev.phase === 'queued') { state.extractQueued = { waitMs: ev.waitMs || 0, at: Date.now() }; setStatus('step1', 'step1.queued'); }
         if (ev.phase === 'incomplete') toast(t('step1.incomplete'), { error: true, ms: 9000 });
+        if (ev.phase === 'ranking') { state.ranking = { at: state.ranking?.at || Date.now(), claims: ev.claims || state.found }; state.extractWait = null; showSummary(); }
+        break;
+      case 'summary':   // the second pass's summary, in whole lines, as it is written; a go that starts again starts it again
+        state.summaryText = ev.reset ? '' : state.summaryText + (ev.delta || '');
+        renderSummary();
+        break;
+      case 'rank-retry':   // the ranking waits, as the listing does; a missing connection is said as such
+        state.extractWait = ev.reason === 'connection' ? { code: ev.code, why: ev.why, since: ev.since || Date.now() } : null;
         break;
       case 'warning': addWarning(ev); break;
       case 'pricing': state.pricing = ev; renderBeyondTools(); break;   // this run's tier, free count and price, from the server
@@ -942,6 +961,13 @@ function updateExtractBar() {
     return;
   }
 
+  // The claims are in and are being ranked: the line says so, with the time, until the ranked list is drawn.
+  if (state.ranking) {
+    ui.bar1.classList.add('is-waiting');
+    setBar(ui.bar1, 0.9 + easeTime(Date.now() - state.ranking.at, 60000, 0.08));
+    setStatus('step1', 'step1.ranking', { n: state.ranking.claims, time: fmtSeconds(Date.now() - state.ranking.at) });
+    return;
+  }
   // At high reasoning effort the model thinks for minutes before it writes anything. A bar tuned to
   // seconds reaches its ceiling and sits there, which reads as a dead page. So until the first claim
   // arrives the bar is openly a waiting bar, and the status line counts the time and the searches,
@@ -1001,12 +1027,17 @@ function addClaim(n, c) {
 function finishExtraction(ev) {
   state.extraction = ev;
   state.claimsRaw = ev.raw || '';
-  const all = (ev.claims || []).filter((c) => c.text).map(claimOf);
+  const listed = (ev.claims || []).filter((c) => c.text).map(claimOf);
+  const all = ev.ranking?.ok ? rankedClaims(listed, ev.ranking) : listed;
+  state.ranking = null;
+  if (ev.ranking) { state.summaryText = ev.ranking.summary || ''; if (state.summaryText) showSummary(); else hideSummary(); }
   state.claims = all;
   const auto = autoFirst();
-  const first = all.slice(0, auto);
-  state.beyond = all.slice(auto).map((c, k) => ({ n: auto + k + 1, ...c, selected: false, tested: false }));
-  ui.claimsList.replaceChildren(...first.map((c, k) => el('li', {}, [buildCard(c, k + 1)])));
+  // What runs without a press comes from what the list shows: on a ranked run, never one of the claims kept back.
+  const first = (state.rankedRun ? all.filter((c) => c.top !== false) : all).slice(0, auto);
+  const running = new Set(first);
+  state.beyond = all.filter((c) => !running.has(c)).map((c, k) => ({ n: auto + k + 1, ...c, selected: false, tested: false }));
+  ui.claimsList.replaceChildren(...first.map((c, k) => el('li', {}, [tagHeadline(buildCard(c, c.n ?? k + 1), c)])));
   ui.claims.hidden = all.length === 0 && !state.claimsRaw;
   renderClaimsHeadings();
   buildBeyondRows();
@@ -1014,8 +1045,10 @@ function finishExtraction(ev) {
   addCost(ev.cost);
 
   setStep(ui.step1, 'done');
+  ui.bar1.classList.remove('is-waiting');   // the ranking's waiting stripes, gone with it
   setBar(ui.bar1, 1, { done: true });
-  setStatus('step1', all.length ? 'step1.done' : 'step1.none', { n: all.length, time: fmtSeconds(ev.ms || Date.now() - state.extractStartedAt) });
+  if (state.rankedRun) setStatus('step1', 'step1.doneRanked', { n: listed.length, time: fmtSeconds(Date.now() - state.extractStartedAt) });
+  else setStatus('step1', all.length ? 'step1.done' : 'step1.none', { n: all.length, time: fmtSeconds(ev.ms || Date.now() - state.extractStartedAt) });
 
   if (!first.length) {
     // Nothing found, or nothing runs without a press (CIVIC_AUTO_TEST_FIRST=0): the claims wait for the
@@ -1029,6 +1062,77 @@ function finishExtraction(ev) {
     return;
   }
   runBatch(first, [...ui.claimsList.querySelectorAll('.card')]); // the automatic ones run in their rows
+}
+
+/**
+ * The list a ranked run shows (server/rank.js): the headline first when it is empirical and was copied word for word,
+ * then the claims in their ranked order, the first `keep` of them the ones the document rests on most, then the rest,
+ * which wait behind "Show the other claims". Each is numbered by its place in this list, the number the run knows it by.
+ */
+function rankedClaims(listed, r) {
+  const byN = new Map(listed.map((c) => [c.n, c]));
+  const items = [];
+  if (r.headline?.tested && r.headline.text) items.push({ text: r.headline.text, more: '', entry: r.headline.text, headline: true, top: true });
+  (r.order || []).forEach((n, k) => { const c = byN.get(n); if (c) items.push({ ...c, top: k < r.keep }); });
+  state.rankedRun = { keep: r.keep, rest: items.filter((c) => !c.top).length, setAside: (r.notEmpirical || []).length, headline: Boolean(items[0]?.headline) };
+  return items.map((c, k) => ({ ...c, n: k + 1 }));
+}
+
+/** The headline's row says it is the headline: the first fact tested, whatever the rest are. */
+function tagHeadline(card, claim) {
+  if (claim?.headline) $('.card-claim', card).prepend(el('span', { class: 'card-tag', text: t('card.headline') }));
+  return card;
+}
+
+/** A claim the list shows now: the headline and the top claims always, the rest once the reader asks, a tested one always. */
+const shownNow = (b) => b.top !== false || state.showRest || b.tested;
+
+function toggleRest() {
+  state.showRest = !state.showRest;
+  // The rest folded away again: nothing hidden stays chosen, so the button never counts a claim the reader cannot see.
+  if (!state.showRest) for (const b of state.beyond) if (b.top === false && !b.tested) b.selected = false;
+  for (const b of state.beyond) { const li = b.node?.closest('li'); if (li && b.top === false) li.hidden = !shownNow(b); }
+  syncBeyondRows();
+}
+
+function renderRestToggle() {
+  const rest = state.beyond.filter((b) => b.top === false && !b.tested).length;
+  ui.showRest.hidden = rest === 0;
+  ui.showRest.textContent = state.showRest ? t('claims.hideRest') : t('claims.showRest', { n: rest });
+  ui.showRest.setAttribute('aria-expanded', state.showRest ? 'true' : 'false');
+  const set = state.rankedRun?.setAside || 0;
+  ui.setAside.hidden = !set;
+  ui.setAside.textContent = set ? t('claims.setAside', { n: set }) : '';
+}
+
+/** The heading over the claims to choose from: on a ranked run, what the list is; otherwise how many were found. */
+function renderBeyondTitle() {
+  const items = state.beyond;
+  if (!items.length) return;
+  const r = state.rankedRun;
+  if (!r) { const auto = autoFirst(); ui.beyondTitle.textContent = t(auto ? 'claims.more' : 'claims.found', { n: items.length }); return; }
+  ui.beyondTitle.textContent = r.headline
+    ? (r.keep ? t('claims.rankedHead', { n: r.keep }) : t('claims.headlineOnly'))
+    : (r.keep ? t('claims.ranked', { n: r.keep }) : t('claims.noneEmpirical'));
+}
+
+// The second pass's summary, beside the picture: what the document reports, written as the model writes it.
+function showSummary() {
+  ui.summary.hidden = false;
+  ui.rail.classList.add('has-summary');
+  renderSummary();
+}
+function hideSummary() {
+  ui.summary.hidden = true;
+  ui.rail.classList.remove('has-summary');
+  ui.summaryBody.replaceChildren();
+}
+function renderSummary() {
+  if (ui.summary.hidden) return;
+  const text = state.summaryText.trim();
+  ui.summaryBody.dataset.waiting = t('summary.writing');
+  ui.summaryBody.innerHTML = text ? renderMarkdown(text) : '';
+  if (text) renderMath(ui.summaryBody);
 }
 
 function renderClaimsHeadings() {
@@ -1058,15 +1162,17 @@ function buildBeyondRows() {
   if (!items.length) return;
   const auto = autoFirst();
   ui.beyondList.style.counterReset = `claim ${auto}`;
-  ui.beyondTitle.textContent = t(auto ? 'claims.more' : 'claims.found', { n: items.length });
+  renderBeyondTitle();
   ui.beyondList.replaceChildren(...items.map((item) => {
-    const card = buildCard(item, item.n);
+    const card = tagHeadline(buildCard(item, item.n), item);
     const box = el('input', { type: 'checkbox', class: 'card-check', 'aria-label': item.text });
     box.addEventListener('change', () => { item.selected = box.checked; renderBeyondTools(); });
     $('.card-head', card).prepend(box);
     item.node = card;
     item.box = box;
-    return el('li', {}, [card]);
+    const li = el('li', {}, [card]);
+    if (item.top === false) { li.classList.add('is-rest'); li.hidden = !shownNow(item); }
+    return li;
   }));
   syncBeyondRows();
 }
@@ -1085,7 +1191,7 @@ function syncBeyondRows() {
 }
 
 function renderBeyondTools() {
-  const open = state.beyond.filter((b) => !b.tested);
+  const open = state.beyond.filter((b) => !b.tested && shownNow(b));
   const selected = open.filter((b) => b.selected).length;
   const allSelected = open.length > 0 && selected === open.length;
   const busy = state.phase === 'evaluating' || state.phase === 'extracting';
@@ -1103,6 +1209,7 @@ function renderBeyondTools() {
   ui.beyondHint.textContent = hint;
   renderPriceLine();
   renderTrialBar();
+  renderRestToggle();
 }
 
 // ---------- the operator's trial (14 October): their own fact-checks on another model, beside the readers' one ----------
@@ -1228,7 +1335,7 @@ function fmtMoney(cents, currency) {
 }
 
 function toggleSelectAll() {
-  const open = state.beyond.filter((b) => !b.tested);
+  const open = state.beyond.filter((b) => !b.tested && shownNow(b));   // what the reader sees; never a hidden claim
   const allSelected = open.length > 0 && open.every((b) => b.selected);
   for (const b of open) b.selected = !allSelected;
   syncBeyondRows();
@@ -1876,7 +1983,10 @@ function refreshDynamicText() {
   if (state.batch.size) ui.step2Title.textContent = state.batch.start > 0 ? t('step2.more', { n: state.batch.size }) : t('step2.title', { n: state.batch.size });
   renderWarnings();
   renderClaimsHeadings();
+  renderBeyondTitle();
+  for (const tag of $$('.card-tag')) tag.textContent = t('card.headline');
   syncBeyondRows();
+  renderSummary();
   renderClaimsRaw();
   renderScoreboard();
   state.results.forEach((r, i) => {

@@ -12,6 +12,7 @@ import { estimateTextCost } from './pricing.js';
 import { requestTools, gatewayTools, gatewayOn, toolStep, searchCount } from './tools/request.js';
 import { openDoor } from './tools/doors.js';
 import { record } from './ledger.js';
+import { runRanking } from './rank.js';
 
 /** Parses "1. claim\n2. claim" incrementally. Returns the claims completed so far. */
 export function parseNumberedList(text) {
@@ -47,7 +48,7 @@ export function splitEntry(entry) {
   return { text: rest.slice(0, next).trim(), more: rest.slice(next).trim() };
 }
 
-export async function runExtraction({ apiKey, text, meta, send, signal, sourceWarning, ctx = {} }) {
+export async function runExtraction({ apiKey, text, meta, send, signal, sourceWarning, ctx = {}, rank = false }) {
   // The listing's provider: OpenAI as before, or DeepSeek's own service (CIVIC_EXTRACT_PROVIDER=deepseek; 4 October),
   // or the same model on Fireworks (fireworks; 5 October). apiKey is that provider's key (listingKey, listing.js).
   const deepseek = onDeepSeek();
@@ -141,7 +142,8 @@ export async function runExtraction({ apiKey, text, meta, send, signal, sourceWa
         const { data: stream, release } = await attempt(model);
         modelUsed = model;
         pricedAt = attemptAt;
-        send({ t: 'start', model, requested: config.extractModels[0], at: started });
+        // `rank`: the claims will be ranked before they are shown (server/rank.js), so the page holds them back and counts.
+        send({ t: 'start', model, requested: config.extractModels[0], at: started, ...(rank ? { rank: true } : {}) });
         let ended = false;   // completed, incomplete or failed: the reply's own last word
         // On Fireworks the model's chain of thought comes inside the answer's text; the cut hands on the answer alone.
         const cut = fireworks ? new ThoughtCut() : null;
@@ -270,9 +272,14 @@ export async function runExtraction({ apiKey, text, meta, send, signal, sourceWa
   const ms = Date.now() - started;
   const cost = estimateTextCost({ model: modelUsed, usage, at: pricedAt });
   record({ kind: 'extract', provider: config.extractProvider, model: modelUsed, effort: config.extractEffort, mode: config.extractReasoningMode || null, ...(fireworks ? { reasoningEcho: reasoningEcho ?? null } : {}), chars: text.length, claims: claims.length, usage, ms, usd: cost.usd, priced: cost.priced }, { runId: ctx.runId, owner: ctx.owner });
+  // The second pass (server/rank.js, 16 October): the same model ranks the claims, inside this job and before the page is
+  // told the listing is done, so a cut connection loses nothing and the page draws the list once, in its order. A ranking
+  // that fails or cannot be read leaves the list whole.
+  const ranking = rank && claims.length ? await runRanking({ client, model: modelUsed, text, meta, claims, send, signal, ctx }) : null;
+  if (signal.aborted) return null;
   // `raw` is the model's complete extraction output, exactly as returned, so it can be inspected.
   // No token figures go to the page (the operator's rule of 18 September); the ledger line above keeps them.
-  const result = { t: 'done', total: claims.length, limit: config.maxClaims, claims, raw: full, reasoning: reasoning.trim() || null, trail, model: modelUsed, requested: config.extractModels[0], fellBack, effort: config.extractEffort, mode: config.extractReasoningMode || null, ms, cost, incomplete };
+  const result = { t: 'done', total: claims.length, limit: config.maxClaims, claims, raw: full, reasoning: reasoning.trim() || null, trail, model: modelUsed, requested: config.extractModels[0], fellBack, effort: config.extractEffort, mode: config.extractReasoningMode || null, ms, cost, incomplete, ...(ranking ? { ranking } : {}) };
   send(result);
   return result;
 }

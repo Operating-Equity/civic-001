@@ -288,6 +288,20 @@ body {
 .echo-frame .echo-video { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; display: block; }
 .echo-frame a.echo-video img { width: 100%; height: 100%; object-fit: cover; display: block; }
 
+/* The second pass's summary (16 October): between the steps and the picture, as deep as the steps (contain: size, so its
+   text never makes the row taller), scrolling inside itself. The picture keeps its own width beside it. */
+.rail.has-summary { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; }
+.rail.has-summary .echo { width: 224px; }
+/* Three columns: a step's status goes under its title, which keeps the width of its column. */
+.rail.has-summary .step-head { grid-template-columns: auto 1fr; }
+.rail.has-summary .step-status { grid-column: 1 / -1; text-align: start; }
+.rail.has-summary.rail--video .echo { width: 320px; }
+.summary { contain: size; min-height: 240px; overflow: auto; padding: 14px 18px 16px; border-radius: var(--radius); }
+.summary-title { font-family: var(--font-display); font-weight: 600; font-size: 20px; line-height: 1.1; margin: 0 0 8px; letter-spacing: .01em; }
+.summary-body { font-size: 14.5px; line-height: 1.5; }
+.summary-body:empty::before { content: attr(data-waiting); color: var(--ink-3); }
+.summary-body > :first-child { margin-top: 0; }
+
 /* claims */
 .claims { padding: 18px 22px 20px; }
 .claims-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-block-end: 8px; }
@@ -306,6 +320,14 @@ body {
 .claims-list > li:has(> .card) { display: block; padding: 0; border: 0; }
 .claims-list > li:has(> .card)::before { content: none; }
 .claims-list.is-beyond { counter-reset: claim 10; }
+/* A ranked run's claims kept back: hidden until "Show the other claims" (the rows' own display rule would show them otherwise). */
+.claims-list > li[hidden] { display: none; }
+.claims-rest { margin-block-start: 10px; }
+.claims-set-aside { margin: 6px 0 0; }
+/* A row waiting to be chosen is the claim and its box: no bar and no "Queued" until it is chosen and runs. */
+.card.has-check .card-progress { display: none; }
+/* The headline's row: it is tested first, whatever else is chosen. */
+.card-tag { display: inline-block; font-family: var(--font-mono); font-size: 11px; line-height: 1.6; letter-spacing: .06em; text-transform: uppercase; color: var(--blue-deep); border: 1px solid currentColor; border-radius: 999px; padding: 0 8px; margin-inline-end: 8px; vertical-align: 1px; }
 .claims-list.is-beyond > li { color: var(--ink-3); }
 .claims-list.is-beyond > li::before { color: var(--ink-3); }
 .claims-list > li .card { padding: 12px 16px 12px 14px; }
@@ -490,6 +512,10 @@ body {
   .echo-frame { flex: none; aspect-ratio: 2 / 3; }
   .rail--video .echo { max-width: 360px; }
   .rail--video .echo-frame { aspect-ratio: 16 / 9; }
+  /* One column: the summary sits under the steps at its own height, up to a limit, and scrolls inside itself. */
+  .rail.has-summary { grid-template-columns: 1fr; }
+  .rail.has-summary .echo, .rail.has-summary.rail--video .echo { width: auto; }
+  .summary { contain: none; min-height: 0; max-height: 18rem; }
   .scoreboard { grid-template-columns: repeat(3, 1fr); gap: 8px 10px; padding: 10px 14px; }
   .score { flex-direction: column; align-items: flex-start; gap: 2px; }
   .score-l { font-size: 11px; letter-spacing: .04em; }
