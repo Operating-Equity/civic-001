@@ -24,6 +24,7 @@ import { runEvaluation } from './evaluate.js';
 import { trialOf, trialState } from './trial.js';
 import { rankFor, rankState } from './rank.js';
 import * as deepseekProvider from './deepseek.js';
+import * as geminiProvider from './gemini.js';
 import { runIllustration } from './illustrate.js';
 import { selftest } from './selftest.js';
 import { whereTheShellSetsIt } from './key.js';
@@ -310,7 +311,7 @@ app.post('/api/evaluate', wrap(async (req, res) => {
   // The operator's trial (server/trial.js): a model of their choosing, on their own runs alone. Anyone else's choice of
   // model is ignored, and their request is the readers' determination, as always.
   const trial = trialOf(req.body, { operator: !signinRequired() || isOperator(req.account) });
-  const apiKey = trial?.provider === 'deepseek' ? deepseekProvider.key() : operatorKey();
+  const apiKey = trial?.provider === 'deepseek' ? deepseekProvider.key() : trial?.provider === 'gemini' ? geminiProvider.key() : operatorKey();
   if (!hasPrompt('evaluate')) throw new ApiError(503, 'prompt_missing', 'The evaluation prompt is not installed on this server.');
   const claims = Array.isArray(req.body?.claims) ? req.body.claims.map((c) => String(c || '').trim()).filter(Boolean) : [];
   if (!claims.length) throw new ApiError(400, 'no_claims', 'No claims to test.');
@@ -497,7 +498,10 @@ function banner() {
   console.log(`determination requests carry: model ${shape.evaluate.model} · reasoning.effort ${shape.evaluate.effort}${shape.evaluate.mode ? ` · reasoning.mode ${shape.evaluate.mode}` : ''}${shape.evaluate.summary ? ` · reasoning.summary ${shape.evaluate.summary}` : ''} · web_search · the source as a message ahead of the prompt · the prompt verbatim with the claim's whole entry in its slot · nothing else${shape.evaluate.fallback ? '  (FALLBACK LIST SET)' : ''}`);
   // The operator's trial (server/trial.js): whether it can run, for the host's log. No key, nothing of anyone's.
   const trial = trialState();
-  if (trial) console.log(`[trial] the operator's own determinations may run on ${trial.models.map((m) => m.id).join(', ')}, chosen on their page: ${trial.ready ? 'ready, with FactEngine\'s search and page reader as the model\'s tools' : `not ready: ${trial.why}`}`);
+  if (trial) {
+    const how = (m) => (m.provider === 'gemini' ? `at ${m.efforts.join(' or ')}, with Google's own search and page reading` : 'with FactEngine\'s search and page reader as the model\'s tools');
+    console.log(`[trial] the operator's own determinations may run, chosen on their page: ${trial.models.map((m) => `${m.id} ${m.ready ? `ready, ${how(m)}` : `not ready: ${String(m.why || '').replace(/\.$/, '')}`}`).join('; ')}`);
+  }
   // The second pass (server/rank.js): for whom, at what effort, how much is shown; or why the claims are listed unranked.
   const rs = rankState();
   console.log(rs.ready

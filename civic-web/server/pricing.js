@@ -8,6 +8,10 @@
 // of a DeepSeek row in CIVIC_PRICING_JSON replaces the whole row, so it repeats `offPeak` and `peakUtc`.
 // Fireworks' row (DeepSeek V4.1 Flash served from the US) is its serverless price from 1 October 2026, in its release note of
 // 18 September (the row of 5 October carried the earlier $0.22 / $0.007 / $0.66): one price at every hour.
+// Gemini 4 Argon's row (the operator's trial, 18 October) is Google's pricing page of 16 October: an introductory price
+// through 30 November 2026, then the one in `from` (a row's `from` entries change it at their moment, UTC; a call is
+// priced at the moment it went). Output includes the thinking. `search` is Google Search's own price, $14 per 1,000
+// searches; the 5,000 free a month are not counted, so while they last the estimate is an upper bound.
 import { config } from './config.js';
 
 const DEFAULT_PRICES = {
@@ -20,7 +24,19 @@ const DEFAULT_PRICES = {
   'deepseek-flash': { input: 0.30, cached: 0.006, output: 1.20, offPeak: { input: 0.15, cached: 0.003, output: 0.60 }, peakUtc: { days: [1, 2, 3, 4, 5], hours: [[1, 4], [6, 10]] } },
   'deepseek-v4-pro': { input: 1.32, cached: 0.044, output: 3.96, offPeak: { input: 0.66, cached: 0.022, output: 1.98 }, peakUtc: { days: [1, 2, 3, 4, 5], hours: [[1, 4], [6, 10]] } },
   'accounts/fireworks/models/deepseek-v4p1-flash': { input: 0.30, cached: 0.006, output: 1.20 },
+  'gemini-4-argon': { input: 2, cached: 0.10, output: 10, search: 0.014, from: [{ at: '2026-12-01T00:00:00Z', input: 4, cached: 0.20, output: 20 }] },
 };
+
+/** A row as it stood at `at`: its dated changes applied in order, then its off-peak price when the hour is off-peak. */
+export function rowAt(row, at = Date.now()) {
+  if (!row) return null;
+  let p = row;
+  for (const step of row.from || []) {
+    const when = Date.parse(step?.at);
+    if (Number.isFinite(when) && when <= at) { const { at: _when, ...price } = step; p = { ...p, ...price }; }
+  }
+  return p.offPeak && !isPeak(p, at) ? { ...p, ...p.offPeak } : p;
+}
 
 /** Whether `at` falls in a row's peak hours (UTC). A row without peak hours has one price at every hour. */
 export function isPeak(row, at = Date.now()) {
@@ -47,9 +63,9 @@ function priceFor(model) {
 
 /** Estimated cost of one text call. Returns { usd, priced } — priced=false when the model is not in the table. */
 export function estimateTextCost({ model, usage, searches = 0, at = null }) {
-  const row = priceFor(model);
-  const p = row && row.offPeak && !isPeak(row, at ?? Date.now()) ? { ...row, ...row.offPeak } : row;
-  const searchUsd = searches * config.webSearchUsdPerCall;
+  const p = rowAt(priceFor(model), at ?? Date.now());
+  // A provider's own search price when its row has one (Gemini's Google Search); OpenAI's web search otherwise.
+  const searchUsd = searches * (Number.isFinite(p?.search) ? p.search : config.webSearchUsdPerCall);
   if (!p || !usage) return { usd: searchUsd, priced: false };
   const cached = usage.cached || 0;
   const uncached = Math.max(0, (usage.input || 0) - cached);

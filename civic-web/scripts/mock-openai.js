@@ -39,6 +39,12 @@ app.use('/fireworks', (req, res, next) => {
   if (process.env.MOCK_RECORD) fs.appendFileSync(process.env.MOCK_RECORD, JSON.stringify({ ts: Date.now(), fireworks: true, method: req.method, path: req.originalUrl.split('?')[0], auth: req.get('authorization') || '', headers: Object.keys(req.headers) }) + '\n');
   next();
 });
+// And for the Gemini stand-in (below), whose key travels in x-goog-api-key: the key itself is recorded too, so the guard
+// proves that only the operator's Gemini key reaches Google, and nothing of OpenAI's or DeepSeek's.
+app.use('/gemini', (req, res, next) => {
+  if (process.env.MOCK_RECORD) fs.appendFileSync(process.env.MOCK_RECORD, JSON.stringify({ ts: Date.now(), gemini: true, method: req.method, path: req.originalUrl.split('?')[0], key: req.get('x-goog-api-key') || '', auth: req.get('authorization') || '', headers: Object.keys(req.headers) }) + '\n');
+  next();
+});
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms * SPEED));
 // The calls the stand-in makes to CIVIC's gateway when a request names it (see the Responses route).
@@ -46,6 +52,7 @@ const TOOL_CALLS = (() => { try { return JSON.parse(process.env.MOCK_TOOL_CALLS 
 const recordMcp = (entry) => { if (process.env.MOCK_RECORD) fs.appendFileSync(process.env.MOCK_RECORD, JSON.stringify({ ts: Date.now(), path: '/mcp-client', ...entry }) + '\n'); };
 
 app.use((req, res, next) => {
+  if (req.path.startsWith('/gemini/')) return next();   // Google's key comes in its own header; its routes check it
   const auth = req.get('authorization') || '';
   const key = auth.replace(/^Bearer\s+/i, '');
   if (!key) return res.status(401).json({ error: { message: 'Missing API key', type: 'invalid_request_error', code: 'missing_key' } });
@@ -562,6 +569,107 @@ async function dsRound({ res, body, send, id, promptText, items, ordinal }) {
   send({ type: 'response.completed', response: { id, object: 'response', status: 'completed', model: body.model, store: false, error: null, incomplete_details: null, output: [reasoningItem, message], usage: usage(Math.round(output.length / 4)) } });
   res.end();
 }
+
+// ---- Gemini ------------------------------------------------------------------------------
+// The operator's trial on Gemini (server/gemini.js) talks to this when CIVIC_GEMINI_BASE_URL points here
+// (http://localhost:<port>/gemini). It speaks Google's Interactions API as its pages of 16 October describe it: the key
+// in x-goog-api-key; server-sent events named by `event_type` (step.start, step.delta, step.stop, interaction.completed
+// with its usage, then [DONE]); a thought with its summary and its signature; two Google searches, one page read through
+// URL context; the answer, its first words inside step.start, with url_citation annotations; and Google's refusals: 429
+// with a RetryInfo of a second, 503, 402 (the prepaid balance used up), 401 (a key it refuses: one that begins
+// gm-bad), an error event mid-stream, a stream closed with no event. Each knob lists request ordinals (1-based). The
+// guard's keys are its own made-up words, never in the shape of a real Google key.
+const GM_MODELS = ['gemini-4-argon'];
+const GM_LEVELS = new Set(['low', 'medium', 'high']);
+const GM_429 = dsSet('MOCK_GM_429'), GM_503 = dsSet('MOCK_GM_503'), GM_402 = dsSet('MOCK_GM_402'), GM_CLOSE = dsSet('MOCK_GM_CLOSE'), GM_ERROR_EVENT = dsSet('MOCK_GM_ERROR_EVENT');
+const GM_THOUGHT = 'GMSUM-5b2e';   // the thought summary's marker: shown on the operator's card, as the readers' model's
+const GM_SIG = 'GMSIG-0c7d';       // the thought signature's marker: never on a page, a replay, a ledger line or a record
+const gmStats = { requests: 0, streams: 0, levels: [], lastBody: null };
+let gmOrdinal = 0;
+const gmRefused = (res, status, code, message, details) => res.status(status).json({ error: { code, message, ...(details ? { details } : {}) } });
+const gmKeyRefused = (req) => { const k = req.get('x-goog-api-key') || ''; return !k || k.startsWith('gm-bad'); };
+
+app.get('/gemini/mock/stats', (req, res) => res.json(gmStats));
+app.get('/gemini/v1beta/models/:id', (req, res) => {
+  if (gmKeyRefused(req)) return gmRefused(res, 401, 'authentication', 'API key not valid. Please pass a valid API key.');
+  if (!GM_MODELS.includes(req.params.id)) return gmRefused(res, 404, 'model_not_found', `models/${req.params.id} is not found for API version v1beta.`);
+  res.json({ name: `models/${req.params.id}`, displayName: 'Gemini 4 Argon', inputTokenLimit: 1048576, outputTokenLimit: 1048576, thinking: true });
+});
+app.post('/gemini/v1beta/interactions', async (req, res) => {
+  const body = req.body || {};
+  const ordinal = ++gmOrdinal;
+  gmStats.requests = ordinal;
+  gmStats.lastBody = body;
+  if (gmKeyRefused(req)) return gmRefused(res, 401, 'authentication', 'API key not valid. Please pass a valid API key.');
+  if (!GM_MODELS.includes(body.model)) return gmRefused(res, 404, 'model_not_found', `The model ${body.model} was not found.`);
+  const level = body.generation_config?.thinking_level;
+  if (level !== undefined && !GM_LEVELS.has(level)) return gmRefused(res, 400, 'invalid_request', `Invalid value at 'generation_config.thinking_level': ${level}`);
+  gmStats.levels.push(level ?? null);
+  if (GM_402.has(ordinal)) return gmRefused(res, 402, 'payment_required', 'Your prepayment credits are depleted. Please go to AI Studio to manage your project and billing.');
+  if (GM_429.has(ordinal)) return gmRefused(res, 429, 'rate_limit_exceeded', 'You exceeded your current quota, please check your plan and billing details.', [{ '@type': 'type.googleapis.com/google.rpc.RetryInfo', retryDelay: '1s' }]);
+  if (GM_503.has(ordinal)) return gmRefused(res, 503, 'service_unavailable', 'The model is overloaded. Please try again later.');
+  gmStats.streams++;
+  res.status(200);
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.flushHeaders();
+  if (GM_CLOSE.has(ordinal)) { res.end(); return; }
+  const send = (ev) => res.write(`event: ${ev.event_type}\ndata: ${JSON.stringify(ev)}\n\n`);
+  const id = 'v1_gm_' + Math.random().toString(36).slice(2);
+  send({ event_type: 'interaction.created', interaction: { id, status: 'in_progress', object: 'interaction', model: body.model } });
+  const steps = Array.isArray(body.input) ? body.input : [];
+  const users = steps.filter((s) => s?.type === 'user_input');
+  const promptText = ((users[users.length - 1] || {}).content || []).map((c) => c.text || '').join('\n');
+  const claim = promptText.split('\n')[0].replace(/^\s*Prompt\s*=\s*/, '').trim();
+  let index = 0;
+  send({ event_type: 'step.start', index, step: { type: 'thought', summary: [] } });
+  send({ event_type: 'step.delta', index, delta: { type: 'thought_summary', content: { type: 'text', text: `${GM_THOUGHT} Weighing what the claim needs, and where to look.` } } });
+  send({ event_type: 'step.delta', index, delta: { type: 'thought_signature', signature: `${GM_SIG}-${ordinal}` } });
+  send({ event_type: 'step.stop', index: index++ });
+  if (GM_ERROR_EVENT.has(ordinal)) { send({ event_type: 'error', error: { code: 'service_unavailable', message: 'The model is overloaded.' } }); res.end(); return; }
+  const tools = new Set((body.tools || []).map((t) => t?.type));
+  const searched = tools.has('google_search');
+  if (searched) {
+    // Two searches, the second arriving as a delta of the call's step.
+    send({ event_type: 'step.start', index, step: { type: 'google_search_call', id: `gs_${ordinal}`, arguments: { queries: [`evidence for ${claim.slice(0, 50)}`] } } });
+    send({ event_type: 'step.delta', index, delta: { type: 'google_search_call', arguments: { queries: [`${claim.slice(0, 40)} official figure`] } } });
+    send({ event_type: 'step.stop', index: index++ });
+    send({ event_type: 'step.start', index, step: { type: 'google_search_result', call_id: `gs_${ordinal}`, result: [{ search_suggestions: '<div class="gs">suggestions</div>' }] } });
+    send({ event_type: 'step.stop', index: index++ });
+  }
+  const readUrl = process.env.MOCK_GM_READ_URL || 'https://example.org/tower';
+  const read = tools.has('url_context');
+  if (read) {
+    send({ event_type: 'step.start', index, step: { type: 'url_context_call', id: `uc_${ordinal}`, arguments: { urls: [readUrl] } } });
+    send({ event_type: 'step.stop', index: index++ });
+    send({ event_type: 'step.start', index, step: { type: 'url_context_result', call_id: `uc_${ordinal}`, result: [{ url: readUrl, status: 'success' }] } });
+    send({ event_type: 'step.stop', index: index++ });
+  }
+  const hold = Number(process.env.MOCK_EVAL_HOLD_MS || 0);
+  if (hold) await sleep(hold);
+  const output = mockEntry(claim);
+  const pieces = output.match(/[\s\S]{1,28}/g) || [''];
+  send({ event_type: 'step.start', index, step: { type: 'model_output', content: [{ type: 'text', text: pieces[0] }] } });
+  for (const piece of pieces.slice(1)) {
+    if (res.writableEnded || res.destroyed) return;
+    send({ event_type: 'step.delta', index, delta: { type: 'text', text: piece } });
+    await sleep(8);
+  }
+  send({ event_type: 'step.delta', index, delta: { type: 'text_annotation_delta', annotations: [
+    { type: 'url_citation', url: readUrl, title: 'The tower, measured', start_index: 0, end_index: 20 },
+    { type: 'url_citation', url: 'https://example.org/second-source', title: 'A second source', start_index: 21, end_index: 40 },
+    { type: 'url_citation', url: readUrl, title: 'The tower, measured', start_index: 41, end_index: 60 },
+  ] } });
+  send({ event_type: 'step.stop', index: index++ });
+  const usage = {
+    total_input_tokens: Math.round(JSON.stringify(steps).length / 4), total_cached_tokens: 0, total_output_tokens: Math.round(output.length / 4),
+    total_thought_tokens: level === 'high' ? 900 : 400, total_tool_use_tokens: read ? 1200 : 0, total_tokens: 0,
+    ...(searched ? { grounding_tool_count: [{ type: 'google_search', count: 2 }] } : {}),
+  };
+  send({ event_type: 'interaction.completed', interaction: { id, status: 'completed', object: 'interaction', model: body.model, usage } });
+  res.write('event: done\ndata: [DONE]\n\n');
+  res.end();
+});
 
 // ---- Fireworks ---------------------------------------------------------------------------
 // The listing on Fireworks (server/fireworks.js) talks to this when CIVIC_FIREWORKS_BASE_URL points here

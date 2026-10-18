@@ -761,8 +761,25 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
     listing's and the readers' requests are unchanged. The boot lines read "prompts installed: extract fad6cbae (8331
     chars) · evaluate c52121a0 (15189 chars) · rank not installed" and "[rank] the claims are listed unranked: The
     ranking prompt is not installed …", so every run is listed as before until the prompt is installed.
-  - **Waiting for the operator:** their approval of the drafted prompt, then the secret file `rank.txt` on the service.
-    Their first ranked run (the Reuters article of 14 October) is the live measure.
+  - **The operator's word, 18 October:** "You can test your prompt to reduce clutter from empirical claims that aren't
+    load-bearing": the draft goes on the service as the secret file `rank.txt`, for the operator's runs alone
+    (`CIVIC_RANK=operator`), with the release below. Their next article is the test.
+- **18 October, Gemini 4 Argon beside DeepSeek in the operator's trial.** The operator: "I want to test the new Gemini model
+  using argon medium and argon high. I have a Gemini key and have deposited $20 to test", with a pull-down holding the
+  readers' OpenAI model, DeepSeek and Gemini Argon at medium and high; and "There is only 1 DeepSeek model for fact
+  checking" (V4 Pro, the deep-reasoning one; V4.1 Flash lists and ranks the claims). Their answers: Google's own search
+  and page reading; an entry per level; Gemini's summary of its thinking on its card.
+  - **What it does** (`server/gemini.js`, `server/trial.js`, `server/evaluate.js`): the pull-down offers GPT-5.6 Sol
+    (readers), DeepSeek V4 Pro with its efforts, "Gemini 4 Argon · medium" and "Gemini 4 Argon · high". A Gemini
+    fact-check is one request to Google's Interactions API on the operator's key, with Google Search and URL context and
+    `store: false`; its searches, pages and citations make the card's trail and sources. Google's prices of 16 October:
+    $2 / $0.10 / $10 a million through 30 November 2026, then $4 / $0.20 / $20; $14 per 1,000 searches after 5,000 free a
+    month. A 402 (the $20 used up) ends a fact-check at once; a 429 is a wait.
+  - **Read from Render before the release:** `CIVIC_EVAL_TRIAL_MODELS` unset (so the code's default is what runs), no
+    `GEMINI_API_KEY` yet.
+  - **Waiting for the operator:** `GEMINI_API_KEY` in Render (Environment, "Save only"), then a deploy when the service
+    is idle; /check then says "Gemini serves gemini-4-argon to this key", and their first Gemini fact-check is the live
+    measure.
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 

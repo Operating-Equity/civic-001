@@ -69,6 +69,8 @@ const FIREWORKS = PROVIDER === 'fireworks';
 const OWN = DEEPSEEK || FIREWORKS;   // the listing is not on OpenAI: its own model and effort, no mode, no summary
 const deepseekKey = resolveKey({ settingsFile: new URL('../.env', import.meta.url).pathname, name: 'DEEPSEEK_API_KEY' });
 const fireworksKey = resolveKey({ settingsFile: new URL('../.env', import.meta.url).pathname, name: 'FIREWORKS_API_KEY' });
+// Google's Gemini API, for the operator's trial alone (18 October, server/gemini.js): their own key, by the same rule.
+const geminiKey = resolveKey({ settingsFile: new URL('../.env', import.meta.url).pathname, name: 'GEMINI_API_KEY' });
 
 // FactEngine's tool server (server/tools/gateway.js), for a model that reaches it from its provider's servers. Its
 // address: CIVIC_TOOLS_URL, or else the service's own, which Render puts on every web service as RENDER_EXTERNAL_URL
@@ -97,10 +99,10 @@ function keepPercent() {
   return v > 0 && v <= 100 ? v : 25;
 }
 
-/** The trial's models (CIVIC_EVAL_TRIAL_MODELS): the two DeepSeek models unless the operator names others; `off` or
- *  `none`, no trial. */
+/** The trial's models (CIVIC_EVAL_TRIAL_MODELS): DeepSeek V4 Pro and Gemini 4 Argon unless the operator names others;
+ *  `off` or `none`, no trial. */
 function trialModels() {
-  const raw = env('CIVIC_EVAL_TRIAL_MODELS', 'deepseek-v4-pro,deepseek-flash').trim();
+  const raw = env('CIVIC_EVAL_TRIAL_MODELS', 'deepseek-v4-pro,gemini-4-argon').trim();
   return /^(off|none)$/i.test(raw) ? [] : raw.split(',').map((m) => m.trim()).filter(Boolean);
 }
 
@@ -126,6 +128,11 @@ export const config = {
   fireworksBaseUrl: env('CIVIC_FIREWORKS_BASE_URL', 'https://api.fireworks.ai/inference/v1'),
   fireworksKey: fireworksKey.value,
   fireworksKeyInfo: fireworksKey,
+  // Google's Gemini API (server/gemini.js), used only by the operator's trial: its address (a setting so the guard can
+  // point it at its stand-in) and the operator's key, by the same two rules.
+  geminiBaseUrl: env('CIVIC_GEMINI_BASE_URL', 'https://generativelanguage.googleapis.com'),
+  geminiKey: geminiKey.value,
+  geminiKeyInfo: geminiKey,
 
   // Step 2 — determination.
   evalModels: list('CIVIC_EVAL_MODELS', MODEL), // one id = no fallback
@@ -150,8 +157,9 @@ export const config = {
   evalRetries: int('CIVIC_EVAL_RETRIES', 8),           // rate limits and 5xx only; never on a model or parameter error
   // The operator's trial (14 October): their own determinations on DeepSeek, chosen on the page beside the readers'
   // model, which stays as it is. "I think the best experiment is to use the new DeepSeek deep reasoning model through
-  // the already connected API." These are the models the operator may choose there; a reader never can. DeepSeek's
-  // two models on its API today: V4 Pro (the deep-reasoning one) and V4.1 Flash. `off` ends the trial.
+  // the already connected API." These are the models the operator may choose there; a reader never can. On 18 October:
+  // "There is only 1 DeepSeek model for fact checking", V4 Pro, the deep-reasoning one (V4.1 Flash lists and ranks the
+  // claims); and Gemini 4 Argon, "argon medium and argon high", on the operator's own Google key. `off` ends the trial.
   evalTrialModels: trialModels(),
 
   // The second pass (16 October; server/rank.js): after the listing, the same DeepSeek model reads the document and the
@@ -307,14 +315,19 @@ export function requestShape() {
     // The second pass (server/rank.js): the listing's own model on DeepSeek, at this effort, for whom `mode` says; the
     // top `keepPercent` of the ranked claims shown, rounded up. No search: it reads the document and the claims.
     rank: { mode: config.rank, model: config.extractModels[0], effort: config.rankEffort, keepPercent: config.rankKeepPercent, webSearch: false, source: 'ahead' },
+    // The operator's trial on Gemini (server/gemini.js, 18 October): Google's Interactions API, the operator's level
+    // with Gemini's own summary of its thinking, Google's search and its page reading, and store: false.
+    trialGemini: { tools: ['google_search', 'url_context'], thinkingSummaries: 'auto', store: false, source: 'ahead' },
     // Present in every request; never anything else.
     // On DeepSeek the listing carries no `tools` and no `store` (DeepSeek ignores the one and keeps nothing, so does not
     // take the other); on Fireworks it carries `store: false`, as on OpenAI. The operator's trial on DeepSeek
-    // (evaluate.js) carries FactEngine's own tools, as functions, and no `store`.
+    // (evaluate.js) carries FactEngine's own tools, as functions, and no `store`; on Gemini, Google's own two tools and
+    // `store: false`, the level inside `generation_config`.
     keys: {
       extract: [...(source === 'inserted' ? ['model', 'input'] : ['model', 'instructions', 'input']), 'reasoning', ...(onDeepSeek ? [] : ['tools']), 'stream', ...(onDeepSeek ? [] : ['store'])],
       evaluate: ['model', 'input', 'reasoning', 'tools', 'stream', 'store'],
       trial: ['model', 'input', 'reasoning', 'tools', 'stream'],
+      trialGemini: ['model', 'input', 'generation_config', 'tools', 'stream', 'store'],
       rank: ['model', 'input', 'reasoning', 'stream'],
     },
   };

@@ -46,5 +46,5 @@ export function ownClient({ key, baseURL }) {
 export function providerWords(err, key) {
   let s = redactPrompts(String(err?.error?.message || err?.message || ''));
   if (key) s = s.split(key).join('<key>');
-  return s.replace(/sk-[A-Za-z0-9_-]{8,}/g, 'sk-<key>').replace(/fw_[A-Za-z0-9_-]{8,}/g, 'fw_<key>').replace(/\/t\/[0-9a-f]{48}/g, '/t/<door>').slice(0, 1000);
+  return s.replace(/sk-[A-Za-z0-9_-]{8,}/g, 'sk-<key>').replace(/fw_[A-Za-z0-9_-]{8,}/g, 'fw_<key>').replace(/AIza[0-9A-Za-z_-]{20,}/g, 'AIza<key>').replace(/\/t\/[0-9a-f]{48}/g, '/t/<door>').slice(0, 1000);
 }

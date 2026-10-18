@@ -16,11 +16,17 @@
 // functions (the search service and the page reader, server/tools) and FactEngine runs each call it makes, round after
 // round, until it writes its entry. Its private reasoning never reaches the page, the record or /check: it is held in
 // memory for that one fact-check only, to go back with each round, as DeepSeek requires of a model using tools.
+//
+// On Gemini (18 October, server/gemini.js) the same two messages go to Google's Interactions API in one request per
+// claim: the model searches with Google's own search and reads pages itself inside that request, at the level the
+// operator chose (medium or high), and says store: false, so Google keeps nothing. Its own summary of its thinking shows
+// on the card, as the readers' model's does (the operator's answer); its thought signature is neither sent nor kept.
 import { config } from './config.js';
 import { evaluationPrompt } from './prompts.js';
 import { clientFor, withModelFallback, usageOf, isRetryable, isRateLimit, isConnectionDrop, connectionWait, rateLimitWaitMs, sleep, describeError, throughGate, streamFailure, asStreamFailure, spacedWaitMs, cutReply } from './openai.js';
 import { openaiHost } from './providers.js';
 import * as deepseek from './deepseek.js';
+import * as gemini from './gemini.js';
 import { noteFailure, noteReply } from './reach.js';
 import { gateFor, parseRefusal } from './gate.js';
 import { record as recordFailure } from './diagnostics.js';
@@ -42,12 +48,13 @@ const readsOf = (trail) => trail.filter((s) => s.kind === 'tool' && s.name !== '
 
 export async function runEvaluation({ apiKey, claims, document = '', send, signal, ctx = {}, trial = null }) {
   // `trial`: null for the readers' determination; else the operator's choice (server/trial.js): DeepSeek's model and
-  // effort, or the readers' own model beside it, recorded as a trial.
+  // effort, Gemini's model and level, or the readers' own model beside them, recorded as a trial.
   const onDeepSeek = trial?.provider === 'deepseek';
-  const client = onDeepSeek ? deepseek.client(apiKey) : clientFor(apiKey);
-  const models = onDeepSeek ? [trial.model] : config.evalModels;
-  const effort = onDeepSeek ? trial.effort : config.evalEffort;
-  const mode = onDeepSeek ? null : config.evalReasoningMode || null;
+  const onGemini = trial?.provider === 'gemini';
+  const client = onDeepSeek ? deepseek.client(apiKey) : onGemini ? null : clientFor(apiKey);
+  const models = onDeepSeek || onGemini ? [trial.model] : config.evalModels;
+  const effort = onDeepSeek || onGemini ? trial.effort : config.evalEffort;
+  const mode = onDeepSeek || onGemini ? null : config.evalReasoningMode || null;
   const kind = trial ? 'trial' : 'evaluate';
   // Whose work each claim's line is: the run, the sign-in, and the determination's own id (server/economics.js).
   const lineCtx = (i) => ({ runId: ctx.runId || null, owner: ctx.owner || null, determinationId: ctx.determinationIds?.[i] || null });
@@ -470,7 +477,220 @@ export async function runEvaluation({ apiKey, claims, document = '', send, signa
     send({ t: 'batch-progress', completed, total: claims.length });
   };
 
-  const run = onDeepSeek ? evaluateOnDeepSeek : evaluateOne;
+  // ---- the operator's trial on Gemini (18 October) ----------------------------------------------------------------
+
+  /** The two messages every determination begins with, as Google's Interactions API takes them: the source, then the prompt. */
+  const geminiInput = (prompt) => [
+    ...(document ? [{ type: 'user_input', content: [{ type: 'text', text: document }] }] : []),
+    { type: 'user_input', content: [{ type: 'text', text: prompt }] },
+  ];
+  const searchesIn = (list) => list.filter((s) => s.kind === 'search').length;
+  const readsIn = (list) => list.filter((s) => s.kind === 'open_page').length;
+
+  /**
+   * One claim on Gemini: one request, in which the model searches Google and reads pages itself, streamed. Its searches
+   * and the pages it read become the card's trail, its citations the card's sources, its summary of its thinking the
+   * card's reasoning, as for the readers' model. A wait is a wait, as for DeepSeek: a 429 waits for Google's figure or a
+   * second from the go's start, a 5xx is tried again on the operator's count, a cut connection or a reply without its
+   * last event goes again; Google's balance used up (402) ends the claim at once.
+   */
+  const evaluateOnGemini = async (claim, i) => {
+    const prompt = evaluationPrompt(claim);
+    const startedAt = Date.now();
+    let text = '';
+    let reasoning = '';
+    let usage = null;
+    let billed = null;        // the searches Google bills for the delivered go, when it says
+    let incomplete = null;
+    let pricedAt = null;
+    const trail = [];          // the delivered go's searches and pages
+    const sources = [];        // the delivered go's citations
+    const seen = new Set();
+    let spentSearches = 0;     // the searches of goes cut short: Google ran them, so they are paid for
+    const addSources = (annotations) => {
+      for (const a of annotations || []) {
+        if (a?.type !== 'url_citation' || !a.url || seen.has(a.url)) continue;
+        seen.add(a.url);
+        const source = { url: a.url, title: a.title || a.url };
+        sources.push(source);
+        send({ t: 'source', i, source });
+      }
+    };
+    const addText = (piece) => { if (piece) { text += piece; send({ t: 'delta', i, text: piece }); } };
+    const addThought = (piece) => { if (piece) { reasoning += piece; send({ t: 'reasoning', i, text: piece }); } };
+
+    for (let tries = 0; ; tries++) {
+      const attemptAt = Date.now();
+      // Each go starts its own record, as the page starts its row again at `start`.
+      spentSearches += searchesIn(trail);
+      trail.length = 0;
+      sources.length = 0;
+      seen.clear();
+      text = '';
+      reasoning = '';
+      usage = null;
+      billed = null;
+      incomplete = null;
+      try {
+        // The model, the two messages, the operator's level with Gemini's own summary of its thinking, Google's search and
+        // its page reading, the stream, and store: false (Google would otherwise keep the interaction for 55 days).
+        // Nothing else: no output cap, no sampling setting, no system instruction.
+        const body = {
+          model: trial.model,
+          input: geminiInput(prompt),
+          generation_config: { thinking_level: trial.effort, thinking_summaries: 'auto' },
+          tools: [{ type: 'google_search' }, { type: 'url_context' }],
+          stream: true,
+          store: false,
+        };
+        const events = await gemini.stream(body, { key: apiKey, signal });
+        noteReply(gemini.NAME);
+        pricedAt = attemptAt;
+        send({ t: 'start', i, model: trial.model, requested: trial.model, at: Date.now() });
+        let ended = false;
+        const steps = new Map();   // index → the step in flight: its type and what it named
+        const pages = new Map();   // url → its trail step, so Google's report of the read can say how it went
+        for await (const ev of events) {
+          if (signal.aborted) return;
+          switch (ev.type) {
+            case 'step.start': {
+              const s = ev.step || {};
+              steps.set(ev.index, { type: s.type, queries: [...(s.arguments?.queries || [])], urls: [...(s.arguments?.urls || [])], results: Array.isArray(s.result) ? [...s.result] : [] });
+              if (s.type === 'thought') for (const part of s.summary || []) addThought(part?.type === 'text' ? part.text : '');
+              else if (s.type === 'model_output') for (const c of s.content || []) { if (c?.type === 'text') { addText(c.text); addSources(c.annotations); } }
+              else if (s.type === 'google_search_call') send({ t: 'phase', i, phase: 'searching', searches: searchesIn(trail) + 1 });
+              else if (s.type === 'url_context_call') send({ t: 'phase', i, phase: 'reading' });
+              break;
+            }
+            case 'step.delta': {
+              const d = ev.delta || {};
+              const step = steps.get(ev.index);
+              if (d.type === 'text') { addText(d.text); addSources(d.annotations); }
+              else if (d.type === 'thought_summary') addThought(d.content?.type === 'text' ? d.content.text : '');
+              else if (d.type === 'text_annotation_delta' || d.type === 'text_annotation') addSources(d.annotations);
+              else if (step && d.type === 'google_search_call') step.queries.push(...(d.arguments?.queries || []));
+              else if (step && d.type === 'url_context_call') step.urls.push(...(d.arguments?.urls || []));
+              else if (step && (d.type === 'url_context_result' || d.type === 'google_search_result')) step.results.push(...(Array.isArray(d.result) ? d.result : []));
+              // thought_signature: Gemini's own, neither sent nor kept.
+              break;
+            }
+            case 'step.stop': {
+              const step = steps.get(ev.index);
+              steps.delete(ev.index);
+              if (!step) break;
+              if (step.type === 'thought') { if (reasoning && !reasoning.endsWith('\n\n')) reasoning += '\n\n'; }
+              else if (step.type === 'google_search_call') {
+                for (const query of step.queries) {
+                  const t = { kind: 'search', query, url: null, pattern: null, status: 'completed' };
+                  trail.push(t);
+                  send({ t: 'trail', i, step: t, searches: searchesIn(trail) });
+                }
+              } else if (step.type === 'url_context_call') {
+                for (const url of step.urls) {
+                  const t = { kind: 'open_page', query: null, url, pattern: null, status: null };   // its status comes with Google's report
+                  trail.push(t);
+                  pages.set(url, t);
+                  send({ t: 'trail', i, step: t, searches: searchesIn(trail) });
+                }
+              } else if (step.type === 'url_context_result') {
+                for (const r of step.results) { const t = pages.get(r?.url); if (t) t.status = r?.status === 'success' ? 'completed' : r?.status || null; }
+              }
+              break;
+            }
+            case 'interaction.completed': {
+              const it = ev.interaction || {};
+              if (it.status === 'failed') throw gemini.streamError({ error: it.error || { code: 'api_error', message: 'Gemini ended the interaction as failed.' } });
+              ended = true;
+              usage = gemini.usageOf(it.usage);
+              billed = gemini.searchesBilled(it.usage);
+              if (it.status && it.status !== 'completed') {
+                incomplete = it.incomplete_details?.reason || it.status;
+                send({ t: 'phase', i, phase: 'incomplete', reason: incomplete });
+              }
+              break;
+            }
+            case 'error':
+              throw gemini.streamError(ev);
+            default:
+              break;
+          }
+        }
+        // A reply that stops without its last word was cut, however politely: it goes again, as a cut connection does.
+        if (!ended && !signal.aborted) throw cutReply();
+        break;
+      } catch (err) {
+        if (signal.aborted) return;
+        if (!gemini.balanceGone(err)) {
+          // Every other 429 of Google's is a wait: a rate limit, a daily quota, the tier's spend limit. (Google words its
+          // rate limits as a quota "exceeded"; OpenAI's reading of those words as its own billing does not apply here.)
+          if (err?.status === 429) {
+            const waitMs = err.waitMs ?? spacedWaitMs(attemptAt);
+            send({ t: 'retry', i, attempt: tries + 1, status: 429, reason: 'rate_limit', waitMs });
+            if (waitMs > 0) await sleep(waitMs);
+            continue;
+          }
+          if (isConnectionDrop(err)) {
+            const wait = connectionWait(err, attemptAt);
+            const why = String(wait.why || '').split(openaiHost()).join(gemini.host());
+            const { since } = noteFailure({ code: wait.code, why, who: gemini.NAME });
+            send({ t: 'retry', i, attempt: tries + 1, status: null, reason: 'connection', code: wait.code, why, since, waitMs: wait.waitMs, at: Date.now() });
+            if (wait.waitMs > 0) await sleep(wait.waitMs);
+            continue;
+          }
+          if (tries < config.evalRetries && isRetryable(err)) {
+            const waitMs = err.waitMs ?? spacedWaitMs(attemptAt);
+            send({ t: 'retry', i, attempt: tries + 1, status: err?.status ?? null, reason: 'error', waitMs });
+            if (waitMs > 0) await sleep(waitMs);
+            continue;
+          }
+        }
+        // Anything else (a key refused, the balance used up, a request Google will not take): the claim ends with
+        // FactEngine's own sentence, and Google's words go to /check.
+        const failure = gemini.failure(err);
+        const safe = describeError(failure);
+        recordFailure({ where: 'trial:gemini', code: safe.code, message: safe.message || safe.code, detail: failure.detail || null });
+        const searches = spentSearches + searchesIn(trail);
+        const spent = estimateTextCost({ model: trial.model, usage: null, searches, at: startedAt });
+        record({ kind: 'trial', ok: false, provider: 'gemini', code: safe.code, model: trial.model, effort: trial.effort, claim: claimHash(claim), searches, ms: Date.now() - startedAt, usd: spent.usd, priced: false }, lineCtx(i));
+        send({ t: 'error', i, code: safe.code, message: safe.message });
+        completed++;
+        send({ t: 'batch-progress', completed, total: claims.length });
+        return;
+      }
+    }
+
+    if (signal.aborted) return;
+    const parsed = parseEntry(text);
+    if (parsed.verdictSource === 'unread') recordFailure({ where: 'trial:verdict', code: 'verdict_unread', message: conclusionExcerpt(text) });
+    const ms = Date.now() - startedAt;
+    // Google's own count of the searches it bills, when it gives one; else the searches the model named. Plus those of
+    // goes cut short.
+    const searches = (billed ?? searchesIn(trail)) + spentSearches;
+    const tokens = estimateTextCost({ model: trial.model, usage, at: pricedAt });   // the day's price: Argon's changes on 1 December
+    const all = estimateTextCost({ model: trial.model, usage, searches, at: pricedAt });
+    const cost = { usd: all.usd, priced: all.priced };
+    record({
+      kind: 'trial', ok: true, provider: 'gemini', model: trial.model, effort: trial.effort, mode: null,
+      claim: claimHash(claim), chars: claim.length, verdict: parsed.verdict, verdictSource: parsed.verdictSource, confidence: parsed.confidence,
+      usage, searches, reads: readsIn(trail), sources: sources.length, incomplete, ms,
+      tokenUsd: tokens.usd, searchUsd: round4(all.usd - tokens.usd), usd: cost.usd, priced: cost.priced,
+    }, lineCtx(i));
+    completed++;
+    send({
+      t: 'done', i,
+      verdict: parsed.verdict, verdictSource: parsed.verdictSource, confidence: parsed.confidence, inspector: parsed.inspector,
+      conclusion: parsed.conclusion,
+      text: parsed.text,
+      reasoning: reasoning.trim() || null,   // Gemini's own summary of its thinking, as the readers' model's
+      trail, sources,
+      model: trial.model, requested: trial.model, fellBack: null, effort: trial.effort, mode: null,
+      searches: searchesIn(trail), ms, cost, incomplete,
+      trial: true, provider: 'gemini',
+    });
+    send({ t: 'batch-progress', completed, total: claims.length });
+  };
+
+  const run = onDeepSeek ? evaluateOnDeepSeek : onGemini ? evaluateOnGemini : evaluateOne;
   const queue = claims.map((c, i) => [c, i]);
   const workers = Array.from({ length: Math.min(config.evalConcurrency, total) }, async () => {
     while (queue.length && !signal.aborted) {
