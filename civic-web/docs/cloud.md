@@ -777,9 +777,18 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
     month. A 402 (the $20 used up) ends a fact-check at once; a 429 is a wait.
   - **Read from Render before the release:** `CIVIC_EVAL_TRIAL_MODELS` unset (so the code's default is what runs), no
     `GEMINI_API_KEY` yet.
-  - **Waiting for the operator:** `GEMINI_API_KEY` in Render (Environment, "Save only"), then a deploy when the service
-    is idle; /check then says "Gemini serves gemini-4-argon to this key", and their first Gemini fact-check is the live
-    measure.
+  - **The operator saved `GEMINI_API_KEY` in Render** before the release (a deploy of the earlier build at 22:05 UTC).
+  - **Live** (18 October, 22:54 UTC): PR #74 squash d0efa41, build 2c3dd1b58f17; live proof 9/9, nothing spent. Before
+    the merge: the guard 412/412 in both stand-in shapes (22 Gemini checks), the browser checks 9/9 (the pull-down) and
+    10/10 (the ranked page), the leak check clean with the ranking draft installed. The health line carries `trialGemini`
+    (Google Search and URL context, `thinkingSummaries: auto`, `store: false`) and its keys, and `prompts.rank: true`;
+    no trial is offered to an anonymous caller, and an anonymous request naming Gemini is refused at the door (401).
+    The boot lines read "prompts installed: extract fad6cbae · evaluate c52121a0 · rank 3ddeebe3 (3170 chars)" (the
+    draft, uploaded as the secret file `rank.txt`, `CIVIC_PROMPT_RANK_FILE` pointing at it), "[trial] … deepseek-v4-pro
+    ready …; gemini-4-argon ready, at medium or high, with Google's own search and page reading" and "[rank] the claims
+    are ranked for the operator's runs (CIVIC_RANK=operator) …".
+  - **The live measure is the operator's own:** /check's "Gemini serves gemini-4-argon to this key" (Google asked
+    without a token), their first Gemini fact-check on the trial table, and their next article, ranked.
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 
