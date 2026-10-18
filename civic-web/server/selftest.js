@@ -26,7 +26,8 @@ import { toolsOn, gatewayOn } from './tools/request.js';
 import { openDoor, doorsOpen } from './tools/doors.js';
 import { listPrice, retiredSettings } from './economics.js';
 import * as deepseek from './deepseek.js';
-import { trialReady, isDeepSeekModel, modelLabel } from './trial.js';
+import { modelReady, isDeepSeekModel, isGeminiModel, modelLabel, trialState } from './trial.js';
+import * as gemini from './gemini.js';
 
 const ok = (title, detail = '') => ({ state: 'ok', title, detail });
 const bad = (title, detail = '', fix = '') => ({ state: 'bad', title, detail, fix });
@@ -172,21 +173,44 @@ async function checkListing({ operator }) {
 }
 
 /**
- * The operator's trial (server/trial.js): whether their determinations on DeepSeek can run, and whether DeepSeek lists the
- * trial's models (GET /models: no tokens). Never "bad": the trial is the operator's alone, and readers are unaffected.
+ * The operator's trial (server/trial.js): whether their determinations on DeepSeek and on Gemini can run, and whether
+ * each provider serves the trial's models (DeepSeek's GET /models, Gemini's GET /v1beta/models/{id}: no tokens). Never
+ * "bad": the trial is the operator's alone, and readers are unaffected.
  */
 async function checkTrial() {
   const checks = [];
   if (!config.evalTrialModels.length) return checks;
-  const names = config.evalTrialModels.map(modelLabel).join(' and ');
-  const ready = trialReady();
-  if (!ready.ok) {
-    checks.push(warn('Your trial on DeepSeek cannot run', ready.why, 'Readers are unaffected: their fact-checks stay on ' + modelLabel(config.evalModels[0]) + '.'));
-    return checks;
-  }
-  checks.push(ok('Your trial on DeepSeek can run', `${names}, chosen on the page beside ${modelLabel(config.evalModels[0])}, for your account alone. DeepSeek has no web search of its own, so the model searches and reads through FactEngine's own tools.`));
+  const readers = `Readers are unaffected: their fact-checks stay on ${modelLabel(config.evalModels[0])}.`;
   const ids = config.evalTrialModels.filter(isDeepSeekModel);
-  if (!ids.length) return checks;
+  if (ids.length) await checkTrialDeepSeek(checks, ids, readers);
+  const gids = config.evalTrialModels.filter(isGeminiModel);
+  if (gids.length) await checkTrialGemini(checks, gids, readers);
+  return checks;
+}
+
+async function checkTrialGemini(checks, ids, readers) {
+  const ready = modelReady(ids[0]);
+  if (!ready.ok) { checks.push(warn('Your trial on Gemini cannot run', ready.why, readers)); return; }
+  checks.push(ok('Your trial on Gemini can run',
+    `${ids.map(modelLabel).join(' and ')} at medium or high, each its own entry on the page beside ${modelLabel(config.evalModels[0])}, for your account alone. Gemini searches with Google's own search and reads pages itself, and each request says store: false, so Google keeps nothing. Google Search costs $14 per 1,000 searches after 5,000 free a month; the cost shown counts every search at that price, so it is an upper bound.`));
+  for (const id of ids) {
+    try {
+      await gemini.model(id, { key: gemini.key() });
+      checks.push(ok(`Gemini serves ${id} to this key`, 'No tokens were used.'));
+    } catch (err) {
+      const safe = gemini.failure(err);
+      checks.push(warn(`Gemini could not be asked for ${id}`, safe.detail || safe.message));
+    }
+  }
+}
+
+async function checkTrialDeepSeek(checks, ids, readers) {
+  const ready = modelReady(ids[0]);
+  if (!ready.ok) {
+    checks.push(warn('Your trial on DeepSeek cannot run', ready.why, readers));
+    return;
+  }
+  checks.push(ok('Your trial on DeepSeek can run', `${ids.map(modelLabel).join(' and ')}, chosen on the page beside ${modelLabel(config.evalModels[0])}, for your account alone. DeepSeek has no web search of its own, so the model searches and reads through FactEngine's own tools.`));
   try {
     const page = await deepseek.client(deepseek.key()).models.list();
     const listed = new Set((page?.data || []).map((m) => m.id));
@@ -197,7 +221,6 @@ async function checkTrial() {
     const safe = deepseek.failure(err);
     checks.push(warn('DeepSeek could not be asked for its models', safe.detail || safe.message));
   }
-  return checks;
 }
 
 /**
@@ -332,7 +355,8 @@ export async function selftest({ apiKey, build, operator = true }) {
       listingEffort: config.extractEffort,
       model: config.evalModels[0],
       effort: config.evalEffort,
-      trialModels: config.evalTrialModels.join(', ') || 'off',
+      // The trial's entries as the page offers them: DeepSeek V4 Pro at the effort chosen beside it; Gemini at each level.
+      trialModels: (trialState()?.entries || []).map((e) => (e.fixed ? e.label : `${e.label} (at the effort chosen beside it)`)).join('; ') || 'off',
       rank: ranking.ready ? `${ranking.mode === 'on' ? 'every run' : 'your runs alone'}: an empirical headline first, then the top ${ranking.keepPercent}%, rounded up, on ${ranking.model} at ${ranking.effort}` : `unranked: ${ranking.why}`,
       listingWebSearch: requestShape().extract.webSearch,   // the listing on DeepSeek does not search: DeepSeek ignores web search
       webSearch: true,

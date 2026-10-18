@@ -3,7 +3,8 @@
 # After the service exists, the prompts go in as Secret Files named extract.txt, evaluate.txt and
 # rank.txt, the second pass's (mounted at /etc/secrets/, never in the repository), and the values marked
 # sync: false are set in Render and nowhere else: the operator's OpenAI key, the listing's key on
-# Fireworks (5 October; DeepSeek's own, 4 October, if the listing goes there instead), the operator's address and
+# Fireworks (5 October; DeepSeek's own, 4 October, if the listing goes there instead), their Google key for the
+# trial on Gemini (18 October), the operator's address and
 # the hash of the one-time link that makes the operator's account (civic-web/server/accounts.js), and the database's
 # address.
 services:
@@ -48,6 +49,8 @@ services:
       - key: FIREWORKS_API_KEY     # the listing's key when CIVIC_EXTRACT_PROVIDER is fireworks
         sync: false
       - key: DEEPSEEK_API_KEY      # the listing's key when CIVIC_EXTRACT_PROVIDER is deepseek
+        sync: false
+      - key: GEMINI_API_KEY        # the operator's trial on Gemini 4 Argon (18 October): their own Google key
         sync: false
       - key: CIVIC_EXTRACT_PROVIDER
         value: deepseek            # the operator's choice of 5 October, for speed: DeepSeek's own service. Never Fireworks

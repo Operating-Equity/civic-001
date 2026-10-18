@@ -76,8 +76,11 @@ const PRICES_OFF = { CIVIC_LIST_PRICE_CENTS: '', CIVIC_PRICE_START_CENTS: '', CI
 // And no ranking unless a check turns it on (the second pass of 16 October, server/rank.js): no ranking prompt from the
 // shell or the vault's own file reaches an older check's listing, which makes one request to the model.
 const RANK_OFF = { CIVIC_RANK: 'off', CIVIC_PROMPT_RANK: '', CIVIC_PROMPT_RANK_FILE: '', CIVIC_RANK_KEEP_PERCENT: '', CIVIC_RANK_EFFORT: '' };
+// And Google's Gemini out of reach (the operator's trial of 18 October, server/gemini.js), as DeepSeek is, unless a check
+// points it at the stand-in: no key from the shell, an address on a closed port.
+const GEMINI_OFF = { GEMINI_API_KEY: '', CIVIC_GEMINI_BASE_URL: 'http://127.0.0.1:9/gemini' };
 const start = (args, extraEnv) => {
-  const child = spawn(process.execPath, args, { cwd: root, env: { ...process.env, ...DEEPSEEK_OFF, ...FIREWORKS_OFF, ...ACCOUNTS_OFF, ...PRICES_OFF, ...RANK_OFF, ...extraEnv }, stdio: ['ignore', 'pipe', 'pipe'] });
+  const child = spawn(process.execPath, args, { cwd: root, env: { ...process.env, ...DEEPSEEK_OFF, ...FIREWORKS_OFF, ...ACCOUNTS_OFF, ...PRICES_OFF, ...RANK_OFF, ...GEMINI_OFF, ...extraEnv }, stdio: ['ignore', 'pipe', 'pipe'] });
   child.stdout.on('data', () => {});
   child.stderr.on('data', (d) => process.stderr.write(`  [${path.basename(args[0])}] ${d}`));
   children.push(child);
@@ -693,7 +696,7 @@ function accountServer(port, mockPort, env = {}) {
   const out = [];
   const child = spawn(process.execPath, [path.join(root, 'server', 'index.js')], {
     cwd: root, stdio: ['ignore', 'pipe', 'pipe'],
-    env: { ...process.env, ...DEEPSEEK_OFF, ...FIREWORKS_OFF, ...ACCOUNTS_OFF, ...PRICES_OFF, ...RANK_OFF, CIVIC_ACCOUNTS: 'on', PORT: String(port), OPENAI_BASE_URL: `http://localhost:${mockPort}/v1`, OPENAI_API_KEY: KEY, CIVIC_IMAGE_ENABLED: 'false', CIVIC_LEDGER_FILE: path.join(os.tmpdir(), `civic-verify-accounts-ledger-${port}.jsonl`), ...env },
+    env: { ...process.env, ...DEEPSEEK_OFF, ...FIREWORKS_OFF, ...ACCOUNTS_OFF, ...PRICES_OFF, ...RANK_OFF, ...GEMINI_OFF, CIVIC_ACCOUNTS: 'on', PORT: String(port), OPENAI_BASE_URL: `http://localhost:${mockPort}/v1`, OPENAI_API_KEY: KEY, CIVIC_IMAGE_ENABLED: 'false', CIVIC_LEDGER_FILE: path.join(os.tmpdir(), `civic-verify-accounts-ledger-${port}.jsonl`), ...env },
   });
   child.stdout.on('data', (d) => out.push(String(d)));
   child.stderr.on('data', (d) => out.push(String(d)));
@@ -2362,9 +2365,13 @@ async function trialChecks() {
     await wait(`${base}/api/health`);
     const health = await (await fetch(`${base}/api/health`)).json();
     const tr = health.trial || {};
-    check('Trial: the operator\'s page is offered DeepSeek V4 Pro and V4.1 Flash, DeepSeek\'s four efforts opening on high, beside the readers\' model, and ready',
-      JSON.stringify((tr.models || []).map((m) => m.id)) === JSON.stringify(['deepseek-v4-pro', 'deepseek-flash']) && JSON.stringify(tr.efforts) === JSON.stringify(['none', 'low', 'high', 'max'])
-        && tr.effort === 'high' && tr.readers?.id === config.evalModels[0] && tr.ready === true && JSON.stringify(health.request?.keys?.trial) === JSON.stringify(['model', 'input', 'reasoning', 'tools', 'stream']),
+    // 18 October: "There is only 1 DeepSeek model for fact checking" (V4 Pro), and Gemini 4 Argon beside it, which this
+    // server, with no Gemini key, offers as unable to run (geminiChecks below run it).
+    const dsEntry = (tr.entries || []).find((e) => e.model === 'deepseek-v4-pro');
+    check('Trial: the operator\'s page is offered DeepSeek V4 Pro alone of DeepSeek\'s models, its four efforts opening on high, beside the readers\' model, and ready; V4.1 Flash is not offered for fact-checking',
+      JSON.stringify((tr.models || []).map((m) => m.id)) === JSON.stringify(['deepseek-v4-pro', 'gemini-4-argon']) && !(tr.entries || []).some((e) => e.model === 'deepseek-flash')
+        && dsEntry?.fixed === false && JSON.stringify(dsEntry.efforts) === JSON.stringify(['none', 'low', 'high', 'max']) && dsEntry.effort === 'high' && dsEntry.ready === true
+        && tr.readers?.id === config.evalModels[0] && tr.ready === true && JSON.stringify(health.request?.keys?.trial) === JSON.stringify(['model', 'input', 'reasoning', 'tools', 'stream']),
       JSON.stringify({ trial: tr, keys: health.request?.keys?.trial }));
 
     const source = 'The Eiffel Tower stands about 330 metres tall. Water boils at 100 degrees Celsius at sea level.';
@@ -2439,12 +2446,17 @@ async function trialChecks() {
       err5?.code === 'balance_exhausted' && err5.message === '' && /DeepSeek answered 402 \(Insufficient Balance\)/.test(rec402?.detail || '') && w5.sends === 1,
       JSON.stringify({ error: err5, record: rec402, sends: w5.sends }));
 
-    // The effort the page opens on, when none is sent; and a model outside the trial.
-    const f1 = await evaluate({ model: 'deepseek-flash' }, 'flash');
+    // The effort the page opens on, when none is sent; and models outside the trial.
+    const f1 = await evaluate({ model: 'deepseek-v4-pro' }, 'no-effort');
     const fb = dsBodies().slice(-1)[0]?.body;
-    check('Trial: DeepSeek V4.1 Flash with no effort sent runs at high, the level the page opens on',
-      f1.some((e) => e.t === 'done' && e.model === 'deepseek-flash' && e.effort === 'high') && JSON.stringify(fb?.reasoning) === JSON.stringify({ effort: 'high' }) && fb?.model === 'deepseek-flash',
+    check('Trial: DeepSeek V4 Pro with no effort sent runs at high, the level the page opens on',
+      f1.some((e) => e.t === 'done' && e.model === 'deepseek-v4-pro' && e.effort === 'high') && JSON.stringify(fb?.reasoning) === JSON.stringify({ effort: 'high' }) && fb?.model === 'deepseek-v4-pro',
       JSON.stringify({ done: f1.find((e) => e.t === 'done')?.effort, body: fb?.reasoning }));
+    const beforeFlash = (await dsStats()).requests;
+    const flash = await fetch(`${base}/api/evaluate`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ claims: [claim], text: source, jobId: `tr-flash-${stamp}`, model: 'deepseek-flash' }) });
+    const flashBody = await flash.json().catch(() => ({}));
+    check('Trial: DeepSeek V4.1 Flash is not a fact-checker (the operator\'s word of 18 October): asked for one, it is refused (400 trial_model) and nothing reaches DeepSeek',
+      flash.status === 400 && flashBody?.error?.code === 'trial_model' && (await dsStats()).requests === beforeFlash, JSON.stringify({ status: flash.status, body: flashBody }));
     const beforeOdd = (await dsStats()).requests;
     const odd = await fetch(`${base}/api/evaluate`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ claims: [claim], text: source, jobId: `tr-odd-${stamp}`, model: 'deepseek-unknown' }) });
     const oddBody = await odd.json().catch(() => ({}));
@@ -2482,7 +2494,7 @@ async function trialChecks() {
     const rrow = (report.trial || []).find((x) => x.who === 'readers');
     check('Trial: the readers\' durations count the readers\' four determinations and none of the trial\'s; /check\'s trial table has V4 Pro at max (five delivered, one failed, one search and one page each) beside the readers\'',
       report.durations?.determinations?.n === 4 && trow?.n === 5 && trow.failed === 1 && trow.meanSearches === 1 && trow.meanReads === 1 && trow.meanUsd > 0 && rrow?.n === 4
-        && (report.trial || []).some((x) => x.who === 'trial' && x.provider === 'openai') && (report.trial || []).some((x) => x.model === 'deepseek-flash' && x.effort === 'high'),
+        && (report.trial || []).some((x) => x.who === 'trial' && x.provider === 'openai') && (report.trial || []).some((x) => x.model === 'deepseek-v4-pro' && x.effort === 'high'),
       JSON.stringify({ durations: report.durations?.determinations?.n, trial: report.trial }));
     check('Trial: the chain of thought is in no ledger line and no failure record, and neither key is in the health line, the check data or the server\'s output',
       !fs.readFileSync(ledger, 'utf8').includes(COT) && !(fs.existsSync(errlog) ? fs.readFileSync(errlog, 'utf8') : '').includes(COT)
@@ -2543,6 +2555,237 @@ async function trialChecks() {
   }
 }
 await trialChecks();
+
+// ---- the operator's trial on Gemini (18 October) ------------------------------------------------------------------
+// "I want to test the new Gemini model using argon medium and argon high." Their answers: Google's own search and page
+// reading; an entry per level; Gemini's summary of its thinking on its card. Proved against a stand-in Gemini (the
+// /gemini routes of the stand-in, speaking Google's Interactions API): the offer, an entry per level; the request
+// exactly (the model, the two messages a reader's determination carries, the level with the summary, Google's two tools,
+// the stream, store: false) with the operator's Google key alone; the card's trail, sources and summary; the thought
+// signature on no page or record; the books, Google's price for the day; every refusal a wait but the balance used up
+// and a key refused; the two levels and no other; a reader's choice ignored and the operator's never charged; Gemini
+// unable to run without its key while DeepSeek still runs; the key shown nowhere.
+async function geminiChecks() {
+  const GMOCK = MOCK_PORT + 100;
+  const GMKEY = 'gm-verify-key-gemini-0000';   // made-up, and never in the shape of a real Google key
+  const stamp = Date.now();
+  const rec = path.join(os.tmpdir(), `civic-verify-gemini-${stamp}.jsonl`);
+  const ledger = path.join(os.tmpdir(), `civic-verify-gemini-ledger-${stamp}.jsonl`);
+  const errlog = path.join(os.tmpdir(), `civic-verify-gemini-errors-${stamp}.log`);
+  fs.writeFileSync(rec, '');
+  const read = () => fs.readFileSync(rec, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l));
+  const gmBodies = () => read().filter((r) => r.path === '/gemini/v1beta/interactions' && r.body);
+  const oaBodies = () => read().filter((r) => r.path === '/v1/responses' && r.body);
+  const gmStats = async () => (await fetch(`http://localhost:${GMOCK}/gemini/mock/stats`)).json();
+  const lines = () => (fs.existsSync(ledger) ? fs.readFileSync(ledger, 'utf8') : '').split('\n').filter(Boolean).map((l) => JSON.parse(l));
+  const textOf = (f) => (fs.existsSync(f) ? fs.readFileSync(f, 'utf8') : '');
+  const procs = [];
+  const output = [];
+  const gmEnv = {
+    OPENAI_BASE_URL: `http://localhost:${GMOCK}/v1`, OPENAI_API_KEY: KEY, CIVIC_IMAGE_ENABLED: 'false', CIVIC_LEDGER_FILE: ledger, CIVIC_ERROR_LOG: errlog,
+    GEMINI_API_KEY: GMKEY, CIVIC_GEMINI_BASE_URL: `http://localhost:${GMOCK}/gemini`,
+  };
+  const serve = (port, env) => {
+    const child = start([path.join(root, 'server', 'index.js')], { PORT: String(port), ...gmEnv, ...env });
+    child.stdout.on('data', (d) => output.push(String(d)));
+    child.stderr.on('data', (d) => output.push(String(d)));
+    procs.push(child);
+    return `http://localhost:${port}`;
+  };
+  // Ordinals at the stand-in Gemini: 1 the fact-check at high; 2 at medium; 3 a 429 naming a second, then 4; 5 a stream
+  // closed with no event, then 6; 7 an error event mid-stream, then 8; 9 a 503, then 10; 11 a 402; 12 a refused key's;
+  // 13 the operator's own, with accounts on.
+  const evalMark = process.env.MOCK_EVAL_MARK_FOR_GATE || '';
+  start([path.join(root, 'scripts', 'mock-openai.js')], {
+    MOCK_PORT: String(GMOCK), MOCK_RECORD: rec, MOCK_SPEED: '0.2', MOCK_EVAL_MARK: evalMark,
+    MOCK_GM_429: '3', MOCK_GM_CLOSE: '5', MOCK_GM_ERROR_EVENT: '7', MOCK_GM_503: '9', MOCK_GM_402: '11',
+  });
+  try {
+    await wait(`http://localhost:${GMOCK}/v1/responses`, 15000, { anyResponse: true });
+    const base = serve(PORT + 100, { OPENAI_ORG_ID: 'org-verify-gemini', OPENAI_CUSTOM_HEADERS: 'X-Verify-Leak: yes', DEEPSEEK_API_KEY: 'sk-dsgemini000000000000000000000' });
+    await wait(`${base}/api/health`);
+    const health = await (await fetch(`${base}/api/health`)).json();
+    const tr = health.trial || {};
+    const gEntries = (tr.entries || []).filter((e) => e.model === 'gemini-4-argon');
+    check('Gemini: the operator\'s page is offered Gemini 4 Argon twice, "· medium" and "· high", each level its own entry, ready on the operator\'s Google key; its request keys are the model, the input, generation_config, the tools, the stream and store, and store is false',
+      JSON.stringify(gEntries.map((e) => [e.label, e.effort, e.fixed, e.ready])) === JSON.stringify([['Gemini 4 Argon · medium', 'medium', true, true], ['Gemini 4 Argon · high', 'high', true, true]])
+        && JSON.stringify(health.request?.keys?.trialGemini) === JSON.stringify(['model', 'input', 'generation_config', 'tools', 'stream', 'store']) && health.request?.trialGemini?.store === false,
+      JSON.stringify({ entries: tr.entries, keys: health.request?.keys?.trialGemini }));
+
+    const source = 'The Eiffel Tower stands about 330 metres tall. Water boils at 100 degrees Celsius at sea level.';
+    const claim = 'The Eiffel Tower stands about 330 metres tall.';
+    const evaluate = (extra = {}, label = 'x') => stream(`${base}/api/evaluate`, { claims: [claim], text: source, source: { kind: 'text' }, jobId: `gm-${label}-${stamp}`, ...extra });
+    // A reader's determination first, for the two messages the trial must carry.
+    await evaluate({}, 'reader');
+    const readerBody = oaBodies()[0]?.body;
+
+    const jobH = `gm-high-${stamp}`;
+    const h1 = await stream(`${base}/api/evaluate`, { claims: [claim], text: source, source: { kind: 'text' }, jobId: jobH, model: 'gemini-4-argon', effort: 'high' });
+    const d1 = h1.find((e) => e.t === 'done');
+    const b1 = gmBodies()[0]?.body;
+    check('Gemini: the operator\'s fact-check on Gemini 4 Argon at high is delivered, its verdict read, its trail two Google searches and a page read, its sources the cited pages once each, and Gemini\'s summary of its thinking on the card',
+      d1?.provider === 'gemini' && d1.trial === true && d1.model === 'gemini-4-argon' && d1.effort === 'high' && d1.verdictSource !== 'unread'
+        && JSON.stringify((d1.trail || []).map((s) => [s.kind, s.status])) === JSON.stringify([['search', 'completed'], ['search', 'completed'], ['open_page', 'completed']])
+        && (d1.trail || []).slice(0, 2).every((s) => typeof s.query === 'string' && s.query.length > 0) && d1.trail[2].url === 'https://example.org/tower'
+        && JSON.stringify((d1.sources || []).map((s) => s.url)) === JSON.stringify(['https://example.org/tower', 'https://example.org/second-source'])
+        && /GMSUM-5b2e/.test(d1.reasoning || '') && d1.searches === 2 && !h1.some((e) => e.t === 'error'),
+      JSON.stringify(d1 && { provider: d1.provider, effort: d1.effort, verdictSource: d1.verdictSource, trail: d1.trail, sources: d1.sources, reasoning: (d1.reasoning || '').slice(0, 40) }));
+    check('Gemini: its request carries exactly the model, the input, generation_config {thinking_level: high, thinking_summaries: auto}, Google\'s search and URL context, stream and store: false (no output cap, sampling setting or system instruction)',
+      Boolean(b1) && JSON.stringify(Object.keys(b1).sort()) === JSON.stringify(['generation_config', 'input', 'model', 'store', 'stream', 'tools']) && b1.model === 'gemini-4-argon'
+        && JSON.stringify(b1.generation_config) === JSON.stringify({ thinking_level: 'high', thinking_summaries: 'auto' })
+        && JSON.stringify(b1.tools) === JSON.stringify([{ type: 'google_search' }, { type: 'url_context' }]) && b1.stream === true && b1.store === false,
+      JSON.stringify(b1 && { keys: Object.keys(b1), gen: b1.generation_config, tools: b1.tools, store: b1.store }));
+    const saidIn = (steps) => (steps || []).map((s) => (s.content || []).map((c) => c.text).join(''));
+    const readerSaid = saidIn(readerBody?.input);
+    check('Gemini: its input is the two messages a reader\'s determination of the same claim carries, as Google\'s user_input steps: the source first, then the prompt verbatim',
+      Boolean(b1) && readerSaid.length === 2 && (b1.input || []).every((s) => s.type === 'user_input' && (s.content || []).every((c) => c.type === 'text'))
+        && JSON.stringify(saidIn(b1.input)) === JSON.stringify(readerSaid),
+      `${JSON.stringify(saidIn(b1?.input)).length} vs ${JSON.stringify(readerSaid).length} chars`);
+    const heads = read().filter((r) => r.gemini && r.method === 'POST');
+    check('Gemini: Google got the operator\'s Gemini key alone, in x-goog-api-key: no Authorization header, and nothing of OpenAI\'s (organisation, custom header)',
+      heads.length >= 1 && heads.every((r) => r.key === GMKEY && r.auth === '' && !r.headers.includes('openai-organization') && !r.headers.includes('x-verify-leak')),
+      JSON.stringify([...new Set(heads.map((r) => `${r.key === GMKEY ? 'GMKEY' : r.key ? 'OTHER' : 'none'}|${r.auth ? 'auth' : ''}`))]));
+    const replay = await stream(`${base}/api/evaluate`, { claims: [claim], text: source, jobId: jobH, cursor: 0, model: 'gemini-4-argon', effort: 'high' });
+    check('Gemini: its thought signature reaches no page (not the stream, not its replay from the start, not done), while its summary does, as the readers\' model\'s',
+      replay.some((e) => e.t === 'done') && ![...h1, ...replay].some((e) => JSON.stringify(e).includes('GMSIG')) && h1.some((e) => e.t === 'reasoning' && /GMSUM-5b2e/.test(e.text || '')),
+      JSON.stringify([...h1, ...replay].filter((e) => JSON.stringify(e).includes('GMSIG')).slice(0, 2)));
+    const l1 = lines().find((l) => l.kind === 'trial' && l.provider === 'gemini' && l.ok && l.effort === 'high');
+    const [pin, pout] = Date.now() < Date.parse('2026-12-01T00:00:00Z') ? [2, 10] : [4, 20];
+    check('Gemini: its ledger line is a trial\'s (Gemini 4 Argon at high, two searches, a page), its thinking counted as output and the page read as input, priced at Google\'s rate for the day plus $14 per 1,000 searches, which done carries too',
+      Boolean(l1) && l1.model === 'gemini-4-argon' && l1.searches === 2 && l1.reads === 1 && l1.usage?.reasoning === 900 && l1.usage.output > 900 && l1.usage.input > 1200
+        && l1.searchUsd === 0.028 && Math.abs(l1.tokenUsd - (l1.usage.input * pin + l1.usage.output * pout) / 1e6) < 0.0002 && Math.abs(l1.usd - (l1.tokenUsd + l1.searchUsd)) < 0.0002
+        && l1.priced === true && d1?.cost?.usd === l1.usd,
+      JSON.stringify(l1 && { usage: l1.usage, searches: l1.searches, reads: l1.reads, tokenUsd: l1.tokenUsd, searchUsd: l1.searchUsd, usd: l1.usd, done: d1?.cost }));
+
+    const m1 = await evaluate({ model: 'gemini-4-argon', effort: 'medium' }, 'medium');
+    const b2 = gmBodies().slice(-1)[0]?.body;
+    check('Gemini: the medium entry sends thinking_level medium, and is delivered at medium',
+      m1.some((e) => e.t === 'done' && e.provider === 'gemini' && e.effort === 'medium') && b2?.generation_config?.thinking_level === 'medium', JSON.stringify(b2?.generation_config));
+
+    // Every refusal a wait, but the balance used up: one fact-check each, in the order the stand-in was told.
+    const gmRun = async (label) => { const before = (await gmStats()).requests; const evs = await evaluate({ model: 'gemini-4-argon', effort: 'high' }, label); return { evs, sends: (await gmStats()).requests - before }; };
+    const w1 = await gmRun('429');
+    const rr = w1.evs.find((e) => e.t === 'retry');
+    check('Gemini: a 429 is a wait for the second Google names (its RetryInfo), then the fact-check is delivered',
+      rr?.reason === 'rate_limit' && rr.status === 429 && rr.waitMs === 1000 && w1.sends === 2 && w1.evs.filter((e) => e.t === 'done').length === 1, JSON.stringify({ retry: rr, sends: w1.sends }));
+    const w2 = await gmRun('closed');
+    check('Gemini: a reply that stops before its last event is a cut connection and goes again; delivered once, whole, with its own trail',
+      w2.evs.some((e) => e.t === 'retry' && e.reason === 'connection') && w2.sends === 2 && w2.evs.filter((e) => e.t === 'done').length === 1 && (w2.evs.find((e) => e.t === 'done')?.trail || []).length === 3,
+      JSON.stringify({ retries: w2.evs.filter((e) => e.t === 'retry'), sends: w2.sends }));
+    const w3 = await gmRun('error-event');
+    check('Gemini: an error event in the middle of a reply (the model overloaded) goes again, the card started again; delivered once',
+      w3.evs.some((e) => e.t === 'retry' && e.reason === 'error' && e.status === 503) && w3.sends === 2 && w3.evs.filter((e) => e.t === 'done').length === 1
+        && w3.evs.filter((e) => e.t === 'start').length === 2 && !w3.evs.some((e) => e.t === 'error'),
+      JSON.stringify({ retries: w3.evs.filter((e) => e.t === 'retry'), sends: w3.sends }));
+    const w4 = await gmRun('503');
+    check('Gemini: an overloaded Gemini (503) is tried again, and the fact-check is delivered',
+      w4.evs.some((e) => e.t === 'retry' && e.reason === 'error' && e.status === 503) && w4.sends === 2 && w4.evs.filter((e) => e.t === 'done').length === 1,
+      JSON.stringify({ retries: w4.evs.filter((e) => e.t === 'retry'), sends: w4.sends }));
+    const w5 = await gmRun('402');
+    const err5 = w5.evs.find((e) => e.t === 'error');
+    const recent = (await (await fetch(`${base}/api/selftest`)).json()).recentFailures || [];
+    const rec402 = recent.find((x) => x.where === 'trial:gemini' && x.code === 'balance_exhausted');
+    check('Gemini: the prepaid balance used up (402) ends that fact-check at once, with the code and no words of the provider\'s, and /check records Google\'s own with where to add credits',
+      err5?.code === 'balance_exhausted' && err5.message === '' && /prepayment credits are depleted/.test(rec402?.detail || '') && /Google AI Studio, Billing/.test(rec402?.detail || '') && w5.sends === 1,
+      JSON.stringify({ error: err5, record: rec402, sends: w5.sends }));
+
+    // The operator's two levels, and no other.
+    const beforeLevels = (await gmStats()).requests;
+    const asks = [];
+    for (const x of [{ effort: 'low' }, {}, { effort: 'max' }]) {
+      const r = await fetch(`${base}/api/evaluate`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ claims: [claim], text: source, jobId: `gm-level-${x.effort || 'none'}-${stamp}`, model: 'gemini-4-argon', ...x }) });
+      asks.push({ status: r.status, code: (await r.json().catch(() => ({})))?.error?.code });
+    }
+    check('Gemini: only the operator\'s two levels run: low, none and max are each refused (400 trial_effort), and nothing reaches Gemini',
+      asks.every((a) => a.status === 400 && a.code === 'trial_effort') && (await gmStats()).requests === beforeLevels, JSON.stringify(asks));
+
+    // /check: the trial's rows, the settings, and the trial table.
+    const st = await (await fetch(`${base}/api/selftest`)).json();
+    const row = (re) => (st.checks || []).find((c) => re.test(c.title));
+    check('Gemini: /check says the trial on Gemini can run and that Google serves gemini-4-argon to this key (asked without a token); its settings line names both levels',
+      row(/^Your trial on Gemini can run$/)?.state === 'ok' && row(/^Gemini serves gemini-4-argon to this key$/)?.state === 'ok'
+        && /Gemini 4 Argon · medium; Gemini 4 Argon · high/.test(st.settings?.trialModels || '') && st.ready === true,
+      JSON.stringify({ rows: (st.checks || []).filter((c) => /Gemini/.test(c.title)).map((c) => [c.state, c.title]), settings: st.settings?.trialModels }));
+    const report = st.economics || {};
+    const grow = (report.trial || []).find((x) => x.who === 'trial' && x.provider === 'gemini' && x.model === 'gemini-4-argon' && x.effort === 'high');
+    check('Gemini: /check\'s trial table has Gemini 4 Argon at high (five delivered, one failed, two searches and a page each), kept out of the readers\' figures',
+      grow?.n === 5 && grow.failed === 1 && grow.meanSearches === 2 && grow.meanReads === 1 && grow.meanUsd > 0 && report.durations?.determinations?.n === 1,
+      JSON.stringify({ row: grow, readers: report.durations?.determinations?.n }));
+    check('Gemini: the key is in no health line, check data, ledger line, failure record or the server\'s output, and the thought signature in no ledger line or failure record',
+      ![await (await fetch(`${base}/api/health`)).text(), JSON.stringify(st), textOf(ledger), textOf(errlog), output.join('')].some((t) => t.includes(GMKEY))
+        && !textOf(ledger).includes('GMSIG') && !textOf(errlog).includes('GMSIG'),
+      '');
+
+    // The price Google set for Argon changes on 1 December 2026 (UTC); a call is priced at the moment it went.
+    const { estimateTextCost } = await import(`${pathToFileURL(path.join(root, 'server', 'pricing.js')).href}?gm=${stamp}`);
+    const million = { input: 1_000_000, cached: 0, output: 1_000_000 };
+    check('Gemini: Argon is priced $2 in and $10 out a million through 30 November 2026, $4 and $20 from 1 December, and $14 per 1,000 Google searches',
+      estimateTextCost({ model: 'gemini-4-argon', usage: million, at: Date.parse('2026-11-30T23:59:59Z') }).usd === 12
+        && estimateTextCost({ model: 'gemini-4-argon', usage: million, at: Date.parse('2026-12-01T00:00:00Z') }).usd === 24
+        && estimateTextCost({ model: 'gemini-4-argon', usage: { input: 0, cached: 0, output: 0 }, searches: 1000, at: Date.parse('2026-10-18T00:00:00Z') }).usd === 14,
+      '');
+
+    // Without its key Gemini cannot run, and says so; DeepSeek V4 Pro still runs.
+    const baseB = serve(PORT + 101, { GEMINI_API_KEY: '', CIVIC_SEARCH_URL: 'http://127.0.0.1:9/search', CIVIC_SEARCH_KEY: 'search-key-gemini-verify', DEEPSEEK_API_KEY: 'sk-dsgemini000000000000000000000' });
+    await wait(`${baseB}/api/health`);
+    const hB = await (await fetch(`${baseB}/api/health`)).json();
+    const beforeB = (await gmStats()).requests;
+    const rB = await fetch(`${baseB}/api/evaluate`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ claims: [claim], text: source, jobId: `gm-nokey-${stamp}`, model: 'gemini-4-argon', effort: 'high' }) });
+    const bB = await rB.json().catch(() => ({}));
+    const stB = await (await fetch(`${baseB}/api/selftest`)).json();
+    check('Gemini: without GEMINI_API_KEY its two entries are offered as unable to run, saying why, while DeepSeek V4 Pro runs; a request for it is refused (503 trial_unavailable) and nothing reaches Gemini; /check warns, and is ready for readers',
+      (hB.trial?.entries || []).filter((e) => e.model === 'gemini-4-argon').length === 2 && (hB.trial?.entries || []).filter((e) => e.model === 'gemini-4-argon').every((e) => e.ready === false && /GEMINI_API_KEY is not set/.test(e.why || ''))
+        && (hB.trial?.entries || []).find((e) => e.model === 'deepseek-v4-pro')?.ready === true && hB.trial?.ready === true
+        && rB.status === 503 && bB?.error?.code === 'trial_unavailable' && (await gmStats()).requests === beforeB
+        && stB.ready === true && (stB.checks || []).some((x) => x.state === 'warn' && x.title === 'Your trial on Gemini cannot run'),
+      JSON.stringify({ entries: hB.trial?.entries, status: rB.status, body: bB }));
+
+    // A key Google refuses.
+    const baseC = serve(PORT + 102, { GEMINI_API_KEY: 'gm-bad-key-verify-0000' });
+    await wait(`${baseC}/api/health`);
+    const eC = await stream(`${baseC}/api/evaluate`, { claims: [claim], text: source, jobId: `gm-badkey-${stamp}`, model: 'gemini-4-argon', effort: 'high' });
+    const errC = eC.find((e) => e.t === 'error');
+    const stC = await (await fetch(`${baseC}/api/selftest`)).json();
+    check('Gemini: a key Google refuses (401) ends the fact-check with FactEngine\'s own sentence and is not tried again; /check says Google rejected the key, in its words, and shows no key',
+      errC?.code === 'invalid_key' && errC.message === '' && !eC.some((e) => e.t === 'retry')
+        && (stC.recentFailures || []).some((x) => x.where === 'trial:gemini' && /Gemini rejected the key in GEMINI_API_KEY \(401: API key not valid/.test(x.detail || ''))
+        && (stC.checks || []).some((x) => x.state === 'warn' && x.title === 'Gemini could not be asked for gemini-4-argon') && !JSON.stringify(stC).includes('gm-bad-key-verify'),
+      JSON.stringify({ error: errC, rows: (stC.checks || []).filter((c) => /Gemini/.test(c.title)).map((c) => [c.state, c.title, c.detail]) }));
+
+    // With accounts on: a reader's choice of Gemini is ignored; the operator's own fact-check there is never charged.
+    const P = PORT + 103;
+    const srv = accountServer(P, GMOCK, { ...gmEnv, CIVIC_LEDGER_FILE: path.join(os.tmpdir(), `civic-verify-gemini-acct-ledger-${stamp}.jsonl`), CIVIC_OPERATOR_EMAILS: 'op@example.com', CIVIC_OPERATOR_CLAIM: claimHash(), CIVIC_LIST_PRICE_CENTS: '125', CIVIC_TIER_ORDER: '1' });
+    procs.push(srv.child);
+    await wait(`http://localhost:${P}/api/health`, 20000);
+    const people = accountClient(`http://localhost:${P}`);
+    const reader = (await people.signup('reader@example.com')).cookie;
+    const op = (await people.json('/api/account/claim', { method: 'POST', body: { token: CLAIM_TOKEN, email: 'op@example.com', password: PASSWORD, agree: true } })).cookie;
+    const listAndTest = async (cookie, who, extra) => {
+      const runId = `gm-${who}-run-${stamp}`;
+      await people.stream('/api/extract', { jobId: runId, text: ACCT_TEXT }, cookie);
+      return people.stream('/api/evaluate', { jobId: `gm-${who}-c1-${stamp}`, claims: ['The Eiffel Tower stands about 330 metres tall.'], text: ACCT_TEXT, runId, n: 1, ...extra }, cookie);
+    };
+    const rBal0 = await people.balance(reader);
+    const gmBefore = (await gmStats()).requests;
+    const rt = await listAndTest(reader, 'reader', { model: 'gemini-4-argon', effort: 'high' });
+    const rDone = rt.events.find((e) => e.t === 'done');
+    check('Gemini: a reader who names Gemini gets the readers\' determination on OpenAI, charged as always; nothing reaches Gemini',
+      Boolean(rDone) && !rDone.trial && !rDone.provider && (await gmStats()).requests === gmBefore && (await people.balance(reader)) === rBal0 - 125,
+      JSON.stringify({ done: Boolean(rDone), trial: rDone?.trial, gemini: (await gmStats()).requests - gmBefore, balance: [rBal0, await people.balance(reader)] }));
+    const oBal0 = await people.balance(op);
+    const ot = await listAndTest(op, 'operator', { model: 'gemini-4-argon', effort: 'medium' });
+    const oDone = ot.events.find((e) => e.t === 'done');
+    const quote = ot.events.find((e) => e.t === 'quote');
+    check('Gemini: the operator\'s own fact-check on Gemini is delivered and never charged (free of price, not one of the document\'s free ones, the balance as it was)',
+      oDone?.provider === 'gemini' && oDone.trial === true && oDone.effort === 'medium' && quote?.free === false && quote?.priceCents === 0 && (await people.balance(op)) === oBal0,
+      JSON.stringify({ done: oDone?.provider, quote, balance: [oBal0, await people.balance(op)] }));
+  } catch (err) {
+    check('Gemini checks completed', false, err.stack || err.message);
+  } finally {
+    for (const p of procs) { try { p.kill('SIGTERM'); } catch {} }
+  }
+}
+await geminiChecks();
 
 // ---- the second pass: the claims a document rests on, the top quarter shown, an empirical headline first (16 October) ----
 // The operator's rules: a claim that is not empirical is set aside; the empirical ones are force-ranked by how far the

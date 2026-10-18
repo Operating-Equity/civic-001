@@ -160,7 +160,14 @@ async function boot() {
   // reports come later.
   ui.testSelected.addEventListener('click', testSelected);
   // The operator's trial (server/trial.js): the choice is theirs, remembered in this browser, sent with each claim.
-  ui.trialModel.addEventListener('change', () => { state.trialChoice.model = ui.trialModel.value; saveTrialChoice(); renderTrialBar(); renderBeyondTools(); });
+  ui.trialModel.addEventListener('change', () => {
+    // An entry is a model, and for Gemini its level too ("argon medium and argon high"): the level is the entry itself.
+    const entry = trialEntries().find((e) => entryKey(e) === ui.trialModel.value) || null;
+    state.trialChoice.model = entry ? entry.model : '';
+    if (entry?.fixed) state.trialChoice.effort = entry.effort;
+    else if (entry && !entry.efforts.includes(state.trialChoice.effort)) state.trialChoice.effort = entry.effort;
+    saveTrialChoice(); renderTrialBar(); renderBeyondTools();
+  });
   ui.trialEffort.addEventListener('change', () => { state.trialChoice.effort = ui.trialEffort.value; saveTrialChoice(); });
   ui.trialCompare.addEventListener('change', () => { state.trialChoice.compare = ui.trialCompare.checked; saveTrialChoice(); });
   ui.report.addEventListener('click', () => toast(t('report.soon')));
@@ -1226,16 +1233,27 @@ function saveTrialChoice() {
 const trialOffer = () => state.server?.trial || null;
 
 /**
- * What the next claims run on: null for the readers' determination, else { model, effort, compare }. Only a model the
- * server offers counts; the readers' own model is no trial unless it runs beside one.
+ * The pull-down's entries as the server offers them: DeepSeek V4 Pro once, with its efforts beside it; Gemini once per
+ * level, the level being the entry itself (`fixed`). Each says whether it can run here, and if not, why.
+ */
+const trialEntries = () => trialOffer()?.entries || [];
+const entryKey = (e) => (e.fixed ? `${e.model}|${e.effort}` : e.model);
+
+/** The entry this browser chose, if the server still offers it (a model it no longer offers falls back to the readers'). */
+function chosenEntry() {
+  const c = state.trialChoice;
+  return trialEntries().find((e) => e.model === c.model && (!e.fixed || e.effort === c.effort)) || null;
+}
+
+/**
+ * What the next claims run on: null for the readers' determination, else { model, label, effort, compare }. Only an
+ * entry the server offers, and that can run, counts; the readers' own model is no trial unless it runs beside one.
  */
 function trialNow() {
-  const offer = trialOffer();
-  if (!offer || !offer.ready) return null;
-  const pick = offer.models.find((m) => m.id === state.trialChoice.model);
-  if (!pick) return null;
-  const effort = offer.efforts.includes(state.trialChoice.effort) ? state.trialChoice.effort : offer.effort;
-  return { model: pick.id, label: pick.label, effort, compare: Boolean(state.trialChoice.compare) };
+  const entry = chosenEntry();
+  if (!entry || !entry.ready) return null;
+  const effort = entry.fixed ? entry.effort : entry.efforts.includes(state.trialChoice.effort) ? state.trialChoice.effort : entry.effort;
+  return { model: entry.model, label: entry.label, effort, compare: Boolean(state.trialChoice.compare) };
 }
 
 function renderTrialBar() {
@@ -1244,20 +1262,28 @@ function renderTrialBar() {
   ui.trialBar.hidden = !offer || !open;
   if (ui.trialBar.hidden) return;
   const busy = state.phase === 'evaluating' || state.phase === 'extracting';
-  const options = [{ id: '', label: `${offer.readers.label} (readers)` }, ...offer.models];
-  const have = [...ui.trialModel.options].map((o) => o.value).join('|');
-  if (have !== options.map((o) => o.id).join('|')) ui.trialModel.replaceChildren(...options.map((o) => el('option', { value: o.id, text: o.label })));
-  ui.trialModel.value = options.some((o) => o.id === state.trialChoice.model) ? state.trialChoice.model : '';
-  if (ui.trialEffort.options.length !== offer.efforts.length) ui.trialEffort.replaceChildren(...offer.efforts.map((e) => el('option', { value: e, text: e })));
-  ui.trialEffort.value = offer.efforts.includes(state.trialChoice.effort) ? state.trialChoice.effort : offer.effort;
+  const entries = trialEntries();
+  // An entry that cannot run here is shown, and cannot be chosen; its reason is said below.
+  const options = [{ key: '', label: `${offer.readers.label} (readers)`, ready: true }, ...entries.map((e) => ({ key: entryKey(e), label: e.label, ready: e.ready }))];
+  const have = [...ui.trialModel.options].map((o) => `${o.value}:${o.disabled}`).join('|');
+  if (have !== options.map((o) => `${o.key}:${!o.ready}`).join('|')) {
+    ui.trialModel.replaceChildren(...options.map((o) => el('option', { value: o.key, text: o.label, disabled: !o.ready })));
+  }
+  const chosen = chosenEntry();
+  const trial = Boolean(chosen && chosen.ready);
+  ui.trialModel.value = trial ? entryKey(chosen) : '';
+  // DeepSeek's efforts beside its entry; a Gemini entry's level is the entry, so nothing is beside it.
+  const efforts = trial && !chosen.fixed ? chosen.efforts : [];
+  if ([...ui.trialEffort.options].map((o) => o.value).join('|') !== efforts.join('|')) ui.trialEffort.replaceChildren(...efforts.map((e) => el('option', { value: e, text: e })));
+  if (efforts.length) ui.trialEffort.value = efforts.includes(state.trialChoice.effort) ? state.trialChoice.effort : chosen.effort;
   ui.trialCompare.checked = Boolean(state.trialChoice.compare);
   ui.trialCompareWords.textContent = `Side by side with ${offer.readers.label}`;
-  const trial = ui.trialModel.value !== '';
-  ui.trialEffortChoice.hidden = !trial;
+  ui.trialEffortChoice.hidden = !efforts.length;
   ui.trialCompareChoice.hidden = !trial;
-  for (const c of [ui.trialModel, ui.trialEffort, ui.trialCompare]) c.disabled = busy || !offer.ready;
-  ui.trialWhy.hidden = offer.ready;
-  ui.trialWhy.textContent = offer.ready ? '' : offer.why || '';
+  for (const c of [ui.trialModel, ui.trialEffort, ui.trialCompare]) c.disabled = busy;
+  const whys = [...new Set(entries.filter((e) => !e.ready && e.why).map((e) => e.why))];
+  ui.trialWhy.hidden = !whys.length;
+  ui.trialWhy.textContent = whys.join(' ');
 }
 
 /** A claim's twin, side by side: the same claim on the readers' model, as a card right under the trial's own. */

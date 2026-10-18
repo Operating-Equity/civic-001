@@ -187,8 +187,8 @@ function renderTrial(box, e) {
   const who = (x) => `${x.model || '—'}${x.effort ? ` at ${x.effort}` : ''}${x.who === 'readers' ? ' (readers)' : x.provider === 'openai' ? ' (side by side)' : ''}`;
   box.append(el('h2', null, `Your trial, over the last ${e.price.days} days`));
   box.append(table(['Model', 'Delivered', 'Failed', 'Minutes, mean', 'Three in four within', 'Searches', 'Pages read', 'Cost each', 'Cost, all', 'True', 'False', 'Unverified', 'Verdict unread'],
-    e.trial.map((x) => [who(x), x.n, x.failed, mins(x.meanMs), mins(x.p75Ms), x.meanSearches ?? '—', x.who === 'trial' && x.provider === 'deepseek' ? x.meanReads ?? '—' : '—', usd(x.meanUsd), usd(x.totalUsd), x.verdicts.true, x.verdicts.false, x.verdicts.unverified, x.unread])));
-  box.append(el('p', 'check-detail', 'Your own fact-checks on the model you chose on the page, never charged and kept out of the readers\' figures below. On DeepSeek the model searches through FactEngine\'s search service and reads pages through FactEngine; its cost is DeepSeek\'s tokens at the hour\'s price plus each search\'s own. The readers\' row is their fact-checks over the same days.'));
+    e.trial.map((x) => [who(x), x.n, x.failed, mins(x.meanMs), mins(x.p75Ms), x.meanSearches ?? '—', x.who === 'trial' && x.provider !== 'openai' ? x.meanReads ?? '—' : '—', usd(x.meanUsd), usd(x.totalUsd), x.verdicts.true, x.verdicts.false, x.verdicts.unverified, x.unread])));
+  box.append(el('p', 'check-detail', 'Your own fact-checks on the model you chose on the page, never charged and kept out of the readers\' figures below. On DeepSeek the model searches through FactEngine\'s search service and reads pages through FactEngine; its cost is DeepSeek\'s tokens at the hour\'s price plus each search\'s own. On Gemini the model searches with Google\'s own search and reads pages itself; its cost is Google\'s tokens (thinking included) plus $14 per 1,000 searches, an upper bound while the month\'s 5,000 free searches last. The readers\' row is their fact-checks over the same days.'));
 }
 
 function renderFailures(list) {
