@@ -139,6 +139,7 @@ export default {
     noteIncomplete: 'Le modèle s\'est arrêté avant la fin ({reason}). Tout ce qu\'il a renvoyé est ci-dessous.',
     noteNoSummary: 'Aucun résumé du raisonnement n\'est disponible.',
     modelLine: '{model} · {effort}',
+    engineLine: 'LLR · profondeur {depth}',
     copy: 'Copier l\'entrée',
     copied: 'Entrée copiée.',
     copyFailed: 'Échec de la copie. Ouvrez l\'entrée brute et sélectionnez-la.',
@@ -160,7 +161,7 @@ export default {
       sources_other: '{n} sources citées',
     },
   },
-  // A step of the research, as a reader sees it when the operator shows what each step asked (CIVIC_READER_QUERIES).
+  // A step of the research, in a plain word, as a reader sees it (server/view.js).
   trail: {
     search: 'Recherché',
     open: 'Ouvert',

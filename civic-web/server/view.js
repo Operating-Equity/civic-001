@@ -1,17 +1,17 @@
-// What a reader receives of a run: their own run's work and its results (the operator's decision of 19 October). The
-// operator, and an open door, receive every event as it is made; anyone else receives each event through readerView,
-// field by field, from a list of what the page needs. An event or a field not on the list is the operator's, whatever it
-// is: the model's thinking, which model and at what effort, which tool did a step and what it was asked, where a verdict
-// was read, the listing's raw output, a provider's own words for a failure.
+// What a reader receives of a run: all of its work and its results, under the operator's names (the operator's decision
+// of 19 October). The operator, and an open door, receive every event as it is made; anyone else receives each event
+// through readerView, which keeps every output the page shows and gives it the operator's names:
+// - the inspector's name is its mark ("Inspector A", server/verdict.js), on the card, on the entry's own line as it
+//   streams, and wherever the name appears in the thinking's summary and the research steps;
+// - each research step's tool is a plain word (search, open, find, read, transcript), with its question and address;
+// - the model and its effort are a depth ("LLR · depth V" on the page), never a model's name;
+// - a provider's own words for a failure or a wait keep their sense, with model ids, companies, hosts and accounts named
+//   no more.
+// Fields no page shows are not sent: where a verdict was read, the request's own settings, the key's minute figures.
 //
 // The view is applied where the job records each event (server/jobs.js), so a page that comes back after a cut connection,
-// or reads a finished run again, receives exactly what it would have received: never more.
-//
-// The inspector is a mark for a reader ("Inspector A", server/verdict.js), on the card and on the entry's own line as it
-// streams; the rest of the entry is the model's, unchanged. The work shows as a work log: what each step did, in a plain
-// word, counted.
-import { config } from './config.js';
-import { inspectorMark, maskEntry, NameMasker } from './verdict.js';
+// or reads a finished run again, receives exactly what it would have received.
+import { inspectorMark, maskEntry, maskName, NameMasker } from './verdict.js';
 import { verbOf } from './tools/request.js';
 
 const pick = (ev, keys) => {
@@ -20,32 +20,47 @@ const pick = (ev, keys) => {
   return out;
 };
 
-// A failure's own words reach a reader only when they are FactEngine's: its refusals, in sentences written for the page.
-// Any other failure is said by its code alone, which the page turns into its own sentence; a code the page has no
-// sentence for is 'failed'. The provider's words go to the operator and to /check, never to a reader.
-const OWN_WORDS = new Set(['source_too_long', 'too_short', 'no_claims', 'too_many_claims', 'books_wait', 'run_required',
-  'not_your_job', 'credit_short', 'month_limit', 'already_tested', 'signin_required']);
-const PAGE_CODES = new Set([...OWN_WORDS, 'prompt_missing', 'invalid_key', 'missing_key', 'balance_exhausted', 'key_not_sendable',
-  'no_operator_key', 'rate_limited', 'quota_exhausted', 'stream_ended']);
+// How hard the model was asked to think, as a depth: the operator's names for the efforts (the page writes "depth V").
+const DEPTH = { none: 1, minimal: 1, low: 2, medium: 3, high: 4, xhigh: 5, max: 6 };
 
-/** A failure as a reader receives it: FactEngine's own words, or the code alone. */
+// The names in a provider's words that would say whose services do the work: model ids first (they hold the companies'
+// names), then hosts, then the companies, then accounts.
+const MODEL_IDS = /\b(?:accounts\/[\w-]+\/models\/[\w.-]+|(?:gpt|chatgpt|o\d|deepseek|gemini|claude|kimi|llama|qwen|mistral)-[\w.-]+)\b/gi;
+const HOSTS = /\b(?:[a-z0-9-]+\.)*(?:openai\.com|deepseek\.com|googleapis\.com|google\.com|fireworks\.ai|exa\.ai|supadata\.ai)\b/gi;
+const COMPANIES = /\b(?:OpenAI|DeepSeek|Gemini|Google|Fireworks|Exa|Supadata)\b/gi;
+const ACCOUNTS = /\s*\b(?:in\s+)?organi[sz]ation\s+org-[A-Za-z0-9]+|\s*\borg-[A-Za-z0-9]{6,}\b/gi;
+
+/** A provider's words, with what would name the services replaced and their sense kept. */
+export function maskProviders(text) {
+  return String(text ?? '').replace(ACCOUNTS, '').replace(MODEL_IDS, 'LLR').replace(HOSTS, 'the model service')
+    .replace(COMPANIES, 'the model service').replace(/[ \t]{2,}/g, ' ').trim();
+}
+
+/** A failure as a reader receives it: its code and its words, with the services' names replaced. */
 export function readerError(ev) {
-  const code = PAGE_CODES.has(ev?.code) ? ev.code : 'failed';
+  const raw = String(ev?.code || 'failed');
   return {
-    t: 'error', ...(ev?.i !== undefined ? { i: ev.i } : {}), code,
-    message: OWN_WORDS.has(code) ? String(ev?.message || '') : '',
+    t: 'error', ...(ev?.i !== undefined ? { i: ev.i } : {}),
+    code: /openai|deepseek|gemini|google|fireworks|exa|supadata/i.test(raw) ? 'failed' : raw,
+    message: maskProviders(ev?.message || ''),
     ...(Number.isInteger(ev?.status) ? { status: ev.status } : {}),
     ...(ev?.extra && typeof ev.extra === 'object' ? ev.extra : {}),
   };
 }
 
-/** A step of the research as a reader sees it: what it did, in a plain word; what it was asked only when the operator lets readers see that. */
-function readerStep(step, queries) {
+/** A research step as a reader receives it: what it did, in a plain word, what it asked and where it went; never the tool. */
+function readerStep(step, name) {
   if (!step || typeof step !== 'object') return null;
-  return { verb: step.verb || verbOf(step), ...(queries && step.query ? { query: step.query } : {}), ...(queries && step.url ? { url: step.url } : {}) };
+  const out = { verb: step.verb || verbOf(step) };
+  if (step.query) out.query = maskName(step.query, name);
+  if (step.url) out.url = step.url;
+  if (step.pattern) out.pattern = maskName(step.pattern, name);
+  if (step.status) out.status = step.status;
+  if (step.error) out.error = maskProviders(step.error);
+  return out;
 }
 
-/** The listing's ranking as a reader sees it: the order and the headline; never why it failed or what ran it. */
+/** The listing's ranking as a reader receives it: the summary, the order and the headline; not why it failed or what ran it. */
 function readerRanking(r) {
   if (!r || typeof r !== 'object') return r;
   return {
@@ -56,14 +71,14 @@ function readerRanking(r) {
 
 /**
  * A reader's view of one job: a function from each event the job makes to what the reader receives of it (an event, a
- * list of events, or nothing). It keeps what it needs between events: each claim's entry as it streams, so the
- * inspector's name is made the mark before any of it is sent.
+ * list of events, or nothing). It keeps each claim's entry as it streams, so the inspector's line is the mark before any
+ * of it is sent. A claim's thinking and its steps' details arrive with the finished claim, once the inspector's name is
+ * known; the card shows them there, as it always has, and counts the steps as they happen.
  */
-export function readerView({ queries = config.readerQueries } = {}) {
+export function readerView() {
   const maskers = new Map();
   const thinking = new Set();
   const masker = (i) => { if (!maskers.has(i)) maskers.set(i, new NameMasker()); return maskers.get(i); };
-  const step = (s) => readerStep(s, queries);
 
   return (ev) => {
     if (!ev || typeof ev !== 'object') return null;
@@ -80,18 +95,26 @@ export function readerView({ queries = config.readerQueries } = {}) {
         return text ? { t: 'delta', i: ev.i, text } : null;
       }
       case 'reasoning':
-        // The thinking is the operator's; the reader is told the inspection is under way, once.
-        if (ev.i === undefined || thinking.has(ev.i)) return null;
+        // The listing's thinking as it comes (it names no inspector); a claim's, with the finished claim.
+        if (ev.i === undefined) return { t: 'reasoning', text: ev.text || '' };
+        if (thinking.has(ev.i)) return null;
         thinking.add(ev.i);
         return { t: 'phase', i: ev.i, phase: 'inspecting' };
       case 'phase':
-        if (ev.phase === 'incomplete') return pick(ev, ['t', 'i', 'phase']);
+        if (ev.phase === 'incomplete') return pick(ev, ['t', 'i', 'phase', 'reason']);
         if (ev.phase === 'queued') return pick(ev, ['t', 'i', 'phase', 'waitMs', 'position']);
         return pick(ev, ['t', 'i', 'phase', 'searches', 'claims']);
       case 'trail':
-        return { ...pick(ev, ['t', 'i', 'searches']), step: step(ev.step) };
+        // A claim's step is counted as it happens; what it asked comes with the finished claim, its inspector's name made
+        // the mark. The listing's steps name no inspector.
+        return { ...pick(ev, ['t', 'i', 'searches']), step: ev.i === undefined ? readerStep(ev.step, null) : { verb: ev.step?.verb || verbOf(ev.step) } };
+      case 'note':
+        return pick(ev, ['t', 'i', 'code']);
       case 'retry': case 'rank-retry':
-        return pick(ev, ['t', 'i', 'attempt', 'status', 'reason', 'waitMs', 'code', 'since', 'at']);
+        return {
+          ...pick(ev, ['t', 'i', 'attempt', 'status', 'reason', 'waitMs', 'code', 'since', 'at', 'until']),
+          ...(ev.why ? { why: maskProviders(ev.why) } : {}), ...(ev.who ? { who: maskProviders(ev.who) } : {}),
+        };
       case 'warning':
         if (ev.code === 'model_fallback') return { t: 'warning', ...pick(ev, ['i']), code: 'fallback' };
         if (ev.code === 'source_truncated') return pick(ev, ['t', 'code', 'omitted', 'read', 'original']);
@@ -99,26 +122,32 @@ export function readerView({ queries = config.readerQueries } = {}) {
       case 'done':
         if (ev.i === undefined) {
           return {
-            ...pick(ev, ['t', 'total', 'limit', 'claims', 'ms']),
-            incomplete: ev.incomplete ? true : null,
+            ...pick(ev, ['t', 'total', 'limit', 'claims', 'raw', 'reasoning', 'ms']),
+            trail: (ev.trail || []).map((s) => readerStep(s, null)),
+            incomplete: ev.incomplete || null,
             ...(ev.ranking !== undefined ? { ranking: readerRanking(ev.ranking) } : {}),
           };
         } else {
           const rest = maskers.get(ev.i)?.flush() || '';
           maskers.delete(ev.i);
+          const name = ev.inspector || null;
           const done = {
-            ...pick(ev, ['t', 'i', 'verdict', 'confidence', 'conclusion', 'sources', 'searches', 'ms']),
-            inspectorMark: ev.inspector ? inspectorMark(ev.inspector) : null,
+            ...pick(ev, ['t', 'i', 'verdict', 'confidence', 'sources', 'searches', 'ms']),
+            inspectorMark: name ? inspectorMark(name) : null,
+            conclusion: ev.conclusion ? maskName(ev.conclusion, name) : ev.conclusion ?? null,
             text: maskEntry(ev.text || ''),
-            trail: (ev.trail || []).map(step),
-            incomplete: ev.incomplete ? true : null,
+            reasoning: ev.reasoning ? maskName(ev.reasoning, name) : null,
+            trail: (ev.trail || []).map((s) => readerStep(s, name)),
+            depth: DEPTH[ev.effort] ?? null,
+            fellBack: ev.fellBack ? { standby: true } : null,
+            incomplete: ev.incomplete || null,
           };
           return rest ? [{ t: 'delta', i: ev.i, text: rest }, done] : done;
         }
       case 'error':
         return readerError(ev);
       default:
-        return null;   // gate figures, notes, and anything new: the operator's until it is listed here
+        return null;   // the key's minute figures, and anything new: the operator's until it is listed here
     }
   };
 }

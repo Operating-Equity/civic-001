@@ -117,7 +117,7 @@ app.post('/v1/responses', async (req, res) => {
   // while the others pass, so the hold of the one that failed can be seen released). Only the claim's own message is
   // read: the source travels ahead of it in every determination and must not fail them all.
   if (process.env.MOCK_EVAL_FAIL_TEXT && isEvaluation && prompt.includes(process.env.MOCK_EVAL_FAIL_TEXT)) {
-    return res.status(400).json({ error: { message: 'The stand-in refuses this claim on purpose.', type: 'invalid_request_error', param: 'input', code: 'invalid_value' } });
+    return res.status(400).json({ error: { message: process.env.MOCK_EVAL_FAIL_MESSAGE || 'The stand-in refuses this claim on purpose.', type: 'invalid_request_error', param: 'input', code: 'invalid_value' } });
   }
   if (process.env.MOCK_BAD_EFFORT && body.reasoning?.effort === process.env.MOCK_BAD_EFFORT) {
     return res.status(400).json({ error: { message: `Unsupported value: 'reasoning.effort' does not support '${body.reasoning.effort}' with this model.`, type: 'invalid_request_error', param: 'reasoning.effort', code: 'unsupported_value' } });
@@ -151,7 +151,9 @@ app.post('/v1/responses', async (req, res) => {
     const claim = prompt.split('\n')[0].replace(/^\s*Prompt\s*=\s*/, '').trim();
 
     if (body.reasoning?.summary) {
-      for (const part of MOCK_REASONING) {
+      // With MOCK_INSPECTOR, the thinking names the inspector, as a real one may.
+      const named = process.env.MOCK_INSPECTOR ? [`Working as ${inspectorName()} through the record.`] : [];
+      for (const part of [...named, ...MOCK_REASONING]) {
         await sleep(300 + Math.random() * 700);
         for (const chunk of part.match(/[\s\S]{1,30}/g) || []) {
           send({ type: 'response.reasoning_summary_text.delta', delta: chunk, summary_index: 0 });
@@ -801,8 +803,12 @@ const MOCK_SOURCES = [
 
 function pickQueries(claim) {
   const words = claim.replace(/[^\w\s]/g, ' ').split(/\s+/).filter((w) => w.length > 4).slice(0, 4);
-  return [words.join(' ') || claim.slice(0, 40), `${words.slice(0, 2).join(' ')} primary source`];
+  const first = words.join(' ') || claim.slice(0, 40);
+  // With MOCK_INSPECTOR, the first search names the inspector, as a real one may.
+  return [process.env.MOCK_INSPECTOR ? `${inspectorName()} ${first}` : first, `${words.slice(0, 2).join(' ')} primary source`];
 }
+// The inspector as written in its thinking: the name without its description or its title ("Edwin Cardale").
+const inspectorName = () => String(process.env.MOCK_INSPECTOR || '').replace(/\s*\(.*\)\s*$/, '').replace(/^(?:Sir|Dame|Dr\.?|Professor)\s+/, '');
 
 // MOCK_DROP_REQUESTS=2,5: those requests, counted from the first this process receives, lose their
 // connection a few chunks in, the way a real stream dies when a socket is cut.

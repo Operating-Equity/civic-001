@@ -166,6 +166,23 @@ export function inspectorMark(raw) {
   return initial ? names.inspector.replace('{initial}', initial) : null;
 }
 
+/**
+ * Text a reader receives beside the entry (the thinking's summary, a search's question), with the inspector's name made
+ * the mark wherever it is written in full: as the entry gives it, and without its titles ("Sir Edwin Cardale", "Edwin
+ * Cardale"). A surname alone is left as written, since it may be the subject of the claim.
+ */
+export function maskName(text, name) {
+  const s = String(text ?? '');
+  const full = cleanName(name);
+  const mark = inspectorMark(name);
+  if (!s || !full || !mark || MARK.test(full)) return s;
+  const words = full.split(' ');
+  let k = 0;
+  while (k < words.length - 1 && TITLES.has(words[k].replace(/[.,]+$/, '').toLowerCase())) k++;
+  const forms = [...new Set([full, words.slice(k).join(' ')])].filter((f) => f.length > 1);
+  return s.replace(new RegExp(`${EDGE0}(?:${any(forms)})${EDGE1}`, 'giu'), mark);
+}
+
 /** The value of an inspector line with its name made the mark; its Markdown around the name is kept. */
 function maskValue(value) {
   const lead = value.match(/^[*_`\s]*/)[0];

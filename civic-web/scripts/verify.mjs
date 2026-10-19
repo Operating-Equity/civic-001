@@ -3634,7 +3634,8 @@ async function readerViewChecks() {
 
     // A reader and the operator, each with a listing and a determination, on a server whose first model is missing (so a
     // fallback happens), against a stand-in naming one inspector and searching, opening a page and finding in it.
-    const mock = start([path.join(root, 'scripts', 'mock-openai.js')], { MOCK_PORT: String(MOCKR), MOCK_SPEED: '0.2', MOCK_INSPECTOR: 'Sir Edwin Cardale (geologist)', MOCK_SEARCH_ACTIONS: 'search,open_page,find_in_page,search', MOCK_EVAL_FAIL_TEXT: 'Refuse this claim', MOCK_EVAL_MARK: process.env.MOCK_EVAL_MARK_FOR_GATE || '' });
+    const mock = start([path.join(root, 'scripts', 'mock-openai.js')], { MOCK_PORT: String(MOCKR), MOCK_SPEED: '0.2', MOCK_INSPECTOR: 'Sir Edwin Cardale (geologist)', MOCK_SEARCH_ACTIONS: 'search,open_page,find_in_page,search', MOCK_EVAL_FAIL_TEXT: 'Refuse this claim', MOCK_EVAL_MARK: process.env.MOCK_EVAL_MARK_FOR_GATE || '',
+      MOCK_EVAL_FAIL_MESSAGE: `The request to ${config.evalModels[0]} was refused by OpenAI (api.openai.com) in organization org-mock0000000000000000000: the stand-in refuses this claim on purpose.` });
     procs.push(mock);
     await wait(`http://localhost:${MOCKR}/v1/mock/stats`, 15000, { anyResponse: true });
     const srv = accountServer(P, MOCKR, { CIVIC_OPERATOR_EMAILS: 'op@example.com', CIVIC_OPERATOR_CLAIM: claimHash(), CIVIC_LIST_PRICE_CENTS: '125', CIVIC_TIER_ORDER: '1', CIVIC_EVAL_MODELS: `gpt-missing-x,${config.evalModels[0]}` });
@@ -3656,39 +3657,45 @@ async function readerViewChecks() {
 
     const rList = r.listing.find((e) => e.t === 'done');
     const oList = o.listing.find((e) => e.t === 'done');
-    check('a reader\'s listing arrives with its claims and nothing of how it was made: no raw output, thinking, research steps, model or cost; the operator\'s, with all of it',
-      rList?.claims?.length > 0 && ['raw', 'reasoning', 'trail', 'model', 'requested', 'effort', 'mode', 'cost', 'fellBack'].every((k) => !(k in rList))
-        && r.listing.filter((e) => e.t === 'start').every((e) => !('model' in e) && !('requested' in e)) && typeof oList?.raw === 'string' && 'model' in oList,
+    check('a reader\'s listing arrives whole: its claims and the raw listing as the prompt wrote it, with its steps; never the model, its effort or the cost',
+      rList?.claims?.length > 0 && typeof rList.raw === 'string' && rList.raw.length > 0 && rList.raw === oList?.raw && Array.isArray(rList.trail)
+        && ['model', 'requested', 'effort', 'mode', 'cost', 'fellBack'].every((k) => !(k in rList))
+        && r.listing.filter((e) => e.t === 'start').every((e) => !('model' in e) && !('requested' in e)) && 'model' in oList,
       JSON.stringify({ reader: Object.keys(rList || {}), operator: Object.keys(oList || {}) }));
 
     const rDet = r.det;
     const rDone = rDet.find((e) => e.t === 'done');
     const types = new Set(rDet.map((e) => e.t));
-    check('a reader\'s determination carries no thinking, gate figures or notes, and its starts name no model, effort or provider',
-      Boolean(rDone) && !types.has('reasoning') && !types.has('gate') && !types.has('note') && rDet.some((e) => e.t === 'phase' && e.phase === 'inspecting')
+    check('a reader\'s claim streams its entry and counts its steps as they happen; its thinking and each step\'s question come with the finished claim; its starts name no model, effort or provider',
+      Boolean(rDone) && !types.has('reasoning') && !types.has('gate') && rDet.some((e) => e.t === 'phase' && e.phase === 'inspecting')
+        && rDet.filter((e) => e.t === 'trail').every((e) => JSON.stringify(Object.keys(e.step || {})) === '["verb"]')
         && rDet.filter((e) => e.t === 'start' || e.t === 'batch-start').every((e) => ['model', 'effort', 'requested', 'provider', 'mode'].every((k) => !(k in e))),
       JSON.stringify([...types]));
-    check('a reader\'s finished claim gives the verdict, the confidence, the sources and the work, and nothing of how it was made: no inspector\'s name, where the verdict was read, thinking, model, effort or cost',
-      Boolean(rDone) && ['inspector', 'verdictSource', 'reasoning', 'model', 'requested', 'fellBack', 'effort', 'mode', 'cost'].every((k) => !(k in rDone))
-        && Boolean(rDone.verdict) && Number.isFinite(rDone.confidence) && rDone.sources?.length === 2,
+    const DEPTH_OF = { none: 1, minimal: 1, low: 2, medium: 3, high: 4, xhigh: 5, max: 6 };
+    check('a reader\'s finished claim keeps every output: the verdict, the confidence, the reasoning summary, every step, the sources; the model told as a depth, never by its name',
+      Boolean(rDone) && ['inspector', 'verdictSource', 'model', 'requested', 'effort', 'mode', 'cost'].every((k) => !(k in rDone))
+        && /Restating the proposition/.test(rDone.reasoning || '') && rDone.trail?.length === 4 && rDone.sources?.length === 2 && rDone.depth === DEPTH_OF[config.evalEffort]
+        && Boolean(rDone.verdict) && Number.isFinite(rDone.confidence),
       JSON.stringify(Object.keys(rDone || {})));
     const joined = rDet.filter((e) => e.t === 'delta').map((e) => e.text).join('');
     const rSerial = JSON.stringify(r.listing) + JSON.stringify(rDet);
-    check('the inspector is a mark for a reader: "Inspector E" on the card and on the entry\'s own line, as it streamed and as it ended; "Edwin", "Cardale" and "geologist" appear nowhere',
-      rDone?.inspectorMark === 'Inspector E' && /^\*\*Name\*\*: Inspector E$/m.test(rDone?.text || '') && joined === rDone?.text && !/Edwin|Cardale|geologist/.test(rSerial),
-      JSON.stringify({ mark: rDone?.inspectorMark, line: (rDone?.text || '').split('\n')[0], same: joined === rDone?.text }));
+    check('the inspector is a mark for a reader wherever its name is written in full: on the card, on the entry\'s own line as it streamed and as it ended, in the reasoning summary and in the searches; "Edwin", "Cardale" and "geologist" appear nowhere',
+      rDone?.inspectorMark === 'Inspector E' && /^\*\*Name\*\*: Inspector E$/m.test(rDone?.text || '') && joined === rDone?.text
+        && /Working as Inspector E through the record\./.test(rDone?.reasoning || '') && /^Inspector E /.test(rDone?.trail?.[0]?.query || '') && !/Edwin|Cardale|geologist/.test(rSerial),
+      JSON.stringify({ mark: rDone?.inspectorMark, line: (rDone?.text || '').split('\n')[0], same: joined === rDone?.text, query: rDone?.trail?.[0]?.query, reasoning: (rDone?.reasoning || '').slice(0, 60) }));
     const pr = parse(rDone?.text || '');
     check('a reader\'s verdict and confidence are the entry\'s own, read from the very text they received',
       pr.verdict === rDone?.verdict && pr.confidence === rDone?.confidence, JSON.stringify({ parsed: [pr.verdict, pr.confidence], sent: [rDone?.verdict, rDone?.confidence] }));
-    check('a reader\'s research is a work log of plain words: each step says only what it did (search, open, find), never the tool or what it asked',
-      JSON.stringify(rDone?.trail) === JSON.stringify([{ verb: 'search' }, { verb: 'open' }, { verb: 'find' }, { verb: 'search' }])
-        && rDet.filter((e) => e.t === 'trail').every((e) => JSON.stringify(Object.keys(e.step || {})) === '["verb"]'),
+    check('a reader\'s research steps keep what they asked and where they went, each named by a plain word (search, open, find), never by the tool',
+      JSON.stringify((rDone?.trail || []).map((x) => x.verb)) === '["search","open","find","search"]' && Boolean(rDone.trail[0].query) && Boolean(rDone.trail[1].url)
+        && Boolean(rDone.trail[2].pattern) && Boolean(rDone.trail[3].query) && rDone.trail.every((x) => !('kind' in x) && !('name' in x) && !('source' in x)),
       JSON.stringify(rDone?.trail));
     check('a reader is told a standby model answered, in a neutral warning naming no model',
-      rDet.some((e) => e.t === 'warning' && e.code === 'fallback' && !('used' in e) && !('requested' in e)) && !rDet.some((e) => e.t === 'warning' && e.code === 'model_fallback'),
+      rDet.some((e) => e.t === 'warning' && e.code === 'fallback' && !('used' in e) && !('requested' in e)) && !rDet.some((e) => e.t === 'warning' && e.code === 'model_fallback')
+        && JSON.stringify(rDone?.fellBack) === '{"standby":true}',
       JSON.stringify(rDet.filter((e) => e.t === 'warning')));
-    const TELLS = [...new Set([...config.evalModels, 'gpt-missing-x', config.evalEffort, 'open_page', 'find_in_page', 'web_search', 'search_web', 'read_page', 'get_transcript', 'reasoning', 'verdictSource', 'Restating the proposition', 'primary artifact'])];
-    check('none of the operator\'s words reaches a reader\'s stream: no model id, effort, tool name, thinking, or the words of the stand-in\'s thinking',
+    const TELLS = [...new Set([...config.evalModels, 'gpt-missing-x', `"${config.evalEffort}"`, 'open_page', 'find_in_page', 'web_search', 'search_web', 'read_page', 'get_transcript', 'verdictSource'])];
+    check('no name that gives the method away reaches a reader\'s stream: no model id, effort, tool name or verdict source',
       TELLS.every((w) => !rSerial.includes(w)), TELLS.filter((w) => rSerial.includes(w)).join(', '));
 
     const oDone = o.det.find((e) => e.t === 'done');
@@ -3734,11 +3741,13 @@ async function readerViewChecks() {
         && JSON.stringify(again) === JSON.stringify(both),
       JSON.stringify({ first: first.length, second: second.length, again: again.length, same: cText === cDone?.text }));
 
-    // A failure: the provider's own words reach the operator, and a reader only as FactEngine's code.
+    // A failure: the provider's own words reach the operator whole, and a reader with the services' names replaced.
     const rErr = (await people.stream('/api/evaluate', { jobId: `rv-reader-err-${stamp}`, claims: ['Refuse this claim, as the stand-in is told to.'], text: ACCT_TEXT, runId: r.runId, n: 2 }, reader)).events.find((e) => e.t === 'error');
     const oErr = (await people.stream('/api/evaluate', { jobId: `rv-op-err-${stamp}`, claims: ['Refuse this claim, as the stand-in is told to.'], text: ACCT_TEXT, runId: o.runId, n: 2 }, op)).events.find((e) => e.t === 'error');
-    check('a provider\'s own words for a failure reach the operator, and a reader only as a code the page has its own sentence for',
-      rErr?.code === 'failed' && rErr.message === '' && /refuses this claim on purpose/.test(oErr?.message || ''), JSON.stringify({ reader: rErr, operator: oErr?.message }));
+    check('a provider\'s words for a failure reach a reader with their sense and without the names of the model, the company, its host or the account; the operator, whole',
+      rErr?.code === 'invalid_value' && /the stand-in refuses this claim on purpose/.test(rErr.message || '') && /LLR was refused by the model service/.test(rErr.message || '')
+        && !/gpt-|OpenAI|openai\.com|org-mock/i.test(rErr.message || '')
+        && /OpenAI \(api\.openai\.com\) in organization org-mock/.test(oErr?.message || ''), JSON.stringify({ reader: rErr, operator: oErr?.message }));
 
     // What the health line tells anyone but the operator, and the picture route.
     const hAnon = (await people.json('/api/health')).body;

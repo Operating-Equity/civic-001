@@ -23,6 +23,7 @@ const workOf = (trail) => {
 };
 const searchCount = (trail) => workOf(trail).searches;
 const GLYPH = { true: '✓', false: '✕', unverified: '?', unread: '–' };
+const ROMAN = ['', 'I', 'II', 'III', 'IV', 'V', 'VI'];   // a depth as the page writes it
 const TRIAL_KEY = 'fe.trial';   // where this browser remembers the operator's trial choice (renderTrialBar)
 
 /** A connection failure in the reader's language, from the operating system's code; the server's own words otherwise. */
@@ -1174,7 +1175,7 @@ function renderClaimsRaw() {
   const trail = state.extraction?.trail || [];
   const parts = [];
   if (reasoning) parts.push(`${t('card.details.reasoning')}\n\n${reasoning}`);
-  if (trail.length) parts.push(`${t('card.details.trail', { n: trail.length })}\n\n${trail.map((s) => `  ${s.kind === 'tool' ? s.name : s.kind}: ${s.query || s.url || s.pattern || ''}${s.kind === 'tool' && s.error ? ` · ${s.error}` : ''}`).join('\n')}`);
+  if (trail.length) parts.push(`${t('card.details.trail', { n: trail.length })}\n\n${trail.map((s) => `  ${s.kind ? (s.kind === 'tool' ? s.name : s.kind) : t(`trail.${s.verb || 'search'}`)}: ${s.query || s.url || s.pattern || ''}${s.error ? ` · ${s.error}` : ''}`).join('\n')}`);
   parts.push(state.claimsRaw);
   ui.claimsRawBody.textContent = parts.join(`\n\n${'─'.repeat(40)}\n\n`);
 }
@@ -1772,7 +1773,7 @@ function finalizeCard(i, ev) {
     verdict: ev.verdict || null, verdictSource: ev.verdictSource || 'none',
     confidence: ev.confidence ?? null, inspector: ev.inspector || null, inspectorMark: ev.inspectorMark || null, conclusion: ev.conclusion || null,
     cost: ev.cost || null, ms: ev.ms ?? null,
-    model: ev.model || null, requested: ev.requested || null, fellBack: ev.fellBack || null, effort: ev.effort || null, mode: ev.mode || null,
+    model: ev.model || null, requested: ev.requested || null, fellBack: ev.fellBack || null, effort: ev.effort || null, mode: ev.mode || null, depth: ev.depth ?? null,
     trail: ev.trail?.length ? ev.trail : r.trail, sources: ev.sources?.length ? ev.sources : r.sources,
     incomplete: ev.incomplete || r.incomplete || null,
   });
@@ -1825,8 +1826,7 @@ function renderCardDetail(i) {
     $('.reasoning-body', reasoning).textContent = r.reasoning;
   } else reasoning.hidden = true;
 
-  // The steps one by one, where they say what each asked: the operator's always, a reader's when the operator shows them
-  // (CIVIC_READER_QUERIES). Otherwise the work log under the entry counts them.
+  // The steps one by one, with what each asked: the operator's by the tool's own name, a reader's in a plain word.
   const trail = $('.card-trail', card);
   const steps = (r.trail || []).filter((s) => s.kind || s.query || s.url);
   if (steps.length) {
@@ -1887,13 +1887,14 @@ function renderCardFoot(i) {
     log.textContent = parts.join(' · ');
     log.hidden = parts.length === 0;
   }
-  // Which model actually answered, always: a downgrade must never pass unnoticed.
+  // Which model actually answered, always: a downgrade must never pass unnoticed. A reader is told it by its depth, in
+  // the operator's names (server/view.js); the operator, by the model's name.
   const modelNode = $('.card-model', card);
-  if (r.model) {
-    modelNode.textContent = t('card.modelLine', { model: r.model, effort: [r.effort, r.mode].filter(Boolean).join(' / ') });
-    modelNode.classList.toggle('is-fallback', Boolean(r.fellBack));
-    modelNode.title = r.fellBack ? t('warn.modelFallback', { used: r.fellBack.used, requested: r.fellBack.requested }) : '';
-  } else modelNode.textContent = '';
+  if (r.model) modelNode.textContent = t('card.modelLine', { model: r.model, effort: [r.effort, r.mode].filter(Boolean).join(' / ') });
+  else if (r.depth) modelNode.textContent = t('card.engineLine', { depth: ROMAN[r.depth] || r.depth });
+  else modelNode.textContent = '';
+  modelNode.classList.toggle('is-fallback', Boolean(r.fellBack));
+  modelNode.title = r.fellBack?.used ? t('warn.modelFallback', { used: r.fellBack.used, requested: r.fellBack.requested }) : r.fellBack ? t('warn.fallback') : '';
   const costNode = $('.card-cost', card);
   if (state.accounting && r.status === 'done' && r.cost) {
     costNode.textContent = r.cost.priced ? t('card.cost', { usd: fmtUsd(r.cost.usd) }) : t('card.costUnknown');

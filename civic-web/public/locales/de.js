@@ -139,6 +139,7 @@ export default {
     noteIncomplete: 'Das Modell hat früh gestoppt ({reason}). Unten steht alles, was es zurückgegeben hat.',
     noteNoSummary: 'Keine Zusammenfassung des Denkprozesses verfügbar.',
     modelLine: '{model} · {effort}',
+    engineLine: 'LLR · Tiefe {depth}',
     copy: 'Eintrag kopieren',
     copied: 'Eintrag kopiert.',
     copyFailed: 'Kopieren fehlgeschlagen. Öffnen Sie den Rohtext und markieren Sie ihn.',
@@ -160,7 +161,7 @@ export default {
       sources_other: '{n} Quellen zitiert',
     },
   },
-  // A step of the research, as a reader sees it when the operator shows what each step asked (CIVIC_READER_QUERIES).
+  // A step of the research, in a plain word, as a reader sees it (server/view.js).
   trail: {
     search: 'Gesucht',
     open: 'Geöffnet',
