@@ -520,7 +520,9 @@ async function readLinkIntoBox(url, { copy = null } = {}) {
     ui.source.value = got.text;
     state.sourceLink = { url: got.url, title: got.title || host, kind: got.kind };
     state.video = got.kind === 'youtube' && got.video ? got.video : null;
-    state.sourceMeta = { kind: 'link', url: got.url, title: got.title || host, author: got.author || '', published: got.published || '', site: got.site || host };
+    // A page FactEngine's server could not read comes through the search service's reader (`via: 'search'`); its
+    // attribution then says so, as a copy's does.
+    state.sourceMeta = { kind: 'link', url: got.url, title: got.title || host, author: got.author || '', published: got.published || '', site: got.site || host, ...(got.via === 'search' ? { via: 'search' } : {}) };
     state.loadedText = got.text;
     if (got.wall) {
       // The site marks the article as for subscribers and sent this text: it is in the box, and the

@@ -8,9 +8,13 @@
 //
 // The operator's question of 1 October started it: ChatGPT found, by keywords, the Times article the
 // Times had refused CIVIC, in The Straits Times' republication.
+//
+// Before any copy is looked for, the same service's reader is asked for the link's own page (readerCopy): the
+// operator's question of 19 October, "Do you try to read pages in 'Reader' mode instead of the full browser page
+// first? I have found that more successful."
 import { config } from './config.js';
-import { siteFetch } from './http.js';
-import { assertPublic } from './fetchurl.js';
+import { siteFetch, openaiFetch } from './http.js';
+import { assertPublic, siteName, longestParagraph, PROSE_CHARS, WALL_PHRASES } from './fetchurl.js';
 import { record as ledger } from './ledger.js';
 import { record as failure } from './diagnostics.js';
 
@@ -123,6 +127,67 @@ async function searchOnce(kind, query, exclude, { signal, ledgerLine = true } = 
     const usd = figure === null || figure === undefined || !Number.isFinite(Number(figure)) ? null : Number(figure);
     if (ledgerLine) ledger({ kind: 'search', step: 'find-copies', search: kind, results: results.length, ms: Date.now() - started, usd });
     return { results, usd };
+  }
+}
+
+/** Whether the search service's reader is set: its address, and the search's key, which it shares. */
+export function readerOn() { return Boolean(String(config.readerUrl || '').trim() && String(config.searchKey || '').trim()); }
+
+/**
+ * A link FactEngine's server could not read, read through the search service's own reader (Exa's /contents: its
+ * stored copy of that address, or its own fetch of it). The operator's word of 19 October: "If the server-side or
+ * service used can be set to 'reader' on failure and it works, that's what I care about"; and, keeping what follows it,
+ * "keep the current fallback as the third fallback". Returns the page as FactEngine's own reader returns one, marked
+ * `via: 'search'` so its attribution says so, when the text has a paragraph of prose (FactEngine's own rule for a
+ * page); else null, with the service's own words on /check. Its date is the day alone, as for a copy: the service's
+ * dates are timestamps padded to the day. A rate limit is a wait, as for the search. One ledger line
+ * per ask: the service's own cost figure, where the text came from, the time; never the text.
+ */
+export async function readerCopy(address, { signal } = {}) {
+  const endpoint = await assertPublic(String(config.readerUrl).trim());
+  const page = new URL(address);
+  const host = siteName(page);
+  const body = JSON.stringify({ urls: [page.toString()], text: true });
+  const noRead = (detail) => {
+    failure({ where: 'server:reader', code: 'reader_failed', message: `The search service's reader could not read ${host} either.`, detail });
+    return null;
+  };
+  for (let backoff = 1000; ;) {
+    if (signal?.aborted) throw new Error('aborted');
+    const started = Date.now();
+    let res;
+    try {
+      // The service fetches the page itself when it holds no copy, and answers when it has: the connection with no time
+      // limit of its own (server/http.js, as Gemini's), never a site's ten seconds of silence. The reader leaving stops it.
+      res = await openaiFetch(endpoint, { method: 'POST', headers: searchHeaders(), body, signal });
+    } catch (err) {
+      if (signal?.aborted) throw err;
+      return noRead(`the reader could not be reached (${err?.cause?.code || err?.message || 'no answer'})`);
+    }
+    const text = await res.text();
+    let data = null;
+    try { data = JSON.parse(text); } catch { /* not JSON */ }
+    if (res.status === 429) {
+      const after = Number(res.headers.get('retry-after'));
+      await wait(Number.isFinite(after) && after > 0 ? after * 1000 : backoff, signal);
+      backoff *= 2;
+      continue;
+    }
+    const figure = data?.costDollars?.total;
+    const usd = figure === null || figure === undefined || !Number.isFinite(Number(figure)) ? null : Number(figure);
+    const status = (Array.isArray(data?.statuses) ? data.statuses : [])[0] || null;
+    const result = (Array.isArray(data?.results) ? data.results : [])[0] || null;
+    const got = String(result?.text || '').trim();
+    const read = res.ok && status?.status !== 'error' && longestParagraph(got) >= PROSE_CHARS;
+    ledger({ kind: 'search', step: 'reader', ok: read, from: status?.source || null, chars: read ? got.length : 0, ms: Date.now() - started, usd });
+    if (!res.ok) return noRead(`the reader answered ${res.status}${reasonOf(data, text) ? ` (${reasonOf(data, text)})` : ''}`);
+    if (!read) return noRead(status?.status === 'error' ? `the reader answered ${status.error?.tag || 'an error'}${status.error?.httpStatusCode ? ` (the site's ${status.error.httpStatusCode})` : ''}` : 'the reader returned no paragraph of prose');
+    let at = page;
+    try { at = new URL(String(result.url || page)); } catch { at = page; }
+    return {
+      kind: 'page', title: clean(result.title) || host, author: clean(result.author), published: String(result.publishedDate || '').slice(0, 10),
+      site: siteName(at), text: got, url: at.toString(), note: null, wall: WALL_PHRASES.test(got), via: 'search',
+    };
   }
 }
 

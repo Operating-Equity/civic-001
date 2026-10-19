@@ -19,7 +19,7 @@ Two rules the code exists to keep:
 civic-web/
 ├── server/            Node + Express. Holds the prompts and the operator's key. Nothing else has either.
 │   ├── fetchurl.js    Reading a link: article, PDF or YouTube caption track, into the source's own words.
-│   ├── copies.js      A link a site refused, found elsewhere by a search service, for the reader to pick from.
+│   ├── copies.js      A link FactEngine cannot read: a search service's reader, else copies for the reader to pick from.
 │   ├── prompts/       The vault. Real prompts live here (gitignored) or in env vars. See its README.
 │   ├── config.js      Models, efforts, limits, feature flags (all overridable by env vars).
 │   ├── economics.js   Facts have a price: the tiers, the price from the measured average, the loss guard, the books.
@@ -304,6 +304,40 @@ subscribers, and the reader decides whether it is the whole article before press
 The refusal's sentence says it is FactEngine's server the site turned away, "though people can often read it
 in a browser" (the operator's question of 1 October: a reader who could open the article read the old
 sentence as saying they could not).
+
+**A link FactEngine cannot read, read through the search service's reader.** The operator's question of 19
+October: "Do you try to read pages in 'Reader' mode instead of the full browser page first? I have found that more
+successful", and then: "If the server-side or service used can be set to 'reader' on failure and it works, that's
+what I care about", on one condition: "keep the current fallback as the third fallback". A link is read in this
+order (`/api/read-url`, `server/index.js`):
+
+1. FactEngine's own reader, as above.
+2. When that fails on a public web page, the search service's reader is asked for the same address
+   (`readerCopy`, `server/copies.js`; Exa's `/contents`, `{urls: [address], text: true}`, which serves its stored
+   copy of the page or fetches it itself). That covers a refusal, silence, a page its scripts build, an address that
+   cannot be reached, too many redirects, any other status (404, 451, 5xx) and a page with almost no text. Never
+   asked: a paywall (FactEngine does not get round one), an address that is not a public web page (never fetched,
+   never handed to anyone), a file too large or not text, and a YouTube link (its transcript has its own doors).
+   The address asked is the one the failure was about, after redirects. When its text has a paragraph of prose (200
+   characters, FactEngine's own rule for a page), it is the answer, exactly as a page read by FactEngine: the box
+   fills and the run starts, with the service's title, author and date and `via: 'search'`, so the source's
+   attribution says it was read "through a search service's copy of that address". When that text carries the wall
+   phrases FactEngine reads, it goes into the box marked and waits for the reader's button, as a marked page does.
+3. Otherwise FactEngine's own failure is answered as before, so the page goes on to the copies below, or the sentence
+   to paste: the third fallback, unchanged. The service's own reason (Exa: `CRAWL_HTTP_401` when the site turns its
+   crawler away too) is a note on /check, `reader_failed`.
+
+The reader is on when the search service is set: its address is `CIVIC_READER_URL`, else the search's own address with
+`/search` made `/contents` (Exa's pair); `off` turns it off. It shares the search's key, in the same header and nowhere
+else. A rate limit is a wait, as for the search. The service fetches the page itself when it holds no copy, which can
+take longer than a site's ten seconds of silence, so its answer is waited for on the connection with no time limit of
+its own (as Gemini's); the reader leaving the page is what stops it. Each ask is one ledger line (kind `search`, step `reader`): whether a
+page came, where the service's text came from (`cached` or `crawled`), its length, the time and the service's own cost
+figure (Exa: $1 for a thousand pages); never the text. The boot line `[read]` names the reader's address, never its
+key, and /check's row for a refused link names it too. Tested on 19 October: Exa's reader returned the operator's
+ms.now article whole, with its title, author and date, where FactEngine's server had been refused in 0.3 seconds;
+Reuters turns Exa's crawler away too (`CRAWL_HTTP_401`), so a Reuters link still goes on to its copies, where Exa's
+search found Investing.com's full Reuters text.
 
 **A refused article, found elsewhere.** The same article is often published at another address: papers
 that republish another paper's articles with permission end each one with "This article originally

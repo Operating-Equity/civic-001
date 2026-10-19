@@ -877,6 +877,35 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
       requests … reasoning.effort low" and "[rank] … on deepseek-flash at low".
     - **The served page** has the echo's checkbox and its call inside comments, and the card's `Google:` line for a
       provider's refusal.
+- **19 October, evening: a link FactEngine cannot read is read through the search service's reader.** The operator:
+  "Do you try to read pages in 'Reader' mode instead of the full browser page first? I have found that more
+  successful." Then: "If the server-side or service used can be set to 'reader' on failure and it works, that's what I
+  care about", and, approving the plan: "You can proceed as long as you keep the current fallback as the third
+  fallback. I want maximum user convenience and minimal failure to return results. I am consumer first, always."
+  - **What was tested first, through Exa:**
+    - **ms.now** (the operator's link at 14:44, refused in 0.3 s): Exa's reader (`/contents`) returned the article
+      whole, with its title, author and date.
+    - **reuters.com:** Exa's crawler is turned away too (`CRAWL_HTTP_401`), so no reader service gets the page. Exa's
+      search found Investing.com's full Reuters text, which the copies list already offers.
+  - **The order, for every link** (`/api/read-url`):
+    1. FactEngine's own reader, as before.
+    2. When that fails on a public web page, Exa's reader for the same address (after redirects): refused, silent,
+       built by scripts, unreachable, too many redirects, any other status, almost no text. Never a paywall, a private
+       or non-web address, a file too large or not text, or a YouTube link.
+    3. Otherwise FactEngine's own failure, as before: the copies list, else the sentence to paste.
+  - **What it does:**
+    - Text with a paragraph of prose (200 characters) is answered as a page read by FactEngine, marked
+      `via: 'search'`, so the attribution says "through a search service's copy of that address". The box fills and the
+      run starts.
+    - No text: `reader_failed` on /check, with Exa's own reason, and the page goes on as before.
+    - Exa's answer is waited for on the connection with no time limit of its own, as Gemini's: its own crawl of a page
+      it holds no copy of can take longer than a site's ten seconds.
+    - One ledger line per ask (step `reader`): whether a page came, `cached` or `crawled`, the time, Exa's cost figure
+      ($1 for a thousand pages). Never the text.
+    - The address is `CIVIC_READER_URL`, else the search's own with `/search` made `/contents`; `off` turns it off.
+      The search's key and header, nothing new on Render.
+    - The privacy policy's search-provider line and the terms say the provider may be asked to read a page FactEngine
+      cannot read.
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 
