@@ -864,6 +864,19 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
     - A 429 whose words give a limit of 0 ends the fact-check at once, reading "This claim could not be tested.
       Google: …" with "Try again". It is kept as `tier_refused` on /check and as a failed trial in the ledger, with one
       `[gemini] Google refused …` line in the log. Every other 429 is still a wait.
+  - **Live** (19 October, 16:14 UTC): PR #76 squash 5acb0db, build 775a31f7a448; live check clean, nothing spent.
+    - **Before the merge:**
+      - the guard: 421/421 in both stand-in shapes;
+      - the new browser check: 7/7 (no echo checkbox, box or picture asked for; the limit-0 card in Google's sentence;
+        a phone; a video's player);
+      - the earlier browser checks: 10/10, 9/9 and 10/10;
+      - the leak check: clean.
+    - **`CIVIC_RANK_EFFORT=low`** was written with `render-env.mjs` before the PR went up. The merge waited for
+      `active: 0` on two reads.
+    - **The health line** reads `extract.effort: "low"` and `rank.effort: "low"`. The boot lines read "extraction
+      requests … reasoning.effort low" and "[rank] … on deepseek-flash at low".
+    - **The served page** has the echo's checkbox and its call inside comments, and the card's `Google:` line for a
+      provider's refusal.
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 
