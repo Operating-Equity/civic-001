@@ -16,8 +16,8 @@ import { gatewayOn } from './tools/request.js';
 import { openStream } from './stream.js';
 import * as jobs from './jobs.js';
 import { fileToText, normalise, ACCEPTED_SOURCE_EXT } from './documents.js';
-import { readUrl, UrlError, isSingleUrl } from './fetchurl.js';
-import { findCopies, searchOn } from './copies.js';
+import { readUrl, UrlError, isSingleUrl, normalizeUrl, unwrapRedirect, youtubeId } from './fetchurl.js';
+import { findCopies, searchOn, readerOn, readerCopy } from './copies.js';
 import { sourceMeta, sourceBlock } from './source.js';
 import { runExtraction } from './extract.js';
 import { runEvaluation } from './evaluate.js';
@@ -200,17 +200,41 @@ app.post('/api/parse', upload.single('file'), wrap(async (req, res) => {
 // Reading a link. The reader pastes a web address instead of text, and FactEngine fetches the page, the
 // PDF or the video's caption track and hands back its words. Nothing is summarised or shortened:
 // the source's own text comes back and appears in the box, so the reader sees what will be tested.
+// A link, read in this order (the operator's words of 19 October: "If the server-side or service used can be set to
+// 'reader' on failure and it works, that's what I care about"; "keep the current fallback as the third fallback. I want
+// maximum user convenience and minimal failure to return results"):
+//   1. FactEngine's own reader (server/fetchurl.js);
+//   2. when that fails on a public web page, the search service's reader asked for the same address (server/copies.js):
+//      refused, silent, built by scripts, unreachable, redirected too often, any other status, or almost no text. Never
+//      a paywall (FactEngine does not get round one), never an address that is not a public web page, never a file too
+//      large or not text, never YouTube's own (its transcript has its own doors);
+//   3. FactEngine's own failure, as before, so the page goes on to its copies or its sentence.
+const READER_AFTER = new Set(['url_refused', 'url_silent', 'url_shell', 'url_unreachable', 'url_redirects', 'url_status', 'url_no_text']);
+const isYoutube = (u) => { try { return Boolean(u && youtubeId(u)); } catch { return false; } };
+const askedPage = (raw) => { try { const u = normalizeUrl(raw); return (unwrapRedirect(u) || u).toString(); } catch { return ''; } };
 app.post('/api/read-url', wrap(async (req, res) => {
   const url = String(req.body?.url || '').trim();
   if (!url) throw new ApiError(400, 'url_empty', 'No address was given.');
   const ac = new AbortController();
   res.on('close', () => { if (!res.writableFinished) ac.abort(); });
+  let address = null;   // the page the first read was about, for the reader, when it read one with almost no text
   try {
     const out = await readUrl(url, { signal: ac.signal });
-    if (!out.text || out.text.length < 20) throw new ApiError(422, 'url_no_text', 'That address has almost no readable text.');
+    if (!out.text || out.text.length < 20) { address = out.url || null; throw new ApiError(422, 'url_no_text', 'That address has almost no readable text.'); }
     res.json({ ...out, chars: out.text.length });
   } catch (err) {
     if (ac.signal.aborted) return; // the page has gone (reloaded, or stopped): nothing failed
+    // The failures only a page's own address carries (`url` on the error, set by server/fetchurl.js) are the reader's;
+    // a private or non-web address never carries one, so it is never handed on.
+    const at = err?.url || address;
+    if (READER_AFTER.has(err?.code) && at && readerOn() && !isYoutube(at) && !isYoutube(askedPage(url))) {
+      const copy = await readerCopy(at, { signal: ac.signal }).catch((e) => {
+        if (!ac.signal.aborted) recordFailure({ where: 'server:reader', code: 'reader_failed', message: 'The search service\'s reader could not be asked.', detail: e?.message || null });
+        return null;
+      });
+      if (ac.signal.aborted) return;
+      if (copy) { res.json({ ...copy, chars: copy.text.length }); return; }
+    }
     if (err instanceof UrlError) { const e = new ApiError(err.status || 400, err.code, err.message); e.detail = err.detail || null; e.site = err.site || null; throw e; }
     throw err;
   }
@@ -502,6 +526,13 @@ function banner() {
     const how = (m) => (m.provider === 'gemini' ? `at ${m.efforts.join(' or ')}, with Google's own search and page reading` : 'with FactEngine\'s search and page reader as the model\'s tools');
     console.log(`[trial] the operator's own determinations may run, chosen on their page: ${trial.models.map((m) => `${m.id} ${m.ready ? `ready, ${how(m)}` : `not ready: ${String(m.why || '').replace(/\.$/, '')}`}`).join('; ')}`);
   }
+  // A link FactEngine's server cannot read (server/copies.js): the search service's reader, then the copies, then the
+  // sentence to paste. Its address, never its key.
+  if (readerOn()) {
+    let where = String(config.readerUrl).trim();
+    try { const u = new URL(where); where = `${u.host}${u.pathname}`; } catch { /* as set */ }
+    console.log(`[read] a link FactEngine's server cannot read is read through the search service's reader (${where}), then looked for elsewhere`);
+  } else console.log('[read] a link FactEngine\'s server cannot read goes straight to its copies and the sentence to paste: no reader is set (CIVIC_READER_URL, or a search service at …/search with its key)');
   // The second pass (server/rank.js): for whom, at what effort, how much is shown; or why the claims are listed unranked.
   const rs = rankState();
   console.log(rs.ready

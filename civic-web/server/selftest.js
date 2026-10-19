@@ -20,7 +20,7 @@ import { whereTheShellSetsIt } from './key.js';
 import { gateStates } from './gate.js';
 import { readers as readersNow } from './jobs.js';
 import { silentSites } from './fetchurl.js';
-import { searchOn } from './copies.js';
+import { searchOn, readerOn } from './copies.js';
 import { registry } from './tools/index.js';
 import { toolsOn, gatewayOn } from './tools/request.js';
 import { openDoor, doorsOpen } from './tools/doors.js';
@@ -318,7 +318,12 @@ export async function selftest({ apiKey, build, operator = true }) {
   if (searchOn()) {
     let host = '';
     try { host = new URL(String(config.searchUrl).trim()).hostname; } catch { host = String(config.searchUrl).trim(); }
-    checks.push(ok('A link a site refuses is looked for elsewhere', `Through the search service at ${host}. The reader picks the copy to test; each search's cost is on the ledger.`));
+    // The same service's reader comes first, named by its address (server/copies.js readerCopy).
+    let reader = '';
+    if (readerOn()) { try { const u = new URL(String(config.readerUrl).trim()); reader = `${u.host}${u.pathname}`; } catch { reader = String(config.readerUrl).trim(); } }
+    checks.push(ok('A link a site refuses is looked for elsewhere', reader
+      ? `First read through the search service's reader at ${reader}; when that cannot read it either, looked for through the search service at ${host}, and the copy to test is picked from what it finds. Each read's and each search's cost is on the ledger.`
+      : `Through the search service at ${host}. The reader picks the copy to test; each search's cost is on the ledger.`));
   }
 
   // Accounts (server/accounts.js): where they are kept, the sign-up credit, the operator's link, and any code setting

@@ -32,6 +32,9 @@ export const SITE_SENTENCES = {
   url_shell: (site) => `${site} builds this page in the browser, so no readable text reached FactEngine. Copy the article's text and paste it here.`,
 };
 const siteError = (code, site) => { const e = new UrlError(code, SITE_SENTENCES[code](site)); e.site = site; return e; };
+// The address a failure was about (after redirects), so the link route can ask the search service's reader for that
+// same page (server/copies.js). Never set on an address that is not a public web address: those are never handed on.
+const about = (e, url) => { e.url = String(url); return e; };
 
 // A site that stays silent (no answer to the connection attempt, or no answer to the request once
 // connected; both found in the platform's ten seconds, http.js) is remembered until the service
@@ -51,7 +54,12 @@ function recheckSilent(host) {
 }
 
 /** The prose a site shows at its wall. Ordinary article prose does not say these things. */
-const WALL_PHRASES = /\b(to continue reading|already a subscriber|subscribers only|for subscribers only|unlock this article|sign in to (?:read|continue)|log in to (?:read|continue))\b/i;
+export const WALL_PHRASES = /\b(to continue reading|already a subscriber|subscribers only|for subscribers only|unlock this article|sign in to (?:read|continue)|log in to (?:read|continue))\b/i;
+
+/** A page with prose has a paragraph at least this long; a page without one is a shell or a wall (and the search
+ *  service's reader is held to the same rule, server/copies.js). */
+export const PROSE_CHARS = 200;
+export const longestParagraph = (text) => Math.max(0, ...String(text || '').split(/\n\n+/).map((p) => p.trim().length));
 
 /** True when the whole of `s` is one http(s) address and nothing else. */
 export function isSingleUrl(s) {
@@ -83,7 +91,7 @@ export async function assertPublic(urlString) {
   if (net.isIP(host)) addresses = [{ address: host }];
   else {
     try { addresses = await dns.lookup(host, { all: true }); }
-    catch { throw new UrlError('url_unreachable', `No server was found at ${url.hostname}.`); }
+    catch { throw about(new UrlError('url_unreachable', `No server was found at ${url.hostname}.`), url); }
   }
   if (!config.allowPrivateUrls && addresses.some((a) => isPrivateAddress(a.address))) {
     throw new UrlError('url_private', 'That address points inside a private network, so it is not read.');
@@ -102,10 +110,10 @@ async function siteRequest(url, init, signal) {
     if (signal?.aborted) throw err;
     const cause = [err?.cause?.code || err?.cause?.message || err?.message || 'no answer', err?.cause?.syscall, err?.cause?.address].filter(Boolean).join(' ');
     const site = siteName(url);
-    if (SILENT_CAUSES.test(String(cause))) { rememberSilent(url.hostname, String(cause)); const e = siteError('url_silent', site); e.detail = `${cause} (silence limit ${SITE_SILENCE_MS} ms)`; throw e; }
+    if (SILENT_CAUSES.test(String(cause))) { rememberSilent(url.hostname, String(cause)); const e = siteError('url_silent', site); e.detail = `${cause} (silence limit ${SITE_SILENCE_MS} ms)`; throw about(e, url); }
     const e = new UrlError('url_unreachable', 'That address could not be reached.');
     e.detail = cause;
-    throw e;
+    throw about(e, url);
   }
 }
 
@@ -123,7 +131,7 @@ async function get(urlString, { accept, signal } = {}) {
   const composite = signal;
   let res;
   for (let hop = 0; ; hop++) {
-    if (hop > 5) throw new UrlError('url_redirects', 'That address redirects too many times.');
+    if (hop > 5) throw about(new UrlError('url_redirects', 'That address redirects too many times.'), url);
     if (signal?.aborted) throw new Error('aborted');
     res = await siteRequest(url, {
       redirect: 'manual',
@@ -136,9 +144,9 @@ async function get(urlString, { accept, signal } = {}) {
     }
     break;
   }
-  if (res.status === 401 || res.status === 403 || res.status === 429) { const e = siteError('url_refused', siteName(url)); e.detail = `status ${res.status}`; throw e; }
-  if (res.status === 402) { const e = siteError('url_paywall', siteName(url)); e.detail = 'status 402'; throw e; }
-  if (!res.ok) throw new UrlError('url_status', `That page answered ${res.status}.`);
+  if (res.status === 401 || res.status === 403 || res.status === 429) { const e = siteError('url_refused', siteName(url)); e.detail = `status ${res.status}`; throw about(e, url); }
+  if (res.status === 402) { const e = siteError('url_paywall', siteName(url)); e.detail = 'status 402'; throw about(e, url); }
+  if (!res.ok) throw about(new UrlError('url_status', `That page answered ${res.status}.`), url);
 
   const declared = Number(res.headers.get('content-length') || 0);
   if (declared > MAX_BYTES) throw new UrlError('url_too_big', 'That file is too large to read.');
@@ -530,7 +538,7 @@ export function metaRefresh(html) {
 
 /** A site remembered as silent answers at once, and is re-checked in the background. */
 function assertNotSilent(url) {
-  if (silentHosts.has(url.hostname)) { recheckSilent(url.hostname); throw siteError('url_silent', siteName(url)); }
+  if (silentHosts.has(url.hostname)) { recheckSilent(url.hostname); throw about(siteError('url_silent', siteName(url)), url); }
 }
 
 
@@ -560,15 +568,15 @@ export async function readUrl(rawUrl, { signal } = {}) {
       const html = buf.toString('utf8');
       const { title, text, author, published, site, notFree } = htmlToText(html);
       const name = site || siteName(finalUrl);
-      const longest = Math.max(0, ...text.split(/\n\n+/).map((p) => p.trim().length));
+      const longest = longestParagraph(text);
       // A page with no paragraph of prose whose markup sends the browser elsewhere is a redirect
       // written in HTML, and is followed like one, within the same limit of hops.
-      const onward = longest < 200 ? metaRefresh(html) : null;
+      const onward = longest < PROSE_CHARS ? metaRefresh(html) : null;
       if (onward) {
         let next = null;
         try { next = new URL(onward, finalUrl); } catch { next = null; }
         if (next && /^https?:$/.test(next.protocol)) {
-          if (hops >= 5) throw new UrlError('url_redirects', 'That address redirects too many times.');
+          if (hops >= 5) throw about(new UrlError('url_redirects', 'That address redirects too many times.'), finalUrl);
           url = next;
           assertNotSilent(url);
           continue;
@@ -580,7 +588,7 @@ export async function readUrl(rawUrl, { signal } = {}) {
       // it is the whole article (the operator's rule of 19 September). Without a wall, a page with no
       // paragraph of prose is a shell built by scripts, not an article.
       const wall = notFree || WALL_PHRASES.test(text);
-      if (!text || longest < 200) throw siteError(wall ? 'url_paywall' : 'url_shell', name);
+      if (!text || longest < PROSE_CHARS) throw about(siteError(wall ? 'url_paywall' : 'url_shell', name), finalUrl);
       return { kind: 'page', title: title || finalUrl.hostname, author, published, site: name, text, url: finalUrl.toString(), note: null, wall };
     }
 

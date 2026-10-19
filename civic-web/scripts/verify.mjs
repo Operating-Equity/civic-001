@@ -1446,16 +1446,49 @@ await linkChecks();
 // first; a copy dated far from the link, the refused site's own pages and repeats are left out; the key
 // travels in its header and nowhere else; each search's cost is the service's own figure on the ledger;
 // a rate limit is a wait; any other refusal is a note on /check and no copies; without the service set,
-// nothing is asked and the page is told so.
+// nothing is asked and the page is told so. Before any copy, a link FactEngine's own reader could not read is
+// asked of the same service's reader (Exa's /contents) for that one address: its text is the answer when it has a
+// paragraph of prose; otherwise FactEngine's own failure stands, and the page goes on to its copies as before.
 async function copiesChecks() {
-  const MOCK5 = MOCK_PORT + 40, PORT5 = PORT + 40, PORT6 = PORT + 41, SITE3 = PORT + 42;
+  const MOCK5 = MOCK_PORT + 40, PORT5 = PORT + 40, PORT6 = PORT + 41, SITE3 = PORT + 42, PORT7 = PORT + 43, PORT8 = PORT + 44;
   const SEARCH_KEY = 'search-key-standin-7f3a9c';
   const REFUSED = `http://127.0.0.1:${SITE3}/2026/09/30/us/hegseth-troops-address.html`;
   const searchCalls = [];
   const forced = [];   // answers the stand-in gives before its ordinary ones: '429' or '402'
+  const readerCalls = [];
+  const readerForced = [];   // what the stand-in reader does before its ordinary answers: '429', or 'slow' (answers after 11 s)
   const prose = (n) => `<p>${'Defense Secretary Pete Hegseth spoke to 600 junior officers and enlisted leaders at Quantico on Sept. 30. '.repeat(n)}</p>`;
   const plain = (n) => 'Defense Secretary Pete Hegseth spoke to 600 junior officers and enlisted leaders at Quantico on Sept. 30. '.repeat(n);
+  // The stand-in of Exa's reader: its stored copy of an address FactEngine could not read, in /contents's own shape.
+  // It cannot read /copy-blocked or /locked (the site turns its crawler away too: CRAWL_HTTP_401, as Reuters does);
+  // /thin gives it no paragraph of prose; /marked carries a wall's words.
+  const readerAnswer = (asked) => {
+    let p = '';
+    try { p = new URL(asked).pathname; } catch { p = ''; }
+    if (p.startsWith('/copy-blocked') || p.startsWith('/locked')) return { requestId: 'standin', results: [], statuses: [{ id: asked, status: 'error', error: { tag: 'CRAWL_HTTP_401', httpStatusCode: 401 } }] };
+    if (p.startsWith('/thin')) return { requestId: 'standin', results: [{ id: asked, url: asked, title: 'Subscribe', text: 'Subscribe to keep reading.' }], statuses: [{ id: asked, status: 'success', source: 'crawled' }], costDollars: { total: 0.001 } };
+    const walled = p.startsWith('/marked');
+    return {
+      requestId: 'standin',
+      results: [{ id: asked, url: asked, title: 'Hegseth lays out his military vision', author: 'A. Stand-in Reporter', publishedDate: '2026-09-30T18:00:00.000Z', text: `${plain(4)}\n\n${plain(3)}${walled ? '\n\nSubscribe to continue reading.' : ''}` }],
+      statuses: [{ id: asked, status: 'success', source: p.startsWith('/2026/') ? 'cached' : 'crawled' }],
+      costDollars: { total: 0.001 },
+    };
+  };
   const site = http.createServer((req, res) => {
+    if (req.method === 'POST' && req.url.startsWith('/contents')) {
+      let raw = '';
+      req.on('data', (c) => { raw += c; });
+      req.on('end', () => {
+        let body = {}; try { body = JSON.parse(raw); } catch {}
+        readerCalls.push({ key: req.headers['x-api-key'] || '', auth: req.headers.authorization || '', body, at: Date.now() });
+        const f = readerForced.shift();
+        if (f === '429') { res.writeHead(429, { 'content-type': 'application/json', 'retry-after': '1' }); res.end(JSON.stringify({ error: 'Too many requests' })); return; }
+        const send = () => { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify(readerAnswer(String((body.urls || [])[0] || '')))); };
+        if (f === 'slow') setTimeout(send, 11000); else send();
+      });
+      return;
+    }
     if (req.method === 'POST' && req.url.startsWith('/search')) {
       let raw = '';
       req.on('data', (c) => { raw += c; });
@@ -1481,7 +1514,10 @@ async function copiesChecks() {
       });
       return;
     }
-    if (req.url.startsWith('/2026/') || req.url.startsWith('/copy-blocked')) { res.writeHead(403, { 'content-type': 'text/html' }); res.end('<html><body>Forbidden</body></html>'); return; }
+    if (['/2026/', '/copy-blocked', '/locked', '/thin', '/marked'].some((p) => req.url.startsWith(p))) { res.writeHead(403, { 'content-type': 'text/html' }); res.end('<html><body>Forbidden</body></html>'); return; }
+    if (req.url.startsWith('/shell')) { res.writeHead(200, { 'content-type': 'text/html' }); res.end('<html><head><title>Loading</title></head><body><div id="root"></div><script src="/app.js"></script></body></html>'); return; }
+    if (req.url.startsWith('/paid')) { res.writeHead(402, { 'content-type': 'text/html' }); res.end('<html><body>Subscribe to continue reading.</body></html>'); return; }
+    if (req.url.startsWith('/moved')) { res.writeHead(302, { location: REFUSED }); res.end(); return; }
     if (req.url.startsWith('/copy-a')) { res.writeHead(200, { 'content-type': 'text/html' }); res.end(`<html><head><title>Hegseth lays out his military vision</title><meta property="og:site_name" content="The Stand-in Times"></head><body><article>${prose(4)}<p>This article originally appeared in 127.0.0.1.</p></article></body></html>`); return; }
     if (req.url.startsWith('/report-d')) { res.writeHead(200, { 'content-type': 'text/html' }); res.end(`<html><head><title>Another outlet reports the speech</title></head><body><article>${prose(3)}</article></body></html>`); return; }
     res.writeHead(404); res.end();
@@ -1493,8 +1529,16 @@ async function copiesChecks() {
   const common = { OPENAI_BASE_URL: `http://localhost:${MOCK5}/v1`, OPENAI_API_KEY: KEY, CIVIC_IMAGE_ENABLED: 'false', CIVIC_ALLOW_PRIVATE_URLS: 'true', CIVIC_LEDGER_FILE: ledgerFile, CIVIC_ERROR_LOG: path.join(os.tmpdir(), `civic-verify-copies-errors-${Date.now()}.log`) };
   const on = start([path.join(root, 'server', 'index.js')], { ...common, PORT: String(PORT5), CIVIC_SEARCH_URL: `http://localhost:${SITE3}/search`, CIVIC_SEARCH_KEY: SEARCH_KEY });
   const off = start([path.join(root, 'server', 'index.js')], { ...common, PORT: String(PORT6) });
+  // A service that reads no private address (as on Render), and one whose reader is turned off.
+  const priv = start([path.join(root, 'server', 'index.js')], { ...common, PORT: String(PORT7), CIVIC_ALLOW_PRIVATE_URLS: 'false', CIVIC_SEARCH_URL: `http://localhost:${SITE3}/search`, CIVIC_SEARCH_KEY: SEARCH_KEY });
+  const readerOff = start([path.join(root, 'server', 'index.js')], { ...common, PORT: String(PORT8), CIVIC_SEARCH_URL: `http://localhost:${SITE3}/search`, CIVIC_SEARCH_KEY: SEARCH_KEY, CIVIC_READER_URL: 'off' });
+  const boot = { on: '', readerOff: '' };
+  on.stdout.on('data', (d) => { boot.on += d; });
+  readerOff.stdout.on('data', (d) => { boot.readerOff += d; });
   await wait(`http://localhost:${PORT5}/api/health`);
   await wait(`http://localhost:${PORT6}/api/health`);
+  await wait(`http://localhost:${PORT7}/api/health`);
+  await wait(`http://localhost:${PORT8}/api/health`);
   const find = async (base, url) => { const t0 = Date.now(); const r = await fetch(`${base}/api/find-copies`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ url }) }); const text = await r.text(); let body = null; try { body = JSON.parse(text); } catch {} return { status: r.status, ms: Date.now() - t0, body, text }; };
   const read = async (base, url) => { const r = await fetch(`${base}/api/read-url`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ url }) }); return { status: r.status, body: await r.json().catch(() => null) }; };
   const baseOn = `http://localhost:${PORT5}`, baseOff = `http://localhost:${PORT6}`;
@@ -1548,6 +1592,102 @@ async function copiesChecks() {
     check('a picked copy is read by FactEngine\'s own reader like any link; a copy whose site turns FactEngine away answers the refusal, and the page then has the search\'s text of it',
       a.status === 200 && /originally appeared in 127\.0\.0\.1/.test(a.body?.text || '') && b.status === 400 && b.body?.error?.code === 'url_refused' && got.body.copies[1].text.length > 100, JSON.stringify({ a: a.status, b: b.body?.error?.code }));
 
+    // Before any copy, the search service's reader is asked for the address FactEngine could not read (Exa's
+    // /contents). The operator's words of 19 October: "If the server-side or service used can be set to 'reader' on
+    // failure and it works, that's what I care about", and "keep the current fallback as the third fallback".
+    check('the reader stood behind the picked copy too: asked once for the copy whose site turned FactEngine away, and its refusal (CRAWL_HTTP_401) left FactEngine\'s own answer standing',
+      readerCalls.length === 1 && JSON.stringify(readerCalls[0].body) === JSON.stringify({ urls: [`http://localhost:${SITE3}/copy-blocked`], text: true }), JSON.stringify(readerCalls.map((c) => c.body)));
+    let r0 = readerCalls.length;
+    const viaReader = await read(baseOn, REFUSED);
+    const askedFor = readerCalls.slice(r0);
+    check('a link a site refuses is read through the search service\'s reader: its text is the answer, as a page FactEngine read, with the service\'s title, author and date, marked as read through the search service',
+      viaReader.status === 200 && viaReader.body?.kind === 'page' && viaReader.body?.via === 'search' && viaReader.body?.title === 'Hegseth lays out his military vision'
+        && viaReader.body?.author === 'A. Stand-in Reporter' && viaReader.body?.published === '2026-09-30' && viaReader.body?.site === '127.0.0.1' && viaReader.body?.url === REFUSED
+        && viaReader.body?.wall === false && viaReader.body?.note === null && /Quantico on Sept\. 30\./.test(viaReader.body?.text || '') && viaReader.body?.chars === (viaReader.body?.text || '').length,
+      JSON.stringify({ status: viaReader.status, body: viaReader.body && { ...viaReader.body, text: String(viaReader.body.text || '').slice(0, 80) } }));
+    check('the reader is asked once, for that one address and its text, with the key in the service\'s own header and nowhere else',
+      askedFor.length === 1 && JSON.stringify(askedFor[0].body) === JSON.stringify({ urls: [REFUSED], text: true }) && askedFor[0].key === SEARCH_KEY && askedFor[0].auth === ''
+        && !JSON.stringify(viaReader.body).includes(SEARCH_KEY), JSON.stringify(askedFor.map((c) => ({ body: c.body, key: c.key === SEARCH_KEY, auth: c.auth }))));
+    r0 = readerCalls.length;
+    const moved = await read(baseOn, `http://127.0.0.1:${SITE3}/moved`);
+    check('the address asked is the one the refusal was about, after redirects',
+      moved.status === 200 && moved.body?.via === 'search' && readerCalls.length - r0 === 1 && readerCalls.at(-1).body.urls[0] === REFUSED, JSON.stringify({ status: moved.status, asked: readerCalls.slice(r0).map((c) => c.body.urls) }));
+
+    // Every failure of a public web page goes to the reader: a page its scripts build, a page that answers 404, an
+    // address that cannot be reached.
+    r0 = readerCalls.length;
+    const shell = await read(baseOn, `http://localhost:${SITE3}/shell`);
+    const gone = await read(baseOn, `http://localhost:${SITE3}/gone`);
+    const nowhere = await read(baseOn, 'http://127.0.0.1:9/2026/09/30/never-here.html');
+    const others = readerCalls.slice(r0).map((c) => c.body.urls[0]);
+    check('a page built by scripts, a page that answers 404 and an address that cannot be reached are each read through the reader',
+      [shell, gone, nowhere].every((x) => x.status === 200 && x.body?.via === 'search' && x.body?.kind === 'page' && x.body?.text.length > 200)
+        && JSON.stringify(others) === JSON.stringify([`http://localhost:${SITE3}/shell`, `http://localhost:${SITE3}/gone`, 'http://127.0.0.1:9/2026/09/30/never-here.html']),
+      JSON.stringify({ status: [shell.status, gone.status, nowhere.status], codes: [shell, gone, nowhere].map((x) => x.body?.error?.code || x.body?.via), asked: others }));
+
+    // The reader's text with a wall's words is marked, as FactEngine's own read of such a page is.
+    const marked = await read(baseOn, `http://localhost:${SITE3}/marked`);
+    check('the reader\'s text that carries a wall\'s words is answered marked, so the page waits for the reader\'s button as for a marked page',
+      marked.status === 200 && marked.body?.via === 'search' && marked.body?.wall === true, JSON.stringify({ status: marked.status, wall: marked.body?.wall }));
+
+    // When the reader cannot read it either, FactEngine's own failure is answered as before (the page then goes on
+    // to its copies), with the service's own words on /check.
+    r0 = readerCalls.length;
+    const locked = await read(baseOn, `http://localhost:${SITE3}/locked`);
+    const thin = await read(baseOn, `http://localhost:${SITE3}/thin`);
+    const notes = ((await (await fetch(`${baseOn}/api/selftest`)).json()).recentFailures || []).filter((f) => f.where === 'server:reader');
+    check('when the reader cannot read the page either, FactEngine\'s own refusal is the answer, as before, so the page goes on to its copies',
+      locked.status === 400 && locked.body?.error?.code === 'url_refused' && locked.body?.error?.site === 'localhost' && thin.status === 400 && thin.body?.error?.code === 'url_refused' && readerCalls.length - r0 === 2,
+      JSON.stringify({ locked: [locked.status, locked.body?.error], thin: [thin.status, thin.body?.error?.code], calls: readerCalls.length - r0 }));
+    check('the reader\'s failure is a note on /check in the service\'s own words (its CRAWL_HTTP_401 and the site\'s 401; no paragraph of prose), without the key',
+      notes.some((f) => f.code === 'reader_failed' && /CRAWL_HTTP_401 \(the site's 401\)/.test(f.detail || '') && /could not read localhost either/.test(f.message || ''))
+        && notes.some((f) => f.code === 'reader_failed' && /no paragraph of prose/.test(f.detail || '')) && !JSON.stringify(notes).includes(SEARCH_KEY),
+      JSON.stringify(notes).slice(0, 500));
+
+    // Never asked: a paywall, an address that is not a web address, a private address (on a service that reads
+    // none, as on Render), and a service whose reader is off or that has no search service at all.
+    r0 = readerCalls.length;
+    const paid = await read(baseOn, `http://localhost:${SITE3}/paid`);
+    const notWeb = await read(baseOn, 'ftp://localhost/2026/file.txt');
+    const inside = await read(`http://localhost:${PORT7}`, REFUSED);
+    const offRead = await read(baseOff, REFUSED);
+    const offReader = await read(`http://localhost:${PORT8}`, REFUSED);
+    check('the reader is never asked for a paywall, an address that is not a web address, or a private address; nor when the reader is off or no search service is set',
+      paid.status === 400 && paid.body?.error?.code === 'url_paywall' && notWeb.status === 400 && notWeb.body?.error?.code === 'url_not_web'
+        && inside.status === 400 && inside.body?.error?.code === 'url_private' && offRead.body?.error?.code === 'url_refused' && offReader.body?.error?.code === 'url_refused'
+        && readerCalls.length === r0,
+      JSON.stringify({ paid: [paid.status, paid.body?.error?.code], notWeb: [notWeb.status, notWeb.body?.error?.code], inside: [inside.status, inside.body?.error?.code], off: offRead.body?.error?.code, readerOff: offReader.body?.error?.code, calls: readerCalls.length - r0 }));
+
+    // A rate limit from the reader is a wait of the time it asks, then the same ask again.
+    readerForced.push('429');
+    r0 = readerCalls.length;
+    const t429 = Date.now();
+    const waited = await read(baseOn, REFUSED);
+    check('a rate limit from the reader is a wait of the time it asks, then the same ask again, never a failure',
+      waited.status === 200 && waited.body?.via === 'search' && readerCalls.length - r0 === 2 && Date.now() - t429 >= 1000 && readerCalls.at(-1).at - readerCalls.at(-2).at >= 950,
+      JSON.stringify({ status: waited.status, calls: readerCalls.length - r0, ms: Date.now() - t429 }));
+
+    // The service's own crawl of a page it holds no copy of can take longer than a site's ten seconds of silence before
+    // it answers: it is waited for, as Gemini is, never cut.
+    readerForced.push('slow');
+    const tSlow = Date.now();
+    const slowRead = await read(baseOn, `http://localhost:${SITE3}/shell`);
+    check('the reader is waited for past a site\'s ten seconds of silence, since its own crawl can take that long before it answers',
+      slowRead.status === 200 && slowRead.body?.via === 'search' && Date.now() - tSlow >= 11000, JSON.stringify({ status: slowRead.status, code: slowRead.body?.error?.code, ms: Date.now() - tSlow }));
+
+    // /check and the boot line name the reader by its address, never its key; with the reader off, both say so.
+    const stOn = await (await fetch(`${baseOn}/api/selftest`)).json();
+    const stOff = await (await fetch(`http://localhost:${PORT8}/api/selftest`)).json();
+    const rowOn = (stOn.checks || []).find((c) => c.title === 'A link a site refuses is looked for elsewhere');
+    const rowOff = (stOff.checks || []).find((c) => c.title === 'A link a site refuses is looked for elsewhere');
+    check('/check and the boot line name the reader at the search service\'s own address with /search made /contents, never its key; with CIVIC_READER_URL=off neither names one',
+      rowOn && rowOn.detail === `First read through the search service's reader at localhost:${SITE3}/contents; when that cannot read it either, looked for through the search service at localhost, and the copy to test is picked from what it finds. Each read's and each search's cost is on the ledger.`
+        && rowOff && rowOff.detail === 'Through the search service at localhost. The reader picks the copy to test; each search\'s cost is on the ledger.'
+        && boot.on.includes(`[read] a link FactEngine's server cannot read is read through the search service's reader (localhost:${SITE3}/contents), then looked for elsewhere`)
+        && boot.readerOff.includes('[read] a link FactEngine\'s server cannot read goes straight to its copies and the sentence to paste: no reader is set')
+        && !JSON.stringify(stOn).includes(SEARCH_KEY) && !boot.on.includes(SEARCH_KEY),
+      JSON.stringify({ on: rowOn?.detail?.slice(0, 160), off: rowOff?.detail?.slice(0, 80), boot: (boot.on.match(/\[read\][^\n]*/) || [''])[0], bootOff: (boot.readerOff.match(/\[read\][^\n]*/) || [''])[0] }));
+
     // A rate limit is a wait: the service's own Retry-After, then the same search again.
     forced.push('429');
     const before = searchCalls.length;
@@ -1565,11 +1705,21 @@ async function copiesChecks() {
     // Each search is one ledger line with the service's own cost.
     await new Promise((r) => setTimeout(r, 300)); // the ledger is appended asynchronously
     const ledger = fs.existsSync(ledgerFile) ? fs.readFileSync(ledgerFile, 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l)) : [];
-    const searches = ledger.filter((l) => l.kind === 'search');
+    const searches = ledger.filter((l) => l.kind === 'search' && l.step === 'find-copies');
     check('each search is a ledger line with the service\'s own cost for it, and the key is in no line',
-      searches.length === 4 && searches.every((l) => l.step === 'find-copies' && l.usd === 0.007 && Number.isFinite(l.ms)) && !JSON.stringify(ledger).includes(SEARCH_KEY), JSON.stringify(searches).slice(0, 300));
+      searches.length === 4 && searches.every((l) => l.usd === 0.007 && Number.isFinite(l.ms)) && !JSON.stringify(ledger).includes(SEARCH_KEY), JSON.stringify(searches).slice(0, 300));
+    // Each ask of the reader that was answered is one line: whether a page came, where the text came from, its
+    // length, the time and the service's own cost (none when it gave none); never the text, never the key.
+    const reads = ledger.filter((l) => l.kind === 'search' && l.step === 'reader');
+    const answered = readerCalls.length - 1;   // the one answered 429 is a wait, not a line
+    check('each answered ask of the reader is one ledger line with whether a page came, cached or crawled, its length, the time and the service\'s own cost; never the text or the key',
+      reads.length === answered && reads.filter((l) => l.ok === true).length === 8 && reads.every((l) => Number.isFinite(l.ms) && Number.isFinite(l.chars))
+        && reads.some((l) => l.ok === true && l.from === 'cached' && l.usd === 0.001 && l.chars > 200) && reads.some((l) => l.ok === true && l.from === 'crawled')
+        && reads.filter((l) => l.ok === false).every((l) => l.chars === 0) && reads.some((l) => l.ok === false && l.usd === null)
+        && !JSON.stringify(reads).includes('Quantico') && !JSON.stringify(reads).includes(SITE3) && !JSON.stringify(ledger).includes(SEARCH_KEY),
+      JSON.stringify({ lines: reads.length, answered, ok: reads.filter((l) => l.ok).length, sample: reads.slice(0, 3) }).slice(0, 500));
   } finally {
-    for (const p of [on, off, mock]) { try { p.kill('SIGTERM'); } catch {} }
+    for (const p of [on, off, priv, readerOff, mock]) { try { p.kill('SIGTERM'); } catch {} }
     site.close();
   }
 }
@@ -3482,11 +3632,11 @@ async function pagesChecks() {
     // operator's wording of 4 October, unchanged; no vendor named.
     const privacy = await page('/privacy');
     const terms = await page('/terms');
-    check('/privacy and /terms: the listing\'s provider processes data in China and may use a small de-identified part of the inputs unless we opt out; the search provider may receive the model\'s searches; the transfer to those countries',
+    check('/privacy and /terms: the listing\'s provider processes data in China and may use a small de-identified part of the inputs unless we opt out; the search provider may receive the model\'s searches and the address of a link our reader cannot read; the transfer to those countries',
       privacy.text.includes('A model provider that lists the claims in what you submit: it processes the documents you submit and may search the web while doing so. It processes data in China, and its terms allow it to use a small part of the inputs it receives, de-identified, to improve its models unless we opt out.')
-        && privacy.text.includes('A model provider that produces the determinations') && privacy.text.includes('A search provider, which may receive the searches a model makes while listing claims, and the words of a link&#39;s own address and date')
+        && privacy.text.includes('A model provider that produces the determinations') && privacy.text.includes('A search provider, which may receive the searches a model makes while listing claims and, when our own reader cannot read a link&#39;s page, the link&#39;s address, to read that page through the provider&#39;s own reader or to find a licensed copy elsewhere.')
         && privacy.text.includes('Our servers are in the United States, and the model provider that lists claims processes data in China; by using the Service you understand your information is transferred to those countries')
-        && terms.text.includes('search the web while doing so, themselves or through our search provider; a search provider performs the searches a model asks for and may be asked to find a licensed copy'),
+        && terms.text.includes('search the web while doing so, themselves or through our search provider; a search provider performs the searches a model asks for and may be asked to read a page our reader cannot read, or to find a licensed copy of it elsewhere;'),
       '');
     const home = await page('/');
     const footer = (home.text.match(/<footer class="footer">[\s\S]*?<\/footer>/) || [''])[0];

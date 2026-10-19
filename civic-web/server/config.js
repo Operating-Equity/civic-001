@@ -204,6 +204,16 @@ export const config = {
   searchPrefix: env('CIVIC_SEARCH_PREFIX', ''),
   // Results asked of each search: the count the service's base price covers (Exa: up to 10).
   searchResults: int('CIVIC_SEARCH_RESULTS', 10),
+  // The same service's reader, asked for a link's own address when FactEngine's server could not read it (the
+  // operator's word of 19 October: "If the server-side or service used can be set to 'reader' on failure and it works,
+  // that's what I care about"). Exa's pair: /contents beside /search, on the same key. `off` turns it off.
+  readerUrl: (() => {
+    const set = env('CIVIC_READER_URL', '');
+    if (/^off$/i.test(set)) return '';
+    if (set) return set;
+    const search = env('CIVIC_SEARCH_URL', '');
+    return /\/search\/?$/.test(search) ? search.replace(/\/search\/?$/, '/contents') : '';
+  })(),
   // Sources as tools (server/tools): the gateway's public address, which the requests to OpenAI name so
   // the model can reach CIVIC's tools, and the pass OpenAI carries to it. Both set: the tools are in
   // both requests. Either empty: the requests are exactly as before, and the gateway answers no one.
