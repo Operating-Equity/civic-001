@@ -777,9 +777,46 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
     month. A 402 (the $20 used up) ends a fact-check at once; a 429 is a wait.
   - **Read from Render before the release:** `CIVIC_EVAL_TRIAL_MODELS` unset (so the code's default is what runs), no
     `GEMINI_API_KEY` yet.
-  - **Waiting for the operator:** `GEMINI_API_KEY` in Render (Environment, "Save only"), then a deploy when the service
-    is idle; /check then says "Gemini serves gemini-4-argon to this key", and their first Gemini fact-check is the live
-    measure.
+  - **The operator saved `GEMINI_API_KEY` in Render** before the release (a deploy of the earlier build at 22:05 UTC).
+  - **Live** (18 October, 22:54 UTC): PR #74 squash d0efa41, build 2c3dd1b58f17; live proof 9/9, nothing spent. Before
+    the merge: the guard 412/412 in both stand-in shapes (22 Gemini checks), the browser checks 9/9 (the pull-down) and
+    10/10 (the ranked page), the leak check clean with the ranking draft installed. The health line carries `trialGemini`
+    (Google Search and URL context, `thinkingSummaries: auto`, `store: false`) and its keys, and `prompts.rank: true`;
+    no trial is offered to an anonymous caller, and an anonymous request naming Gemini is refused at the door (401).
+    The boot lines read "prompts installed: extract fad6cbae · evaluate c52121a0 · rank 3ddeebe3 (3170 chars)" (the
+    draft, uploaded as the secret file `rank.txt`, `CIVIC_PROMPT_RANK_FILE` pointing at it), "[trial] … deepseek-v4-pro
+    ready …; gemini-4-argon ready, at medium or high, with Google's own search and page reading" and "[rank] the claims
+    are ranked for the operator's runs (CIVIC_RANK=operator) …".
+  - **The live measure is the operator's own:** /check's "Gemini serves gemini-4-argon to this key" (Google asked
+    without a token), their first Gemini fact-check on the trial table, and their next article, ranked.
+- **18 October, evening: the listing thinks at "low", a dead connection is noticed, and Gemini's waits say why.** The
+  operator's first article on build 2c3dd1b58f17: "I would say that was a disaster. 5 minutes. 21 claims. … it froze. …
+  Why is it waiting it's turn? It's 1 question", then "I shut it down. … Did you use the fast DeepSeek model to extract
+  empirical statements." It was the fast model, V4.1 Flash, at effort `high`.
+  - **What Render's request log showed** (UTC): the listing started at 22:58:10. At 23:01:55 (3 min 45 s) the
+    connection to the browser died with 21 claims on the page, and the page did not know: Safari waited on the dead
+    connection, the page kept saying "21 claims found", and the listing and the ranking finished at the server. At
+    23:03:12 (5 min 02 s) the page's next connection received the finished listing and the ranking at once. The
+    browser's address changed at both cuts that evening (a VPN changing its exit would do that). The Gemini check
+    started at 23:03:53, and Google refused its first request with a 429 naming about 56 minutes, ending near midnight
+    UTC, so most likely a daily limit on the operator's project. The card said "Waiting its turn · 3,366 s" and never
+    counted down, since a refusal at Google's door comes before the claim's start. Google's words were kept nowhere. The
+    operator stopped it at 23:09:21.
+  - **Their answers:** "DeepSeek thinks at low" for the listing, with the ranking left at `high` (the ranking at low was
+    not chosen); for Gemini's long waits, "Say why and keep waiting".
+  - **What it does:**
+    - `CIVIC_EXTRACT_EFFORT=low` and `CIVIC_RANK_EFFORT=high` on the service, written with `render-env.mjs` before the
+      release's deploy. Without the second, the ranking would have followed the listing down. The code's defaults are
+      unchanged.
+    - Every stream says it is alive every 5 s (was 15). The page counts three silent heartbeats, before the reply or
+      in the middle of it, as a cut: it drops that connection and opens a new one to the same job.
+    - A Gemini wait says whose it is, until when and why: "Google asks to wait · 56 min 06 s · until 7:00 PM", with
+      Google's words, the key taken out, on a line under the bar, counting down. The step line says "waiting for
+      Google". The words are on /check (`rate_limited`) and in the log (`[gemini] Google asked …`).
+    - The service's log says where a listing's and a ranking's time went: `[listing] 31 claims from 12,345 characters
+      in 48 s on deepseek-flash at low: it thought 12 s before it wrote; …`, and the same for `[rank]`.
+  - **Found on the way, fixed:** a Gemini 429 that named no wait went again at once, in a loop, since a missing
+    Retry-After was read as `Number(null)`, which is 0. It now waits a second from the go's start.
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 

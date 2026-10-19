@@ -576,12 +576,16 @@ async function dsRound({ res, body, send, id, promptText, items, ordinal }) {
 // in x-goog-api-key; server-sent events named by `event_type` (step.start, step.delta, step.stop, interaction.completed
 // with its usage, then [DONE]); a thought with its summary and its signature; two Google searches, one page read through
 // URL context; the answer, its first words inside step.start, with url_citation annotations; and Google's refusals: 429
-// with a RetryInfo of a second, 503, 402 (the prepaid balance used up), 401 (a key it refuses: one that begins
-// gm-bad), an error event mid-stream, a stream closed with no event. Each knob lists request ordinals (1-based). The
-// guard's keys are its own made-up words, never in the shape of a real Google key.
+// with a RetryInfo of a second (MOCK_GM_RETRY_DELAY names another, as Google writes it: "20s"), 429 naming no wait at
+// all (MOCK_GM_429_BARE), 503, 402 (the prepaid balance used up), 401 (a key it refuses: one that begins gm-bad), an
+// error event mid-stream, a stream closed with no event. A 429's words are a quota's, as Google's are, with a marker
+// (GMWAIT-7f3a) and the key it was asked with, which must never reach a card, /check or the log. Each knob lists request
+// ordinals (1-based). The guard's keys are its own made-up words, never in the shape of a real Google key.
 const GM_MODELS = ['gemini-4-argon'];
 const GM_LEVELS = new Set(['low', 'medium', 'high']);
-const GM_429 = dsSet('MOCK_GM_429'), GM_503 = dsSet('MOCK_GM_503'), GM_402 = dsSet('MOCK_GM_402'), GM_CLOSE = dsSet('MOCK_GM_CLOSE'), GM_ERROR_EVENT = dsSet('MOCK_GM_ERROR_EVENT');
+const GM_429 = dsSet('MOCK_GM_429'), GM_429_BARE = dsSet('MOCK_GM_429_BARE'), GM_503 = dsSet('MOCK_GM_503'), GM_402 = dsSet('MOCK_GM_402'), GM_CLOSE = dsSet('MOCK_GM_CLOSE'), GM_ERROR_EVENT = dsSet('MOCK_GM_ERROR_EVENT');
+const GM_RETRY_DELAY = process.env.MOCK_GM_RETRY_DELAY || '1s';
+const gmQuotaWords = (req, model) => `You exceeded your current quota, please check your plan and billing details. Quota exceeded for metric: generativelanguage.googleapis.com/generate_requests_per_model_per_day, limit: 0, model: ${model}. GMWAIT-7f3a (asked with ${req.get('x-goog-api-key') || 'no key'}).`;
 const GM_THOUGHT = 'GMSUM-5b2e';   // the thought summary's marker: shown on the operator's card, as the readers' model's
 const GM_SIG = 'GMSIG-0c7d';       // the thought signature's marker: never on a page, a replay, a ledger line or a record
 const gmStats = { requests: 0, streams: 0, levels: [], lastBody: null };
@@ -606,7 +610,8 @@ app.post('/gemini/v1beta/interactions', async (req, res) => {
   if (level !== undefined && !GM_LEVELS.has(level)) return gmRefused(res, 400, 'invalid_request', `Invalid value at 'generation_config.thinking_level': ${level}`);
   gmStats.levels.push(level ?? null);
   if (GM_402.has(ordinal)) return gmRefused(res, 402, 'payment_required', 'Your prepayment credits are depleted. Please go to AI Studio to manage your project and billing.');
-  if (GM_429.has(ordinal)) return gmRefused(res, 429, 'rate_limit_exceeded', 'You exceeded your current quota, please check your plan and billing details.', [{ '@type': 'type.googleapis.com/google.rpc.RetryInfo', retryDelay: '1s' }]);
+  if (GM_429.has(ordinal)) return gmRefused(res, 429, 'rate_limit_exceeded', `${gmQuotaWords(req, body.model)} Please retry in ${GM_RETRY_DELAY}.`, [{ '@type': 'type.googleapis.com/google.rpc.RetryInfo', retryDelay: GM_RETRY_DELAY }]);
+  if (GM_429_BARE.has(ordinal)) return gmRefused(res, 429, 'rate_limit_exceeded', gmQuotaWords(req, body.model));
   if (GM_503.has(ordinal)) return gmRefused(res, 503, 'service_unavailable', 'The model is overloaded. Please try again later.');
   gmStats.streams++;
   res.status(200);

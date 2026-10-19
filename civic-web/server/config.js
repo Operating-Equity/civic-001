@@ -222,7 +222,11 @@ export const config = {
   // with its checkbox. A setting, so the figure moves without a release.
   autoTestFirst: int('CIVIC_AUTO_TEST_FIRST', 10),
   maxUploadBytes: int('CIVIC_MAX_UPLOAD_BYTES', 200 * 1024 * 1024),
-  heartbeatMs: 15000,
+  // Every open stream says it is alive this often, whatever its job is doing (server/stream.js), and the page counts a
+  // connection that has said nothing for three of these as cut (public/js/api.js). On 18 October a VPN changing its exit
+  // left the operator's Safari waiting on a dead connection for over a minute, showing "21 claims found" while the
+  // listing finished at the server; at 5 s a dead connection is noticed in 15.
+  heartbeatMs: 5000,
 
   // Visual echo — a picture, not a determination. The operator asked for the fast model.
   illustrateModels: list('CIVIC_IMAGE_MODELS', 'gpt-image-2.5-flare,gpt-image-2.5-sunburst,gpt-image-1.5,gpt-image-1-mini'),
@@ -343,6 +347,7 @@ export function publicConfig(promptStatus) {
     inFlight: config.evalConcurrency,   // the page paces itself by this, so the operator changes it with one setting
     maxSourceChars: config.maxSourceChars,
     maxUploadBytes: config.maxUploadBytes,
+    heartbeatMs: config.heartbeatMs,   // how often a stream says it is alive: the page counts three silent ones as a cut
     illustrateEnabled: config.illustrateEnabled,
     accounting: config.accounting,
     reasoningSummary: Boolean(config.evalReasoningSummary),

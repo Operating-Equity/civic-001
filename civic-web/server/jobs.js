@@ -14,6 +14,7 @@
 // it (the release route), because an end that was written may not have arrived. A deploy ends the
 // process and with it every job; the page starts those over on the new one, as before.
 import crypto from 'node:crypto';
+import { config } from './config.js';
 import { describeError, ApiError } from './openai.js';
 
 const jobs = new Map();
@@ -53,12 +54,13 @@ class Job {
    * A connection joins: it is told where it is joining (`from`: the first event it will receive,
    * which is its own count unless that is more than exists), receives every event from there, and
    * then everything that follows until the job ends. A job already over is replayed and the
-   * connection ended.
+   * connection ended. It is told how often the stream says it is alive (`heartbeatMs`), so the page
+   * knows a connection that has gone silent for longer is dead, whatever the browser thinks.
    */
   attach(stream, cursor) {
     const asked = Number.isInteger(cursor) && cursor > 0 ? cursor : 0;
     const from = Math.min(asked, this.events.length);
-    stream.send({ t: 'attached', job: this.id, kind: this.kind, from, total: this.events.length, finished: this.finished, startedAt: this.startedAt });
+    stream.send({ t: 'attached', job: this.id, kind: this.kind, from, total: this.events.length, finished: this.finished, startedAt: this.startedAt, heartbeatMs: config.heartbeatMs });
     for (let k = from; k < this.events.length; k++) stream.send(this.events[k]);
     if (this.finished) { stream.end(); return; }
     this.subscribers.add(stream);

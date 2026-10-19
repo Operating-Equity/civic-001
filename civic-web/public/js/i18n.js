@@ -91,6 +91,15 @@ export function fmtSeconds(ms) {
   return t('time.minutes', { m: Math.floor(s / 60), s: String(s % 60).padStart(2, '0') });
 }
 
+/** A moment as the reader's own clock shows it, in their language: 7:00 PM, 19:00. */
+export function fmtClock(at) {
+  try {
+    return new Intl.DateTimeFormat(current.code, { hour: 'numeric', minute: '2-digit' }).format(new Date(at));
+  } catch {
+    return new Date(at).toTimeString().slice(0, 5);
+  }
+}
+
 /** Re-labels every element carrying a data-i18n attribute (and placeholder/title/alt/aria-label variants). */
 export function applyTranslations(root = document) {
   for (const el of root.querySelectorAll('[data-i18n]')) {

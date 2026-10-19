@@ -12,7 +12,10 @@
 //   - Its failures. 401 is a key refused; 403 a key without access to the model (Gemini 4 Argon is paid-tier only);
 //     402 the prepaid balance used up ("don't retry": never a wait); 404 a model it does not serve. A 429 is a rate
 //     limit, a daily quota or the spend limit of the account's tier, and is a wait, for Google's own figure when it
-//     names one. The page shows FactEngine's own sentence; Google's words go to /check with the key taken out.
+//     names one and a second when it names none. A failure shows FactEngine's own sentence, with Google's words on
+//     /check, the key taken out. A wait shows Google's words on the operator's card, with when it ends, and keeps them
+//     on /check and in the service's log (the operator's answer of 18 October, after a first question was made to
+//     wait 56 minutes in silence: "Say why and keep waiting").
 import { config } from './config.js';
 import { HEADER_SAFE } from './key.js';
 import { ApiError, describeError } from './openai.js';
@@ -20,6 +23,17 @@ import { openaiFetch } from './http.js';
 import { providerWords } from './providers.js';
 
 export const NAME = 'Gemini';
+/** Whose wait a 429 is, in the words the operator's card uses: "Google asks to wait". */
+export const PROVIDER = 'Google';
+
+/**
+ * Google's own words for a refusal, as the operator's card and /check may carry them: the key and any prompt taken out
+ * (providerWords), on one line, at most 300 characters.
+ */
+export function words(err) {
+  const s = providerWords(err, config.geminiKey).replace(/\s+/g, ' ').trim();
+  return s.length > 300 ? `${s.slice(0, 299)}…` : s;
+}
 
 /** A model is Gemini's by its name: Google's ids begin so (gemini-4-argon). */
 export const isGeminiModel = (id) => /^gemini-/i.test(String(id || ''));
@@ -56,13 +70,17 @@ const STATUS_OF = {
   service_unavailable: 503, unavailable: 503, deadline_exceeded: 504, gateway_timeout: 504,
 };
 
-/** How long Google asks to wait, from its RetryInfo or a Retry-After header; null when it names nothing. */
+/**
+ * How long Google asks to wait, from its RetryInfo or a Retry-After header; null when it names nothing. A header that is
+ * not there is nothing, not a wait of none (`Number(null)` is 0, and a refusal read so went again at once, in a loop).
+ */
 function namedWaitMs(payload, headers) {
   for (const d of payload?.error?.details || []) {
     const m = String(d?.retryDelay || '').match(/^(\d+(?:\.\d+)?)s$/);
     if (m) return Math.round(Number(m[1]) * 1000);
   }
-  const seconds = Number(headers?.get?.('retry-after'));
+  const header = String(headers?.get?.('retry-after') ?? '').trim();
+  const seconds = header ? Number(header) : NaN;
   return Number.isFinite(seconds) && seconds >= 0 ? Math.round(seconds * 1000) : null;
 }
 

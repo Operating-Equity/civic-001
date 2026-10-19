@@ -24,7 +24,7 @@ import * as deepseek from './deepseek.js';
 import { noteFailure, noteReply } from './reach.js';
 import { parseRefusal } from './gate.js';
 import { estimateTextCost } from './pricing.js';
-import { record } from './ledger.js';
+import { record, spentWords } from './ledger.js';
 import { record as recordFailure } from './diagnostics.js';
 
 /** Whether the ranking can run here, and if not, why: for /check, the startup line and the route. Never a key. */
@@ -216,6 +216,7 @@ export async function runRanking({ client, model, text, meta, claims, send, sign
   let usage = null;
   let incomplete = null;
   let pricedAt = null;
+  let firstTextAt = null;   // when the delivering go's first word arrived: before it, the model was thinking
   let shown = 0;   // characters of the summary the page has
   const restart = () => { if (shown) send({ t: 'summary', reset: true }); shown = 0; };
   const line = (fields) => ({ kind: 'rank', provider: 'deepseek', model, effort: config.rankEffort, chars: text.length, claims: claims.length, ...fields });
@@ -223,6 +224,7 @@ export async function runRanking({ client, model, text, meta, claims, send, sign
     const attemptAt = Date.now();
     try {
       full = '';
+      firstTextAt = null;
       // DeepSeek: the model, the source and the prompt, the effort, and nothing else (no tools: it reads what it is
       // given; no store: DeepSeek keeps nothing). Not through OpenAI's gate, as the listing on DeepSeek is not.
       const body = { model, input, reasoning: { effort: config.rankEffort }, stream: true };
@@ -233,6 +235,7 @@ export async function runRanking({ client, model, text, meta, claims, send, sign
       for await (const event of stream) {
         if (signal.aborted) return null;
         if (event.type === 'response.output_text.delta') {
+          if (event.delta) firstTextAt ??= Date.now();
           full += event.delta || '';
           const s = summarySoFar(full);
           if (s.length > shown) { send({ t: 'summary', delta: s.slice(shown) }); shown = s.length; }
@@ -280,6 +283,7 @@ export async function runRanking({ client, model, text, meta, claims, send, sign
       recordFailure({ where: 'server:ranking', code: safe.code, message: 'The ranking failed, so the claims are listed unranked.', status: safe.status, detail: safe.detail || safe.message || null });
       const ms = Date.now() - started;
       record(line({ ok: false, failure: safe.code || 'error', ms }), { runId: ctx.runId, owner: ctx.owner });
+      console.log(`[rank] ${claims.length} claims not ranked: the ranking failed after ${Math.round(ms / 1000)} s at ${config.rankEffort} (${safe.code || 'error'}), so they are listed whole`);
       return { ok: false, why: 'failed', summary: null, ms, model, effort: config.rankEffort };
     }
   }
@@ -296,5 +300,7 @@ export async function runRanking({ client, model, text, meta, claims, send, sign
     headline: parsed.headline?.kind || null, headlineTested: Boolean(parsed.headline?.tested), ...(incomplete ? { incomplete } : {}),
     usage, ms, usd: cost.usd, priced: cost.priced,
   }), { runId: ctx.runId, owner: ctx.owner });
+  // Where the ranking's time went, for the service's log, beside the listing's line. Counts and times only.
+  console.log(`[rank] ${claims.length} claims ranked in ${Math.round(ms / 1000)} s on ${model} at ${config.rankEffort}, ${parsed.ok ? `${parsed.keep} shown` : 'not read, so listed whole'}: ${spentWords({ usage, thoughtMs: firstTextAt == null ? null : firstTextAt - pricedAt })}`);
   return { ...parsed, ms, model, effort: config.rankEffort, incomplete };
 }

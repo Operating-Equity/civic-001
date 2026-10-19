@@ -416,6 +416,9 @@ body {
 .card-progress { display: grid; grid-template-columns: 1fr auto; gap: 12px; align-items: center; margin-block-start: 12px; }
 .card[data-state="done"] .card-progress, .card[data-state="error"] .card-progress { display: none; }
 .card-status { font-size: 13px; color: var(--ink-2); white-space: nowrap; }
+/* A provider's own words for its wait: a line of its own, so a long reason (with its links) wraps instead of pushing the status off */
+.card-why { margin: 6px 0 0; font-size: 12.5px; line-height: 1.45; color: var(--ink-2); overflow-wrap: anywhere; }
+.card[data-state="done"] .card-why, .card[data-state="error"] .card-why { display: none; }
 .card-foot { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-block-start: 14px; padding-block-start: 12px; border-block-start: 1px solid var(--line-soft); font-size: 13px; color: var(--ink-2); }
 .card-foot .btn { margin-inline-start: auto; }
 .card-inspector b { color: var(--ink); font-weight: 600; }
@@ -525,6 +528,8 @@ body {
   .scoreboard { padding: 8px 14px; }
   .score-n { font-size: 30px; }
   .card-status { white-space: normal; }
+  /* A long status (a provider's wait, with its time and its clock) wraps beside the bar and never squeezes it to nothing */
+  .card-progress { grid-template-columns: minmax(64px, 1fr) auto; }
   .card-head { grid-template-columns: auto 1fr; }
   .card-head::after { display: none; }
   .card.has-check .card-head { grid-template-columns: auto auto 1fr; }

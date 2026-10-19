@@ -1,5 +1,6 @@
 // Newline-delimited JSON streaming to the browser, with heartbeats so a long silence (the model
-// thinking for minutes) is not taken for a dead connection by anything on the way.
+// thinking for minutes) is not taken for a dead connection by anything on the way, and so the page
+// can tell a dead connection from a quiet one: it counts three heartbeats of silence as a cut.
 //
 // A stream is one connection's view of a job (server/jobs.js): opened by the request, fed by the
 // job, ended by the job's end or by the connection closing. Its closing stops nothing: the job
