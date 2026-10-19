@@ -464,8 +464,12 @@ neither sent nor kept. A 429 waits for the wait Google names (or a second when i
 the card says so in its own words: "Google asks to wait · 56 min 06 s · until 7:00 PM", counting down, with Google's
 reason on a line under the bar, the key taken out (the operator's answer of 18 October, after a first question was
 made to wait 56 minutes in silence: "Say why and keep waiting"); the reason is kept on /check (`rate_limited`) and in
-the service's log, once for each new wording. A 5xx and an error mid-stream go again, a stream that stops early goes
-again; a refused key (401, 403) and the prepaid balance used up (402) end the fact-check at
+the service's log, once for each new wording. A 429 whose words give a limit of 0 ("limit: 0 input tokens per minute on
+Free Tier": the project behind the key is on a tier without the model) is no wait, since none can let it through: the
+fact-check ends at once, its card reading "This claim could not be tested. Google: …" in Google's sentence (the
+operator's answer of 19 October: "Stop and say why"), with `tier_refused` and Google's words on /check. A refusal Google
+sends in the stream's own form (`event: error`, then `data: {…}`) is read for its JSON, so the card carries Google's
+sentence alone. A 5xx and an error mid-stream go again, a stream that stops early goes again; a refused key (401, 403) and the prepaid balance used up (402) end the fact-check at
 once, with Google's words on /check. Its cost is Google's tokens (thinking included as output, the pages read as input)
 at the day's price, plus $14 per 1,000 Google searches: an upper bound while the month's 5,000 free searches last.
 Google sends its search suggestions with each grounded answer and its terms set how search-grounded answers are shown to
@@ -494,8 +498,8 @@ listed, under the operator's ranking prompt (the vault's third, `rank`: `server/
 file `rank.txt` through `CIVIC_PROMPT_RANK_FILE`). The request carries `model` (the model the listing used), `input`
 (two messages: the source exactly as a determination is given it, then the prompt verbatim with `{{TITLE}}` filled with
 the page's own title, or "(none given)", and `{{CLAIMS}}` with each claim's number and whole entry), `reasoning.effort`
-(the listing's, unless `CIVIC_RANK_EFFORT`: `high` on the service since 18 October, when the listing went to `low` and
-the ranking stayed where it was) and `stream`: nothing else. No tools (it reads what it is given) and no
+(the listing's, unless `CIVIC_RANK_EFFORT`: `low` on the service since 19 October, the operator's answer after the
+ranking took 69 s at `high`, 68 of them thinking, beside the listing's 55 s at `low`) and `stream`: nothing else. No tools (it reads what it is given) and no
 store. The answer is read by its headings, SUMMARY, HEADLINE, HEADLINE TYPE, HEADLINE CLAIM, RANKED and NOT EMPIRICAL,
 which a prompt the operator edits keeps. The page then shows:
 - the summary, as it is written, in a window beside the picture that scrolls inside itself (under the steps on a phone);
@@ -565,7 +569,7 @@ truncation setting. No fallback model. No size limit of ours on the document.
 |---|---|---|
 | Model, both steps | `gpt-5.6-sol` | Operator, tested |
 | The listing's provider | `CIVIC_EXTRACT_PROVIDER`: `openai` (unset), `deepseek` (DeepSeek's own service: `deepseek-flash` on `DEEPSEEK_API_KEY`) or `fireworks` (the same model from the US: `accounts/fireworks/models/deepseek-v4p1-flash` on `FIREWORKS_API_KEY`, searching through FactEngine's tool server, `store: false`). Either runs at effort `high` unless `CIVIC_EXTRACT_EFFORT` says otherwise (the operator's answer of 5 October, `max` before); the service runs it at `low` since 18 October ("DeepSeek thinks at low", after an article took five minutes at `high`); `CIVIC_EXTRACT_MODELS` changes the model. The keys are pasted by the operator in Render; a key is read under its name whatever its capitals (`DEEPSEEK_API_Key` is `DEEPSEEK_API_KEY`), the exact name winning, and two spellings holding different keys are used neither, /check naming both. `CIVIC_DEEPSEEK_BASE_URL` and `CIVIC_FIREWORKS_BASE_URL` are the providers' addresses (only the guard changes them). The readers' determinations stay on OpenAI. | Operator, 4 and 5 October |
-| The second pass | `CIVIC_RANK`: `operator` (unset: the operator's runs are ranked), `on` (everyone's) or `off`; `CIVIC_RANK_KEEP_PERCENT` (25: the part of the ranked claims shown, rounded up, behind an empirical headline); `CIVIC_RANK_EFFORT` (the listing's unless set; `high` on the service since 18 October, so the ranking stays at `high` while the listing thinks at `low`); the ranking prompt, `rank` (optional; `CIVIC_PROMPT_RANK_FILE`). On the listing's DeepSeek model. See "The second pass" above. | Operator, 16 October |
+| The second pass | `CIVIC_RANK`: `operator` (unset: the operator's runs are ranked), `on` (everyone's) or `off`; `CIVIC_RANK_KEEP_PERCENT` (25: the part of the ranked claims shown, rounded up, behind an empirical headline); `CIVIC_RANK_EFFORT` (the listing's unless set; `low` on the service since 19 October, after the ranking took 69 s at `high`, `high` from 18 October); the ranking prompt, `rank` (optional; `CIVIC_PROMPT_RANK_FILE`). On the listing's DeepSeek model. See "The second pass" above. | Operator, 16 October |
 | The operator's trial | `CIVIC_EVAL_TRIAL_MODELS`: the models the operator may choose on the page for their own determinations (`deepseek-v4-pro,gemini-4-argon` unless set; `off` ends it). DeepSeek V4 Pro needs `DEEPSEEK_API_KEY` and the search service; Gemini 4 Argon, at medium or high, needs `GEMINI_API_KEY` (the operator's own Google key, pasted in Render; `CIVIC_GEMINI_BASE_URL` only the guard changes). Each runs or not on its own. Never charged, never in the readers' figures. | Operator, 14 and 18 October |
 | Reasoning effort, both steps on OpenAI | `xhigh` | Operator, 5 October: back to the setting before 21 September, when `max` in `pro` mode had taken a listing to fifteen minutes and $3.81 and a determination to almost seven minutes and $3.71. `max` from 21 September to 5 October. |
 | Reasoning mode, both steps on OpenAI | `standard` (no mode key sent) | Operator, 5 October, as above. `pro` (GPT-5.6's pro mode, OpenAI's "highest-intelligence API option": more model work per answer at the same per-token rates) from 21 September to 5 October; `CIVIC_REASONING_MODE=pro` brings it back. |
@@ -679,6 +683,11 @@ No token figure appears anywhere on the page or in what the page receives (the o
 18 September); the ledger keeps OpenAI's usage per request.
 
 ### Why the echo looks the way it does
+
+The echo is off since 19 October, on the operator's word after its box appeared and vanished with no picture: "Just
+comment it out for now until I decide whether and when to ask for it back." Its checkbox (`public/index.html`) and the
+call that starts it (`startRun` in `public/js/app.js`) are commented out, and uncommenting both brings it back as it
+was. The server's route and the rest of the code are unchanged.
 
 An image model handed raw document text returns something generic. Stage one therefore reads the
 document and writes a specific brief — subject, setting, foreground, light, palette, lens — and

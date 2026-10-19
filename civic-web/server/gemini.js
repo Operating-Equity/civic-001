@@ -15,7 +15,10 @@
 //     names one and a second when it names none. A failure shows FactEngine's own sentence, with Google's words on
 //     /check, the key taken out. A wait shows Google's words on the operator's card, with when it ends, and keeps them
 //     on /check and in the service's log (the operator's answer of 18 October, after a first question was made to
-//     wait 56 minutes in silence: "Say why and keep waiting").
+//     wait 56 minutes in silence: "Say why and keep waiting"). A 429 whose words give a limit of 0 is no wait: the
+//     key's project is on a tier without the model, so the fact-check stops at once with Google's sentence on the card
+//     (the operator's answer of 19 October, after "limit: 0 input tokens per minute on Free Tier" was waited out for
+//     16 hours: "Stop and say why").
 import { config } from './config.js';
 import { HEADER_SAFE } from './key.js';
 import { ApiError, describeError } from './openai.js';
@@ -92,6 +95,26 @@ function failed({ status, code, message, waitMs = null }) {
   err.error = { message: err.message, code: err.code };
   err.waitMs = waitMs;
   return err;
+}
+
+/**
+ * A refusal's body as Google wrote it. Plain JSON, or, since a request that asked for a stream may be refused in the
+ * stream's own form (19 October: "event: error" then "data: {…}", which reached the card as raw text), the JSON on its
+ * data line. Anything else is its text, as the message.
+ */
+function refusalPayload(text) {
+  try { return JSON.parse(text); } catch { /* not plain JSON: perhaps the stream's own form */ }
+  const ev = readBlock(String(text || '').replace(/\r\n/g, '\n').trim());
+  if (ev && ev !== DONE && ev.error) return ev;
+  return { error: { message: String(text || '').slice(0, 500) } };
+}
+
+/**
+ * Google's limit for this key is nothing: its words for a 429 give "limit: 0" (19 October: "limit: 0 input tokens per
+ * minute on Free Tier"), so no wait can let a request through until the key's project is on another tier.
+ */
+export function limitZero(err) {
+  return err?.status === 429 && /\blimit:\s*0\b/i.test(String(err?.error?.message || err?.message || ''));
 }
 
 function refusal(status, payload, headers) {
@@ -171,9 +194,7 @@ export async function stream(body, { key: k, signal }) {
   });
   if (!res.ok) {
     const text = await res.text().catch(() => '');
-    let payload;
-    try { payload = JSON.parse(text); } catch { payload = { error: { message: text.slice(0, 500) } }; }
-    throw refusal(res.status, payload, res.headers);
+    throw refusal(res.status, refusalPayload(text), res.headers);
   }
   return serverEvents(res.body);
 }
@@ -182,8 +203,7 @@ export async function stream(body, { key: k, signal }) {
 export async function model(id, { key: k }) {
   const res = await openaiFetch(`${base()}/v1beta/models/${encodeURIComponent(id)}`, { headers: { 'x-goog-api-key': k } });
   const text = await res.text().catch(() => '');
-  let payload = null;
-  try { payload = JSON.parse(text); } catch { payload = { error: { message: text.slice(0, 500) } }; }
+  const payload = refusalPayload(text);
   if (!res.ok) throw refusal(res.status, payload, res.headers);
   return payload;
 }
@@ -227,6 +247,10 @@ export function failure(err) {
       `Gemini refused the key in GEMINI_API_KEY for this model (403${words ? `: ${words}` : ''}). Gemini 4 Argon needs the key of a project on the paid tier, with Prepay credits.`);
   }
   if (status === 404) return new ApiError(404, 'model_not_found', '', `Gemini does not serve this model to this key (404${words ? `: ${words}` : ''}).`);
+  if (limitZero(err)) {
+    return new ApiError(429, 'tier_refused', '',
+      `Gemini refused the model outright: its limit for this key is 0 (429: ${words}). Google puts the project behind GEMINI_API_KEY on a tier without the model. In Google AI Studio the API keys page shows which project the key is in, and the billing page that project's tier; a key from the project that holds the credits, pasted into Render, ends this.`);
+  }
   const safe = describeError(err);
   return new ApiError(safe.status, safe.code, safe.message, `Gemini: ${words || safe.code}`);
 }

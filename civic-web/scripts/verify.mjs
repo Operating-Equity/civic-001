@@ -2596,11 +2596,13 @@ async function geminiChecks() {
   };
   // Ordinals at the stand-in Gemini: 1 the fact-check at high; 2 at medium; 3 a 429 naming a second, then 4; 5 a stream
   // closed with no event, then 6; 7 an error event mid-stream, then 8; 9 a 503, then 10; 11 a 402; 12 a 429 naming no
-  // wait, at medium, then 13; 14 a refused key's; 15 the operator's own, with accounts on.
+  // wait, at medium, then 13; 14 a 429 in the stream's own form, at medium, then 15; 16 a 429 at a limit of 0, at medium,
+  // which ends that fact-check; 17 a refused key's; 18 the operator's own, with accounts on.
   const evalMark = process.env.MOCK_EVAL_MARK_FOR_GATE || '';
   start([path.join(root, 'scripts', 'mock-openai.js')], {
     MOCK_PORT: String(GMOCK), MOCK_RECORD: rec, MOCK_SPEED: '0.2', MOCK_EVAL_MARK: evalMark,
     MOCK_GM_429: '3', MOCK_GM_CLOSE: '5', MOCK_GM_ERROR_EVENT: '7', MOCK_GM_503: '9', MOCK_GM_402: '11', MOCK_GM_429_BARE: '12',
+    MOCK_GM_429_SSE: '14', MOCK_GM_429_ZERO: '16',
   });
   try {
     await wait(`http://localhost:${GMOCK}/v1/responses`, 15000, { anyResponse: true });
@@ -2673,7 +2675,7 @@ async function geminiChecks() {
     check('Gemini: a 429 is a wait for the second Google names (its RetryInfo), then the fact-check is delivered',
       rr?.reason === 'rate_limit' && rr.status === 429 && rr.waitMs === 1000 && w1.sends === 2 && w1.evs.filter((e) => e.t === 'done').length === 1, JSON.stringify({ retry: rr, sends: w1.sends }));
     check('Gemini: its wait says whose it is (Google), until when, and why, in Google\'s own words on one line of at most 300 characters, with the key taken out (the operator\'s answer of 18 October: "Say why and keep waiting")',
-      rr?.who === 'Google' && /GMWAIT-7f3a/.test(rr.why || '') && /limit: 0, model: gemini-4-argon/.test(rr.why) && rr.why.includes('<key>') && !rr.why.includes(GMKEY) && rr.why.length <= 300 && !/\n/.test(rr.why)
+      rr?.who === 'Google' && /GMWAIT-7f3a/.test(rr.why || '') && /limit: 25, model: gemini-4-argon/.test(rr.why) && rr.why.includes('<key>') && !rr.why.includes(GMKEY) && rr.why.length <= 300 && !/\n/.test(rr.why)
         && Number.isFinite(rr.until) && rr.until >= t429 + rr.waitMs && rr.until <= t429end + rr.waitMs,
       JSON.stringify(rr));
     const recentWait = (await (await fetch(`${base}/api/selftest`)).json()).recentFailures || [];
@@ -2715,6 +2717,37 @@ async function geminiChecks() {
     check('Gemini: a 429 that names no wait goes again a second after its go began, never at once (a missing Retry-After read as a wait of none, Number(null) being 0, would ask again and again inside the second); then the fact-check is delivered',
       rb?.reason === 'rate_limit' && rb.who === 'Google' && rb.waitMs >= 500 && rb.waitMs <= 1000 && sendsBare === 2 && gap >= 900 && w6.filter((e) => e.t === 'done').length === 1,
       JSON.stringify({ retry: rb, sends: sendsBare, gap }));
+
+    // A 429 in the stream's own form, as Google sent one on 19 October ("event: error" then "data: {…}"), at medium.
+    const beforeSse = (await gmStats()).requests;
+    const w7 = await evaluate({ model: 'gemini-4-argon', effort: 'medium' }, '429-stream');
+    const sendsSse = (await gmStats()).requests - beforeSse;
+    const rs = w7.find((e) => e.t === 'retry');
+    check('Gemini: a refusal sent in the stream\'s own form is read for its JSON: the card carries Google\'s sentence alone (no "event:", no "data:", no braces), the wait is the Retry-After header\'s, and the fact-check is delivered after it',
+      rs?.reason === 'rate_limit' && rs.who === 'Google' && rs.why === 'Rate limit exceeded for model gemini-4-argon (limit: 25 input tokens per minute on Tier 1). GMSSE-3e1b'
+        && rs.waitMs === 1000 && sendsSse === 2 && w7.filter((e) => e.t === 'done').length === 1,
+      JSON.stringify({ retry: rs, sends: sendsSse }));
+
+    // A 429 at a limit of 0 (the key's project on a tier without the model): no wait, at medium (the operator's answer of
+    // 19 October: "Stop and say why").
+    const beforeZero = (await gmStats()).requests;
+    const w8 = await evaluate({ model: 'gemini-4-argon', effort: 'medium' }, '429-zero');
+    const sendsZero = (await gmStats()).requests - beforeZero;
+    const ez = w8.find((e) => e.t === 'error');
+    check('Gemini: a 429 whose words give a limit of 0 ends the fact-check at once, without a wait: one request, no retry, the code tier_refused, and Google\'s sentence on the card as Google\'s, its key taken out',
+      sendsZero === 1 && !w8.some((e) => e.t === 'retry') && !w8.some((e) => e.t === 'done') && ez?.code === 'tier_refused' && ez.who === 'Google'
+        && /^Rate limit exceeded for model gemini-4-argon \(limit: 0 input tokens per minute on Free Tier\)\. Please upgrade your tier at https:\/\/ai\.dev\/rate-limit\. GMZERO-8d4c/.test(ez.message || '')
+        && ez.message.includes('<key>') && !ez.message.includes(GMKEY) && !/event:|data:|[{}]/.test(ez.message),
+      JSON.stringify({ error: ez, sends: sendsZero, retries: w8.filter((e) => e.t === 'retry').length }));
+    const recentZero = (await (await fetch(`${base}/api/selftest`)).json()).recentFailures || [];
+    const recZero = recentZero.find((x) => x.where === 'trial:gemini' && x.code === 'tier_refused');
+    const zeroLog = output.join('').split('\n').filter((l) => l.startsWith('[gemini] Google refused '));
+    const zeroLine = lines().find((l) => l.kind === 'trial' && l.provider === 'gemini' && l.ok === false && l.code === 'tier_refused');
+    check('Gemini: that refusal is kept on /check (tier_refused, Google\'s words and where to see the key\'s project), in the log as one line, and in the ledger as a failed trial at medium, with no key anywhere',
+      /GMZERO-8d4c/.test(recZero?.detail || '') && /Google AI Studio/.test(recZero?.detail || '') && !JSON.stringify(recZero).includes(GMKEY)
+        && zeroLog.length === 1 && /^\[gemini\] Google refused gemini-4-argon at medium outright, its limit for this key being 0: "Rate limit exceeded .*GMZERO-8d4c.*"$/.test(zeroLog[0]) && !zeroLog[0].includes(GMKEY)
+        && zeroLine?.effort === 'medium' && zeroLine.model === 'gemini-4-argon',
+      JSON.stringify({ record: recZero, log: zeroLog, ledger: zeroLine }));
 
     // The operator's two levels, and no other.
     const beforeLevels = (await gmStats()).requests;
@@ -3051,6 +3084,16 @@ async function rankChecks() {
     check('Ranking: with the listing on OpenAI the claims are listed unranked (the ranking runs on the listing\'s DeepSeek model), and /check says so',
       Boolean(oaRun.find((e) => e.t === 'done')) && !oaRun.find((e) => e.t === 'done')?.ranking && (stOa.checks || []).some((x) => x.state === 'warn' && x.title === 'The claims are listed unranked' && /DeepSeek/.test(x.detail || '')),
       JSON.stringify((stOa.checks || []).filter((x) => /rank/i.test(x.title)).map((x) => `${x.state}:${x.title}: ${x.detail}`)));
+
+    // The ranking's own effort (the operator's answer of 19 October: the ranking thinks at low, as the listing does).
+    const lowR = serve(PORT + 77, { CIVIC_RANK_EFFORT: 'low' });
+    await wait(`${lowR}/api/health`);
+    const hLow = await (await fetch(`${lowR}/api/health`)).json();
+    const lr = await list(lowR, '');
+    const lowBody = (await stats()).lastRankBody;
+    check('Ranking: CIVIC_RANK_EFFORT sets the ranking\'s own effort (low on the service since 19 October): the health line says so, the ranking asks DeepSeek at low, and the listing keeps its own',
+      hLow.request?.rank?.effort === 'low' && hLow.request?.extract?.effort === 'high' && JSON.stringify(lowBody?.reasoning) === JSON.stringify({ effort: 'low' }) && lr.done?.ranking?.ok === true,
+      JSON.stringify({ rank: hLow.request?.rank?.effort, extract: hLow.request?.extract?.effort, body: lowBody?.reasoning }));
 
     // With accounts on: while CIVIC_RANK is `operator`, the operator's runs are ranked and a reader's are listed as before;
     // `on` ranks everyone's.

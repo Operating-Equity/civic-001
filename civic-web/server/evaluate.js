@@ -621,7 +621,11 @@ export async function runEvaluation({ apiKey, claims, document = '', send, signa
         break;
       } catch (err) {
         if (signal.aborted) return;
-        if (!gemini.balanceGone(err)) {
+        // Google's limit for this key is nothing ("limit: 0 … on Free Tier"): no wait can let it through, so it is no
+        // wait. The fact-check stops below and says why, in Google's sentence (the operator's answer of 19 October:
+        // "Stop and say why").
+        const outright = gemini.limitZero(err);
+        if (!gemini.balanceGone(err) && !outright) {
           // Every other 429 of Google's is a wait: a rate limit, a daily quota, the tier's spend limit. (Google words its
           // rate limits as a quota "exceeded"; OpenAI's reading of those words as its own billing does not apply here.)
           // The wait is Google's own figure; when it names none, a second from this go's start, never at once. The card
@@ -658,14 +662,17 @@ export async function runEvaluation({ apiKey, claims, document = '', send, signa
           }
         }
         // Anything else (a key refused, the balance used up, a request Google will not take): the claim ends with
-        // FactEngine's own sentence, and Google's words go to /check.
+        // FactEngine's own sentence, and Google's words go to /check. A limit of 0 ends it with Google's sentence on the
+        // card as well, saying whose it is, since only the key's project can change it.
         const failure = gemini.failure(err);
         const safe = describeError(failure);
         recordFailure({ where: 'trial:gemini', code: safe.code, message: safe.message || safe.code, detail: failure.detail || null });
+        const why = outright ? gemini.words(err) : null;
+        if (outright) console.log(`[gemini] Google refused ${trial.model} at ${trial.effort} outright, its limit for this key being 0: "${why}"`);
         const searches = spentSearches + searchesIn(trail);
         const spent = estimateTextCost({ model: trial.model, usage: null, searches, at: startedAt });
         record({ kind: 'trial', ok: false, provider: 'gemini', code: safe.code, model: trial.model, effort: trial.effort, claim: claimHash(claim), searches, ms: Date.now() - startedAt, usd: spent.usd, priced: false }, lineCtx(i));
-        send({ t: 'error', i, code: safe.code, message: safe.message });
+        send({ t: 'error', i, code: safe.code, message: outright ? why : safe.message, ...(outright ? { who: gemini.PROVIDER } : {}) });
         completed++;
         send({ t: 'batch-progress', completed, total: claims.length });
         return;

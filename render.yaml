@@ -59,7 +59,8 @@ services:
         value: low                 # the listing thinks at low: the operator's answer of 18 October ("DeepSeek thinks at
                                    # low") after an article took five minutes at high
       - key: CIVIC_RANK_EFFORT
-        value: high                # the ranking stays at high (18 October); unset, it would follow the listing to low
+        value: low                 # the ranking thinks at low too: the operator's answer of 19 October, after it took
+                                   # 69 s at high (68 of them thinking) beside the listing's 55 s at low
       - key: CIVIC_EFFORT
         value: xhigh               # OpenAI's two steps, back to the setting before 21 September (5 October)
       - key: CIVIC_REASONING_MODE
