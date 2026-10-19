@@ -906,6 +906,20 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
       The search's key and header, nothing new on Render.
     - The privacy policy's search-provider line and the terms say the provider may be asked to read a page FactEngine
       cannot read.
+  - **Live** (19 October, 18:39 UTC): PR #77 squash acd778f, build 1922a2015f0b; live check clean, nothing spent.
+    - **Before the merge:**
+      - the guard: 434/434 in both stand-in shapes (13 new reader checks);
+      - the new browser check: 8/8 (a refused link read through the reader runs by itself; a link the reader cannot
+        read goes to its copies; a refused copy read whole; a copy the reader cannot read waits with the search's text;
+        a phone);
+      - the earlier browser checks: 10/10, 7/7, 9/9 and 10/10;
+      - the leak check: clean.
+    - **The merge** waited for `active: 0` on two reads.
+    - **The boot line** reads `[read] a link FactEngine's server cannot read is read through the search service's
+      reader (api.exa.ai/contents), then looked for elsewhere`.
+    - **The served /privacy and /terms** carry the new sentences.
+    - **The live measure is the operator's next refused link:** a site like ms.now should simply read, with one ledger
+      line of step `reader`. Reuters will still go on to its copies, since it refuses every reader.
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 
