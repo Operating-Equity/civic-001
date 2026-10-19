@@ -518,6 +518,7 @@ export async function runEvaluation({ apiKey, claims, document = '', send, signa
     };
     const addText = (piece) => { if (piece) { text += piece; send({ t: 'delta', i, text: piece }); } };
     const addThought = (piece) => { if (piece) { reasoning += piece; send({ t: 'reasoning', i, text: piece }); } };
+    let lastSaid = null;       // the wording of Google's last refusal kept for this claim, its figures aside
 
     for (let tries = 0; ; tries++) {
       const attemptAt = Date.now();
@@ -623,9 +624,21 @@ export async function runEvaluation({ apiKey, claims, document = '', send, signa
         if (!gemini.balanceGone(err)) {
           // Every other 429 of Google's is a wait: a rate limit, a daily quota, the tier's spend limit. (Google words its
           // rate limits as a quota "exceeded"; OpenAI's reading of those words as its own billing does not apply here.)
+          // The wait is Google's own figure; when it names none, a second from this go's start, never at once. The card
+          // says whose wait it is, until when, and why, in Google's words (the operator's answer of 18 October: "Say why
+          // and keep waiting"), and the words are kept on /check and in the log, once for each new wording on this
+          // claim: Google's figures change from one refusal to the next, its reason seldom does.
           if (err?.status === 429) {
-            const waitMs = err.waitMs ?? spacedWaitMs(attemptAt);
-            send({ t: 'retry', i, attempt: tries + 1, status: 429, reason: 'rate_limit', waitMs });
+            const waitMs = err.waitMs > 0 ? err.waitMs : spacedWaitMs(attemptAt);
+            const why = gemini.words(err);
+            const said = why.replace(/\d+(?:\.\d+)?/g, '#');
+            if (said !== lastSaid) {
+              lastSaid = said;
+              const asked = `Google asked ${trial.model} at ${trial.effort} to wait ${Math.round(waitMs / 1000)} s`;
+              recordFailure({ where: 'trial:gemini', code: 'rate_limited', status: 429, message: `${asked} (refusal ${tries + 1} of this fact-check).`, detail: why || null });
+              console.log(`[gemini] ${asked} (refusal ${tries + 1} of this fact-check): "${why}"`);
+            }
+            send({ t: 'retry', i, attempt: tries + 1, status: 429, reason: 'rate_limit', waitMs, who: gemini.PROVIDER, why, until: Date.now() + waitMs });
             if (waitMs > 0) await sleep(waitMs);
             continue;
           }
@@ -638,7 +651,7 @@ export async function runEvaluation({ apiKey, claims, document = '', send, signa
             continue;
           }
           if (tries < config.evalRetries && isRetryable(err)) {
-            const waitMs = err.waitMs ?? spacedWaitMs(attemptAt);
+            const waitMs = err.waitMs > 0 ? err.waitMs : spacedWaitMs(attemptAt);
             send({ t: 'retry', i, attempt: tries + 1, status: err?.status ?? null, reason: 'error', waitMs });
             if (waitMs > 0) await sleep(waitMs);
             continue;

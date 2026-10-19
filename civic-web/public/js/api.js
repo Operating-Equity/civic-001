@@ -31,17 +31,31 @@ async function throwFromResponse(res) {
 // abandons ends with an AbortError, which every caller treats as silence.
 let obtainSignIn = null;
 export function onSignInRequired(fn) { obtainSignIn = fn; }
+// A sign-in under way is the reader's own time: a stream waiting on it is not a silent connection (streamNdjson).
+let signingIn = 0;
 
 async function call(url, init) {
   for (let attempt = 0; ; attempt++) {
     const res = await fetch(url, init);
     if (res.status === 401 && attempt === 0 && obtainSignIn) {
       const body = await res.clone().json().catch(() => null);
-      if (body?.error?.code === 'signin_required') { await obtainSignIn(); continue; }
+      if (body?.error?.code === 'signin_required') {
+        signingIn++;
+        try { await obtainSignIn(); } finally { signingIn--; }
+        continue;
+      }
     }
     return res;
   }
 }
+
+// How often the server's streams say they are alive (server/stream.js), from /api/health and from each stream's first
+// line. A connection that has said nothing for three of these is dead, whatever the browser thinks: on 18 October the
+// operator's Safari sat on one for over a minute (a VPN changing its exit), showing "21 claims found" while the listing
+// finished at the server. Until the server has said, nothing is counted and the browser alone decides, as before.
+let heartbeatMs = null;
+const SILENT_BEATS = 3;
+const noteHeartbeat = (ms) => { if (Number.isFinite(ms) && ms > 0) heartbeatMs = ms; };
 
 // The account (5 October): sign up, sign in, sign out, and the account's own page. Every body is JSON, and every call
 // is the page's own (the server refuses another site's).
@@ -76,7 +90,9 @@ export const operatorDelete = ({ userId }) => post('api/operator/delete', { user
 export async function health() {
   const res = await fetch('api/health', { cache: 'no-store' });
   if (!res.ok) await throwFromResponse(res);
-  return res.json();
+  const h = await res.json();
+  noteHeartbeat(h?.heartbeatMs);
+  return h;
 }
 
 /** Tells the server what failed, so /check can show it after the message on screen has gone. */
@@ -151,6 +167,8 @@ const pause = (ms, signal) => new Promise((resolve, reject) => {
  * end, is opened again a second later against the same job, and only the events not yet received
  * are sent, so a cut costs the wait and nothing else: nothing is run twice, nothing is paid twice.
  * Only the server's own refusal of the request (no sign-in, no key, nothing to test) ends it.
+ * A connection that goes silent for three of the server's heartbeats, before its reply or in the
+ * middle of it, is dead whatever the browser thinks, and is dropped and opened again the same way.
  * `isEnd` names the event that closes the job's story; `onCut` and `onAttached` let the page say
  * what is happening.
  */
@@ -162,54 +180,73 @@ export async function streamNdjson(url, body, { signal, onEvent, isEnd = () => f
   for (let attempt = 0; ; attempt++) {
     if (signal?.aborted) throw abortError();
     if (attempt > 0) { onCut?.(); await pause(1000, signal); }
-    let res;
+    // This connection's own stop: the page's (`signal`), or the silence's. Only the page's ends the run; the silence's
+    // is a cut like any other, and the next connection names the same job and the events it already has.
+    const own = new AbortController();
+    const stopOwn = () => own.abort();
+    signal?.addEventListener('abort', stopOwn, { once: true });
+    let heardAt = Date.now();
+    const silence = setInterval(() => {
+      if (signingIn) { heardAt = Date.now(); return; }
+      if (heartbeatMs && Date.now() - heardAt > SILENT_BEATS * heartbeatMs) own.abort();
+    }, 1000);
+    // The page's own stop, or an abandoned sign-in, ends the run; the silence's stop does not.
+    const ends = (err) => signal?.aborted || (err?.name === 'AbortError' && !own.signal.aborted);
     try {
-      res = await call(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ...body, jobId, cursor }), signal });
-    } catch (err) {
-      if (err?.name === 'AbortError' || signal?.aborted) throw err;
-      continue;   // CIVIC could not be reached at all; the job may well be running there: go again
-    }
-    if (!res.ok) {
-      // CIVIC's own refusal (it says so, in its own words) ends the run. A bare 5xx with no word from
-      // CIVIC is the way to it (a proxy, a deploy switching over), not CIVIC: the job may well be
-      // running, so this is a cut like any other, and the connection is opened again.
-      const body = await res.json().catch(() => null);
-      if (body?.error || res.status < 500) throw new ApiError(res.status, body?.error?.code || `http_${res.status}`, body?.error?.message || `The server answered ${res.status}.`);
-      continue;
-    }
-    const reader = res.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = '';
-    let ended = false;
-    let finished = false;   // the server said the job is already over when this connection joined
-    const take = (line) => {
-      let event;
-      try { event = JSON.parse(line); } catch { return; }
-      if (event.t === 'ping') return;
-      if (event.t === 'attached') { cursor = event.from; finished = Boolean(event.finished); if (event.job && event.job !== jobId) jobId = event.job; onAttached?.(event); return; }
-      cursor++;
-      if (isEnd(event)) ended = true;
-      onEvent(event);
-    };
-    try {
-      for (;;) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        let nl;
-        while ((nl = buffer.indexOf('\n')) >= 0) {
-          const line = buffer.slice(0, nl).trim();
-          buffer = buffer.slice(nl + 1);
-          if (line) take(line);
-        }
+      let res;
+      try {
+        res = await call(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ...body, jobId, cursor }), signal: own.signal });
+      } catch (err) {
+        if (ends(err)) throw err;
+        continue;   // CIVIC could not be reached at all, or did not answer; the job may well be running there: go again
       }
-      if (buffer.trim()) take(buffer.trim());
-      if (ended || finished) return;   // the job's story is told, or the job is over with no more to tell
-    } catch (err) {
-      if (err?.name === 'AbortError' || signal?.aborted) throw err;
-      if (ended) return;
-      // Cut in the middle of the reply (Safari says "Load failed", Chrome "network error"): the
-      // job goes on at the server; this connection is opened again above.
+      heardAt = Date.now();
+      if (!res.ok) {
+        // CIVIC's own refusal (it says so, in its own words) ends the run. A bare 5xx with no word from
+        // CIVIC is the way to it (a proxy, a deploy switching over), not CIVIC: the job may well be
+        // running, so this is a cut like any other, and the connection is opened again.
+        const body = await res.json().catch(() => null);
+        if (body?.error || res.status < 500) throw new ApiError(res.status, body?.error?.code || `http_${res.status}`, body?.error?.message || `The server answered ${res.status}.`);
+        continue;
+      }
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let ended = false;
+      let finished = false;   // the server said the job is already over when this connection joined
+      const take = (line) => {
+        let event;
+        try { event = JSON.parse(line); } catch { return; }
+        if (event.t === 'ping') return;
+        if (event.t === 'attached') { cursor = event.from; finished = Boolean(event.finished); if (event.job && event.job !== jobId) jobId = event.job; noteHeartbeat(event.heartbeatMs); onAttached?.(event); return; }
+        cursor++;
+        if (isEnd(event)) ended = true;
+        onEvent(event);
+      };
+      try {
+        for (;;) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          heardAt = Date.now();
+          buffer += decoder.decode(value, { stream: true });
+          let nl;
+          while ((nl = buffer.indexOf('\n')) >= 0) {
+            const line = buffer.slice(0, nl).trim();
+            buffer = buffer.slice(nl + 1);
+            if (line) take(line);
+          }
+        }
+        if (buffer.trim()) take(buffer.trim());
+        if (ended || finished) return;   // the job's story is told, or the job is over with no more to tell
+      } catch (err) {
+        if (ends(err)) throw err;
+        if (ended) return;
+        // Cut in the middle of the reply (Safari says "Load failed", Chrome "network error"), or silent for too long:
+        // the job goes on at the server; this connection is opened again above.
+      }
+    } finally {
+      clearInterval(silence);
+      signal?.removeEventListener('abort', stopOwn);
     }
   }
 }

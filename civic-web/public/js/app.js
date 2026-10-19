@@ -7,7 +7,7 @@
 //      and the reasoning summary, the search trail, the cited sources and the raw text are all
 //      on the card. When the verdict cannot be read from the model's own Conclusion, the card
 //      says so instead of guessing.
-import { t, setLocale, initLocale, LOCALES, currentLocale, fmtNumber, fmtSeconds, fmtUsd, numberWord } from './i18n.js';
+import { t, setLocale, initLocale, LOCALES, currentLocale, fmtNumber, fmtSeconds, fmtClock, fmtUsd, numberWord } from './i18n.js';
 import * as api from './api.js';
 import { $, $$, el, renderMarkdown, renderMath, setBar, toast, easeChars, easeTime, bump, copyText } from './render.js';
 import { field } from './field.js';   // the mathematics behind the glass follows the run's phase
@@ -806,15 +806,21 @@ function showFailure(message, err) {
 function updateEvalStatus() {
   if (state.phase !== 'evaluating' || !state.batch.size) return;
   const running = state.results.filter((r) => r.status === 'running').length;
+  // A claim waiting to go again (whether or not it had started: a refusal at the door comes before the start).
+  const retrying = (r) => r.phase === 'retry' && r.status !== 'done' && r.status !== 'error';
   // A claim waiting for the connection to OpenAI is neither working nor held by the key's minute.
-  const unreachable = state.results.filter((r) => r.status === 'running' && r.phase === 'retry' && r.retryReason === 'connection');
+  const unreachable = state.results.filter((r) => retrying(r) && r.retryReason === 'connection');
+  // A claim a provider has asked to wait (Gemini, on the operator's trial) is waiting for that provider, not its turn.
+  const provider = state.results.filter((r) => retrying(r) && r.retryReason === 'rate_limit' && r.retryWho);
   // A claim held at the gate has not started; one waiting to go again has, but is not working.
-  const throttled = state.results.filter((r) => r.phase === 'queued' || (r.status === 'running' && r.phase === 'retry' && r.retryReason !== 'connection')).length;
+  const throttled = state.results.filter((r) => r.phase === 'queued' || (retrying(r) && r.retryReason !== 'connection' && !r.retryWho)).length;
   const working = state.results.filter((r) => r.status === 'running' && r.phase !== 'queued' && r.phase !== 'retry').length;
   const elapsed = fmtSeconds(Date.now() - state.evalStartedAt);
   if (unreachable.length) {
     const w = unreachable[0];
     setStatus('step2', 'step2.unreachable', { running: working, n: unreachable.length, why: netWords(w.retryCode, w.retryWhy), done: state.batch.done, total: state.batch.size, time: elapsed });
+  } else if (provider.length) {
+    setStatus('step2', 'step2.waitingProvider', { running: working, n: provider.length, who: provider[0].retryWho, done: state.batch.done, total: state.batch.size, time: elapsed });
   } else if (throttled) {
     setStatus('step2', 'step2.throttled', { running: working, n: throttled, done: state.batch.done, total: state.batch.size, time: elapsed });
   } else if (running) {
@@ -1559,8 +1565,11 @@ function handleEvalEvent(ev, mapIndex) {
     case 'note': if (ev.code === 'no_reasoning_summary') r.noSummary = true; break;
     case 'retry':
       r.phase = 'retry'; r.retryAttempt = ev.attempt; r.retryStatus = ev.status ?? null;
-      r.retryReason = ev.reason || null; r.retryUntil = Date.now() + (ev.waitMs || 0);
+      // A provider's own wait (Gemini, on the operator's trial) names who asks it and when it ends, so a wait that
+      // arrives late, after a cut, still ends when the provider said.
+      r.retryReason = ev.reason || null; r.retryUntil = Number.isFinite(ev.until) ? ev.until : Date.now() + (ev.waitMs || 0);
       r.retryCode = ev.code || null; r.retryWhy = ev.why || null; r.retrySince = ev.since || Date.now();
+      r.retryWho = ev.who || null;
       renderCardStatus(i); updateEvalStatus();
       break;
     case 'done': finalizeCard(i, ev); break;
@@ -1618,8 +1627,10 @@ function updateEvalBars() {
     const r = state.results[i];
     if (!r) continue;
     if (r.phase === 'queued') { renderCardStatus(i); continue; }
-    if (r.status !== 'running') continue;
+    // A wait counts down whether or not the claim had started: a provider's refusal at its door comes before the start
+    // (on 18 October Gemini's first refusal sat at "3,366 s" and never moved).
     if (r.phase === 'retry') renderCardStatus(i);
+    if (r.status !== 'running') continue;
     const elapsed = now - r.startedAt;
     let f;
     if (r.phase === 'starting') f = easeTime(elapsed, 4000, 0.08);
@@ -1704,10 +1715,18 @@ function renderCardStatus(i) {
   const card = cardOf(i);
   const map = { pending: 'card.pending', starting: 'card.starting', reasoning: 'card.reasoning', searching: 'card.searching', reading: 'card.reading', writing: 'card.writing', reconnecting: 'card.reconnecting', error: 'card.error' };
   let text;
+  // The provider's own words for its wait, on a line of their own under the bar: a long reason never squeezes the status.
+  const providerWait = r.phase === 'retry' && r.retryReason === 'rate_limit' && r.retryWho;
+  const why = $('.card-why', card);
+  if (why) {
+    why.textContent = providerWait ? r.retryWhy || '' : '';
+    why.hidden = !(providerWait && r.retryWhy);
+  }
   if (r.phase === 'queued') {
     const s = r.queuedUntil ? Math.max(0, Math.ceil((r.queuedUntil - Date.now()) / 1000)) : 0;
     text = t('card.queued') + (s > 0 ? ` · ${s} s` : '');
-  } else if (r.phase === 'retry' && r.retryReason === 'rate_limit') text = t('card.waitingLimit', { s: Math.max(0, Math.ceil(((r.retryUntil || 0) - Date.now()) / 1000)) });
+  } else if (providerWait) text = t('card.waitingProvider', { who: r.retryWho, time: fmtSeconds(Math.max(0, (r.retryUntil || 0) - Date.now())), clock: fmtClock(r.retryUntil || Date.now()) });
+  else if (r.phase === 'retry' && r.retryReason === 'rate_limit') text = t('card.waitingLimit', { s: Math.max(0, Math.ceil(((r.retryUntil || 0) - Date.now()) / 1000)) });
   else if (r.phase === 'retry' && r.retryReason === 'connection') text = t('card.waitingConnection', { why: netWords(r.retryCode, r.retryWhy), time: fmtSeconds(Date.now() - (r.retrySince || Date.now())) });
   else if (r.phase === 'retry') text = t('card.retry', { n: r.retryAttempt || 1 });
   else if (r.phase === 'searching' && searchCount(r.trail)) text = t('card.searchingN', { n: searchCount(r.trail) });

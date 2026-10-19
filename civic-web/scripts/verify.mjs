@@ -621,6 +621,8 @@ async function continuationChecks() {
     const s1 = await stats();
     check('an extraction whose connection is cut goes on at the server: the health line counts it in flight with nobody connected',
       first.events[0]?.t === 'attached' && first.events[0].from === 0 && counted(first.events).length === 3 && during.active === 1, `first=${JSON.stringify(first.events.map((e) => e.t))} active=${during.active}`);
+    check('every stream says how often it is alive, every 5 s, in its first line and in the health line, so the page can count three silent ones as a dead connection (18 October: Safari sat on one for over a minute)',
+      first.events[0]?.heartbeatMs === 5000 && during.heartbeatMs === 5000, JSON.stringify({ attached: first.events[0]?.heartbeatMs, health: during.heartbeatMs }));
     check('the page attaches again with the number of events it has and receives exactly the rest, through to the result',
       joined && joined.from === 3 && Boolean(done) && done.total === 3 && JSON.stringify(claimNs) === '[1,2,3]', `joined=${JSON.stringify(joined)} done=${done?.total} claims=${JSON.stringify(claimNs)}`);
     check('one model call for the whole extraction: nothing run twice, nothing paid twice', calls(s1, 'extraction') === 1, `extractions=${calls(s1, 'extraction')}`);
@@ -2593,12 +2595,12 @@ async function geminiChecks() {
     return `http://localhost:${port}`;
   };
   // Ordinals at the stand-in Gemini: 1 the fact-check at high; 2 at medium; 3 a 429 naming a second, then 4; 5 a stream
-  // closed with no event, then 6; 7 an error event mid-stream, then 8; 9 a 503, then 10; 11 a 402; 12 a refused key's;
-  // 13 the operator's own, with accounts on.
+  // closed with no event, then 6; 7 an error event mid-stream, then 8; 9 a 503, then 10; 11 a 402; 12 a 429 naming no
+  // wait, at medium, then 13; 14 a refused key's; 15 the operator's own, with accounts on.
   const evalMark = process.env.MOCK_EVAL_MARK_FOR_GATE || '';
   start([path.join(root, 'scripts', 'mock-openai.js')], {
     MOCK_PORT: String(GMOCK), MOCK_RECORD: rec, MOCK_SPEED: '0.2', MOCK_EVAL_MARK: evalMark,
-    MOCK_GM_429: '3', MOCK_GM_CLOSE: '5', MOCK_GM_ERROR_EVENT: '7', MOCK_GM_503: '9', MOCK_GM_402: '11',
+    MOCK_GM_429: '3', MOCK_GM_CLOSE: '5', MOCK_GM_ERROR_EVENT: '7', MOCK_GM_503: '9', MOCK_GM_402: '11', MOCK_GM_429_BARE: '12',
   });
   try {
     await wait(`http://localhost:${GMOCK}/v1/responses`, 15000, { anyResponse: true });
@@ -2664,10 +2666,23 @@ async function geminiChecks() {
 
     // Every refusal a wait, but the balance used up: one fact-check each, in the order the stand-in was told.
     const gmRun = async (label) => { const before = (await gmStats()).requests; const evs = await evaluate({ model: 'gemini-4-argon', effort: 'high' }, label); return { evs, sends: (await gmStats()).requests - before }; };
+    const t429 = Date.now();
     const w1 = await gmRun('429');
+    const t429end = Date.now();
     const rr = w1.evs.find((e) => e.t === 'retry');
     check('Gemini: a 429 is a wait for the second Google names (its RetryInfo), then the fact-check is delivered',
       rr?.reason === 'rate_limit' && rr.status === 429 && rr.waitMs === 1000 && w1.sends === 2 && w1.evs.filter((e) => e.t === 'done').length === 1, JSON.stringify({ retry: rr, sends: w1.sends }));
+    check('Gemini: its wait says whose it is (Google), until when, and why, in Google\'s own words on one line of at most 300 characters, with the key taken out (the operator\'s answer of 18 October: "Say why and keep waiting")',
+      rr?.who === 'Google' && /GMWAIT-7f3a/.test(rr.why || '') && /limit: 0, model: gemini-4-argon/.test(rr.why) && rr.why.includes('<key>') && !rr.why.includes(GMKEY) && rr.why.length <= 300 && !/\n/.test(rr.why)
+        && Number.isFinite(rr.until) && rr.until >= t429 + rr.waitMs && rr.until <= t429end + rr.waitMs,
+      JSON.stringify(rr));
+    const recentWait = (await (await fetch(`${base}/api/selftest`)).json()).recentFailures || [];
+    const recWait = recentWait.find((x) => x.where === 'trial:gemini' && x.code === 'rate_limited');
+    const gemLog = output.join('').split('\n').filter((l) => l.startsWith('[gemini] '));
+    check('Gemini: Google\'s words for a wait are kept on /check (rate_limited, the model, its level and the wait) and in the service\'s log as one line, with no key in either',
+      recWait?.status === 429 && recWait.message === 'Google asked gemini-4-argon at high to wait 1 s (refusal 1 of this fact-check).' && /GMWAIT-7f3a/.test(recWait.detail || '') && !JSON.stringify(recWait).includes(GMKEY)
+        && gemLog.length === 1 && /^\[gemini\] Google asked gemini-4-argon at high to wait 1 s \(refusal 1 of this fact-check\): "You exceeded your current quota.*GMWAIT-7f3a.*"$/.test(gemLog[0]) && !gemLog[0].includes(GMKEY),
+      JSON.stringify({ record: recWait, log: gemLog }));
     const w2 = await gmRun('closed');
     check('Gemini: a reply that stops before its last event is a cut connection and goes again; delivered once, whole, with its own trail',
       w2.evs.some((e) => e.t === 'retry' && e.reason === 'connection') && w2.sends === 2 && w2.evs.filter((e) => e.t === 'done').length === 1 && (w2.evs.find((e) => e.t === 'done')?.trail || []).length === 3,
@@ -2688,6 +2703,18 @@ async function geminiChecks() {
     check('Gemini: the prepaid balance used up (402) ends that fact-check at once, with the code and no words of the provider\'s, and /check records Google\'s own with where to add credits',
       err5?.code === 'balance_exhausted' && err5.message === '' && /prepayment credits are depleted/.test(rec402?.detail || '') && /Google AI Studio, Billing/.test(rec402?.detail || '') && w5.sends === 1,
       JSON.stringify({ error: err5, record: rec402, sends: w5.sends }));
+
+    // A 429 that names no wait at all (no RetryInfo, no Retry-After), at medium so the high row below keeps its count.
+    const tBare = Date.now();
+    const beforeBare = (await gmStats()).requests;
+    const w6 = await evaluate({ model: 'gemini-4-argon', effort: 'medium' }, '429-bare');
+    const sendsBare = (await gmStats()).requests - beforeBare;
+    const rb = w6.find((e) => e.t === 'retry');
+    const bareAt = read().filter((r) => r.gemini && r.method === 'POST' && r.path === '/gemini/v1beta/interactions' && r.ts >= tBare).map((r) => r.ts);
+    const gap = bareAt.length >= 2 ? bareAt[1] - bareAt[0] : null;
+    check('Gemini: a 429 that names no wait goes again a second after its go began, never at once (a missing Retry-After read as a wait of none, Number(null) being 0, would ask again and again inside the second); then the fact-check is delivered',
+      rb?.reason === 'rate_limit' && rb.who === 'Google' && rb.waitMs >= 500 && rb.waitMs <= 1000 && sendsBare === 2 && gap >= 900 && w6.filter((e) => e.t === 'done').length === 1,
+      JSON.stringify({ retry: rb, sends: sendsBare, gap }));
 
     // The operator's two levels, and no other.
     const beforeLevels = (await gmStats()).requests;
@@ -2806,12 +2833,15 @@ async function rankChecks() {
   const errlog = path.join(os.tmpdir(), `civic-verify-rank-errors-${stamp}.log`);
   const stats = async () => (await fetch(`http://localhost:${RMOCK}/deepseek/mock/stats`, { headers: { authorization: `Bearer ${KEY}` } })).json();
   const procs = [];
+  const output = [];   // the first server's log, for its [listing] and [rank] lines
   const dsEnv = { CIVIC_EXTRACT_PROVIDER: 'deepseek', DEEPSEEK_API_KEY: DSKEY, CIVIC_DEEPSEEK_BASE_URL: `http://localhost:${RMOCK}/deepseek`, CIVIC_PROMPT_RANK: RANK_PROMPT, CIVIC_RANK: 'operator' };
   const serve = (port, env = {}) => {
-    procs.push(start([path.join(root, 'server', 'index.js')], {
+    const child = start([path.join(root, 'server', 'index.js')], {
       PORT: String(port), OPENAI_BASE_URL: `http://localhost:${RMOCK}/v1`, OPENAI_API_KEY: KEY, CIVIC_IMAGE_ENABLED: 'false',
       CIVIC_LEDGER_FILE: ledger, CIVIC_ERROR_LOG: errlog, DATABASE_URL: '', ...dsEnv, ...env,
-    }));
+    });
+    if (!procs.length) child.stdout.on('data', (d) => output.push(String(d)));
+    procs.push(child);
     return `http://localhost:${port}`;
   };
   // Thirteen sentences of over 25 characters: the stand-in lists thirteen claims, sets claim 2 aside and ranks twelve, a
@@ -2858,6 +2888,13 @@ async function rankChecks() {
     const body = s1.lastRankBody;
     check('Ranking: a listing makes two requests to DeepSeek, the listing and then the ranking, and completes',
       a.sends === 2 && s1.rankRequests === 1 && Boolean(a.done) && !a.events.some((e) => e.t === 'error'), JSON.stringify({ sends: a.sends, rank: s1.rankRequests }));
+    const said = output.join('');
+    const logged = said.split('\n').filter((l) => /^\[(listing|rank)\] /.test(l));
+    check('Ranking: the service\'s log says where the listing\'s time and the ranking\'s went, one line each, in counts and times alone (18 October: five minutes, and nothing said how much was thinking): the claims, the characters, the seconds, the model at its effort, how long it thought before it wrote, its tokens of thinking and of writing; never a word of the document, the prompt or the chain of thought',
+      /\[listing\] 13 claims from [\d,]+ characters in \d+ s on deepseek-flash at high: it thought \d+ s before it wrote; [\d,]+ tokens of thinking and [\d,]+ written/.test(said)
+        && /\[rank\] 13 claims ranked in \d+ s on deepseek-flash at high, 3 shown: it thought \d+ s before it wrote; [\d,]+ tokens of thinking and [\d,]+ written/.test(said)
+        && !SENTENCES.some((x) => logged.some((l) => l.includes(x.slice(0, 24)))) && !said.includes(MARK) && !said.includes(COT) && !said.includes(SUMMARY_MARK),
+      JSON.stringify(logged));
     check('Ranking: its body carries exactly the model, the input, reasoning {effort: high} and stream: no tools, no store, no mode or summary',
       Boolean(body) && JSON.stringify(Object.keys(body).sort()) === JSON.stringify(['input', 'model', 'reasoning', 'stream']) && JSON.stringify(body.reasoning) === JSON.stringify({ effort: 'high' })
         && body.model === 'deepseek-flash' && body.stream === true,

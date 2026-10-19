@@ -11,7 +11,7 @@ import { gateFor, parseRefusal } from './gate.js';
 import { estimateTextCost } from './pricing.js';
 import { requestTools, gatewayTools, gatewayOn, toolStep, searchCount } from './tools/request.js';
 import { openDoor } from './tools/doors.js';
-import { record } from './ledger.js';
+import { record, spentWords } from './ledger.js';
 import { runRanking } from './rank.js';
 
 /** Parses "1. claim\n2. claim" incrementally. Returns the claims completed so far. */
@@ -132,12 +132,16 @@ export async function runExtraction({ apiKey, text, meta, send, signal, sourceWa
   let incomplete = null;
   let fellBack = null;
   let pricedAt = null;   // the start of the go that succeeded: DeepSeek's price depends on the hour
+  let firstTextAt = null;   // when that go's first word arrived: before it, the model was thinking (the log line below)
+  let goes = 0;
   if (sourceWarning) send({ t: 'warning', ...sourceWarning });
   for (let tries = 0; ; tries++) {
     const attemptAt = Date.now();
+    goes++;
     try {
       full = '';
       emitted = 0;
+      firstTextAt = null;
       await withModelFallback('extract', config.extractModels, async (model) => {
         const { data: stream, release } = await attempt(model);
         modelUsed = model;
@@ -149,6 +153,7 @@ export async function runExtraction({ apiKey, text, meta, send, signal, sourceWa
         const cut = fireworks ? new ThoughtCut() : null;
         const take = (piece) => {
           if (!piece) return;
+          firstTextAt ??= Date.now();
           full += piece;
           const items = parseNumberedList(full);
           // Emit each claim once it is closed by the next number.
@@ -272,6 +277,9 @@ export async function runExtraction({ apiKey, text, meta, send, signal, sourceWa
   const ms = Date.now() - started;
   const cost = estimateTextCost({ model: modelUsed, usage, at: pricedAt });
   record({ kind: 'extract', provider: config.extractProvider, model: modelUsed, effort: config.extractEffort, mode: config.extractReasoningMode || null, ...(fireworks ? { reasoningEcho: reasoningEcho ?? null } : {}), chars: text.length, claims: claims.length, usage, ms, usd: cost.usd, priced: cost.priced }, { runId: ctx.runId, owner: ctx.owner });
+  // Where the listing's time went, for the service's log (18 October: an article took five minutes at `high`, and nothing
+  // said how much of it was thinking). Counts and times only.
+  console.log(`[listing] ${claims.length} claims from ${text.length.toLocaleString('en-US')} characters in ${Math.round(ms / 1000)} s on ${modelUsed} at ${config.extractEffort}${goes > 1 ? ` (${goes} goes)` : ''}: ${spentWords({ usage, thoughtMs: firstTextAt == null ? null : firstTextAt - pricedAt })}`);
   // The second pass (server/rank.js, 16 October): the same model ranks the claims, inside this job and before the page is
   // told the listing is done, so a cut connection loses nothing and the page draws the list once, in its order. A ranking
   // that fails or cannot be read leaves the list whole.
