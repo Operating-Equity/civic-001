@@ -237,6 +237,9 @@ export const config = {
   // left the operator's Safari waiting on a dead connection for over a minute, showing "21 claims found" while the
   // listing finished at the server; at 5 s a dead connection is noticed in 15.
   heartbeatMs: 5000,
+  // What a reader's work log shows of each research step (server/view.js): what it did, counted. With this on, also what
+  // it was asked and which address it opened. Off unless set: the questions show how the research is steered.
+  readerQueries: bool('CIVIC_READER_QUERIES', false),
 
   // Visual echo — a picture, not a determination. The operator asked for the fast model.
   illustrateModels: list('CIVIC_IMAGE_MODELS', 'gpt-image-2.5-flare,gpt-image-2.5-sunburst,gpt-image-1.5,gpt-image-1-mini'),

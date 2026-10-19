@@ -102,6 +102,7 @@ export default {
     done: 'Las {total} probadas · {time}',
     waiting: 'Esperando las afirmaciones',
     stopped: 'Detenido',
+    gate: 'El minuto de la clave: {limit} tokens · una determinación cuenta {cost} · {atOnce} a la vez, una más cada {every} s',
   },
   score: { true: 'Verdadero', false: 'Falso', unverified: 'Sin verificar', cost: 'Coste est.', internal: 'Interno', unread: 'Veredicto sin leer', extracting: 'Extrayendo afirmaciones…', aiLine: 'Las determinaciones las hace un modelo de IA a partir de las fuentes que cita y pueden ser erróneas; compruebe las fuentes antes de confiar en una.' },
   card: {
@@ -149,6 +150,23 @@ export default {
       sources_other: 'Fuentes citadas ({n})',
       raw: 'Entrada original ({n} caracteres)',
     },
+    // The work log (server/view.js): what the research did, counted.
+    log: {
+      searches_one: '{n} búsqueda',
+      searches_other: '{n} búsquedas',
+      pages_one: '{n} página leída',
+      pages_other: '{n} páginas leídas',
+      sources_one: '{n} fuente citada',
+      sources_other: '{n} fuentes citadas',
+    },
+  },
+  // A step of the research, as a reader sees it when the operator shows what each step asked (CIVIC_READER_QUERIES).
+  trail: {
+    search: 'Buscó',
+    open: 'Abrió',
+    find: 'Buscó dentro',
+    read: 'Leyó',
+    transcript: 'Transcripción',
   },
   net: {
     EHOSTUNREACH: 'no hay ruta al servidor',
@@ -172,6 +190,7 @@ export default {
   warn: {
     sourceTruncated: 'No se leyeron {n} caracteres del final del documento, así que ninguna afirmación contenida en ellos se extrajo. Solo se probaron los primeros {read} caracteres.',
     modelFallback: 'Probado con {used}, no con {requested}. Trata estas determinaciones como provisionales.',
+    fallback: 'Probado con un modelo de reserva. Trata estas determinaciones como provisionales.',
   },
   report: { create: 'Crear informe', soon: 'Los informes llegan con la próxima versión.' },
   copies: {

@@ -102,6 +102,7 @@ export default {
     done: 'Alle {total} geprüft · {time}',
     waiting: 'Warten auf die Behauptungen',
     stopped: 'Gestoppt',
+    gate: 'Die Minute des Schlüssels: {limit} Tokens · eine Feststellung zählt {cost} · {atOnce} gleichzeitig, eine weitere alle {every} s',
   },
   score: { true: 'Wahr', false: 'Falsch', unverified: 'Ungeprüft', cost: 'Gesch. Kosten', internal: 'Intern', unread: 'Urteil ungelesen', extracting: 'Behauptungen werden extrahiert…', aiLine: 'Die Feststellungen trifft ein KI-Modell anhand der Quellen, die es nennt, und sie können falsch sein; prüfen Sie die Quellen, bevor Sie sich auf eine verlassen.' },
   card: {
@@ -149,6 +150,23 @@ export default {
       sources_other: 'Zitierte Quellen ({n})',
       raw: 'Rohtext des Eintrags ({n} Zeichen)',
     },
+    // The work log (server/view.js): what the research did, counted.
+    log: {
+      searches_one: '{n} Suche',
+      searches_other: '{n} Suchen',
+      pages_one: '{n} Seite gelesen',
+      pages_other: '{n} Seiten gelesen',
+      sources_one: '{n} Quelle zitiert',
+      sources_other: '{n} Quellen zitiert',
+    },
+  },
+  // A step of the research, as a reader sees it when the operator shows what each step asked (CIVIC_READER_QUERIES).
+  trail: {
+    search: 'Gesucht',
+    open: 'Geöffnet',
+    find: 'Auf der Seite gesucht',
+    read: 'Gelesen',
+    transcript: 'Transkript',
   },
   net: {
     EHOSTUNREACH: 'keine Route zum Host',
@@ -172,6 +190,7 @@ export default {
   warn: {
     sourceTruncated: '{n} Zeichen am Ende des Dokuments wurden nicht gelesen, daher wurde keine darin enthaltene Behauptung extrahiert. Geprüft wurden nur die ersten {read} Zeichen.',
     modelFallback: 'Mit {used} geprüft, nicht mit {requested}. Behandeln Sie diese Feststellungen als vorläufig.',
+    fallback: 'Mit einem Ersatzmodell geprüft. Behandeln Sie diese Feststellungen als vorläufig.',
   },
   report: { create: 'Bericht erstellen', soon: 'Berichte kommen mit der nächsten Version.' },
   copies: {

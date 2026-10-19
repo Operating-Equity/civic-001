@@ -699,6 +699,17 @@ The prompts are the product. The design keeps them out of every place a reader c
 
 When accounts arrive, the prompts should move to a secrets manager rather than files on disk.
 
+**What a reader receives** (`server/view.js`, 19 October). The operator, and anyone on an open door, receive every
+event of a run as it is made. Anyone else receives their run's work and its results, through one list of what the page
+needs, applied where the job records each event, so a page that reconnects or reads a finished run again receives the
+same and never more: the entry, the verdict, the confidence, the sources cited, and a work log of what the research did
+in plain words, counted ("4 searches · 2 pages read · 2 sources cited"). `CIVIC_READER_QUERIES=on` also shows readers
+what each search asked. `/api/health` tells anyone but the operator only what the page needs, and a failure reaches
+them as FactEngine's own sentence. The headings an entry is read by are kept with the prompts
+(`CIVIC_OUTPUT_NAMES`, or `CIVIC_OUTPUT_NAMES_FILE`; `server/names.js`), FactEngine's own words unless set; a list
+that cannot be read stops the start, naming the key and never a word of it, and `/check` names the list by its
+fingerprint. The leak check reports what it finds by fingerprint, never by its text.
+
 ## Models
 
 | Step | Default | Why |

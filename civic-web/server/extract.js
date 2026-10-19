@@ -9,7 +9,8 @@ import { ThoughtCut, usageFrom, noteEcho } from './fireworks.js';
 import { noteFailure, noteReply } from './reach.js';
 import { gateFor, parseRefusal } from './gate.js';
 import { estimateTextCost } from './pricing.js';
-import { requestTools, gatewayTools, gatewayOn, toolStep, searchCount } from './tools/request.js';
+import { requestTools, gatewayTools, gatewayOn, toolStep, searchCount, verbOf } from './tools/request.js';
+import { names, anyOf } from './names.js';
 import { openDoor } from './tools/doors.js';
 import { record, spentWords } from './ledger.js';
 import { runRanking } from './rank.js';
@@ -33,6 +34,9 @@ function cleanClaim(s) {
   return String(s).trim();
 }
 
+// The claim's label: the operator's word (server/names.js), "Claim" unless set.
+const CLAIM_LABEL = new RegExp(`^[*_]*(?:${anyOf(names.claim)})[*_]*:[*_]*[ \\t]*`, 'iu');
+
 /**
  * An entry may be written as labelled lines: the claim under a "Claim:" label, then further
  * labelled lines, such as who said it and when, or what the source does not say. The claim is
@@ -40,10 +44,10 @@ function cleanClaim(s) {
  * without the label is the claim, whole.
  */
 export function splitEntry(entry) {
-  const head = entry.match(/^[*_]*Claim[*_]*:[*_]*[ \t]*/i);
+  const head = entry.match(CLAIM_LABEL);
   if (!head) return { text: entry, more: '' };
   const rest = entry.slice(head[0].length);
-  const next = rest.search(/\n[ \t]*[*_]*[A-Z][A-Za-z]*(?: [A-Za-z]+){0,3}[*_]*:[*_]*[ \t]/);
+  const next = rest.search(/\n[ \t]*[*_]*\p{Lu}\p{L}*(?: \p{L}+){0,3}[*_]*:[*_]*[ \t]/u);
   if (next < 0) return { text: rest.trim(), more: '' };
   return { text: rest.slice(0, next).trim(), more: rest.slice(next).trim() };
 }
@@ -189,7 +193,7 @@ export async function runExtraction({ apiKey, text, meta, send, signal, sourceWa
             reasoning += '\n\n';
           } else if (event.type === 'response.output_item.done' && event.item?.type === 'web_search_call') {
             const a = event.item.action || {};
-            const step = { kind: a.type || 'search', query: a.query || null, url: a.url || null, pattern: a.pattern || null, status: event.item.status };
+            const step = { kind: a.type || 'search', verb: verbOf({ kind: a.type || 'search' }), query: a.query || null, url: a.url || null, pattern: a.pattern || null, status: event.item.status };
             trail.push(step);
             send({ t: 'trail', step, searches: searchCount(trail) });
           } else if (event.type === 'response.output_item.done' && event.item?.type === 'mcp_call') {

@@ -920,6 +920,19 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
     - **The served /privacy and /terms** carry the new sentences.
     - **The live measure is the operator's next refused link:** a site like ms.now should simply read, with one ledger
       line of step `reader`. Reuters will still go on to its copies, since it refuses every reader.
+- **19 October, night: what a reader receives.** The operator decided what a reader sees of a run: the work and its
+  results; everything else is theirs. The plan is the operator's, in four steps; this is the first (`server/view.js`,
+  `server/names.js`).
+  - **A reader receives** the entry, the verdict, the confidence, the sources cited, and a work log of what the research
+    did, counted in plain words. The operator, and an open door, receive every event as before.
+  - **Applied where the job records each event**, so a reconnect or a replay receives exactly the same.
+  - **`/api/health`** tells anyone but the operator only what the page needs. A failure reaches them as FactEngine's own
+    sentence, and the picture route is the operator's while the echo is off.
+  - **The headings an entry is read by** are kept with the prompts (`CIVIC_OUTPUT_NAMES`), FactEngine's own words
+    unless set; `/check` names the list by its fingerprint.
+  - **The leak check** reports what it finds by fingerprint, never by its text.
+  - **Next, by the operator:** link Render to a GitHub login that can see a private repository, then make it private
+    (Stage 1's four steps).
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 

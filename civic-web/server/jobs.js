@@ -33,21 +33,26 @@ export function ids() { return [...jobs.keys()]; }
 export function readers() { const owners = new Set(); for (const j of jobs.values()) if (!j.finished) owners.add(j.owner ?? ''); return owners.size; }
 
 class Job {
-  constructor(id, kind, owner) {
+  constructor(id, kind, owner, view) {
     this.id = id;
     this.kind = kind;
     this.owner = owner;           // the sign-in that started it (null on an open door): no one else may attach, stop or let go of it
+    this.view = view;             // what its owner may see of each event (server/view.js), or null for everything
     this.startedAt = Date.now();
-    this.events = [];             // every event sent, in order; a subscriber's cursor indexes this
+    this.events = [];             // every event sent, in order, as its owner sees it; a subscriber's cursor indexes this
     this.finished = false;
     this.subscribers = new Set();
     this.abort = new AbortController();
   }
 
+  /** Records and forwards an event, as its owner may see it: what the view makes of it, which may be nothing or more than one. */
   send(event) {
     if (this.finished) return;
-    this.events.push(event);
-    for (const s of this.subscribers) s.send(event);
+    const seen = this.view ? this.view(event) : event;
+    for (const ev of [].concat(seen ?? [])) {
+      this.events.push(ev);
+      for (const s of this.subscribers) s.send(ev);
+    }
   }
 
   /**
@@ -78,12 +83,12 @@ class Job {
 
 /**
  * Starts the job `id` and runs `work({ send, signal })`. Everything `work` sends is recorded and
- * forwarded; when it settles, the job is finished and every attached connection is ended. `work`
- * is expected to send its own error event when it fails; one that throws anyway is reported as
+ * forwarded, through `view` when one is given; when it settles, the job is finished and every attached connection is
+ * ended. `work` is expected to send its own error event when it fails; one that throws anyway is reported as
  * an error event, so no job ends in silence.
  */
-export function start(id, kind, work, { owner = null } = {}) {
-  const job = new Job(id, kind, owner);
+export function start(id, kind, work, { owner = null, view = null } = {}) {
+  const job = new Job(id, kind, owner, view);
   jobs.set(id, job);
   changed();
   Promise.resolve()

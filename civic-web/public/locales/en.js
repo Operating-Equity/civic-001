@@ -103,6 +103,7 @@ export default {
     done: 'All {total} tested · {time}',
     waiting: 'Waiting for the claims',
     stopped: 'Stopped',
+    gate: 'The key\'s minute: {limit} tokens · one determination counts {cost} · {atOnce} at once, one more every {every} s',
   },
   score: { true: 'True', false: 'False', unverified: 'Unverified', cost: 'Est. cost', internal: 'Internal', unread: 'Verdict unread', extracting: 'Extracting claims…', aiLine: 'Determinations are made by an AI model from the sources it cites and can be wrong; check the sources before relying on one.' },
   card: {
@@ -150,6 +151,23 @@ export default {
       sources_other: 'Sources cited ({n})',
       raw: 'Raw entry ({n} characters)',
     },
+    // The work log (server/view.js): what the research did, counted.
+    log: {
+      searches_one: '{n} search',
+      searches_other: '{n} searches',
+      pages_one: '{n} page read',
+      pages_other: '{n} pages read',
+      sources_one: '{n} source cited',
+      sources_other: '{n} sources cited',
+    },
+  },
+  // A step of the research, as a reader sees it when the operator shows what each step asked (CIVIC_READER_QUERIES).
+  trail: {
+    search: 'Searched',
+    open: 'Opened',
+    find: 'Looked within',
+    read: 'Read',
+    transcript: 'Transcript',
   },
   // A connection failure, in words, from the operating system's code (server/openai.js sends both).
   net: {
@@ -174,6 +192,7 @@ export default {
   warn: {
     sourceTruncated: '{n} characters at the end of the document were not read, so any claim in them was never extracted. Only the first {read} characters were tested.',
     modelFallback: 'Tested with {used}, not {requested}. Treat these determinations as provisional.',
+    fallback: 'Tested on a standby model. Treat these determinations as provisional.',
   },
   report: { create: 'Create report', soon: 'Reports arrive with the next release.' },
   copies: {

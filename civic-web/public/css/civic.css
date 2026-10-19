@@ -422,6 +422,7 @@ body {
 .card-foot { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-block-start: 14px; padding-block-start: 12px; border-block-start: 1px solid var(--line-soft); font-size: 13px; color: var(--ink-2); }
 .card-foot .btn { margin-inline-start: auto; }
 .card-inspector b { color: var(--ink); font-weight: 600; }
+.card-log { color: var(--ink-2); }
 .card-model { color: var(--ink-3); }
 .card-model.is-fallback { color: var(--false); font-weight: 600; }
 .card-error { margin: 12px 0 0; color: var(--false); font-size: 14px; }
