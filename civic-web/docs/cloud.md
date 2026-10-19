@@ -817,6 +817,22 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
       in 48 s on deepseek-flash at low: it thought 12 s before it wrote; …`, and the same for `[rank]`.
   - **Found on the way, fixed:** a Gemini 429 that named no wait went again at once, in a loop, since a missing
     Retry-After was read as `Number(null)`, which is 0. It now waits a second from the go's start.
+  - **Live** (19 October, 12:59 UTC): PR #75 squash 3d8d055, build 3cf0485e459f; live check clean, nothing spent.
+    - **Before the merge:**
+      - the guard: 417/417 in both stand-in shapes;
+      - the new browser check: 10/10 (the page opened its new connection 14 s after a relay went silent, against
+        77 s on the operator's Safari);
+      - the earlier browser checks: 9/9 and 10/10;
+      - the leak check: clean with the ranking draft installed.
+    - **The two settings** were written with `render-env.mjs` at 02:05 UTC. The merge waited for `active: 0` on two
+      reads; the service had been idle since the operator stopped at 23:09.
+    - **The health line** carries `extract {deepseek-flash, low}`, `rank {operator, high}`, `evaluate {gpt-5.6-sol,
+      xhigh}` and `heartbeatMs: 5000`.
+    - **The boot lines** read: "extraction requests … carry: model deepseek-flash · reasoning.effort low …", "[rank] …
+      on deepseek-flash at high …", and the same prompt versions.
+    - **The served page** carries the silence watchdog, `card.waitingProvider`, the `.card-why` line and the phone's
+      bar fix.
+  - **The live measure is the operator's next article:** its `[listing]` and `[rank]` lines, and any `[gemini]` line.
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 
