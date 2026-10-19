@@ -833,6 +833,37 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
     - **The served page** carries the silence watchdog, `card.waitingProvider`, the `.card-why` line and the phone's
       bar fix.
   - **The live measure is the operator's next article:** its `[listing]` and `[rank]` lines, and any `[gemini]` line.
+- **19 October: the ranking thinks at "low", the image echo is off, and Gemini at a limit of 0 stops and says why.** The
+  operator's next article (14:42 UTC, pasted, 5,654 characters): "I ran another article, check the log. Also, the image
+  box 'echo' appeared, then disappeared. Just comment it out for now until I decide whether and when to ask for it back.
+  I do not know why you are receiving these messages, since you are not on the free tier."
+  - **The log:**
+    - `[listing] 20 claims from 5,654 characters in 55 s on deepseek-flash at low: it thought 50 s before it wrote;
+      10,704 tokens of thinking and 1,601 written`.
+    - `[rank] 20 claims ranked in 69 s on deepseek-flash at high, 5 shown: it thought 68 s before it wrote; 13,475
+      tokens of thinking and 311 written`.
+    - That is 2 min 04 s to the ranked list, with no cut and no freeze. At about 210 tokens a second, the time is the
+      tokens of thinking.
+    - The echo's request answered "skipped" after 15.6 s (954 bytes, no picture), and the page hid its box.
+    - Google refused both Gemini fact-checks with "Rate limit exceeded for model gemini-4-argon (limit: 0 input tokens
+      per minute on Free Tier). Please upgrade your tier at https://ai.dev/rate-limit.". It sent this in the stream's
+      own form, which reached the card as raw text, with a Retry-After of 58,163 s, to midnight in California.
+  - **What the refusal means:** Google puts the project behind `GEMINI_API_KEY` on the Free Tier, whatever the
+    account's $20. Most likely the key belongs to another project than the one holding the credits. The fix is the
+    operator's, in Google AI Studio: the API keys page shows each key's project, and the billing page each project's
+    tier.
+  - **Their answers:**
+    - "Ranking: Low" (`CIVIC_RANK_EFFORT=low`, written with `render-env.mjs` before the deploy);
+    - "Listing: Keep low";
+    - "Gemini: Stop and say why".
+  - **What it does:**
+    - The echo's checkbox and the call that starts it are commented out, with the operator's words. A video still
+      shows its player.
+    - A refusal sent in the stream's own form is read for its JSON, so the card, /check and the log carry Google's
+      sentence alone.
+    - A 429 whose words give a limit of 0 ends the fact-check at once, reading "This claim could not be tested.
+      Google: …" with "Try again". It is kept as `tier_refused` on /check and as a failed trial in the ledger, with one
+      `[gemini] Google refused …` line in the log. Every other 429 is still a wait.
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 

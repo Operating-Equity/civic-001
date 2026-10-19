@@ -700,7 +700,9 @@ async function startRun() {
 
   // A video source takes the picture's place with its player; otherwise the picture, when asked for.
   if (state.video) showVideo(state.video);
-  else if (ui.optEcho.checked) startEcho(text);
+  // The visual echo is off on the operator's word of 19 October: "Just comment it out for now until I decide whether
+  // and when to ask for it back." To bring it back, uncomment this line and the checkbox in index.html.
+  // else if (ui.optEcho.checked) startEcho(text);
   await runExtraction(text);
 }
 
@@ -1573,7 +1575,7 @@ function handleEvalEvent(ev, mapIndex) {
       renderCardStatus(i); updateEvalStatus();
       break;
     case 'done': finalizeCard(i, ev); break;
-    case 'error': r.status = 'error'; r.phase = 'error'; r.error = ev.message; r.errorCode = ev.code || null; setCardState(i, 'error'); renderCardStatus(i); renderCardError(i); break;
+    case 'error': r.status = 'error'; r.phase = 'error'; r.error = ev.message; r.errorCode = ev.code || null; r.errorWho = ev.who || null; setCardState(i, 'error'); renderCardStatus(i); renderCardError(i); break;
     default: break;
   }
 }
@@ -1899,7 +1901,8 @@ function renderCardError(i) {
   // Said in words first; the technical reason follows, so it can be reported. A claim the credit could not cover says
   // so in its own sentence, which is not a fault.
   const own = r.errorCode === 'credit_short' || r.errorCode === 'month_limit' || r.errorCode === 'already_tested';
-  const why = r.errorCode === 'quota_exhausted' ? `${t('card.quota')} (${r.error || ''})` : (r.error || '');
+  // A provider that refuses outright (Gemini at a limit of 0, on the operator's trial) is named, with its own sentence.
+  const why = r.errorCode === 'quota_exhausted' ? `${t('card.quota')} (${r.error || ''})` : r.errorWho && r.error ? `${r.errorWho}: ${r.error}` : (r.error || '');
   msg.replaceChildren(document.createTextNode(own ? why : `${t('card.error')} ${why}`.trim()),
     el('button', { type: 'button', class: 'btn btn-small btn-text', text: t('card.retryBtn'), onclick: () => retryClaim(i) }));
   $('.card-brief', card).hidden = true;
