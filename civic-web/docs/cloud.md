@@ -948,6 +948,10 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
     `/check.html` and `/b/<stamp>/js/check.js`.
   - **Only the vendor files the pages load** are sent; their source maps and the rest of the packages are not found.
   - **The security policy** names no image service's host while the echo is off.
+  - **Live** (20 October, 06:06 UTC): PR #79; live check clean, nothing spent. Without a cookie, the page has no comment
+    and none of the operator's parts; twelve spellings of the check page and its script are not found; app.js parses
+    with no comment and revalidates with a 304; the vendor maps are not found and the four vendor files are as
+    installed; the boot line says the 21 files and the 64 vendor files.
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 
