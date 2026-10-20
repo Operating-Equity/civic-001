@@ -3876,7 +3876,7 @@ async function pagesChecks() {
     check('the page and the account page carry one element each of the background\'s class (on 5 October two labels shared it and took every tap), and their fields sit in form-field labels',
       fieldCount(home.text) === 1 && fieldCount(account.text) === 1 && (home.text.match(/<label class="form-field">/g) || []).length >= 4 && /<label class="form-field"/.test(account.text),
       JSON.stringify({ home: fieldCount(home.text), account: fieldCount(account.text) }));
-    const SERVED = ['/', '/account', '/check', '/terms', '/privacy', '/refunds', '/contact', '/js/app.js', '/js/api.js', '/js/account.js', '/js/check.js', '/locales/en.js', '/locales/es.js', '/locales/fr.js', '/locales/de.js'];
+    const SERVED = ['/', '/account', '/terms', '/privacy', '/refunds', '/contact', '/js/app.js', '/js/api.js', '/js/account.js', '/locales/en.js', '/locales/es.js', '/locales/fr.js', '/locales/de.js'];   // the check page and its script are the operator's (downloadChecks)
     const codesWords = /access code|c[oó]digos? de acceso|codes? d.acc[eè]s|Zugangscode|civic_access/i;
     const served = await Promise.all(SERVED.map(async (p) => [p, await page(p)]));
     check('no page or script a reader is served speaks of access codes or carries the codes\' cookie',
@@ -3910,6 +3910,233 @@ async function pagesChecks() {
   }
 }
 await pagesChecks();
+
+// ---- what anyone can download (20 October, server/assets.js): the page's files without their comments, the page in the
+// asker's form, the check page for the operator alone, only the vendor files the pages load ----
+// A server with accounts off (an open door: everyone is the operator, as on a laptop of one's own) and one with accounts
+// on, where a reader, a visitor with no cookie and the operator each ask for the same addresses, spelt every way the
+// static server would have read them.
+async function downloadChecks() {
+  const MOCKD = MOCK_PORT + 107, PD = PORT + 107, PA = PORT + 108;
+  const procs = [];
+  try {
+    const acorn = await import('acorn');
+    const assets = await import('../server/assets.js');
+    const publicDir = path.join(root, 'public');
+
+    // The readers alone, no server: what a comment is and is not, and what stops the reading.
+    const js = assets.stripScript('function f() {\n  return /*\n*/ 1;\n}\nconst a = 1-/**/-1; // two minus signs\nconst s = "/* not */ // not", r = /\\/\\*x/, t = `// ${s}`;\n', { where: 'test.js' });
+    const pageA = assets.stripPage('<p>foo<!-- x -->bar</p>\n  <!-- alone -->\n<a title="a <!-- b --> c">x</a><style>\n/* c */\np { color: red; }\n</style>\n', { where: 'test.html' });
+    const throws = (fn) => { try { fn(); return false; } catch { return true; } };
+    check('a script, a style sheet and a page lose their comments and nothing else: a comment that held a line break leaves one, two signs stay two, strings, patterns and templates that look like comments stay, a page\'s text around a comment is untouched, a value is not a comment, a style block\'s comments go',
+      /return\n 1;/.test(js) && js.includes('1- -1') && js.includes('"/* not */ // not"') && js.includes('/\\/\\*x/') && js.includes('`// ${s}`') && !js.includes('two minus')
+        && pageA.startsWith('<p>foobar</p>\n<a title="a <!-- b --> c">') && !pageA.includes('alone') && !pageA.includes('/* c */') && pageA.includes('p { color: red; }'),
+      JSON.stringify({ js, pageA }));
+    check('a comment or a tag that never closes, a script written inside a page, and an operator\'s mark beside anything, inside another part or left open stop the reading',
+      throws(() => assets.stripPage('<p>a<!-- never')) && throws(() => assets.stripPage('<script>alert(1)</script>')) && throws(() => assets.stripScript('const = ;'))
+        && throws(() => assets.withoutOperatorParts('<p>a</p><!--op-->\n<b>x</b>\n<!--/op-->')) && throws(() => assets.withoutOperatorParts('<!--op-->\n<!--op-->\n<!--/op-->\n<!--/op-->'))
+        && throws(() => assets.withoutOperatorParts('<!--op-->\n<b>x</b>')) && throws(() => assets.withoutOperatorParts('<!--/op-->'))
+        && assets.withoutOperatorParts('<a>\n<!--op-->\n<b>x</b>\n<!--/op-->\n</a>') === '<a>\n</a>', '');
+    const broken = fs.mkdtempSync(path.join(os.tmpdir(), 'civic-verify-assets-'));
+    fs.mkdirSync(path.join(broken, 'js'));
+    fs.writeFileSync(path.join(broken, 'index.html'), '<!doctype html><title>x</title>\n');
+    fs.writeFileSync(path.join(broken, 'js', 'x.js'), 'export const = 1;\n');
+    let named = '';
+    try { assets.prepare({ publicDir: broken, build: 'abcdef123456', nodeModules: path.join(root, 'node_modules') }); } catch (err) { named = err.message; }
+    fs.rmSync(broken, { recursive: true, force: true });
+    const outside = [];
+    const walk = (dir, rel) => { for (const d of fs.readdirSync(dir, { withFileTypes: true })) { const r = rel ? `${rel}/${d.name}` : d.name; if (d.isDirectory()) walk(path.join(dir, d.name), r); else outside.push(r); } };
+    walk(publicDir, '');
+    check('a file of the page that cannot be read stops the start, naming it; every file outside assets/ is a script, a style sheet or a page, and assets/ holds none',
+      /public\/js\/x\.js could not be read as a module/.test(named) && outside.every((r) => (r.startsWith('assets/') ? !assets.kindOf(r) : Boolean(assets.kindOf(r)))),
+      JSON.stringify({ named, odd: outside.filter((r) => (r.startsWith('assets/') ? assets.kindOf(r) : !assets.kindOf(r))) }));
+
+    // The servers.
+    const mock = start([path.join(root, 'scripts', 'mock-openai.js')], { MOCK_PORT: String(MOCKD), MOCK_SPEED: '0.2' });
+    procs.push(mock);
+    await wait(`http://localhost:${MOCKD}/v1/mock/stats`, 15000, { anyResponse: true });
+    const open = start([path.join(root, 'server', 'index.js')], { PORT: String(PD), OPENAI_BASE_URL: `http://localhost:${MOCKD}/v1`, OPENAI_API_KEY: KEY, CIVIC_IMAGE_ENABLED: 'false', CIVIC_LEDGER_FILE: path.join(os.tmpdir(), 'civic-verify-download-ledger.jsonl') });
+    procs.push(open);
+    const srv = accountServer(PA, MOCKD, { CIVIC_OPERATOR_EMAILS: 'op@example.com', CIVIC_OPERATOR_CLAIM: claimHash() });
+    procs.push(srv.child);
+    await wait(`http://localhost:${PD}/api/health`, 20000);
+    await wait(`http://localhost:${PA}/api/health`, 20000);
+    const build = (await (await fetch(`http://localhost:${PD}/api/health`)).json()).build;
+    const people = accountClient(`http://localhost:${PA}`);
+    const reader = (await people.signup('download-reader@example.com')).cookie;
+    const op = (await people.json('/api/account/claim', { method: 'POST', body: { token: CLAIM_TOKEN, email: 'op@example.com', password: PASSWORD, agree: true } })).cookie;
+    // An address as written, never tidied by a client (fetch would resolve "./" and "//" before sending).
+    const raw = (port, pathname, { cookie, method = 'GET', headers = {} } = {}) => new Promise((resolve, reject) => {
+      const req = http.request({ host: '127.0.0.1', port, path: pathname, method, headers: { ...(cookie ? { cookie } : {}), ...headers } }, (res) => {
+        const chunks = [];
+        res.on('data', (c) => chunks.push(c));
+        res.on('end', () => { const body = Buffer.concat(chunks); resolve({ status: res.statusCode, headers: res.headers, body, text: body.toString('utf8') }); });
+      });
+      req.on('error', reject);
+      req.end();
+    });
+
+    // (a) What is sent is the file without its comments: a script's tokens and line breaks as written, a style sheet's and
+    // a page's every other character as written.
+    const tokensOf = (src, script) => {
+      const out = [];
+      const comments = [];
+      acorn.parse(src, { ecmaVersion: 'latest', sourceType: script ? 'script' : 'module', onToken: (t) => out.push(src.slice(t.start, t.end)), onComment: (b, text) => comments.push(text) });
+      return { out, comments };
+    };
+    // Whether a line break stands between each token and the one before it (where a statement may end); the first token
+    // has none before it, so the comments heading a file are not counted.
+    const breaksOf = (src, script) => {
+      const marks = [];
+      let last = -1;
+      acorn.parse(src, { ecmaVersion: 'latest', sourceType: script ? 'script' : 'module', onToken: (t) => { if (last >= 0) marks.push(/[\n\r\u2028\u2029]/.test(src.slice(last, t.start))); last = t.end; } });
+      return marks;
+    };
+    const scripts = outside.filter((r) => assets.kindOf(r) === 'js');
+    const scriptFaults = [];
+    for (const rel of scripts) {
+      const src = fs.readFileSync(path.join(publicDir, rel), 'utf8');
+      const sent = await raw(PD, `/${rel}`);
+      const script = assets.CLASSIC.has(rel);
+      const a = tokensOf(src, script);
+      const b = tokensOf(sent.text, script);
+      const sameTokens = a.out.length === b.out.length && a.out.every((x, i) => x === b.out[i]);
+      const sameBreaks = JSON.stringify(breaksOf(src, script)) === JSON.stringify(breaksOf(sent.text, script));
+      if (sent.status !== 200 || b.comments.length || !sameTokens || !sameBreaks) scriptFaults.push({ rel, status: sent.status, comments: b.comments.length, sameTokens, sameBreaks });
+    }
+    const stampedApp = await raw(PD, `/b/${build}/js/app.js`);
+    const plainApp = await raw(PD, '/js/app.js');
+    check(`every script of the page (${scripts.length}) is sent without a comment, its tokens and its line breaks as written; app.js the same under the build's stamp`,
+      scripts.length >= 12 && scriptFaults.length === 0 && stampedApp.status === 200 && stampedApp.text === plainApp.text, JSON.stringify(scriptFaults));
+    const visible = (s) => s.replace(/\s+/g, '');
+    const styleFaults = [];
+    for (const rel of outside.filter((r) => assets.kindOf(r) === 'css')) {
+      const src = fs.readFileSync(path.join(publicDir, rel), 'utf8');
+      const sent = (await raw(PD, `/${rel}`)).text;
+      const left = (sent.match(/\/\*[\s\S]*?\*\//g) || []).filter((c) => !/licen[cs]e|copyright/i.test(c));
+      const expected = src.replace(/\/\*[\s\S]*?\*\//g, (c) => (/licen[cs]e|copyright/i.test(c) ? c : ''));
+      if (left.length || visible(sent) !== visible(expected)) styleFaults.push(rel);
+    }
+    const pageFaults = [];
+    for (const [address, rel] of [['/terms', 'terms.html'], ['/privacy', 'privacy.html'], ['/refunds', 'refunds.html'], ['/contact', 'contact.html'], ['/account', 'account.html'], ['/check', 'check.html']]) {
+      const src = fs.readFileSync(path.join(publicDir, rel), 'utf8');
+      const sent = (await raw(PD, address)).text;
+      const style = (sent.match(/<style>[\s\S]*?<\/style>/g) || []).join('');
+      const expected = src.replace(/<!--[\s\S]*?-->/g, '').replace(/(<style>)([\s\S]*?)(<\/style>)/g, (m, a, css, b) => a + css.replace(/\/\*[\s\S]*?\*\//g, '') + b);
+      if (sent.includes('<!--') || /\/\*/.test(style) || visible(sent) !== visible(expected)) pageFaults.push(rel);
+    }
+    check('every style sheet and page is sent without a comment (a licence notice kept), and every other character as written',
+      styleFaults.length === 0 && pageFaults.length === 0, JSON.stringify({ styleFaults, pageFaults }));
+
+    // (b) The page in the asker's form: a reader's without the operator's parts, the operator's with them.
+    const OPERATOR_IDS = ['score-internal', 'score-cost', 'step2-gate', 'trial-bar', 'trial-model', 'trial-effort-choice', 'trial-effort', 'trial-compare-choice', 'trial-compare', 'trial-compare-words', 'trial-why', 'op-words'];
+    const idsOf = (html) => new Set([...html.matchAll(/\bid="([^"]+)"/g)].map((m) => m[1]));
+    const readerHome = (await raw(PA, '/', { cookie: reader })).text;
+    const visitorHome = (await raw(PA, '/')).text;
+    const opHome = (await raw(PA, '/', { cookie: op })).text;
+    const onlyOp = [...idsOf(opHome)].filter((id) => !idsOf(readerHome).has(id)).sort();
+    const src = fs.readFileSync(path.join(publicDir, 'index.html'), 'utf8');
+    check('a reader and a visitor receive the page without the operator\'s parts and without a comment; the operator receives it with every part; the parts are exactly the operator\'s twelve',
+      readerHome === visitorHome && readerHome === assets.stampAddresses(assets.stripPage(assets.withoutOperatorParts(src)), build)
+        && OPERATOR_IDS.every((id) => !readerHome.includes(`id="${id}"`) && opHome.includes(`id="${id}"`)) && JSON.stringify(onlyOp) === JSON.stringify([...OPERATOR_IDS].sort())
+        && !/chip-internal|class="card-cost|class="card-why"|<!--/.test(readerHome) && /class="card-cost/.test(opHome) && /class="card-why"/.test(opHome) && !opHome.includes('<!--')
+        && readerHome.includes('id="tpl-card"') && readerHome.includes('class="card-foot"') && (readerHome.match(/<label class="form-field">/g) || []).length >= 4,
+      JSON.stringify({ onlyOp, same: readerHome === visitorHome }));
+
+    // (c) The check page and its script, every way the address can be spelt: "Not found" for anyone but the operator,
+    // before anything is looked up; the page itself, however spelt, in the asker's form.
+    const CHECK = ['/check', '/check.html', '/%63heck', '/CHECK', '/check/', '/js/check.js', '/js/check%2Ejs', '/js%2Fcheck.js', '/js/./check.js', '//js/check.js', `/b/${build}/check.html`, `/b/${build}/check`, `/b/${build}/js/check.js`, `/%62/${build}/js/check.js`, '/b/abcdef123456/js/check.js'];
+    const refusedTo = async (cookie) => (await Promise.all(CHECK.map(async (a) => [a, await raw(PA, a, { cookie })]))).filter(([, r]) => r.status !== 404 || r.text !== 'Not found' || r.headers.location || !/no-store/.test(r.headers['cache-control'] || '')).map(([a, r]) => `${a}:${r.status}`);
+    const apiDots = await raw(PA, '/api/../js/check.js', { cookie: reader });
+    const notReader = [...await refusedTo(reader), ...await refusedTo(null), ...(apiDots.status === 404 ? [] : [`/api/../js/check.js:${apiDots.status}`])];
+    check(`a reader and a visitor are told "Not found" for the check page and its script however the address is spelt (${CHECK.length + 1} spellings), never sent the page or moved elsewhere`,
+      notReader.length === 0, notReader.join(' '));
+    const pageSpellings = ['/index', '/index.html', '/%69ndex.html', '/index%2Ehtml', `/b/${build}/index.html`];
+    const pageFaultsB = [];
+    for (const a of pageSpellings) {
+      const rr = await raw(PA, a, { cookie: reader });
+      const ro = await raw(PA, a, { cookie: op });
+      if (rr.status !== 200 || rr.text !== readerHome || !/no-store/.test(rr.headers['cache-control'] || '') || ro.text !== opHome) pageFaultsB.push(`${a}:${rr.status}`);
+    }
+    check('the page, however its address is spelt, is the asker\'s form of it and never kept', pageFaultsB.length === 0, pageFaultsB.join(' '));
+    const opCheck = await raw(PA, '/check', { cookie: op });
+    const opScript = await raw(PA, '/js/check.js', { cookie: op });
+    const opStamped = await raw(PA, `/b/${build}/js/check.js`, { cookie: op });
+    const openCheck = await raw(PD, '/check');
+    const openScript = await raw(PD, '/js/check.js');
+    check('the operator receives the check page and its script, never kept; on an open door everyone does, as before',
+      opCheck.status === 200 && opCheck.text.includes('id="verdict"') && /no-store/.test(opCheck.headers['cache-control'] || '') && opScript.status === 200 && opScript.text.includes('api/selftest')
+        && opStamped.status === 200 && opStamped.text === opScript.text && /no-store/.test(opStamped.headers['cache-control'] || '') && openCheck.status === 200 && openScript.status === 200,
+      JSON.stringify([opCheck.status, opScript.status, opStamped.status, openCheck.status, openScript.status]));
+
+    // (d) The vendor files: the ones the pages load, as shipped; nothing else.
+    const vendor = assets.vendorFiles({ publicDir, nodeModules: path.join(root, 'node_modules') });
+    const vendorFaults = [];
+    for (const [address, file] of vendor) {
+      const r = await raw(PD, `/vendor${address}`);
+      if (r.status !== 200 || !r.body.equals(fs.readFileSync(file)) || !/max-age=604800/.test(r.headers['cache-control'] || '')) vendorFaults.push(`${address}:${r.status}`);
+    }
+    const ROOTS = { katex: ['katex', 'dist'], marked: ['marked', 'lib'], dompurify: ['dompurify', 'dist'] };
+    const others = [];
+    for (const [pkg, parts] of Object.entries(ROOTS)) {
+      const base = path.join(root, 'node_modules', ...parts);
+      const list = (dir, rel) => { for (const d of fs.readdirSync(dir, { withFileTypes: true })) { const r = rel ? `${rel}/${d.name}` : d.name; if (d.isDirectory()) list(path.join(dir, d.name), r); else if (!vendor.has(`/${pkg}/${r}`)) others.push(`/vendor/${pkg}/${r}`); } };
+      list(base, '');
+    }
+    const otherFaults = [];
+    for (const a of [...others, '/vendor/', '/vendor/katex/fonts/', '/vendor/katex/../katex/katex.min.js']) {
+      const r = await raw(PD, a);
+      if (r.status !== 404 || r.text !== 'Not found') otherFaults.push(`${a}:${r.status}`);
+    }
+    check(`the vendor files the pages load (${vendor.size}) are sent as shipped; every other file of those packages (${others.length}, their source maps among them) is not found`,
+      vendor.size >= 60 && vendorFaults.length === 0 && others.some((o) => o.endsWith('.map')) && otherFaults.length === 0, JSON.stringify({ vendorFaults, otherFaults: otherFaults.slice(0, 8) }));
+
+    // (e) The security policy names no image host of a model service.
+    const policies = [(await raw(PA, '/')).headers['content-security-policy'] || '', (await raw(PA, '/check')).headers['content-security-policy'] || ''];
+    check('the security policy names no image host of a model service: pictures from this site, data: and blob: addresses, and the video thumbnails alone',
+      policies.every((c) => /img-src 'self' data: blob: https:\/\/\*\.ytimg\.com;/.test(c) && !/oaidalle|blob\.core\.windows\.net/.test(c)), policies[0]);
+
+    // (f) Types, ETags, 304s, HEAD and how long each is kept.
+    const TYPES = [
+      ['/js/app.js', 'text/javascript; charset=utf-8', 'no-cache'], [`/b/${build}/js/app.js`, 'text/javascript; charset=utf-8', 'public, max-age=31536000, immutable'],
+      ['/css/civic.css', 'text/css; charset=utf-8', 'no-cache'], [`/b/${build}/css/civic.css`, 'text/css; charset=utf-8', 'public, max-age=31536000, immutable'],
+      ['/locales/de.js', 'text/javascript; charset=utf-8', 'no-cache'], ['/js/field-worker.js', 'text/javascript; charset=utf-8', 'no-cache'], ['/terms', 'text/html; charset=utf-8', 'no-cache'],
+    ];
+    const typeFaults = [];
+    for (const [a, type, cache] of TYPES) {
+      const r = await raw(PD, a);
+      const etag = r.headers.etag || '';
+      const again = await raw(PD, a, { headers: { 'if-none-match': etag } });
+      const head = await raw(PD, a, { method: 'HEAD' });
+      if (r.status !== 200 || r.headers['content-type'] !== type || r.headers['cache-control'] !== cache || !/^"[\w-]{27}"$/.test(etag) || again.status !== 304 || again.body.length !== 0
+        || head.status !== 200 || head.body.length !== 0 || head.headers['content-length'] !== String(r.body.length)) typeFaults.push({ a, status: r.status, type: r.headers['content-type'], cache: r.headers['cache-control'], etag, again: again.status, head: head.headers['content-length'] });
+    }
+    const fontRel = fs.readdirSync(path.join(publicDir, 'assets', 'fonts')).find((f) => f.endsWith('.woff2'));
+    const font = await raw(PD, `/b/${build}/assets/fonts/${fontRel}`);
+    const icon = await raw(PD, '/assets/favicon.svg');
+    const keptNever = [await raw(PD, '/'), await raw(PD, '/account'), await raw(PA, '/check')].every((r) => /no-store/.test(r.headers['cache-control'] || ''));
+    check('each file is sent with its exact type, an ETag of what is sent, a 304 when it has not changed, the same length on HEAD; kept a year under the stamp and revalidated elsewhere; fonts and pictures kept, the page, the account page and a refusal never',
+      typeFaults.length === 0 && font.status === 200 && font.headers['content-type'] === 'font/woff2' && /max-age=31536000/.test(font.headers['cache-control'] || '')
+        && icon.status === 200 && icon.headers['content-type'] === 'image/svg+xml' && /max-age=604800/.test(icon.headers['cache-control'] || '') && keptNever,
+      JSON.stringify({ typeFaults, font: [font.status, font.headers['content-type']], icon: [icon.status, icon.headers['content-type']], keptNever }));
+
+    // (g) The operator's words are on the operator's page alone, never in the files everyone downloads.
+    const MOVED = ['step2.gate', 'score.cost', 'score.internal', 'card.cost', 'card.costUnknown', 'claims.avgCost'];
+    const flat = (o, pre = '') => Object.entries(o).flatMap(([k, v]) => (v && typeof v === 'object' ? flat(v, `${pre}${k}.`) : [`${pre}${k}`]));
+    const keys = new Set();
+    for (const code of ['en', 'es', 'fr', 'de']) for (const k of flat((await import(pathToFileURL(path.join(publicDir, 'locales', `${code}.js`)).href)).default)) keys.add(`${code}:${k}`);
+    const sentEveryone = (await Promise.all(['/js/app.js', '/locales/en.js', '/locales/es.js', '/locales/fr.js', '/locales/de.js'].map(async (a) => (await raw(PA, a, { cookie: reader })).text))).join('\n');
+    check('the operator\'s words (the key\'s minute, the costs, the trial\'s labels) are on the operator\'s page alone: no locale carries them, nothing everyone downloads says them, and the operator\'s page does',
+      MOVED.every((k) => ['en', 'es', 'fr', 'de'].every((c) => !keys.has(`${c}:${k}`))) && !/[Tt]okens|jetons|Est\. cost|price unknown|\(readers\)|Side by side/.test(sentEveryone)
+        && opHome.includes('data-gate="The key\'s minute:') && opHome.includes('<span class="chip chip-internal">Internal</span> <span>Est. cost</span>') && !readerHome.includes('data-gate'),
+      MOVED.filter((k) => ['en', 'es', 'fr', 'de'].some((c) => keys.has(`${c}:${k}`))).join(', '));
+  } catch (err) {
+    check('download checks ran', false, err.stack || err.message);
+  } finally {
+    for (const p of procs) { try { p.kill('SIGTERM'); } catch {} }
+  }
+}
+await downloadChecks();
 
 const failed = results.filter((r) => !r.ok);
 for (const r of results) console.log(`${r.ok ? 'PASS' : 'FAIL'}  ${r.name}${r.ok ? '' : `   ← ${r.detail}`}`);

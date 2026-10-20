@@ -27,6 +27,7 @@ civic-web/
 │   ├── extract.js     Step 1: streaming claim extraction, claims parsed as they arrive.
 │   ├── evaluate.js    Step 2: the claims, ten at a time, verdict read from the Conclusion, streaming.
 │   ├── illustrate.js  Visual echo: art direction, then the fast image model.
+│   ├── assets.js      The page's files as they are sent: without comments, the page in the operator's form or a reader's.
 │   └── documents.js   .pdf / .docx / text parsing for uploads.
 ├── public/            The page. No build step. Plain ES modules.
 │   ├── index.html · css/civic.css
@@ -227,8 +228,9 @@ the door is an account, and a test is paid from the account's credit; payments, 
 - **The operator's account** is made through a one-time link. The address in `CIVIC_OPERATOR_EMAILS` cannot be taken
   through the open form (it answers as any taken address does), because no address is verified; the link, whose SHA-256
   is `CIVIC_OPERATOR_CLAIM`, opens /account, makes the account with the operator's mark, and then opens nothing.
-  /check, its data and `/api/operator/*` are that account's alone; another account's /check is refused. FactEngine's
-  own costs (the cost chips, a job's cost line) reach the operator alone.
+  /check, its script, its data and `/api/operator/*` are that account's alone: anyone else is told /check is not found.
+  FactEngine's own costs (the cost chips, a job's cost line) reach the operator alone, and their words are in the
+  operator's form of the page only.
 - **Credit** (`server/credit.js`) is an append-only ledger, and the balance is its sum. A new account's grant
   (`CIVIC_SIGNUP_GRANT_CENTS`, 1000: $10) is written with the account. A priced test's price is held when it starts,
   in the same transaction that decides whether it is free, under a lock on the account, so two tabs cannot spend one
@@ -635,7 +637,8 @@ The image is a picture, not a determination, and the operator asked for the fast
 http://localhost:3000/check
 ```
 
-Asks the server what is wrong and answers in sentences: whether both prompts are installed, whether
+With accounts on, open it signed in as the operator; anyone else is told it is not found. With `CIVIC_ACCOUNTS=off`
+it is everyone's, as is the rest of the page. It asks the server what is wrong and answers in sentences: whether both prompts are installed, whether
 a key is configured, whether OpenAI accepts that key, and whether the key may use the configured
 model. The model check reads the model's description rather than running it, so it spends nothing.
 Each failure carries the step that fixes it, and the page lists recent failures from both the server
@@ -710,6 +713,14 @@ an entry is read by, are kept with the prompts (`CIVIC_OUTPUT_NAMES`, or `CIVIC_
 never a word of it, and `/check` names the list by its fingerprint. The leak check reports what it finds by
 fingerprint, never by its text.
 
+**What anyone can download** (`server/assets.js`, 20 October). Every script, style sheet and page of FactEngine's own
+is sent without its comments, every other character as written (a licence notice stays); each is read at start-up, and
+one that cannot be read stops the start, naming it. The page comes in two forms: the operator's, and everyone else's
+without the operator's parts (the cost, the key's minute, the trial bar), which sit between `op` marks in
+`public/index.html`; their words are in those parts, not in the four locales. A sign-in or sign-out that changes the
+form loads the page again once nothing is running. `/check` and its script are the operator's, however the address is
+spelt. Of the vendor packages, only the files the pages load are sent, as shipped; their source maps are not.
+
 ## Models
 
 | Step | Default | Why |
@@ -732,7 +743,9 @@ No token figure appears anywhere on the page or in what the page receives (the o
 The echo is off since 19 October, on the operator's word after its box appeared and vanished with no picture: "Just
 comment it out for now until I decide whether and when to ask for it back." Its checkbox (`public/index.html`) and the
 call that starts it (`startRun` in `public/js/app.js`) are commented out, and uncommenting both brings it back as it
-was. The server's route and the rest of the code are unchanged.
+was. The server's route and the rest of the code are unchanged. The echo's picture comes as a `data:` address, so the
+security policy names no image service's host while the echo is off; if it ever comes back by the service's own
+address, that host goes back into `img-src`.
 
 An image model handed raw document text returns something generic. Stage one therefore reads the
 document and writes a specific brief — subject, setting, foreground, light, palette, lens — and

@@ -1,7 +1,6 @@
 // FactEngine main-page server. Serves the page, keeps the prompts, and sends every model request on
 // the operator's key (no reader ever holds one). Nothing under server/ is ever served as a static file.
 import crypto from 'node:crypto';
-import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
@@ -32,7 +31,7 @@ import { whereTheShellSetsIt } from './key.js';
 import { record as recordFailure } from './diagnostics.js';
 import { buildStamp } from './build.js';
 import { takeOverPort } from './port.js';
-import { gate, required as signinRequired, isOperator } from './access.js';
+import { gate, required as signinRequired, isOperator, sessionOf } from './access.js';
 import * as accounts from './accounts.js';
 import * as credit from './credit.js';
 import { mountAccountRoutes } from './account-routes.js';
@@ -40,9 +39,11 @@ import { dbOn, migrate } from './db.js';
 import { registry } from './tools/index.js';
 import { mountGateway } from './tools/gateway.js';
 import * as economics from './economics.js';
+import * as assets from './assets.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const publicDir = path.join(here, '..', 'public');
+const nodeModules = path.join(here, '..', 'node_modules');
 
 // The version stamp covers the page and the server alike (see build.js). The page is served with
 // no caching and its assets under /b/<stamp>/, so an updated FactEngine cannot be hidden behind a
@@ -52,19 +53,44 @@ const publicDir = path.join(here, '..', 'public');
 const BUILD = buildStamp();
 
 // The page itself is never cached, and the addresses of its stylesheet and its entry script carry
-// the stamp, so a new version is fetched the moment it exists.
-// Every front-end file is served under /b/<stamp>/. Because a module's own imports resolve against
-// its address, one versioned entry point carries the whole graph: js/api.js, js/render.js, the
-// locales and the stylesheet all arrive at new addresses the moment anything changes. A version in
-// a query string would not have done this — the inner imports would have kept their old addresses,
-// and a browser holding yesterday's copy of one of them would go on running it.
-const INDEX_HTML = fs.readFileSync(path.join(publicDir, 'index.html'), 'utf8')
-  .replace(/(href=")(css\/[^"]+\.css")/g, `$1/b/${BUILD}/$2`)
-  .replace(/(src=")(js\/app\.js")/g, `$1/b/${BUILD}/$2`);
-function sendIndex(req, res) {
-  res.setHeader('Cache-Control', 'no-store');
-  res.type('html').send(INDEX_HTML);
+// the stamp, so a new version is fetched the moment it exists (server/assets.js, stampAddresses). A
+// version in a query string would not have done this: the inner imports would have kept their old
+// addresses, and a browser holding yesterday's copy of one of them would go on running it.
+//
+// What the server sends of the page (server/assets.js, 20 October): every script, style sheet and page
+// without its comments, the page in the operator's form or a reader's, and the vendor files the pages
+// load. All of it is read here, before the door opens: a file that cannot be read stops the start,
+// naming it.
+let pageFiles;
+try {
+  pageFiles = assets.prepare({ publicDir, build: BUILD, nodeModules });
+} catch (err) {
+  console.error(`\nSTOPPED: ${err?.message || err}, so this FactEngine did not start.\n`);
+  process.exit(1);
 }
+const vendorFiles = pageFiles.vendor;
+
+// Whose page it is: the operator's form for the operator, and for everyone on an open door (CIVIC_ACCOUNTS=off), as
+// before; a reader's for anyone else. A session that cannot be read gets a reader's page.
+async function operatorHere(req) {
+  if (!signinRequired()) return true;
+  try {
+    return isOperator(await sessionOf(req));
+  } catch (err) {
+    console.error('[accounts] a session could not be read for a page:', err?.message || err);
+    return false;
+  }
+}
+async function sendIndex(req, res, next) {
+  try {
+    const page = assets.indexPage({ publicDir, build: BUILD, operator: await operatorHere(req) });
+    res.setHeader('Cache-Control', 'no-store');
+    res.type('html').send(page);
+  } catch (err) {
+    next(err);
+  }
+}
+const notFound = (res) => res.status(404).set('Cache-Control', 'no-store').type('text/plain').send('Not found');
 
 const app = express();
 app.disable('x-powered-by');
@@ -74,7 +100,9 @@ app.set('trust proxy', 1);
 // handler and never met the gate. Now it is nobody's route.
 app.set('case sensitive routing', true);
 
-// Security headers. Scripts, styles and fonts are all our own files (fonts are self-hosted).
+// Security headers. Scripts, styles and fonts are all our own files (fonts are self-hosted). The echo's picture comes as
+// a data: address (server/illustrate.js); were it to come back by the image service's own address, that host goes back
+// into img-src with it.
 app.use((req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
@@ -83,7 +111,7 @@ app.use((req, res, next) => {
   res.setHeader(
     'Content-Security-Policy',
     "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; " +
-      "img-src 'self' data: blob: https://oaidalleapiprodscus.blob.core.windows.net https://*.ytimg.com; " +
+      "img-src 'self' data: blob: https://*.ytimg.com; " +
       "frame-src https://www.youtube-nocookie.com; " + // the player of a video under test, and its thumbnail above
       "connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'",
   );
@@ -99,11 +127,15 @@ app.use('/api', gate);
 // Big enough to carry a whole document; no limit of ours applies unless CIVIC_MAX_SOURCE_CHARS is set.
 app.use(express.json({ limit: '64mb' }));
 
-// Vendor scripts for the browser (served read-only from node_modules).
-const nodeModules = path.join(here, '..', 'node_modules');
-app.use('/vendor/marked', express.static(path.join(nodeModules, 'marked', 'lib'), { immutable: true, maxAge: '7d' }));
-app.use('/vendor/dompurify', express.static(path.join(nodeModules, 'dompurify', 'dist'), { immutable: true, maxAge: '7d' }));
-app.use('/vendor/katex', express.static(path.join(nodeModules, 'katex', 'dist'), { immutable: true, maxAge: '7d' })); // typesets the formulas the model writes; its fonts come from here too
+// Vendor scripts for the browser, read-only from node_modules: the files the pages load and no others (server/assets.js),
+// each as shipped, licence notices and all. KaTeX typesets the formulas the model writes, and its fonts come from here
+// too. Anything else under /vendor, a source map included, is not found.
+app.use('/vendor', (req, res, next) => {
+  if (req.method !== 'GET' && req.method !== 'HEAD') return next();
+  const file = vendorFiles.get(req.path);
+  if (!file) return notFound(res);
+  res.sendFile(file, { maxAge: '7d', immutable: true }, (err) => { if (err && !res.headersSent) next(err); });
+});
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -123,7 +155,7 @@ mountGateway(app, { registry, pass: config.toolsPass, version: BUILD });
 // to, stops and lets go of its own jobs and no others.
 const ownerOf = (req) => (req.account?.user ? `u:${req.account.user.id}` : null);
 // Who sees the whole of the work: the operator, and anyone on an open door. Everyone else sees their run through the
-// reader's view (server/view.js): the work and its results, never how it is done or what it costs FactEngine.
+// reader's view (server/view.js): every output, under the operator's names, and never what it costs FactEngine.
 const seesAll = (req) => !signinRequired() || isOperator(req.account);
 const viewFor = (req) => (seesAll(req) ? null : readerView());
 // With accounts on, the books must be readable for anything to be held or run: a wait, never a free test.
@@ -454,25 +486,49 @@ app.post('/api/illustrate', wrap(async (req, res) => {
 // ---- Static site ---------------------------------------------------------------------------
 
 app.get('/', sendIndex);
-app.get('/index.html', sendIndex);
-app.get('/check', (req, res) => { res.setHeader('Cache-Control', 'no-store'); res.sendFile(path.join(publicDir, 'check.html')); });
-app.get('/account', (req, res) => { res.setHeader('Cache-Control', 'no-store'); res.sendFile(path.join(publicDir, 'account.html')); });
 
-// The stamped copy. These addresses change whenever the files do, so they are safe to keep forever.
-app.use(`/b/${BUILD}`, express.static(publicDir, { index: false, immutable: true, maxAge: '365d' }));
+// The page's own files (server/assets.js), however their addresses are spelt: a script, a style sheet or a page without
+// its comments; the page in the asker's form; the check page and its script for the operator alone, and "Not found" for
+// anyone else before anything is looked up. Under this build's stamp a script or a style sheet is kept forever (the
+// stamp changes whenever any of them does); elsewhere it is revalidated by its ETag on every load; the check page and the
+// account page are never kept. Fonts and pictures (assets/) are sent as they are, below.
+const TYPES = { js: 'text/javascript; charset=utf-8', css: 'text/css; charset=utf-8', html: 'text/html; charset=utf-8' };
+app.use(async (req, res, next) => {
+  if (req.method !== 'GET' && req.method !== 'HEAD') return next();
+  try {
+    const at = assets.pageFileOf(req.path, BUILD);
+    if (!at) return next();
+    if (at.name.endsWith('.map')) return notFound(res);
+    if (at.operatorOnly && !(await operatorHere(req))) return notFound(res);
+    if (!at.kind || at.trailing) return next();
+    if (at.name === 'index.html') return sendIndex(req, res, next);
+    let entry;
+    try {
+      entry = assets.served(path.join(publicDir, at.rel), at.rel);
+    } catch (err) {
+      // A file edited while FactEngine runs that cannot be read: said here and on /check, and never sent as written.
+      console.error('[page]', err?.message || err);
+      recordFailure({ where: 'server:page', code: 'page_unreadable', message: 'A file of the page could not be read.', detail: err?.message || null });
+      return res.status(500).set('Cache-Control', 'no-store').type('text/plain').send('This file could not be read.');
+    }
+    if (!entry) return next();
+    res.setHeader('Content-Type', TYPES[entry.kind]);
+    res.setHeader('ETag', entry.etag);
+    res.setHeader('Cache-Control', at.operatorOnly || at.name === 'account.html' ? 'no-store'
+      : at.stamped && entry.kind !== 'html' ? 'public, max-age=31536000, immutable' : 'no-cache');
+    res.send(entry.bytes);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Fonts and pictures, as they are: under this build's stamp (the style sheets there name them by their own address) and
+// at their own addresses. They never change, so they are kept.
+const assetsDir = path.join(publicDir, 'assets');
+app.use(`/b/${BUILD}/assets`, express.static(assetsDir, { index: false, redirect: false, immutable: true, maxAge: '365d' }));
+app.use('/assets', express.static(assetsDir, { index: false, redirect: false, immutable: true, maxAge: '7d' }));
 // An address from an older stamp is not this build's; send the reader to the current page.
 app.get(/^\/b\/[0-9a-f]{6,}\//, (req, res) => { res.setHeader('Cache-Control', 'no-store'); res.redirect(302, '/'); });
-app.use(express.static(publicDir, {
-  index: false,
-  extensions: ['html'],
-  etag: true,
-  lastModified: true,
-  setHeaders(res, filePath) {
-    // Code is revalidated on every load; fonts and pictures never change, so they are kept.
-    if (/\.(js|css|html)$/.test(filePath)) res.setHeader('Cache-Control', 'no-cache');
-    else res.setHeader('Cache-Control', 'public, max-age=604800, immutable');
-  },
-}));
 // The page for any address that is not the API's, in any spelling of "api": /API/anything is
 // nobody's route (routes match their case) and must not be the page either, so it is a 404.
 app.get(/^\/(?![aA][pP][iI]\/).*/, sendIndex);
@@ -517,7 +573,7 @@ function banner() {
     console.log(`      will fail. It came from ${config.key?.source}.`);
     if (o) console.log(`      Character ${o.index} of the key is ${JSON.stringify(o.char)}, which a request cannot carry.`);
     console.log('      A key copied from somewhere that shortened it for display ends this way.');
-    console.log(`      Open http://localhost:${config.port}/check for what to do about it.`);
+    console.log(`      Open http://localhost:${config.port}/check${signinRequired() ? ', signed in as the operator,' : ''} for what to do about it.`);
     console.log('');
   }
   const v = promptVersions();
@@ -548,6 +604,8 @@ function banner() {
   console.log(rs.ready
     ? `[rank] the claims are ranked ${rs.mode === 'on' ? 'for every run' : 'for the operator\'s runs (CIVIC_RANK=operator)'} on ${rs.model} at ${rs.effort}: an empirical headline first, then the top ${rs.keepPercent}% of the ranked claims, rounded up`
     : `[rank] the claims are listed unranked: ${rs.why}`);
+  // The page's files (server/assets.js): how they are sent.
+  console.log(`[page] ${pageFiles.files} scripts, style sheets and pages sent without their comments; the ${pageFiles.vendor.size} vendor files the pages load, and no others; /check and the operator's parts of the page ${signinRequired() ? 'for the operator alone' : 'for everyone (an open door)'}`);
   if (config.openaiBaseUrl) console.log(`OpenAI base URL override: ${config.openaiBaseUrl}`);
 }
 

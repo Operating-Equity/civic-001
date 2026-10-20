@@ -13,6 +13,10 @@
 </head>
 <body>
 
+<!-- The operator's parts of this page sit between two marks, "op" and "/op", each a comment alone on its line
+     (server/assets.js): anyone but the operator receives the page without them. The operator's page is in English,
+     like /check, so their words are written here rather than in the locales. -->
+
 <!-- The field: a drawn layer of mathematics behind the glass (js/field.js). Fixed to the window, so
      every panel has it behind it at any scroll depth, and it changes with the run. Decoration only:
      hidden from anyone reading the page by ear, and nothing in it can be pressed. -->
@@ -155,7 +159,9 @@
       <div class="score-meta">
         <span id="score-phase" hidden></span>
         <span id="score-unread-wrap" hidden><span data-i18n="score.unread">Verdict unread</span> <b class="mono" id="score-unread">0</b></span>
-        <span class="score-internal" id="score-internal" hidden><span class="chip chip-internal" data-i18n="score.internal">Internal</span> <span data-i18n="score.cost">Est. cost</span> <b class="mono" id="score-cost">$0.00</b></span>
+<!--op-->
+        <span class="score-internal" id="score-internal" hidden><span class="chip chip-internal">Internal</span> <span>Est. cost</span> <b class="mono" id="score-cost">$0.00</b></span>
+<!--/op-->
       </div>
       <div class="scoreboard-actions">
         <button type="button" class="btn btn-outline btn-small" id="btn-reset-top" data-i18n="reset">Start a new test</button>
@@ -189,7 +195,9 @@
             <span class="step-status" id="step2-status"></span>
           </div>
           <div class="bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="bar-eval"><i></i></div>
+<!--op-->
           <p class="step-gate" id="step2-gate" hidden></p>
+<!--/op-->
         </div>
       </div>
 
@@ -225,6 +233,7 @@
             <button type="button" class="btn btn-primary btn-small" id="btn-test-selected" disabled></button>
           </div>
         </div>
+<!--op-->
         <!-- The operator's trial (14 October): their own fact-checks on another model, beside the readers' one. Shown to
              the operator's account alone, in English, like /check; the server ignores the choice from anyone else. -->
         <div class="trial-bar" id="trial-bar" hidden>
@@ -233,6 +242,7 @@
           <label class="trial-choice" id="trial-compare-choice"><input type="checkbox" id="trial-compare"> <span id="trial-compare-words">Side by side</span></label>
           <span class="hint trial-why" id="trial-why" hidden></span>
         </div>
+<!--/op-->
         <p class="hint claims-beyond-hint" id="claims-beyond-hint"></p>
         <p class="balance-line" id="balance-line" hidden></p>
         <ol class="claims-list is-beyond" id="claims-beyond-list" start="21"></ol>
@@ -285,8 +295,10 @@
       <div class="bar bar-thin" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i></i></div>
       <span class="card-status"></span>
     </div>
+<!--op-->
     <!-- A provider's own words for the wait it asked for (Gemini, on the operator's trial), under the bar. -->
     <p class="card-why" hidden></p>
+<!--/op-->
     <p class="card-note" hidden></p>
     <div class="entry prose" hidden></div>
     <div class="card-detail" hidden>
@@ -311,7 +323,9 @@
       <span class="card-inspector"></span>
       <span class="card-log" hidden></span>
       <span class="card-model mono"></span>
+<!--op-->
       <span class="card-cost mono" hidden></span>
+<!--/op-->
       <button type="button" class="btn btn-small btn-text btn-copy"></button>
       <button type="button" class="btn btn-small btn-text btn-retry" hidden></button>
     </footer>
@@ -319,6 +333,14 @@
 </template>
 
 <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+
+<!--op-->
+<!-- The operator's words, filled in by js/app.js (opWord): the key's minute, the costs, the trial's labels. -->
+<span id="op-words" hidden
+  data-gate="The key's minute: {limit} tokens · one determination counts {cost} · {atOnce} at once, one more every {every} s"
+  data-avg-cost="About {usd} per claim in this run." data-card-cost="est. {usd}" data-card-cost-unknown="price unknown"
+  data-readers="{label} (readers)" data-side-by-side="Side by side with {label}" data-twin="Side by side · {label}"></span>
+<!--/op-->
 
 <script src="vendor/katex/katex.min.js"></script>
 <script src="vendor/marked/marked.umd.js"></script>
