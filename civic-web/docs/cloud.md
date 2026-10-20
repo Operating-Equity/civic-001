@@ -932,6 +932,8 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
   - **The names, and the headings an entry is read by,** are kept with the prompts (`CIVIC_OUTPUT_NAMES`),
     FactEngine's own words unless set; `/check` names the list by its fingerprint.
   - **The leak check** reports what it finds by fingerprint, never by its text.
+  - **Live** (20 October, 01:58 UTC): PR #78; live check clean, nothing spent. The health line gives anyone but the
+    operator its fourteen fields alone, the picture route asks for a sign-in, and the served page writes the depth line.
   - **Next, by the operator:** link Render to a GitHub login that can see a private repository, then make it private
     (Stage 1's four steps).
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
