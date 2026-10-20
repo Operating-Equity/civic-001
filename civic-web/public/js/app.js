@@ -7,7 +7,7 @@
 //      and the reasoning summary, the search trail, the cited sources and the raw text are all
 //      on the card. When the verdict cannot be read from the model's own Conclusion, the card
 //      says so instead of guessing.
-import { t, setLocale, initLocale, LOCALES, currentLocale, fmtNumber, fmtSeconds, fmtClock, fmtUsd, numberWord } from './i18n.js';
+import { t, fill, setLocale, initLocale, LOCALES, currentLocale, fmtNumber, fmtSeconds, fmtClock, fmtUsd, numberWord } from './i18n.js';
 import * as api from './api.js';
 import { $, $$, el, renderMarkdown, renderMath, setBar, toast, easeChars, easeTime, bump, copyText } from './render.js';
 import { field } from './field.js';   // the mathematics behind the glass follows the run's phase
@@ -24,6 +24,12 @@ const workOf = (trail) => {
 const searchCount = (trail) => workOf(trail).searches;
 const GLYPH = { true: '✓', false: '✕', unverified: '?', unread: '–' };
 const ROMAN = ['', 'I', 'II', 'III', 'IV', 'V', 'VI'];   // a depth as the page writes it
+// The operator's words (the key's minute, the costs, the trial's labels): on the operator's page alone (index.html,
+// #op-words), in English, filled in as the locales' are. Anywhere else, nothing.
+const opWord = (key, params = {}) => {
+  const text = document.getElementById('op-words')?.dataset[key];
+  return text ? fill(text, params) : '';
+};
 const TRIAL_KEY = 'fe.trial';   // where this browser remembers the operator's trial choice (renderTrialBar)
 
 /** A connection failure in the reader's language, from the operating system's code; the server's own words otherwise. */
@@ -37,7 +43,7 @@ const state = {
   phase: 'idle',
   server: null,        // /api/health payload, or null when no server answers
   session: null,       // { email } once a code has been accepted, when a sign-in is required
-  accounting: true,    // operator view: the estimated cost per claim
+  accounting: false,   // operator view: the estimated cost per claim, once the health line says so
   source: '',
   warnings: [],   // anything that could have cost a claim, shown at the top of the run
   claims: [],
@@ -159,6 +165,15 @@ async function boot() {
 
   wireIntake();
   wireAccount();
+  // The text kept across a load that followed a sign-in or a sign-out (followAccount), put back once.
+  try {
+    const kept = sessionStorage.getItem(KEEP);
+    if (kept !== null) {
+      sessionStorage.removeItem(KEEP);
+      ui.source.value = kept;
+      updateSourceMeta();
+    }
+  } catch { /* nothing kept */ }
   ui.resetTop.addEventListener('click', resetAll);
   ui.reset.addEventListener('click', resetAll);
   ui.selectAll.addEventListener('click', toggleSelectAll);
@@ -167,17 +182,20 @@ async function boot() {
   // press is the operator's setting, and the rest is the reader's). The report button still says
   // reports come later.
   ui.testSelected.addEventListener('click', testSelected);
-  // The operator's trial (server/trial.js): the choice is theirs, remembered in this browser, sent with each claim.
-  ui.trialModel.addEventListener('change', () => {
-    // An entry is a model, and for Gemini its level too ("argon medium and argon high"): the level is the entry itself.
-    const entry = trialEntries().find((e) => entryKey(e) === ui.trialModel.value) || null;
-    state.trialChoice.model = entry ? entry.model : '';
-    if (entry?.fixed) state.trialChoice.effort = entry.effort;
-    else if (entry && !entry.efforts.includes(state.trialChoice.effort)) state.trialChoice.effort = entry.effort;
-    saveTrialChoice(); renderTrialBar(); renderBeyondTools();
-  });
-  ui.trialEffort.addEventListener('change', () => { state.trialChoice.effort = ui.trialEffort.value; saveTrialChoice(); });
-  ui.trialCompare.addEventListener('change', () => { state.trialChoice.compare = ui.trialCompare.checked; saveTrialChoice(); });
+  // The operator's trial (server/trial.js): the choice is theirs, remembered in this browser, sent with each claim. Its
+  // bar is on the operator's page alone (server/assets.js).
+  if (ui.trialBar) {
+    ui.trialModel.addEventListener('change', () => {
+      // An entry is a model, and for Gemini its level too ("argon medium and argon high"): the level is the entry itself.
+      const entry = trialEntries().find((e) => entryKey(e) === ui.trialModel.value) || null;
+      state.trialChoice.model = entry ? entry.model : '';
+      if (entry?.fixed) state.trialChoice.effort = entry.effort;
+      else if (entry && !entry.efforts.includes(state.trialChoice.effort)) state.trialChoice.effort = entry.effort;
+      saveTrialChoice(); renderTrialBar(); renderBeyondTools();
+    });
+    ui.trialEffort.addEventListener('change', () => { state.trialChoice.effort = ui.trialEffort.value; saveTrialChoice(); });
+    ui.trialCompare.addEventListener('change', () => { state.trialChoice.compare = ui.trialCompare.checked; saveTrialChoice(); });
+  }
   ui.report.addEventListener('click', () => toast(t('report.soon')));
   // Leaving the page is the one way, besides Start a new test, that a run is stopped: the server
   // keeps working through a cut connection, so it has to be told when nobody will come back.
@@ -271,6 +289,7 @@ function closeAccountBox({ abandon = false } = {}) {
   const e = new Error('sign-in abandoned'); e.name = 'AbortError'; p.reject(e);
   // The action that needed the account is abandoned with it: a run in progress stops, the text stays.
   if (state.phase === 'extracting' || state.phase === 'evaluating') {
+    if (pageStale) { reloadPage({ keepText: true }); return; }
     const text = ui.source.value;
     resetAll();
     ui.source.value = text;
@@ -382,6 +401,7 @@ async function signedIn(session) {
   const p = pendingSignIn;
   pendingSignIn = null;
   ui.accountBox.hidden = true;
+  if (followAccount({ now: !p })) return;   // an action waiting on the account goes on; the page follows it later
   p?.resolve();
 }
 
@@ -389,8 +409,32 @@ async function signOut() {
   try { await api.signout(); } catch { /* the cookie is gone either way */ }
   state.session = null;
   state.accounting = false;
+  if (state.server) state.server.trial = null;
+  if (followAccount({ now: true })) return;
   renderNav();
   renderBeyondTools();
+}
+
+// The page's parts follow the account (server/assets.js): the operator's page carries the operator's parts, anyone
+// else's does not. A sign-in or a sign-out that changes which page this account should have loads the page again: at
+// once when nothing is running, else at the next Start a new test, so no run and no result is lost to it. The text in
+// the box is kept across the load. A page never loads itself again otherwise.
+const KEEP = 'fe.keep';
+let pageStale = false;
+const quiet = () => state.phase === 'idle' && !state.jobs.size && !state.urlAbort && !state.copiesAbort;
+function reloadPage({ keepText }) {
+  try {
+    if (keepText && ui.source.value) sessionStorage.setItem(KEEP, ui.source.value);
+    else sessionStorage.removeItem(KEEP);
+  } catch { /* the text is not kept; the page still loads */ }
+  location.reload();
+}
+function followAccount({ now }) {
+  const operatorPage = Boolean(document.getElementById('op-words'));
+  pageStale = (!required() || Boolean(state.session?.operator)) !== operatorPage;
+  if (!pageStale || !now || !quiet()) return false;
+  reloadPage({ keepText: true });
+  return true;
 }
 
 /** The balance after a hold, a charge or a release: the nav and the line under the claims say it. */
@@ -772,6 +816,7 @@ function resetRunState() {
 }
 
 function resetAll() {
+  if (pageStale) { reloadPage({ keepText: false }); return; }   // the page this account should have (followAccount)
   resetRunState();
   field.setPhase('idle');
   hideCopies();
@@ -849,7 +894,7 @@ function renderGateLine() {
   if (!ui.step2Gate) return;
   if (!g) { ui.step2Gate.hidden = true; ui.step2Gate.textContent = ''; return; }
   ui.step2Gate.hidden = false;
-  ui.step2Gate.textContent = t('step2.gate', { limit: fmtNumber(g.limit), cost: fmtNumber(g.cost), atOnce: g.atOnce, every: Math.max(1, Math.round(g.everyMs / 1000)) });
+  ui.step2Gate.textContent = opWord('gate', { limit: fmtNumber(g.limit), cost: fmtNumber(g.cost), atOnce: g.atOnce, every: Math.max(1, Math.round(g.everyMs / 1000)) });
 }
 
 function renderWarnings() {
@@ -1231,7 +1276,7 @@ function renderBeyondTools() {
   renderBalanceLine(selected);
   let hint = '';
   if (busy) hint = t('claims.afterFirst');
-  else if (!pricingNow() && state.accounting && averageCost() !== null) hint = t('claims.avgCost', { usd: fmtUsd(averageCost()) });
+  else if (!pricingNow() && state.accounting && averageCost() !== null) hint = opWord('avgCost', { usd: fmtUsd(averageCost()) });
   ui.beyondHint.textContent = hint;
   renderPriceLine();
   renderTrialBar();
@@ -1249,7 +1294,7 @@ function saveTrialChoice() {
 }
 
 /** The trial the server offers this page (the operator's alone), or null. */
-const trialOffer = () => state.server?.trial || null;
+const trialOffer = () => (ui.trialBar ? state.server?.trial || null : null);   // the bar is on the operator's page alone
 
 /**
  * The pull-down's entries as the server offers them: DeepSeek V4 Pro once, with its efforts beside it; Gemini once per
@@ -1276,6 +1321,7 @@ function trialNow() {
 }
 
 function renderTrialBar() {
+  if (!ui.trialBar) return;
   const offer = trialOffer();
   const open = state.beyond.some((b) => !b.tested);
   ui.trialBar.hidden = !offer || !open;
@@ -1283,7 +1329,7 @@ function renderTrialBar() {
   const busy = state.phase === 'evaluating' || state.phase === 'extracting';
   const entries = trialEntries();
   // An entry that cannot run here is shown, and cannot be chosen; its reason is said below.
-  const options = [{ key: '', label: `${offer.readers.label} (readers)`, ready: true }, ...entries.map((e) => ({ key: entryKey(e), label: e.label, ready: e.ready }))];
+  const options = [{ key: '', label: opWord('readers', { label: offer.readers.label }), ready: true }, ...entries.map((e) => ({ key: entryKey(e), label: e.label, ready: e.ready }))];
   const have = [...ui.trialModel.options].map((o) => `${o.value}:${o.disabled}`).join('|');
   if (have !== options.map((o) => `${o.key}:${!o.ready}`).join('|')) {
     ui.trialModel.replaceChildren(...options.map((o) => el('option', { value: o.key, text: o.label, disabled: !o.ready })));
@@ -1296,7 +1342,7 @@ function renderTrialBar() {
   if ([...ui.trialEffort.options].map((o) => o.value).join('|') !== efforts.join('|')) ui.trialEffort.replaceChildren(...efforts.map((e) => el('option', { value: e, text: e })));
   if (efforts.length) ui.trialEffort.value = efforts.includes(state.trialChoice.effort) ? state.trialChoice.effort : chosen.effort;
   ui.trialCompare.checked = Boolean(state.trialChoice.compare);
-  ui.trialCompareWords.textContent = `Side by side with ${offer.readers.label}`;
+  ui.trialCompareWords.textContent = opWord('sideBySide', { label: offer.readers.label });
   ui.trialEffortChoice.hidden = !efforts.length;
   ui.trialCompareChoice.hidden = !trial;
   for (const c of [ui.trialModel, ui.trialEffort, ui.trialCompare]) c.disabled = busy;
@@ -1309,7 +1355,7 @@ function renderTrialBar() {
 function twinCard(b, label) {
   const card = buildCard(b, b.n);
   card.classList.add('is-twin');
-  $('.card-claim', card).prepend(el('span', { class: 'card-twin mono', text: `Side by side · ${label}` }), el('br'));
+  $('.card-claim', card).prepend(el('span', { class: 'card-twin mono', text: opWord('twin', { label }) }), el('br'));
   b.node.closest('li').after(el('li', { class: 'is-twin' }, [card]));
   return card;
 }
@@ -1895,11 +1941,11 @@ function renderCardFoot(i) {
   else modelNode.textContent = '';
   modelNode.classList.toggle('is-fallback', Boolean(r.fellBack));
   modelNode.title = r.fellBack?.used ? t('warn.modelFallback', { used: r.fellBack.used, requested: r.fellBack.requested }) : r.fellBack ? t('warn.fallback') : '';
-  const costNode = $('.card-cost', card);
-  if (state.accounting && r.status === 'done' && r.cost) {
-    costNode.textContent = r.cost.priced ? t('card.cost', { usd: fmtUsd(r.cost.usd) }) : t('card.costUnknown');
+  const costNode = $('.card-cost', card);   // the operator's page alone
+  if (costNode && state.accounting && r.status === 'done' && r.cost) {
+    costNode.textContent = r.cost.priced ? opWord('cardCost', { usd: fmtUsd(r.cost.usd) }) : opWord('cardCostUnknown');
     costNode.hidden = false;
-  } else costNode.hidden = true;
+  } else if (costNode) costNode.hidden = true;
   $('.btn-copy', card).textContent = t('card.copy');
   $('.btn-copy', card).hidden = r.status !== 'done';
   $('.btn-retry', card).hidden = r.status !== 'error';
@@ -1974,8 +2020,10 @@ function renderScoreboard(bumped) {
   ui.scoreUnv.textContent = fmtNumber(state.counts.unverified);
   ui.scoreUnreadWrap.hidden = state.unread === 0;
   ui.scoreUnread.textContent = fmtNumber(state.unread);
-  ui.scoreInternal.hidden = !state.accounting;
-  ui.scoreCost.textContent = fmtUsd(state.cost) + (state.unpriced ? '+' : '');
+  if (ui.scoreInternal) {   // the operator's page alone
+    ui.scoreInternal.hidden = !state.accounting;
+    ui.scoreCost.textContent = fmtUsd(state.cost) + (state.unpriced ? '+' : '');
+  }
   if (bumped) bump({ true: ui.scoreTrue, false: ui.scoreFalse, unverified: ui.scoreUnv }[bumped]);
 }
 

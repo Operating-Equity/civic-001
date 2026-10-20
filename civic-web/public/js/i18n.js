@@ -37,6 +37,11 @@ export function t(key, params = {}) {
   }
   if (text === undefined) text = lookup(current.bundle, key) ?? lookup(en, key);
   if (text === undefined) return key;
+  return fill(text, params);
+}
+
+/** A sentence with its {param}s filled in: the bundles' own, and the operator's words the operator's page carries. */
+export function fill(text, params = {}) {
   return String(text).replace(/\{(\w+)\}/g, (m, name) => (params[name] !== undefined ? formatParam(params[name]) : m));
 }
 

@@ -80,12 +80,6 @@ export const activity = (before) => get(`api/account/activity${before ? `?before
 export const setLimit = (cents) => post('api/account/limit', { cents });
 export const changePassword = ({ current, next }) => post('api/account/password', { current, next });
 export const deleteAccount = ({ password }) => post('api/account/delete', { password });
-// The operator's tools, on /check.
-export const operatorAccounts = () => get('api/operator/accounts');
-export const operatorCredit = ({ userId, cents, note }) => post('api/operator/credit', { userId, cents, note });
-export const operatorResetLink = ({ userId }) => post('api/operator/reset-link', { userId });
-export const operatorBlock = ({ userId, blocked }) => post('api/operator/block', { userId, blocked });
-export const operatorDelete = ({ userId }) => post('api/operator/delete', { userId });
 
 export async function health() {
   const res = await fetch('api/health', { cache: 'no-store' });

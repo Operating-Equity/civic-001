@@ -101,7 +101,8 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
   showing the process to a reader, flagged for the operator's word: the per-card model line, "What
   the model says it is doing", the searches count, the Internal cost chip
   (`CIVIC_INTERNAL_ACCOUNTING`), the raw extraction view, the check page for any code holder, the
-  served scripts' comments, and the public repository itself.
+  served scripts' comments, and the public repository itself. (Since 20 October the served files carry no comments,
+  and the cost chip and the check page are the operator's alone.)
 - **18 September, 22:09 UTC: four at once.** The operator's run of 19:14 UTC on the three-at-once
   build (one extraction, one determination, the picture through the edit route, no wait) put the
   key's current figures on the check page: gpt-5.6-sol 2,000,000 tokens a minute, 5,000 requests a
@@ -876,7 +877,7 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
     - **The health line** reads `extract.effort: "low"` and `rank.effort: "low"`. The boot lines read "extraction
       requests … reasoning.effort low" and "[rank] … on deepseek-flash at low".
     - **The served page** has the echo's checkbox and its call inside comments, and the card's `Google:` line for a
-      provider's refusal.
+      provider's refusal. (Since 20 October the served page carries no comments; the checkbox is in the source alone.)
 - **19 October, evening: a link FactEngine cannot read is read through the search service's reader.** The operator:
   "Do you try to read pages in 'Reader' mode instead of the full browser page first? I have found that more
   successful." Then: "If the server-side or service used can be set to 'reader' on failure and it works, that's what I
@@ -936,6 +937,17 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
     operator its fourteen fields alone, the picture route asks for a sign-in, and the served page writes the depth line.
   - **Next, by the operator:** link Render to a GitHub login that can see a private repository, then make it private
     (Stage 1's four steps).
+- **20 October: what anyone can download.** Step two of the operator's four (`server/assets.js`).
+  - **The page's files are sent without their comments:** every script, style sheet and page, each read at start-up;
+    one that cannot be read stops the start, naming it. A licence notice stays, and the vendor files go as shipped.
+  - **The page in the asker's form:** anyone but the operator receives it without the operator's parts (the cost, the
+    key's minute, the trial bar); their words now live in those parts, not in the four locales. A sign-in or sign-out
+    that changes the form loads the page again once nothing is running, keeping the text in the box.
+  - **/check and its script are the operator's,** however the address is spelt; anyone else is told "Not found".
+    Until now the page and the check page could also be had, as written, at addresses such as `/index`,
+    `/check.html` and `/b/<stamp>/js/check.js`.
+  - **Only the vendor files the pages load** are sent; their source maps and the rest of the packages are not found.
+  - **The security policy** names no image service's host while the echo is off.
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 
@@ -1036,7 +1048,8 @@ the code gates; the email is recorded, not checked; no database.
 
 1. **Sign-in by code.** `server/access.js` reads `CIVIC_ACCESS_CODES` (comma-separated). When it
    is set: every `/api/*` route except `/api/health` and `/api/signin` requires the sign-in
-   cookie; the page itself, its files and `/check`'s HTML stay public; `/check`'s data
+   cookie; the page itself, its files and `/check`'s HTML stay public (until 20 October: since then /check and its
+   script are the operator's alone); `/check`'s data
    (`/api/selftest`) needs the cookie, and the check page says "Sign in on the main page first"
    when it lacks one. `POST /api/signin { email, code }`: the code is compared case-insensitively
    against the list; on a match the cookie is set: email, the code's hash, and an HMAC keyed by
