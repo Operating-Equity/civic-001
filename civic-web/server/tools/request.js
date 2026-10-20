@@ -41,6 +41,14 @@ export function gatewayTools(door) {
   return gatewayOn() && door ? [gatewayEntry(`${config.gatewayUrl}/t/${door}`)] : [];
 }
 
+/** What a step of the research did, in a plain word for the reader's work log, never naming the tool that did it:
+ *  'search', 'open' or 'find' (a web search's own actions), 'read' (a page read through FactEngine's reader) or
+ *  'transcript'. */
+export function verbOf(step) {
+  if (step?.kind === 'tool') return step.name === 'search_web' ? 'search' : step.name === 'get_transcript' ? 'transcript' : 'read';
+  return step?.kind === 'open_page' ? 'open' : step?.kind === 'find_in_page' ? 'find' : 'search';
+}
+
 /** The trail step for an `mcp_call` output item: the verb, what it was asked, and how it ended. Fireworks may
  *  carry the call's name and arguments in an `mcp` object of the item rather than on it. */
 export function toolStep(item) {
@@ -52,6 +60,7 @@ export function toolStep(item) {
   const error = call.error == null ? null : typeof call.error === 'string' ? call.error : call.error.message || call.error.code || 'failed';
   return {
     kind: 'tool',
+    verb: verbOf({ kind: 'tool', name: call.name }),
     name: call.name || null,
     source: args.source || null,
     url: args.url || null,

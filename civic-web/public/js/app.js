@@ -14,8 +14,16 @@ import { field } from './field.js';   // the mathematics behind the glass follow
 
 const MAX_CLAIMS = 10; // the most one request carries (the page sends one claim per request, so this bounds nothing it does); how many run without a press is the server's figure (autoFirst)
 const IN_FLIGHT = 10; // claims in flight at once when no server answers; the server's own figure wins (see inFlight below)
-const searchCount = (trail) => (trail || []).filter((s) => s.kind !== 'tool' || s.name === 'search_web').length; // the web searches in a trail, FactEngine's own search among them; reading a page is a step of its own
+// What a claim's research did, counted from each step's plain word (server/view.js): searches, and pages read.
+const workOf = (trail) => {
+  let searches = 0;
+  let pages = 0;
+  for (const s of trail || []) { if (s?.verb === 'open' || s?.verb === 'read' || s?.verb === 'transcript') pages++; else if (s?.verb) searches++; }
+  return { searches, pages };
+};
+const searchCount = (trail) => workOf(trail).searches;
 const GLYPH = { true: '✓', false: '✕', unverified: '?', unread: '–' };
+const ROMAN = ['', 'I', 'II', 'III', 'IV', 'V', 'VI'];   // a depth as the page writes it
 const TRIAL_KEY = 'fe.trial';   // where this browser remembers the operator's trial choice (renderTrialBar)
 
 /** A connection failure in the reader's language, from the operating system's code; the server's own words otherwise. */
@@ -711,7 +719,7 @@ async function startRun() {
 function newResult() {
   return {
     status: 'pending', phase: 'pending', text: '', reasoning: '', chars: 0, startedAt: 0,
-    verdict: null, verdictSource: 'none', confidence: null, inspector: null,
+    verdict: null, verdictSource: 'none', confidence: null, inspector: null, inspectorMark: null,
     usage: null, cost: null, ms: null, trail: [], sources: [], incomplete: null, renderAt: 0,
     jobId: null, cutFrom: null,   // the claim's job at the server, and what the row said before its connection was cut
     free: null, priceCents: null, // what the server said this one costs: one of the document's free ones, or the price
@@ -864,6 +872,7 @@ function renderWarnings() {
     let text;
     if (w.code === 'source_truncated') text = t('warn.sourceTruncated', { n: fmtNumber(w.omitted), read: fmtNumber(w.read) });
     else if (w.code === 'model_fallback') text = t('warn.modelFallback', { used: w.used, requested: w.requested });
+    else if (w.code === 'fallback') text = t('warn.fallback');
     else text = w.code;
     return el('li', { text });
   }));
@@ -1166,7 +1175,7 @@ function renderClaimsRaw() {
   const trail = state.extraction?.trail || [];
   const parts = [];
   if (reasoning) parts.push(`${t('card.details.reasoning')}\n\n${reasoning}`);
-  if (trail.length) parts.push(`${t('card.details.trail', { n: trail.length })}\n\n${trail.map((s) => `  ${s.kind === 'tool' ? s.name : s.kind}: ${s.query || s.url || s.pattern || ''}${s.kind === 'tool' && s.error ? ` · ${s.error}` : ''}`).join('\n')}`);
+  if (trail.length) parts.push(`${t('card.details.trail', { n: trail.length })}\n\n${trail.map((s) => `  ${s.kind ? (s.kind === 'tool' ? s.name : s.kind) : t(`trail.${s.verb || 'search'}`)}: ${s.query || s.url || s.pattern || ''}${s.error ? ` · ${s.error}` : ''}`).join('\n')}`);
   parts.push(state.claimsRaw);
   ui.claimsRawBody.textContent = parts.join(`\n\n${'─'.repeat(40)}\n\n`);
 }
@@ -1717,7 +1726,7 @@ function setCardState(i, stateName) {
 function renderCardStatus(i) {
   const r = state.results[i];
   const card = cardOf(i);
-  const map = { pending: 'card.pending', starting: 'card.starting', reasoning: 'card.reasoning', searching: 'card.searching', reading: 'card.reading', writing: 'card.writing', reconnecting: 'card.reconnecting', error: 'card.error' };
+  const map = { pending: 'card.pending', starting: 'card.starting', reasoning: 'card.reasoning', inspecting: 'card.reasoning', searching: 'card.searching', reading: 'card.reading', writing: 'card.writing', reconnecting: 'card.reconnecting', error: 'card.error' };
   let text;
   // The provider's own words for its wait, on a line of their own under the bar: a long reason never squeezes the status.
   const providerWait = r.phase === 'retry' && r.retryReason === 'rate_limit' && r.retryWho;
@@ -1762,9 +1771,9 @@ function finalizeCard(i, ev) {
     text: ev.text || r.text,
     reasoning: ev.reasoning || r.reasoning || '',
     verdict: ev.verdict || null, verdictSource: ev.verdictSource || 'none',
-    confidence: ev.confidence ?? null, inspector: ev.inspector || null, conclusion: ev.conclusion || null,
+    confidence: ev.confidence ?? null, inspector: ev.inspector || null, inspectorMark: ev.inspectorMark || null, conclusion: ev.conclusion || null,
     cost: ev.cost || null, ms: ev.ms ?? null,
-    model: ev.model || null, requested: ev.requested || null, fellBack: ev.fellBack || null, effort: ev.effort || null, mode: ev.mode || null,
+    model: ev.model || null, requested: ev.requested || null, fellBack: ev.fellBack || null, effort: ev.effort || null, mode: ev.mode || null, depth: ev.depth ?? null,
     trail: ev.trail?.length ? ev.trail : r.trail, sources: ev.sources?.length ? ev.sources : r.sources,
     incomplete: ev.incomplete || r.incomplete || null,
   });
@@ -1817,14 +1826,17 @@ function renderCardDetail(i) {
     $('.reasoning-body', reasoning).textContent = r.reasoning;
   } else reasoning.hidden = true;
 
+  // The steps one by one, with what each asked: the operator's by the tool's own name, a reader's in a plain word.
   const trail = $('.card-trail', card);
-  if (r.trail?.length) {
+  const steps = (r.trail || []).filter((s) => s.kind || s.query || s.url);
+  if (steps.length) {
     trail.hidden = false;
-    $('.raw-summary', trail).textContent = t('card.details.trail', { n: r.trail.length });
-    $('.trail-list', trail).replaceChildren(...r.trail.map((s) => {
+    $('.raw-summary', trail).textContent = t('card.details.trail', { n: steps.length });
+    $('.trail-list', trail).replaceChildren(...steps.map((s) => {
       // A search shows its query; one of CIVIC's tools shows its verb and what it was asked, and the source's answer if it kept the page.
-      const what = (s.query ? `“${s.query}”` : s.url || s.pattern || s.kind) + (s.kind === 'tool' && s.error ? ` · ${s.error}` : '');
-      return el('li', {}, [el('span', { class: 'trail-kind mono', text: s.kind === 'tool' ? s.name || 'tool' : s.kind || 'search' }), el('span', { text: what })]);
+      const what = (s.query ? `“${s.query}”` : s.url || s.pattern || s.kind || '') + (s.kind === 'tool' && s.error ? ` · ${s.error}` : '');
+      const kind = s.kind ? (s.kind === 'tool' ? s.name || 'tool' : s.kind) : t(`trail.${s.verb || 'search'}`);
+      return el('li', {}, [el('span', { class: 'trail-kind mono', text: kind }), el('span', { text: what })]);
     }));
   } else trail.hidden = true;
 
@@ -1860,21 +1872,32 @@ function renderCardFoot(i) {
   foot.hidden = false;
   const insp = $('.card-inspector', card);
   insp.replaceChildren();
-  if (r.inspector) insp.append(`${t('card.inspector')}: `, el('b', { text: r.inspector }));
-  // Which model actually answered, always: a downgrade must never pass unnoticed.
-  const modelNode = $('.card-model', card);
-  if (r.model) {
-    modelNode.textContent = t('card.modelLine', { model: r.model, effort: [r.effort, r.mode].filter(Boolean).join(' / ') });
-    modelNode.classList.toggle('is-fallback', Boolean(r.fellBack));
-    modelNode.title = r.fellBack ? t('warn.modelFallback', { used: r.fellBack.used, requested: r.fellBack.requested }) : '';
-  } else modelNode.textContent = '';
-  const costNode = $('.card-cost', card);
-  if (state.accounting && r.status === 'done') {
+  // A reader sees the inspector's mark ("Inspector A", server/view.js); the operator, the name the entry gives.
+  if (r.inspectorMark) insp.append(el('b', { text: r.inspectorMark }));
+  else if (r.inspector) insp.append(`${t('card.inspector')}: `, el('b', { text: r.inspector }));
+  // The work log: what the research did, counted, and how long it took.
+  const log = $('.card-log', card);
+  if (log) {
+    const work = workOf(r.trail);
     const parts = [];
-    if (r.cost) parts.push(r.cost.priced ? t('card.cost', { usd: fmtUsd(r.cost.usd) }) : t('card.costUnknown'));
-    if (searchCount(r.trail || [])) parts.push(t('card.searches', { n: searchCount(r.trail) }));
-    if (r.ms) parts.push(fmtSeconds(r.ms));
-    costNode.textContent = parts.join(' · ');
+    if (work.searches) parts.push(t('card.log.searches', { n: work.searches }));
+    if (work.pages) parts.push(t('card.log.pages', { n: work.pages }));
+    if (r.sources?.length) parts.push(t('card.log.sources', { n: r.sources.length }));
+    if (r.status === 'done' && r.ms) parts.push(fmtSeconds(r.ms));
+    log.textContent = parts.join(' · ');
+    log.hidden = parts.length === 0;
+  }
+  // Which model actually answered, always: a downgrade must never pass unnoticed. A reader is told it by its depth, in
+  // the operator's names (server/view.js); the operator, by the model's name.
+  const modelNode = $('.card-model', card);
+  if (r.model) modelNode.textContent = t('card.modelLine', { model: r.model, effort: [r.effort, r.mode].filter(Boolean).join(' / ') });
+  else if (r.depth) modelNode.textContent = t('card.engineLine', { depth: ROMAN[r.depth] || r.depth });
+  else modelNode.textContent = '';
+  modelNode.classList.toggle('is-fallback', Boolean(r.fellBack));
+  modelNode.title = r.fellBack?.used ? t('warn.modelFallback', { used: r.fellBack.used, requested: r.fellBack.requested }) : r.fellBack ? t('warn.fallback') : '';
+  const costNode = $('.card-cost', card);
+  if (state.accounting && r.status === 'done' && r.cost) {
+    costNode.textContent = r.cost.priced ? t('card.cost', { usd: fmtUsd(r.cost.usd) }) : t('card.costUnknown');
     costNode.hidden = false;
   } else costNode.hidden = true;
   $('.btn-copy', card).textContent = t('card.copy');
@@ -1904,7 +1927,7 @@ function renderCardError(i) {
   // so in its own sentence, which is not a fault.
   const own = r.errorCode === 'credit_short' || r.errorCode === 'month_limit' || r.errorCode === 'already_tested';
   // A provider that refuses outright (Gemini at a limit of 0, on the operator's trial) is named, with its own sentence.
-  const why = r.errorCode === 'quota_exhausted' ? `${t('card.quota')} (${r.error || ''})` : r.errorWho && r.error ? `${r.errorWho}: ${r.error}` : (r.error || '');
+  const why = r.errorCode === 'quota_exhausted' ? (r.error ? `${t('card.quota')} (${r.error})` : t('card.quota')) : r.errorWho && r.error ? `${r.errorWho}: ${r.error}` : (r.error || '');
   msg.replaceChildren(document.createTextNode(own ? why : `${t('card.error')} ${why}`.trim()),
     el('button', { type: 'button', class: 'btn btn-small btn-text', text: t('card.retryBtn'), onclick: () => retryClaim(i) }));
   $('.card-brief', card).hidden = true;

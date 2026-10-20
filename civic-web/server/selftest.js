@@ -20,6 +20,7 @@ import { whereTheShellSetsIt } from './key.js';
 import { gateStates } from './gate.js';
 import { readers as readersNow } from './jobs.js';
 import { silentSites } from './fetchurl.js';
+import { names } from './names.js';
 import { searchOn, readerOn } from './copies.js';
 import { registry } from './tools/index.js';
 import { toolsOn, gatewayOn } from './tools/request.js';
@@ -279,6 +280,11 @@ export async function selftest({ apiKey, build, operator = true }) {
     else checks.push(bad(`The ${label} prompt is missing`, 'Without it, nothing can be tested.',
       `Point CIVIC_PROMPT_${name.toUpperCase()}_FILE at the prompt file, or place it at server/prompts/${name}.txt.`));
   }
+  // The words the entries are read by (server/names.js): FactEngine's own, or the operator's list from the vault, by its
+  // fingerprint and never its words.
+  checks.push(ok('The entries are read by their headings', names.installed
+    ? `By your own list (#${names.installed}, ${names.keys} name${names.keys === 1 ? '' : 's'} set), kept beside the prompts. A reader sees each inspector as ${names.inspector.replace('{initial}', 'A')}, by the first letter of the name.`
+    : `By FactEngine's own words: no list is set (CIVIC_OUTPUT_NAMES or CIVIC_OUTPUT_NAMES_FILE). A reader sees each inspector as ${names.inspector.replace('{initial}', 'A')}, by the first letter of the name.`));
   // The ranking (server/rank.js, 16 October) is the one optional prompt: without it the claims are listed unranked, as
   // they were before, so its absence is said and never stops anything.
   const ranking = rankState();

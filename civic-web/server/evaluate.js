@@ -33,7 +33,7 @@ import { record as recordFailure } from './diagnostics.js';
 import { estimateTextCost } from './pricing.js';
 import { record, claimHash } from './ledger.js';
 import { parseEntry, conclusionExcerpt } from './verdict.js';
-import { requestTools, toolStep, searchCount } from './tools/request.js';
+import { requestTools, toolStep, searchCount, verbOf } from './tools/request.js';
 import { registry } from './tools/index.js';
 export { parseEntry, VERDICTS } from './verdict.js';
 
@@ -169,7 +169,7 @@ export async function runEvaluation({ apiKey, claims, document = '', send, signa
                 const item = event.item;
                 if (item?.type === 'web_search_call') {
                   const a = item.action || {};
-                  const step = { kind: a.type || 'search', query: a.query || null, url: a.url || null, pattern: a.pattern || null, status: item.status };
+                  const step = { kind: a.type || 'search', verb: verbOf({ kind: a.type || 'search' }), query: a.query || null, url: a.url || null, pattern: a.pattern || null, status: item.status };
                   trail.push(step);
                   send({ t: 'trail', i, step, searches: searchCount(trail) });
                 } else if (item?.type === 'mcp_call') {
@@ -582,13 +582,13 @@ export async function runEvaluation({ apiKey, claims, document = '', send, signa
               if (step.type === 'thought') { if (reasoning && !reasoning.endsWith('\n\n')) reasoning += '\n\n'; }
               else if (step.type === 'google_search_call') {
                 for (const query of step.queries) {
-                  const t = { kind: 'search', query, url: null, pattern: null, status: 'completed' };
+                  const t = { kind: 'search', verb: 'search', query, url: null, pattern: null, status: 'completed' };
                   trail.push(t);
                   send({ t: 'trail', i, step: t, searches: searchesIn(trail) });
                 }
               } else if (step.type === 'url_context_call') {
                 for (const url of step.urls) {
-                  const t = { kind: 'open_page', query: null, url, pattern: null, status: null };   // its status comes with Google's report
+                  const t = { kind: 'open_page', verb: 'open', query: null, url, pattern: null, status: null };   // its status comes with Google's report
                   trail.push(t);
                   pages.set(url, t);
                   send({ t: 'trail', i, step: t, searches: searchesIn(trail) });

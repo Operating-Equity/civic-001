@@ -11,6 +11,7 @@ import multer from 'multer';
 import { config, publicConfig, requestShape } from './config.js';
 import { promptStatus, hasPrompt, promptVersions } from './prompts.js';
 import { ApiError, operatorKey, describeError } from './openai.js';
+import { readerView, readerError } from './view.js';
 import { listingKey, onOwnProvider, onFireworks, onDeepSeek, listingHost, listingProviderName } from './listing.js';
 import { gatewayOn } from './tools/request.js';
 import { openStream } from './stream.js';
@@ -121,15 +122,10 @@ mountGateway(app, { registry, pass: config.toolsPass, version: BUILD });
 // Whose work a job is: the account that started it, or nobody's on an open door (CIVIC_ACCOUNTS=off). A page attaches
 // to, stops and lets go of its own jobs and no others.
 const ownerOf = (req) => (req.account?.user ? `u:${req.account.user.id}` : null);
-// What a reader may see of the work: the operator sees FactEngine's own cost of each step; nobody else does.
-const seesCost = (req) => !signinRequired() || isOperator(req.account);
-const withoutCost = (ev) => {
-  if (!ev || typeof ev !== 'object') return ev;
-  if (ev.t === 'gate') return { t: 'gate', model: ev.model };
-  if (!('cost' in ev)) return ev;
-  const { cost, ...rest } = ev;
-  return rest;
-};
+// Who sees the whole of the work: the operator, and anyone on an open door. Everyone else sees their run through the
+// reader's view (server/view.js): the work and its results, never how it is done or what it costs FactEngine.
+const seesAll = (req) => !signinRequired() || isOperator(req.account);
+const viewFor = (req) => (seesAll(req) ? null : readerView());
 // With accounts on, the books must be readable for anything to be held or run: a wait, never a free test.
 const booksWait = () => Object.assign(new ApiError(503, 'books_wait', 'FactEngine is waiting for its records. It will go on by itself.'), { expected: true });
 // Requests for one determination's id that arrive together: the second waits for the first's opening, then joins its job.
@@ -137,24 +133,37 @@ const opening = new Map();
 
 // ---- API ---------------------------------------------------------------------------------
 
+const pick = (o, keys) => Object.fromEntries(keys.filter((k) => o[k] !== undefined).map((k) => [k, o[k]]));
+
 app.get('/api/health', wrap(async (req, res) => {
   const session = signinRequired() ? req.account || null : null;
   const balanceCents = session ? await credit.balanceOf(session.user.id).catch(() => null) : null;
   // What the page shows of the prices (server/economics.js): the tier, the free count, the price and
   // the operator's note. Never a cost. Null when pricing is off, or when it cannot be read just now.
   const pricing = await economics.publicState().catch((err) => { console.error('[economics] the price could not be read:', err.message); return null; });
+  const all = !signinRequired() || isOperator(session);
+  const access = {
+    required: signinRequired(),
+    session: session ? { email: session.user.email, operator: isOperator(session), balanceCents, monthlyLimitCents: session.user.monthlyLimitCents } : null,
+    grantCents: config.signupGrantCents, minChars: config.passwordMinChars, currency: config.currency,
+  };
+  const active = jobs.active();   // runs in flight right now, whatever their connections are doing; an update waits for zero
+  // Anyone but the operator is told what the page needs and nothing of how the work is done (server/view.js).
+  if (!all) {
+    const p = promptStatus();
+    res.json({
+      ok: true, build: BUILD, active, ...pick(publicConfig(p), ['maxClaims', 'autoTestFirst', 'inFlight', 'heartbeatMs', 'findCopies']), readUrl: true,
+      prompts: { extract: Boolean(p.extract), evaluate: Boolean(p.evaluate) }, access, accounting: false, pricing, trial: null,
+    });
+    return;
+  }
   res.json({
     ok: true, build: BUILD, ...publicConfig(promptStatus()), readUrl: true, acceptedSourceExt: ACCEPTED_SOURCE_EXT,
-    active: jobs.active(),                                              // runs in flight right now, whatever their connections are doing; an update waits for zero
-    access: {
-      required: signinRequired(),
-      session: session ? { email: session.user.email, operator: isOperator(session), balanceCents, monthlyLimitCents: session.user.monthlyLimitCents } : null,
-      grantCents: config.signupGrantCents, minChars: config.passwordMinChars, currency: config.currency,
-    },
-    accounting: config.accounting && (!signinRequired() || isOperator(session)),   // FactEngine's own costs: the operator's alone
+    active, access,
+    accounting: config.accounting,   // FactEngine's own costs: the operator's alone
     pricing,
     // The operator's trial (server/trial.js): the models they may choose on the page, and whether it can run. Nobody else's.
-    trial: !signinRequired() || isOperator(session) ? trialState() : null,
+    trial: trialState(),
   });
 }));
 
@@ -305,12 +314,10 @@ app.post('/api/extract', wrap(async (req, res) => {
   // The row was awaited: a second request for this job meanwhile (a page coming back at once) joins it.
   const meanwhile = jobs.get(id, owner);
   if (meanwhile) { meanwhile.attach(openStream(req, res), req.body?.cursor); return; }
-  const showCost = seesCost(req);
   // The second pass (server/rank.js): the claims ranked, the top quarter shown, for the operator's runs while CIVIC_RANK is
   // `operator` (their choice of 16 October), for everyone's once it is `on`.
-  const rank = rankFor({ operator: !signinRequired() || isOperator(req.account) });
-  jobs.start(id, 'extraction', async ({ send: sendAll, signal }) => {
-    const send = showCost ? sendAll : (ev) => sendAll(withoutCost(ev));
+  const rank = rankFor({ operator: seesAll(req) });
+  jobs.start(id, 'extraction', async ({ send, signal }) => {
     if (run) send({ t: 'pricing', tier: run.tier, freeFacts: run.freeAllowed, priceCents: run.priceCents, currency: config.currency, note: config.pricingNote || null });
     try {
       const result = await runExtraction({ apiKey, text, meta, send, signal, sourceWarning, ctx, rank });
@@ -323,7 +330,7 @@ app.post('/api/extract', wrap(async (req, res) => {
       recordFailure({ where: 'server:listing', code: safe.code, message: safe.message, status: safe.status, detail: safe.detail || null });
       send({ t: 'error', code: safe.code, message: safe.message, status: safe.status });
     }
-  }, { owner }).attach(openStream(req, res), 0);
+  }, { owner, view: viewFor(req) }).attach(openStream(req, res), 0);
 }));
 
 app.post('/api/evaluate', wrap(async (req, res) => {
@@ -334,7 +341,7 @@ app.post('/api/evaluate', wrap(async (req, res) => {
 
   // The operator's trial (server/trial.js): a model of their choosing, on their own runs alone. Anyone else's choice of
   // model is ignored, and their request is the readers' determination, as always.
-  const trial = trialOf(req.body, { operator: !signinRequired() || isOperator(req.account) });
+  const trial = trialOf(req.body, { operator: seesAll(req) });
   const apiKey = trial?.provider === 'deepseek' ? deepseekProvider.key() : trial?.provider === 'gemini' ? geminiProvider.key() : operatorKey();
   if (!hasPrompt('evaluate')) throw new ApiError(503, 'prompt_missing', 'The evaluation prompt is not installed on this server.');
   const claims = Array.isArray(req.body?.claims) ? req.body.claims.map((c) => String(c || '').trim()).filter(Boolean) : [];
@@ -391,9 +398,7 @@ app.post('/api/evaluate', wrap(async (req, res) => {
   // The rows were awaited: a second request for this job meanwhile joins it rather than starting it twice.
   const meanwhile = jobs.get(id, owner);
   if (meanwhile) { meanwhile.attach(openStream(req, res), req.body?.cursor); return; }   // not reached while `opening` holds the id; kept as the safe answer
-  const showCost = seesCost(req);
-  jobs.start(id, 'determination', async ({ send: sendAll, signal }) => {
-    const send = showCost ? sendAll : (ev) => sendAll(withoutCost(ev));
+  jobs.start(id, 'determination', async ({ send, signal }) => {
     quotes.forEach((q, i) => { if (q) send({ t: 'quote', i, free: q.free, priceCents: q.priceCents, currency: config.currency, ...(Number.isInteger(q.balanceCents) ? { balanceCents: q.balanceCents } : {}) }); });
     // The books close with the claim's own end: done books its revenue at list and charges its hold; an error books
     // nothing and releases it. Each attempt closes its own, never a later one's. The claim is booked BEFORE the page is
@@ -418,7 +423,7 @@ app.post('/api/evaluate', wrap(async (req, res) => {
       // A claim the request ended without a result for (the page stopped the run, the request failed): failed, nothing booked, its hold released.
       await economics.closeOpen(attempts, signal.aborted ? 'cancelled' : 'ended');
     }
-  }, { owner }).attach(openStream(req, res), 0);
+  }, { owner, view: viewFor(req) }).attach(openStream(req, res), 0);
 }));
 
 // The page says stop (Start a new test, leaving the page): the jobs' model calls are aborted and the
@@ -427,7 +432,9 @@ app.post('/api/cancel', (req, res) => { res.json({ cancelled: jobs.cancel(jobs.i
 // The page says it has all of a finished job: the job is forgotten. One still working is kept.
 app.post('/api/release', (req, res) => { res.json({ released: jobs.release(jobs.idList(req.body?.jobIds), ownerOf(req)) }); });
 
+// The visual echo is off (19 October); while it is, the picture route is the operator's, so nobody else can spend on it.
 app.post('/api/illustrate', wrap(async (req, res) => {
+  if (!seesAll(req)) throw Object.assign(new ApiError(403, 'operator_only', 'That is for the operator\'s account.'), { expected: true });
   const apiKey = operatorKey();
   if (!config.illustrateEnabled) return res.json({ skipped: true });
   const text = String(req.body?.text || '').trim();
@@ -484,7 +491,10 @@ app.use((err, req, res, next) => {
   // list is kept for faults. Its figures travel with it, so the page can say them in the reader's language.
   if (!err?.expected) recordFailure({ where: `server:${req.method} ${req.path}`, code: safe.code, message: safe.message, status: safe.status, detail: safe.detail || null });
   if (!(err instanceof ApiError)) console.error('[civic]', safe.status, safe.code);
-  res.status(safe.status || 500).json({ error: { code: safe.code, message: safe.message, ...(safe.site ? { site: safe.site } : {}), ...(err?.extra && typeof err.extra === 'object' ? err.extra : {}) } });
+  // A failure that is not FactEngine's own refusal reaches anyone but the operator as its code alone (server/view.js).
+  const body = { code: safe.code, message: safe.message, ...(safe.site ? { site: safe.site } : {}), ...(err?.extra && typeof err.extra === 'object' ? err.extra : {}) };
+  const own = err instanceof ApiError && !err.provider;
+  res.status(safe.status || 500).json({ error: own || seesAll(req) ? body : { ...readerError({ ...body, status: safe.status }), t: undefined } });
 });
 
 const server = http.createServer(app);

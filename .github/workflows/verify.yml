@@ -57,10 +57,15 @@ jobs:
         run: |
           # Feed the guard a "prompt" made of lines that really are in a committed file. It must fail.
           head -40 README.md > /tmp/planted.txt
-          if CIVIC_PROMPT_EXTRACT_FILE=/tmp/planted.txt node scripts/leak-check.mjs; then
+          if out=$(CIVIC_PROMPT_EXTRACT_FILE=/tmp/planted.txt node scripts/leak-check.mjs 2>&1); then
             echo "The leak guard did not notice planted prompt text. It is not protecting anything."; exit 1
           fi
-          echo "Guard failed on planted text, as it must."
+          # It names what it found by a fingerprint, never by the text: a report must not carry the prompt on.
+          awk 'length($0) >= 40 { print substr($0, 1, 30) }' /tmp/planted.txt > /tmp/planted-pieces.txt
+          if printf '%s' "$out" | grep -qF -f /tmp/planted-pieces.txt; then
+            echo "The leak guard printed the text it found."; exit 1
+          fi
+          echo "Guard failed on planted text, as it must, and printed none of it."
 
       - name: Requests carry the configuration and nothing else (source inside the prompt)
         run: |

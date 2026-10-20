@@ -260,11 +260,11 @@ const FORMS = [
   ['6. **Conclusion**: Two records were compared, and both give the same count. Neither was contradicted. The statement is therefore true as worded.\n7. Confidence: 82%', 'true', 'conclusion'],
   ['6. Conclusion: Although the narrative is widely repeated as true, the primary record shows the figure was 17, not 19. False.\n7. Confidence: 90%', 'false', 'conclusion'],
   ['An entry with no conclusion and no verdict word at all.', 'unverified', 'unread'],
-  // The operator's own entry of 17 September: section 6 states the verdict under a sub-heading,
-  // and the Logic Audit after it names the conclusion at the start of a numbered line.
-  [['## 6. Conclusion', '', '### False as written', '', 'During the fourteen House sitting weeks ending June 18, 2026, **22 pieces of legislation in total** received Royal Assent—not 19.', '',
-    'This finding does **not** establish intentional deception.', '', '## 7. Confidence and Logic Audit', '', '**Confidence: 98%**', '',
-    '1. **Documentary count:** approximately 99% confidence.', '3. **Conclusion–evidence match:** the verdict follows from the statutory tally; no step relies on narrative.'].join('\n'), 'false', 'conclusion'],
+  // A verdict stated under a sub-heading of its section, and a check after it whose numbered line names the verdict
+  // heading's word at its start without stating a verdict.
+  [['## 6. Conclusion', '', '### False as written', '', 'Over the weeks in question, **22 measures in total** were passed, not 19.', '',
+    'This finding does **not** establish intent.', '', '## 7. Confidence and self-check', '', '**Confidence: 98%**', '',
+    '1. **Record count:** approximately 99% confidence.', '3. **Conclusion and record agree:** the verdict follows from the tally; no step relies on narrative.'].join('\n'), 'false', 'conclusion'],
   [['4. **Analysis**', 'Provisional conclusion: True, pending the record.', 'The record was then read.', '', '6. **Conclusion**: False. The record shows 17.', '7. **Confidence**: 90%'].join('\n'), 'false', 'conclusion'],
 ];
 for (const [text, want, from] of FORMS) {
@@ -3593,6 +3593,217 @@ async function fingerprintChecks() {
   }
 }
 await fingerprintChecks();
+
+// ---- what a reader receives (19 October) ---------------------------------------------------------------------------
+// The operator's decision of 19 October: a reader's run carries the work and its results and nothing of how it is
+// done (server/view.js): no thinking, no model, effort or provider, no tool's name, no provider's own words; the
+// inspector as its mark ("Inspector E" for an entry naming Sir Edwin Cardale), on the card and on the entry's own line as
+// it streams; the research as a work log of plain words. The operator sees everything as before. The headings an entry
+// is read by come from the operator's list when one is set (server/names.js), and a list that cannot be read stops the
+// start without printing a word of it. Every name here is invented.
+async function readerViewChecks() {
+  const MOCKR = MOCK_PORT + 104, P = PORT + 104, MOCKN = MOCK_PORT + 105, PN = PORT + 105;
+  const procs = [];
+  const stamp = Date.now();
+  const counted = (events) => events.filter((e) => e.t !== 'ping' && e.t !== 'attached');
+  try {
+    const { NameMasker, maskEntry, inspectorMark, parseEntry: parse } = await import('../server/verdict.js');
+    // The mask, alone: however the entry is cut as it streams, the same text, and no piece sent carries part of the name.
+    const entry = '0. **Name:** Sir Edwin Cardale (geologist)\n\n1. **Claim**: The tower is 330 m tall.\n\n**Conclusion**: True.\n**Confidence**: 90%\nName: Orin Vale\nend';
+    const whole = maskEntry(entry);
+    let same = true;
+    let early = false;
+    for (let k = 0; k < 200 && same; k++) {
+      const m = new NameMasker();
+      let out = '';
+      for (let i = 0; i < entry.length;) {
+        const n = 1 + Math.floor(Math.random() * 9);
+        const piece = m.push(entry.slice(i, i + n));
+        if (/Edw|Car|geol|Ori|Val/.test(piece)) early = true;
+        out += piece;
+        i += n;
+      }
+      same = out + m.flush() === whole;
+    }
+    check('the inspector\'s name is made its mark however the entry is cut as it streams: 200 random cuts give the same text, every other line unchanged, and no piece sent carries part of the name',
+      same && !early && whole === '0. **Name:** Inspector E\n\n1. **Claim**: The tower is 330 m tall.\n\n**Conclusion**: True.\n**Confidence**: 90%\nName: Inspector O\nend', JSON.stringify(whole));
+    check('the mark is the first letter of the name\'s first word that is not a title, and a mark stays as it is',
+      inspectorMark('Sir Isaac Newton') === 'Inspector I' && inspectorMark('Dr. Ada Lovelace') === 'Inspector A' && inspectorMark('Albert Einstein (physicist)') === 'Inspector A'
+        && inspectorMark('Ibn al-Qarrad') === 'Inspector I' && inspectorMark('Inspector A') === 'Inspector A' && inspectorMark('') === null,
+      JSON.stringify(['Sir Isaac Newton', 'Dr. Ada Lovelace', 'Inspector A'].map(inspectorMark)));
+
+    // A reader and the operator, each with a listing and a determination, on a server whose first model is missing (so a
+    // fallback happens), against a stand-in naming one inspector and searching, opening a page and finding in it.
+    const mock = start([path.join(root, 'scripts', 'mock-openai.js')], { MOCK_PORT: String(MOCKR), MOCK_SPEED: '0.2', MOCK_INSPECTOR: 'Sir Edwin Cardale (geologist)', MOCK_SEARCH_ACTIONS: 'search,open_page,find_in_page,search', MOCK_EVAL_FAIL_TEXT: 'Refuse this claim', MOCK_EVAL_MARK: process.env.MOCK_EVAL_MARK_FOR_GATE || '',
+      MOCK_EVAL_FAIL_MESSAGE: `The request to ${config.evalModels[0]} was refused by OpenAI (api.openai.com) in organization org-mock0000000000000000000: the stand-in refuses this claim on purpose.` });
+    procs.push(mock);
+    await wait(`http://localhost:${MOCKR}/v1/mock/stats`, 15000, { anyResponse: true });
+    const srv = accountServer(P, MOCKR, { CIVIC_OPERATOR_EMAILS: 'op@example.com', CIVIC_OPERATOR_CLAIM: claimHash(), CIVIC_LIST_PRICE_CENTS: '125', CIVIC_TIER_ORDER: '1', CIVIC_EVAL_MODELS: `gpt-missing-x,${config.evalModels[0]}` });
+    procs.push(srv.child);
+    await wait(`http://localhost:${P}/api/health`, 20000);
+    const base = `http://localhost:${P}`;
+    const people = accountClient(base);
+    const reader = (await people.signup('reader-view@example.com')).cookie;
+    const op = (await people.json('/api/account/claim', { method: 'POST', body: { token: CLAIM_TOKEN, email: 'op@example.com', password: PASSWORD, agree: true } })).cookie;
+    const claim = 'The Eiffel Tower stands about 330 metres tall.';
+    const run = async (cookie, who) => {
+      const runId = `rv-${who}-run-${stamp}`;
+      const listing = await people.stream('/api/extract', { jobId: runId, text: ACCT_TEXT }, cookie);
+      const det = await people.stream('/api/evaluate', { jobId: `rv-${who}-c1-${stamp}`, claims: [claim], text: ACCT_TEXT, runId, n: 1 }, cookie);
+      return { runId, listing: listing.events, det: det.events };
+    };
+    const r = await run(reader, 'reader');
+    const o = await run(op, 'operator');
+
+    const rList = r.listing.find((e) => e.t === 'done');
+    const oList = o.listing.find((e) => e.t === 'done');
+    check('a reader\'s listing arrives whole: its claims and the raw listing as the prompt wrote it, with its steps; never the model, its effort or the cost',
+      rList?.claims?.length > 0 && typeof rList.raw === 'string' && rList.raw.length > 0 && rList.raw === oList?.raw && Array.isArray(rList.trail)
+        && ['model', 'requested', 'effort', 'mode', 'cost', 'fellBack'].every((k) => !(k in rList))
+        && r.listing.filter((e) => e.t === 'start').every((e) => !('model' in e) && !('requested' in e)) && 'model' in oList,
+      JSON.stringify({ reader: Object.keys(rList || {}), operator: Object.keys(oList || {}) }));
+
+    const rDet = r.det;
+    const rDone = rDet.find((e) => e.t === 'done');
+    const types = new Set(rDet.map((e) => e.t));
+    check('a reader\'s claim streams its entry and counts its steps as they happen; its thinking and each step\'s question come with the finished claim; its starts name no model, effort or provider',
+      Boolean(rDone) && !types.has('reasoning') && !types.has('gate') && rDet.some((e) => e.t === 'phase' && e.phase === 'inspecting')
+        && rDet.filter((e) => e.t === 'trail').every((e) => JSON.stringify(Object.keys(e.step || {})) === '["verb"]')
+        && rDet.filter((e) => e.t === 'start' || e.t === 'batch-start').every((e) => ['model', 'effort', 'requested', 'provider', 'mode'].every((k) => !(k in e))),
+      JSON.stringify([...types]));
+    const DEPTH_OF = { none: 1, minimal: 1, low: 2, medium: 3, high: 4, xhigh: 5, max: 6 };
+    check('a reader\'s finished claim keeps every output: the verdict, the confidence, the reasoning summary, every step, the sources; the model told as a depth, never by its name',
+      Boolean(rDone) && ['inspector', 'verdictSource', 'model', 'requested', 'effort', 'mode', 'cost'].every((k) => !(k in rDone))
+        && /Restating the proposition/.test(rDone.reasoning || '') && rDone.trail?.length === 4 && rDone.sources?.length === 2 && rDone.depth === DEPTH_OF[config.evalEffort]
+        && Boolean(rDone.verdict) && Number.isFinite(rDone.confidence),
+      JSON.stringify(Object.keys(rDone || {})));
+    const joined = rDet.filter((e) => e.t === 'delta').map((e) => e.text).join('');
+    const rSerial = JSON.stringify(r.listing) + JSON.stringify(rDet);
+    check('the inspector is a mark for a reader wherever its name is written in full: on the card, on the entry\'s own line as it streamed and as it ended, in the reasoning summary and in the searches; "Edwin", "Cardale" and "geologist" appear nowhere',
+      rDone?.inspectorMark === 'Inspector E' && /^\*\*Name\*\*: Inspector E$/m.test(rDone?.text || '') && joined === rDone?.text
+        && /Working as Inspector E through the record\./.test(rDone?.reasoning || '') && /^Inspector E /.test(rDone?.trail?.[0]?.query || '') && !/Edwin|Cardale|geologist/.test(rSerial),
+      JSON.stringify({ mark: rDone?.inspectorMark, line: (rDone?.text || '').split('\n')[0], same: joined === rDone?.text, query: rDone?.trail?.[0]?.query, reasoning: (rDone?.reasoning || '').slice(0, 60) }));
+    const pr = parse(rDone?.text || '');
+    check('a reader\'s verdict and confidence are the entry\'s own, read from the very text they received',
+      pr.verdict === rDone?.verdict && pr.confidence === rDone?.confidence, JSON.stringify({ parsed: [pr.verdict, pr.confidence], sent: [rDone?.verdict, rDone?.confidence] }));
+    check('a reader\'s research steps keep what they asked and where they went, each named by a plain word (search, open, find), never by the tool',
+      JSON.stringify((rDone?.trail || []).map((x) => x.verb)) === '["search","open","find","search"]' && Boolean(rDone.trail[0].query) && Boolean(rDone.trail[1].url)
+        && Boolean(rDone.trail[2].pattern) && Boolean(rDone.trail[3].query) && rDone.trail.every((x) => !('kind' in x) && !('name' in x) && !('source' in x)),
+      JSON.stringify(rDone?.trail));
+    check('a reader is told a standby model answered, in a neutral warning naming no model',
+      rDet.some((e) => e.t === 'warning' && e.code === 'fallback' && !('used' in e) && !('requested' in e)) && !rDet.some((e) => e.t === 'warning' && e.code === 'model_fallback')
+        && JSON.stringify(rDone?.fellBack) === '{"standby":true}',
+      JSON.stringify(rDet.filter((e) => e.t === 'warning')));
+    const TELLS = [...new Set([...config.evalModels, 'gpt-missing-x', `"${config.evalEffort}"`, 'open_page', 'find_in_page', 'web_search', 'search_web', 'read_page', 'get_transcript', 'verdictSource'])];
+    check('no name that gives the method away reaches a reader\'s stream: no model id, effort, tool name or verdict source',
+      TELLS.every((w) => !rSerial.includes(w)), TELLS.filter((w) => rSerial.includes(w)).join(', '));
+
+    const oDone = o.det.find((e) => e.t === 'done');
+    check('the operator sees the whole of their run as before: the name the entry gives, the model and effort, the thinking, the tools\' own steps (each with its plain word), the fallback\'s models',
+      oDone?.inspector === 'Sir Edwin Cardale' && !oDone.inspectorMark && oDone.model === config.evalModels[0] && oDone.effort === config.evalEffort && Boolean(oDone.verdictSource)
+        && o.det.some((e) => e.t === 'reasoning') && /Sir Edwin Cardale/.test(oDone.text)
+        && JSON.stringify((oDone.trail || []).map((x) => [x.kind, x.verb])) === JSON.stringify([['search', 'search'], ['open_page', 'open'], ['find_in_page', 'find'], ['search', 'search']])
+        && o.det.some((e) => e.t === 'warning' && e.code === 'model_fallback' && e.used === config.evalModels[0]),
+      JSON.stringify({ inspector: oDone?.inspector, model: oDone?.model, trail: (oDone?.trail || []).map((x) => x.kind) }));
+
+    // A reader's connection cut mid-claim, then the page attaching again: the same text, one name line, nothing twice; and
+    // the finished claim read again from the start gives exactly what was sent.
+    const cutAt = (body, cookie, n) => new Promise((resolve) => {
+      const events = [];
+      let buf = '';
+      const req = http.request(`${base}/api/evaluate`, { method: 'POST', headers: { 'content-type': 'application/json', cookie } }, (res) => {
+        res.on('data', (chunk) => {
+          buf += chunk;
+          let nl;
+          while ((nl = buf.indexOf('\n')) >= 0) {
+            const line = buf.slice(0, nl).trim(); buf = buf.slice(nl + 1);
+            if (!line) continue;
+            const ev = JSON.parse(line);
+            if (ev.t === 'ping') continue;
+            events.push(ev);
+            if (counted(events).length >= n) { req.destroy(); resolve(events); return; }
+          }
+        });
+        res.on('end', () => resolve(events));
+      });
+      req.on('error', () => resolve(events));
+      req.end(JSON.stringify(body));
+    });
+    const cutBody = { jobId: `rv-reader-cut-${stamp}`, claims: [claim], text: ACCT_TEXT, runId: r.runId, n: 3 };
+    const first = counted(await cutAt(cutBody, reader, 6));
+    const second = counted((await people.stream('/api/evaluate', { ...cutBody, cursor: first.length }, reader)).events);
+    const again = counted((await people.stream('/api/evaluate', { ...cutBody, cursor: 0 }, reader)).events);
+    const both = [...first, ...second];
+    const cDone = both.find((e) => e.t === 'done');
+    const cText = both.filter((e) => e.t === 'delta').map((e) => e.text).join('');
+    check('a reader whose connection is cut mid-claim and who attaches again receives the same entry, with one inspector line and nothing twice; read again from the start, the same events',
+      Boolean(cDone) && cText === cDone.text && (cText.match(/^\*\*Name\*\*:/gm) || []).length === 1 && /Inspector E/.test(cText) && !/Edwin|Cardale/.test(JSON.stringify(both))
+        && JSON.stringify(again) === JSON.stringify(both),
+      JSON.stringify({ first: first.length, second: second.length, again: again.length, same: cText === cDone?.text }));
+
+    // A failure: the provider's own words reach the operator whole, and a reader with the services' names replaced.
+    const rErr = (await people.stream('/api/evaluate', { jobId: `rv-reader-err-${stamp}`, claims: ['Refuse this claim, as the stand-in is told to.'], text: ACCT_TEXT, runId: r.runId, n: 2 }, reader)).events.find((e) => e.t === 'error');
+    const oErr = (await people.stream('/api/evaluate', { jobId: `rv-op-err-${stamp}`, claims: ['Refuse this claim, as the stand-in is told to.'], text: ACCT_TEXT, runId: o.runId, n: 2 }, op)).events.find((e) => e.t === 'error');
+    check('a provider\'s words for a failure reach a reader with their sense and without the names of the model, the company, its host or the account; the operator, whole',
+      rErr?.code === 'invalid_value' && /the stand-in refuses this claim on purpose/.test(rErr.message || '') && /LLR was refused by the model service/.test(rErr.message || '')
+        && !/gpt-|OpenAI|openai\.com|org-mock/i.test(rErr.message || '')
+        && /OpenAI \(api\.openai\.com\) in organization org-mock/.test(oErr?.message || ''), JSON.stringify({ reader: rErr, operator: oErr?.message }));
+
+    // What the health line tells anyone but the operator, and the picture route.
+    const hAnon = (await people.json('/api/health')).body;
+    const hReader = (await people.json('/api/health', { cookie: reader })).body;
+    const hOp = (await people.json('/api/health', { cookie: op })).body;
+    const READER_HEALTH = ['ok', 'build', 'active', 'maxClaims', 'autoTestFirst', 'inFlight', 'heartbeatMs', 'findCopies', 'readUrl', 'prompts', 'access', 'accounting', 'pricing', 'trial'];
+    check('/api/health tells anyone but the operator what the page needs and nothing of how the work is done: no models, efforts, request keys or prompt shapes; the operator\'s, all of it',
+      [hAnon, hReader].every((h) => Object.keys(h || {}).every((k) => READER_HEALTH.includes(k)) && JSON.stringify(Object.keys(h.prompts || {})) === '["extract","evaluate"]'
+        && !JSON.stringify(h).includes(config.evalModels[0]) && !JSON.stringify(h).includes('gpt-missing-x') && h.trial === null && h.accounting === false)
+        && hOp?.models?.evaluate === 'gpt-missing-x' && Boolean(hOp?.request),
+      JSON.stringify({ anon: Object.keys(hAnon || {}), reader: Object.keys(hReader || {}), operator: hOp?.models?.evaluate }));
+    const ill = await people.json('/api/illustrate', { method: 'POST', body: { text: ACCT_TEXT }, cookie: reader });
+    check('the picture route is the operator\'s while the echo is off: a reader is refused (403) before anything is asked',
+      ill.status === 403 && ill.body?.error?.code === 'operator_only', JSON.stringify({ status: ill.status, body: ill.body }));
+    const st = (await people.json('/api/selftest', { cookie: op })).body;
+    check('/check says the entries are read by FactEngine\'s own words when no list is set, and how a reader sees an inspector',
+      (st?.checks || []).some((c) => c.title === 'The entries are read by their headings' && /FactEngine's own words/.test(c.detail) && /Inspector A/.test(c.detail)), '');
+
+    // The operator's own headings, from the vault: a stand-in writing them, a server reading by them.
+    const NAMES = { conclusion: ['Did the dog chase the cat?'], confidence: ['LLR confidence'], name: ['Inspector'], verdicts: { true: ['holds'], false: ['fails'], unverified: ['open'] } };
+    const mockN = start([path.join(root, 'scripts', 'mock-openai.js')], { MOCK_PORT: String(MOCKN), MOCK_SPEED: '0.2', MOCK_OUTPUT_NAMES: JSON.stringify(NAMES), MOCK_INSPECTOR: 'Ada Lovelace', MOCK_EVAL_MARK: process.env.MOCK_EVAL_MARK_FOR_GATE || '' });
+    procs.push(mockN);
+    await wait(`http://localhost:${MOCKN}/v1/mock/stats`, 15000, { anyResponse: true });
+    const srvN = start([path.join(root, 'server', 'index.js')], { PORT: String(PN), OPENAI_BASE_URL: `http://localhost:${MOCKN}/v1`, OPENAI_API_KEY: KEY, CIVIC_IMAGE_ENABLED: 'false', CIVIC_OUTPUT_NAMES: JSON.stringify(NAMES), CIVIC_LEDGER_FILE: path.join(os.tmpdir(), `civic-verify-names-ledger-${stamp}.jsonl`) });
+    procs.push(srvN);
+    await wait(`http://localhost:${PN}/api/health`, 20000);
+    const named = [];
+    for (let k = 0; k < 4; k++) {
+      const ev = await fetch(`http://localhost:${PN}/api/evaluate`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ claims: [claim], text: ACCT_TEXT }) }).then((x) => x.text());
+      named.push(ev.split('\n').filter(Boolean).map((l) => JSON.parse(l)).find((e) => e.t === 'done'));
+    }
+    const stN = await (await fetch(`http://localhost:${PN}/api/selftest`)).json();
+    check('with the operator\'s list set, an entry is read by its headings: the verdict under a renamed heading in the list\'s own words, the renamed confidence, the inspector under a renamed label; /check names the list by its fingerprint alone',
+      named.every((d) => d?.verdictSource === 'conclusion' && ['true', 'false', 'unverified'].includes(d.verdict) && Number.isFinite(d.confidence) && d.inspector === 'Ada Lovelace')
+        && (stN.checks || []).some((c) => c.title === 'The entries are read by their headings' && /your own list \(#[0-9a-f]{8}, 4 names set\)/.test(c.detail) && !/dog|LLR|holds/.test(c.detail)),
+      JSON.stringify(named.map((d) => [d?.verdict, d?.verdictSource, d?.confidence, d?.inspector])));
+    const bad = spawnSync(process.execPath, [path.join(root, 'server', 'index.js')], { cwd: root, timeout: 20000, encoding: 'utf8', env: { ...process.env, ...ACCOUNTS_OFF, PORT: String(PORT + 106), OPENAI_API_KEY: KEY, CIVIC_OUTPUT_NAMES: '{"conclusion":["", "VAULTWORD-7"]}' } });
+    check('a list that cannot be read stops the start, naming the key and never a word of the list',
+      bad.status !== 0 && /CIVIC_OUTPUT_NAMES: conclusion/.test(`${bad.stdout}${bad.stderr}`) && !/VAULTWORD-7/.test(`${bad.stdout}${bad.stderr}`), String(bad.stderr || '').slice(0, 300));
+
+    // Every sentence the page asks for exists, in all four languages alike (a key missing showed itself, "step2.gate").
+    const flat = (o, pre = '') => Object.entries(o).flatMap(([k, v]) => (v && typeof v === 'object' ? flat(v, `${pre}${k}.`) : [`${pre}${k}`]));
+    const L = {};
+    for (const code of ['en', 'es', 'fr', 'de']) L[code] = new Set(flat((await import(pathToFileURL(path.join(root, 'public', 'locales', `${code}.js`)).href)).default));
+    const parity = ['es', 'fr', 'de'].map((c) => [c, [...L.en].filter((k) => !L[c].has(k)), [...L[c]].filter((k) => !L.en.has(k))]).filter(([, a, b]) => a.length || b.length);
+    const asked = [...fs.readFileSync(path.join(root, 'public', 'js', 'app.js'), 'utf8').matchAll(/\bt\('([a-zA-Z0-9_.]+)'/g)].map((m) => m[1]);
+    const missing = [...new Set(asked)].filter((k) => !L.en.has(k) && !L.en.has(`${k}_one`) && !L.en.has(`${k}_other`));
+    check('every sentence the page asks for exists in English, and the four languages hold the same sentences',
+      missing.length === 0 && parity.length === 0, JSON.stringify({ missing, parity }));
+  } catch (err) {
+    check('reader view checks ran', false, err.stack || err.message);
+  } finally {
+    for (const p of procs) { try { p.kill('SIGTERM'); } catch {} }
+  }
+}
+await readerViewChecks();
 
 // ---- the pages a commercial service owes: the texts are served, whole, English, with no script but the field ----
 // Terms, Privacy, Refunds and Contact are static files (public/*.html) served at /terms, /privacy, /refunds and

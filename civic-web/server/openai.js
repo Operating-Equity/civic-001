@@ -79,12 +79,14 @@ export function describeError(err) {
   }
   // An API can quote part of a request back in an error. Nothing of the prompt leaves this way.
   message = redactPrompts(String(message)).slice(0, 2000);
-  // The page shows its own sentence for a 401 and names no provider and no key (the rule of 3 October).
-  if (status === 401) return new ApiError(401, 'invalid_key', '', 'OpenAI rejected the API key (401).');
-  if (status === 429) return isRateLimit(err) ? new ApiError(429, 'rate_limited', message) : new ApiError(429, 'quota_exhausted', message);
-  if (status === 404 && /model/i.test(message)) return new ApiError(404, 'model_not_found', message);
-  if (isConnectionDrop(err)) return new ApiError(502, 'connection_dropped', message);
-  return new ApiError(status >= 400 && status < 600 ? status : 502, code, message);
+  // The page shows its own sentence for a 401 and names no provider and no key (the rule of 3 October). Every one of these
+  // carries a provider's words, not FactEngine's: marked so, they reach the operator and /check, and anyone else by code.
+  const theirs = (e) => Object.assign(e, { provider: true });
+  if (status === 401) return theirs(new ApiError(401, 'invalid_key', '', 'OpenAI rejected the API key (401).'));
+  if (status === 429) return theirs(isRateLimit(err) ? new ApiError(429, 'rate_limited', message) : new ApiError(429, 'quota_exhausted', message));
+  if (status === 404 && /model/i.test(message)) return theirs(new ApiError(404, 'model_not_found', message));
+  if (isConnectionDrop(err)) return theirs(new ApiError(502, 'connection_dropped', message));
+  return theirs(new ApiError(status >= 400 && status < 600 ? status : 502, code, message));
 }
 
 /**

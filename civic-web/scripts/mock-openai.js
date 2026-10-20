@@ -117,7 +117,7 @@ app.post('/v1/responses', async (req, res) => {
   // while the others pass, so the hold of the one that failed can be seen released). Only the claim's own message is
   // read: the source travels ahead of it in every determination and must not fail them all.
   if (process.env.MOCK_EVAL_FAIL_TEXT && isEvaluation && prompt.includes(process.env.MOCK_EVAL_FAIL_TEXT)) {
-    return res.status(400).json({ error: { message: 'The stand-in refuses this claim on purpose.', type: 'invalid_request_error', param: 'input', code: 'invalid_value' } });
+    return res.status(400).json({ error: { message: process.env.MOCK_EVAL_FAIL_MESSAGE || 'The stand-in refuses this claim on purpose.', type: 'invalid_request_error', param: 'input', code: 'invalid_value' } });
   }
   if (process.env.MOCK_BAD_EFFORT && body.reasoning?.effort === process.env.MOCK_BAD_EFFORT) {
     return res.status(400).json({ error: { message: `Unsupported value: 'reasoning.effort' does not support '${body.reasoning.effort}' with this model.`, type: 'invalid_request_error', param: 'reasoning.effort', code: 'unsupported_value' } });
@@ -151,7 +151,9 @@ app.post('/v1/responses', async (req, res) => {
     const claim = prompt.split('\n')[0].replace(/^\s*Prompt\s*=\s*/, '').trim();
 
     if (body.reasoning?.summary) {
-      for (const part of MOCK_REASONING) {
+      // With MOCK_INSPECTOR, the thinking names the inspector, as a real one may.
+      const named = process.env.MOCK_INSPECTOR ? [`Working as ${inspectorName()} through the record.`] : [];
+      for (const part of [...named, ...MOCK_REASONING]) {
         await sleep(300 + Math.random() * 700);
         for (const chunk of part.match(/[\s\S]{1,30}/g) || []) {
           send({ type: 'response.reasoning_summary_text.delta', delta: chunk, summary_index: 0 });
@@ -165,12 +167,17 @@ app.post('/v1/responses', async (req, res) => {
 
     if (body.tools?.some((t) => t.type === 'web_search')) {
       const queries = pickQueries(claim);
-      for (let k = 0; k < queries.length; k++) {
+      // MOCK_SEARCH_ACTIONS: the web search's own actions, in order (search, open_page, find_in_page); two searches unless set.
+      const actions = String(process.env.MOCK_SEARCH_ACTIONS || 'search,search').split(',').map((a) => a.trim()).filter(Boolean);
+      for (let k = 0; k < actions.length; k++) {
+        const action = actions[k] === 'open_page' ? { type: 'open_page', url: MOCK_SOURCES[1].url }
+          : actions[k] === 'find_in_page' ? { type: 'find_in_page', url: MOCK_SOURCES[1].url, pattern: '330' }
+            : { type: 'search', query: queries[k % queries.length] };
         send({ type: 'response.web_search_call.in_progress', item_id: `ws_${k}` });
         send({ type: 'response.web_search_call.searching', item_id: `ws_${k}` });
         await sleep(400 + Math.random() * 900);
         send({ type: 'response.web_search_call.completed', item_id: `ws_${k}` });
-        send({ type: 'response.output_item.done', output_index: k, item: { id: `ws_${k}`, type: 'web_search_call', status: 'completed', action: { type: 'search', query: queries[k] } } });
+        send({ type: 'response.output_item.done', output_index: k, item: { id: `ws_${k}`, type: 'web_search_call', status: 'completed', action } });
       }
     }
     // CIVIC's own tools: with an `mcp` entry in the request, the stand-in does what OpenAI's servers do,
@@ -796,8 +803,12 @@ const MOCK_SOURCES = [
 
 function pickQueries(claim) {
   const words = claim.replace(/[^\w\s]/g, ' ').split(/\s+/).filter((w) => w.length > 4).slice(0, 4);
-  return [words.join(' ') || claim.slice(0, 40), `${words.slice(0, 2).join(' ')} primary source`];
+  const first = words.join(' ') || claim.slice(0, 40);
+  // With MOCK_INSPECTOR, the first search names the inspector, as a real one may.
+  return [process.env.MOCK_INSPECTOR ? `${inspectorName()} ${first}` : first, `${words.slice(0, 2).join(' ')} primary source`];
 }
+// The inspector as written in its thinking: the name without its description or its title ("Edwin Cardale").
+const inspectorName = () => String(process.env.MOCK_INSPECTOR || '').replace(/\s*\(.*\)\s*$/, '').replace(/^(?:Sir|Dame|Dr\.?|Professor)\s+/, '');
 
 // MOCK_DROP_REQUESTS=2,5: those requests, counted from the first this process receives, lose their
 // connection a few chunks in, the way a real stream dies when a socket is cut.
@@ -905,37 +916,35 @@ function mockClaims(source) {
 }
 
 const INSPECTORS = ['Orin Vale', 'Tessa Marlowe', 'Edwin Cardale', 'Lena Sorvik', 'Halvard Brecke', 'Mira Okafor-Hale', 'Jonas Wren', 'Ilse Varga', 'Tomas Ferrand', 'Ruth Abernathy-Cole'];   // invented: the stand-in names no real person
+// MOCK_INSPECTOR: one inspector for every entry (the guard's reader checks look for its name where it must not be).
+// MOCK_OUTPUT_NAMES: the headings the entry is written under, as the operator's list sets them (server/names.js).
+const MOCK_NAMES = (() => { try { return JSON.parse(process.env.MOCK_OUTPUT_NAMES || '{}'); } catch { return {}; } })();
+const label = (key, fallback) => (Array.isArray(MOCK_NAMES[key]) ? MOCK_NAMES[key][0] : MOCK_NAMES[key]) || fallback;
+const said = (verdict) => (MOCK_NAMES.verdicts?.[verdict]?.[0] ? MOCK_NAMES.verdicts[verdict][0].replace(/^./, (c) => c.toUpperCase()) : null);
 
 function mockEntry(claim) {
   const roll = Math.random();
   const verdict = roll < 0.45 ? 'True' : roll < 0.75 ? 'False' : 'Uncertain';
-  const who = INSPECTORS[Math.floor(Math.random() * INSPECTORS.length)];
+  const word = said(verdict === 'True' ? 'true' : verdict === 'False' ? 'false' : 'unverified') || verdict;
+  const who = process.env.MOCK_INSPECTOR || INSPECTORS[Math.floor(Math.random() * INSPECTORS.length)];
   const conf = verdict === 'Uncertain' ? 35 + Math.floor(Math.random() * 25) : 78 + Math.floor(Math.random() * 20);
-  // Invented filler for development only. It deliberately does NOT follow the operator's output
-  // format: no part of the real prompt, including its section names, exists in this repository.
-  // Only the three labels the reader below keys on are present: Name, Conclusion, Confidence.
-  return `**Name**: ${who}
+  // Invented filler for development only, in no format of the operator's: only the three labels FactEngine reads an
+  // entry by are present, the inspector's, the verdict's and the confidence's, in FactEngine's own words unless set.
+  return `**${label('name', 'Name')}**: ${who}
 
-(Development mock. Invented placeholder text, never a determination. The real entry follows the
-operator's own output format, which is not reproduced anywhere in this repository.)
+(Development mock. Invented placeholder text, never a determination.)
 
-**Statement under inspection**: "${claim}"
+**Claim**: "${claim}"
 
-**Method**: The proposition was reduced to its measurable parts, and each part was checked against a
-primary artifact rather than against repetition of that artifact. Candidate sources were scored for
-transparency (4), verifiability (4), independence (3), incentives (3), track record (4) and
-specificity (${verdict === 'Uncertain' ? 2 : 5}), average ${verdict === 'Uncertain' ? '3.3' : '3.8'}.
+**Notes**: The proposition was split into its measurable parts, and each part was looked up in a record.
 
-**Findings**: What is directly supported was separated from what is inferred, and the evidence that
-would change the answer was named rather than left implicit.
-
-1. **Documentary count:** the tally was taken from the primary record and read twice.
-2. **Ambiguity:** the period might mean:
+1. **First point:** the figure was taken from the record and read twice.
+2. **Second point:** the period might mean:
    - fourteen consecutive seven-day periods; or
-   - fourteen separate sitting weeks, excluding breaks.
-3. **Falsification:** one further authenticated instance would falsify the figure as stated.
+   - fourteen separate weeks, excluding breaks.
+3. **Third point:** one further instance would change the figure as stated.
 
-**Conclusion**: ${verdict}. ${verdict === 'True' ? 'The primary record states the proposition as claimed.' : verdict === 'False' ? 'The primary record contradicts the proposition as stated.' : 'No primary record was found that settles the proposition either way.'}
+**${label('conclusion', 'Conclusion')}**: ${word}. ${verdict === 'True' ? 'The record states the proposition as claimed.' : verdict === 'False' ? 'The record contradicts the proposition as stated.' : 'No record was found that settles the proposition either way.'}
 
-**Confidence**: ${conf}%. ${verdict === 'Uncertain' ? 'Confidence is limited by the absence of a primary source.' : 'Residual uncertainty reflects the possibility of an unpublished correction.'}`;
+**${label('confidence', 'Confidence')}**: ${conf}%. ${verdict === 'Uncertain' ? 'Confidence is limited by the absence of a record.' : 'Some uncertainty remains.'}`;
 }

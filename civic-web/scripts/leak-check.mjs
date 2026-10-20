@@ -5,6 +5,7 @@
 //
 // This exists because example templates and a development mock once carried real lines of the
 // prompts into the repository. A description of a prompt is allowed here; a line of one is not.
+import crypto from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -71,7 +72,8 @@ export function leakChecks() {
   for (const [frag, name] of needles) {
     if (!corpus.includes(frag)) continue;
     const where = bodies.filter(([, b]) => b.includes(frag)).map(([rel]) => rel);
-    hits.push(`${where.join(', ')} carries ${name} prompt text: "${frag.slice(0, 70)}"`);
+    // Never the text itself: a report read in a terminal, a log or a chat would carry it on. Its fingerprint says which.
+    hits.push(`${where.join(', ')} carries ${name} prompt text (fragment #${crypto.createHash('sha256').update(frag).digest('hex').slice(0, 8)})`);
   }
   results.push({
     name: `no committed file contains any fragment of the prompts (${needles.size} fragments checked against ${bodies.length} tracked files)`,

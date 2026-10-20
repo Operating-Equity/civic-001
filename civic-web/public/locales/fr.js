@@ -102,6 +102,7 @@ export default {
     done: 'Les {total} testées · {time}',
     waiting: 'En attente des affirmations',
     stopped: 'Arrêté',
+    gate: 'La minute de la clé : {limit} jetons · une détermination compte {cost} · {atOnce} à la fois, une de plus toutes les {every} s',
   },
   score: { true: 'Vrai', false: 'Faux', unverified: 'Non vérifié', cost: 'Coût est.', internal: 'Interne', unread: 'Verdict non lu', extracting: 'Extraction des affirmations…', aiLine: 'Les déterminations sont faites par un modèle d\'IA à partir des sources qu\'il cite et peuvent être erronées ; vérifiez les sources avant de vous y fier.' },
   card: {
@@ -138,6 +139,7 @@ export default {
     noteIncomplete: 'Le modèle s\'est arrêté avant la fin ({reason}). Tout ce qu\'il a renvoyé est ci-dessous.',
     noteNoSummary: 'Aucun résumé du raisonnement n\'est disponible.',
     modelLine: '{model} · {effort}',
+    engineLine: 'LLR · profondeur {depth}',
     copy: 'Copier l\'entrée',
     copied: 'Entrée copiée.',
     copyFailed: 'Échec de la copie. Ouvrez l\'entrée brute et sélectionnez-la.',
@@ -149,6 +151,23 @@ export default {
       sources_other: 'Sources citées ({n})',
       raw: 'Entrée brute ({n} caractères)',
     },
+    // The work log (server/view.js): what the research did, counted.
+    log: {
+      searches_one: '{n} recherche',
+      searches_other: '{n} recherches',
+      pages_one: '{n} page lue',
+      pages_other: '{n} pages lues',
+      sources_one: '{n} source citée',
+      sources_other: '{n} sources citées',
+    },
+  },
+  // A step of the research, in a plain word, as a reader sees it (server/view.js).
+  trail: {
+    search: 'Recherché',
+    open: 'Ouvert',
+    find: 'Cherché dans la page',
+    read: 'Lu',
+    transcript: 'Transcription',
   },
   net: {
     EHOSTUNREACH: 'aucune route vers l\'hôte',
@@ -172,6 +191,7 @@ export default {
   warn: {
     sourceTruncated: '{n} caractères à la fin du document n\'ont pas été lus ; aucune affirmation qu\'ils contiennent n\'a été extraite. Seuls les {read} premiers caractères ont été testés.',
     modelFallback: 'Testé avec {used}, et non {requested}. Considérez ces déterminations comme provisoires.',
+    fallback: 'Testé avec un modèle de secours. Considérez ces déterminations comme provisoires.',
   },
   report: { create: 'Créer un rapport', soon: 'Les rapports arrivent avec la prochaine version.' },
   copies: {
