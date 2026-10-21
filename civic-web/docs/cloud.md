@@ -965,6 +965,17 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
     list is a secret here and on Render.
   - **Live** (21 October, 13:41 UTC): PR #80; live check clean, nothing spent. The boot line says no tell words are set
     (until the operator adds them in Render), and the page's live checks of PR #79 still pass, 7/7.
+- **21 October: an ms.now link that no way could read.** The operator: "Why did this link fail 3 methods 2 fallbacks
+  https://www.ms.now/opinion/justice-department-california-lawsuit-voters-elections. Not possible."
+  - **What was known:** the search service had the article whole (asked through its connector). Nothing about link
+    reads was logged, and /check's recent failures had restarted with the day's deploy, so the cause was a judgment.
+    Most likely, FactEngine's reader found no prose and a "not free" mark in the page's code, called it a paywall, and
+    a paywall was never handed to the search service's reader (a rule of 19 October that was mine, not the operator's).
+  - **The operator's answer:** "Yes, marked for the reader". A page judged a paywall now goes to the search service's
+    reader, and its text comes back marked: in the box, waiting for the reader's button, with a sentence saying it is a
+    retrieved copy.
+  - **So the next one is not a guess:** one `[read]` line per link read and one `[copies]` line per copies search in
+    the host's log (the site, never the path or the text), and **Try a link** on /check.
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 

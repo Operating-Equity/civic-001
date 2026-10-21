@@ -764,9 +764,10 @@ async function accountChecks(label, dbUrl) {
     const opList = await c.json('/api/operator/accounts', { cookie: op });
     const rdList = await c.json('/api/operator/accounts', { cookie: reader });
     const opHealth = await c.json('/api/health', { cookie: op });
-    check(`accounts (${label}): /check and the operator's tools are the operator's: 200 with the accounts for them, 403 operator_only for a reader; the costs are shown to the operator alone`,
-      opSelf.status === 200 && Boolean(opSelf.body?.checks) && rdSelf.status === 403 && rdSelf.body?.error?.code === 'operator_only' && opList.status === 200 && opList.body?.accounts?.length === 2 && rdList.status === 403 && opHealth.body?.accounting === true,
-      JSON.stringify({ opSelf: opSelf.status, rdSelf: rdSelf.status, opList: opList.body?.accounts?.length, rdList: rdList.status, acc: opHealth.body?.accounting }));
+    const rdTry = await c.json('/api/operator/try-link', { method: 'POST', body: { url: 'https://example.com/' }, cookie: reader });
+    check(`accounts (${label}): /check and the operator's tools are the operator's: 200 with the accounts for them, 403 operator_only for a reader (Try a link too); the costs are shown to the operator alone`,
+      opSelf.status === 200 && Boolean(opSelf.body?.checks) && rdSelf.status === 403 && rdSelf.body?.error?.code === 'operator_only' && opList.status === 200 && opList.body?.accounts?.length === 2 && rdList.status === 403 && rdTry.status === 403 && opHealth.body?.accounting === true,
+      JSON.stringify({ opSelf: opSelf.status, rdSelf: rdSelf.status, opList: opList.body?.accounts?.length, rdList: rdList.status, rdTry: rdTry.status, acc: opHealth.body?.accounting }));
 
     const wrong = await c.signin('reader@example.com', 'not the password');
     const unknown = await c.signin('nobody@example.com', 'not the password');
@@ -1460,12 +1461,12 @@ async function copiesChecks() {
   const prose = (n) => `<p>${'Defense Secretary Pete Hegseth spoke to 600 junior officers and enlisted leaders at Quantico on Sept. 30. '.repeat(n)}</p>`;
   const plain = (n) => 'Defense Secretary Pete Hegseth spoke to 600 junior officers and enlisted leaders at Quantico on Sept. 30. '.repeat(n);
   // The stand-in of Exa's reader: its stored copy of an address FactEngine could not read, in /contents's own shape.
-  // It cannot read /copy-blocked or /locked (the site turns its crawler away too: CRAWL_HTTP_401, as Reuters does);
-  // /thin gives it no paragraph of prose; /marked carries a wall's words.
+  // It cannot read /copy-blocked, /locked or /paid-locked (the site turns its crawler away too: CRAWL_HTTP_401, as Reuters
+  // does); /thin gives it no paragraph of prose; /marked carries a wall's words.
   const readerAnswer = (asked) => {
     let p = '';
     try { p = new URL(asked).pathname; } catch { p = ''; }
-    if (p.startsWith('/copy-blocked') || p.startsWith('/locked')) return { requestId: 'standin', results: [], statuses: [{ id: asked, status: 'error', error: { tag: 'CRAWL_HTTP_401', httpStatusCode: 401 } }] };
+    if (p.startsWith('/copy-blocked') || p.startsWith('/locked') || p.startsWith('/paid-locked')) return { requestId: 'standin', results: [], statuses: [{ id: asked, status: 'error', error: { tag: 'CRAWL_HTTP_401', httpStatusCode: 401 } }] };
     if (p.startsWith('/thin')) return { requestId: 'standin', results: [{ id: asked, url: asked, title: 'Subscribe', text: 'Subscribe to keep reading.' }], statuses: [{ id: asked, status: 'success', source: 'crawled' }], costDollars: { total: 0.001 } };
     const walled = p.startsWith('/marked');
     return {
@@ -1517,6 +1518,9 @@ async function copiesChecks() {
     if (['/2026/', '/copy-blocked', '/locked', '/thin', '/marked'].some((p) => req.url.startsWith(p))) { res.writeHead(403, { 'content-type': 'text/html' }); res.end('<html><body>Forbidden</body></html>'); return; }
     if (req.url.startsWith('/shell')) { res.writeHead(200, { 'content-type': 'text/html' }); res.end('<html><head><title>Loading</title></head><body><div id="root"></div><script src="/app.js"></script></body></html>'); return; }
     if (req.url.startsWith('/paid')) { res.writeHead(402, { 'content-type': 'text/html' }); res.end('<html><body>Subscribe to continue reading.</body></html>'); return; }
+    // The page an ms.now column gave (21 October, as far as can be told): a page the site marks "not free" in its code,
+    // with no paragraph of prose FactEngine's reader can take out.
+    if (req.url.startsWith('/notfree')) { res.writeHead(200, { 'content-type': 'text/html' }); res.end('<html><head><title>A column</title><script type="application/ld+json">{"@context":"https://schema.org","@type":"NewsArticle","headline":"A column","isAccessibleForFree":false}</script></head><body><div id="app"><p>A short teaser.</p></div></body></html>'); return; }
     if (req.url.startsWith('/moved')) { res.writeHead(302, { location: REFUSED }); res.end(); return; }
     if (req.url.startsWith('/copy-a')) { res.writeHead(200, { 'content-type': 'text/html' }); res.end(`<html><head><title>Hegseth lays out his military vision</title><meta property="og:site_name" content="The Stand-in Times"></head><body><article>${prose(4)}<p>This article originally appeared in 127.0.0.1.</p></article></body></html>`); return; }
     if (req.url.startsWith('/report-d')) { res.writeHead(200, { 'content-type': 'text/html' }); res.end(`<html><head><title>Another outlet reports the speech</title></head><body><article>${prose(3)}</article></body></html>`); return; }
@@ -1644,19 +1648,53 @@ async function copiesChecks() {
         && notes.some((f) => f.code === 'reader_failed' && /no paragraph of prose/.test(f.detail || '')) && !JSON.stringify(notes).includes(SEARCH_KEY),
       JSON.stringify(notes).slice(0, 500));
 
-    // Never asked: a paywall, an address that is not a web address, a private address (on a service that reads
-    // none, as on Render), and a service whose reader is off or that has no search service at all.
+    // A page judged a paywall goes to the reader too, and its text comes back marked, so it waits for the reader's
+    // button (the operator's answer of 21 October, after an ms.now column was judged one and never asked for: "Yes,
+    // marked for the reader"): the site's 402, and a page the site marks "not free" in its code with no prose to take
+    // out. A paywall the reader cannot read either stays the paywall sentence.
     r0 = readerCalls.length;
     const paid = await read(baseOn, `http://localhost:${SITE3}/paid`);
+    const notFree = await read(baseOn, `http://localhost:${SITE3}/notfree`);
+    const paidLocked = await read(baseOn, `http://localhost:${SITE3}/paid-locked`);
+    check('a page judged a paywall (the site\'s 402, or its "not free" mark with no prose) is read through the search service\'s reader and comes back marked, so the page waits for the reader\'s button; one the reader cannot read either stays the paywall sentence',
+      [paid, notFree].every((x) => x.status === 200 && x.body?.via === 'search' && x.body?.wall === true && x.body?.kind === 'page' && /Quantico on Sept\. 30\./.test(x.body?.text || ''))
+        && paidLocked.status === 400 && paidLocked.body?.error?.code === 'url_paywall' && readerCalls.length - r0 === 3,
+      JSON.stringify({ paid: [paid.status, paid.body?.wall, paid.body?.error?.code], notFree: [notFree.status, notFree.body?.wall, notFree.body?.error?.code], locked: [paidLocked.status, paidLocked.body?.error?.code], calls: readerCalls.length - r0 }));
+
+    // Never asked: an address that is not a web address, a private address (on a service that reads none, as on
+    // Render), and a service whose reader is off or that has no search service at all.
+    r0 = readerCalls.length;
     const notWeb = await read(baseOn, 'ftp://localhost/2026/file.txt');
     const inside = await read(`http://localhost:${PORT7}`, REFUSED);
     const offRead = await read(baseOff, REFUSED);
     const offReader = await read(`http://localhost:${PORT8}`, REFUSED);
-    check('the reader is never asked for a paywall, an address that is not a web address, or a private address; nor when the reader is off or no search service is set',
-      paid.status === 400 && paid.body?.error?.code === 'url_paywall' && notWeb.status === 400 && notWeb.body?.error?.code === 'url_not_web'
+    check('the reader is never asked for an address that is not a web address, or a private address; nor when the reader is off or no search service is set',
+      notWeb.status === 400 && notWeb.body?.error?.code === 'url_not_web'
         && inside.status === 400 && inside.body?.error?.code === 'url_private' && offRead.body?.error?.code === 'url_refused' && offReader.body?.error?.code === 'url_refused'
         && readerCalls.length === r0,
-      JSON.stringify({ paid: [paid.status, paid.body?.error?.code], notWeb: [notWeb.status, notWeb.body?.error?.code], inside: [inside.status, inside.body?.error?.code], off: offRead.body?.error?.code, readerOff: offReader.body?.error?.code, calls: readerCalls.length - r0 }));
+      JSON.stringify({ notWeb: [notWeb.status, notWeb.body?.error?.code], inside: [inside.status, inside.body?.error?.code], off: offRead.body?.error?.code, readerOff: offReader.body?.error?.code, calls: readerCalls.length - r0 }));
+
+    // Each link read leaves one line in the host's log: its site and what each way of reading it did, never its path
+    // or any of its text; the copies search leaves one too. And /check's Try a link tells the three ways for one address.
+    const readLines = boot.on.split('\n').filter((l) => l.startsWith('[read] ') && !l.startsWith('[read] a link FactEngine'));
+    const copyLines = boot.on.split('\n').filter((l) => l.startsWith('[copies] '));
+    const paidLine = readLines.find((l) => l.includes('url_paywall (status 402)'));
+    const notFreeLine = readLines.find((l) => /^\[read\] localhost: FactEngine's reader: url_paywall → the search service's reader read it \(crawled, \d+ characters\), marked$/.test(l));
+    const lockedLine = readLines.find((l) => /url_paywall \(status 402\) → the search service's reader could not \(the reader answered CRAWL_HTTP_401 \(the site's 401\)\)$/.test(l));
+    const refusedLine = readLines.find((l) => /^\[read\] 127\.0\.0\.1: FactEngine's reader: url_refused \(status 403\) → the search service's reader read it \(cached, \d+ characters\)$/.test(l));
+    const notWebLine = readLines.find((l) => /url_not_web.*→ not handed on \(not a failure the search service's reader is asked for\)$/.test(l));
+    const allLog = [...readLines, ...copyLines].join('\n');
+    check('each link read leaves one line in the host\'s log naming its site and what each way of reading it did (and the copies search one more), never the address\'s path, any of its text, or the key',
+      Boolean(paidLine && notFreeLine && lockedLine && refusedLine && notWebLine) && copyLines.length > 0 && copyLines.every((l) => /^\[copies\] [\w.-]+: \d+ found/.test(l))
+        && !/hegseth-troops|\/2026\/09|\/paid|\/notfree|Quantico|Defense Secretary/.test(allLog) && !allLog.includes(SEARCH_KEY),
+      [...readLines.slice(-8), ...copyLines.slice(-2)].join(' | ').slice(0, 900));
+    const tried = await fetch(`${baseOn}/api/operator/try-link`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ url: REFUSED }) });
+    const t = await tried.json().catch(() => null);
+    check('/check\'s Try a link (the operator\'s) tells each way of reading one address in a few words: FactEngine\'s reader refused, the search service\'s reader read it, the copies found; and none of the text',
+      tried.status === 200 && t?.site === '127.0.0.1' && t.own?.ok === false && t.own?.code === 'url_refused' && t.own?.detail === 'status 403'
+        && t.reader?.ok === true && t.reader?.from === 'cached' && t.reader?.chars > 200 && t.copies?.found > 0 && Array.isArray(t.copies?.notes)
+        && !/Quantico|Defense Secretary/.test(JSON.stringify(t)) && !JSON.stringify(t).includes(SEARCH_KEY),
+      JSON.stringify(t));
 
     // A rate limit from the reader is a wait of the time it asks, then the same ask again.
     readerForced.push('429');
@@ -1707,13 +1745,13 @@ async function copiesChecks() {
     const ledger = fs.existsSync(ledgerFile) ? fs.readFileSync(ledgerFile, 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l)) : [];
     const searches = ledger.filter((l) => l.kind === 'search' && l.step === 'find-copies');
     check('each search is a ledger line with the service\'s own cost for it, and the key is in no line',
-      searches.length === 4 && searches.every((l) => l.usd === 0.007 && Number.isFinite(l.ms)) && !JSON.stringify(ledger).includes(SEARCH_KEY), JSON.stringify(searches).slice(0, 300));
+      searches.length === 6 && searches.every((l) => l.usd === 0.007 && Number.isFinite(l.ms)) && !JSON.stringify(ledger).includes(SEARCH_KEY), JSON.stringify(searches).slice(0, 300));   // two copies searches of two queries each, and Try a link's
     // Each ask of the reader that was answered is one line: whether a page came, where the text came from, its
     // length, the time and the service's own cost (none when it gave none); never the text, never the key.
     const reads = ledger.filter((l) => l.kind === 'search' && l.step === 'reader');
     const answered = readerCalls.length - 1;   // the one answered 429 is a wait, not a line
     check('each answered ask of the reader is one ledger line with whether a page came, cached or crawled, its length, the time and the service\'s own cost; never the text or the key',
-      reads.length === answered && reads.filter((l) => l.ok === true).length === 8 && reads.every((l) => Number.isFinite(l.ms) && Number.isFinite(l.chars))
+      reads.length === answered && reads.filter((l) => l.ok === true).length === 11 && reads.every((l) => Number.isFinite(l.ms) && Number.isFinite(l.chars))
         && reads.some((l) => l.ok === true && l.from === 'cached' && l.usd === 0.001 && l.chars > 200) && reads.some((l) => l.ok === true && l.from === 'crawled')
         && reads.filter((l) => l.ok === false).every((l) => l.chars === 0) && reads.some((l) => l.ok === false && l.usd === null)
         && !JSON.stringify(reads).includes('Quantico') && !JSON.stringify(reads).includes(SITE3) && !JSON.stringify(ledger).includes(SEARCH_KEY),

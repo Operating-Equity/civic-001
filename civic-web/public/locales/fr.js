@@ -11,6 +11,7 @@ export default {
     readUrl: 'Lu {title} · {n} caractères',
     copyCheck: 'Voici la copie de la page de {site} que conserve le service de recherche, {n} caractères, que FactEngine n\'a pas pu lire lui-même. S\'il s\'agit de l\'article entier, appuyez sur {button} ; sinon, choisissez-en une autre ou collez le texte de l\'article.',
     markedWall: '{site} indique que cet article est réservé aux abonnés ; voici ce qu\'il a envoyé. Si c\'est l\'article entier, appuyez sur {button}. Sinon, copiez le texte de l\'article et collez-le ici.',
+    markedWallCopy: '{site} indique que cet article est réservé aux abonnés ; voici une copie récupérée. Si c\'est l\'article entier, appuyez sur {button}. Sinon, copiez le texte de l\'article et collez-le ici.',
     autoCaptions: 'Cette vidéo n\'avait pas de transcription écrite ; les sous-titres automatiques de YouTube ont été utilisés. Ils contiennent des erreurs de transcription.',
     upload: 'Téléverser un document',
     uploadHint: '.txt, .md, .pdf, .docx',
