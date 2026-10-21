@@ -963,6 +963,8 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
     messages in 22 seconds). `--fingerprints` gives the list's fingerprints by place.
   - **The operator's answers:** the prompts' half of `--history` runs on their own copy, where the prompts are; the
     list is a secret here and on Render.
+  - **Live** (21 October, 13:41 UTC): PR #80; live check clean, nothing spent. The boot line says no tell words are set
+    (until the operator adds them in Render), and the page's live checks of PR #79 still pass, 7/7.
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 
