@@ -948,6 +948,21 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
     `/check.html` and `/b/<stamp>/js/check.js`.
   - **Only the vendor files the pages load** are sent; their source maps and the rest of the packages are not found.
   - **The security policy** names no image service's host while the echo is off.
+  - **Live** (20 October, 06:06 UTC): PR #79; live check clean, nothing spent. Without a cookie, the page has no comment
+    and none of the operator's parts; twelve spellings of the check page and its script are not found; app.js parses
+    with no comment and revalidates with a 304; the vendor maps are not found and the four vendor files are as
+    installed; the boot line says the 21 files and the 64 vendor files.
+- **20 October: the tell words, and the leak check over history.** Step three of the operator's four
+  (`server/tells.js`, `scripts/leak-check.mjs`).
+  - **The tell words** are the operator's, kept with the prompts (`CIVIC_TELL_WORDS`, never here): `anywhere` words must
+    appear nowhere, `served` words must never reach a reader. A word found is named by its fingerprint alone.
+  - **At start-up** the server reads what a reader receives against the list; its log and `/check` say "none" or name
+    each finding by fingerprint and file. A list that cannot be read stops the start, naming the key.
+  - **The leak check** reads `anywhere` words in every tracked file; `--served` reads what a reader receives;
+    `--history` reads every file and commit message on every branch and pull request (here: 1,496 files and 435
+    messages in 22 seconds). `--fingerprints` gives the list's fingerprints by place.
+  - **The operator's answers:** the prompts' half of `--history` runs on their own copy, where the prompts are; the
+    list is a secret here and on Render.
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 

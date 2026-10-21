@@ -1,8 +1,10 @@
 # Runs on every push and every pull request, so the Checks line on a pull request means something.
-# Nothing here ever sees the real prompts. It proves three things instead:
+# Nothing here ever sees the real prompts. It proves four things instead:
 #   1. No real prompt file is committed, and the vault still ignores them.
 #   2. The leak guard actually detects prompt text in a committed file (it is fed planted text).
-#   3. Requests carry the configured model, the configured effort, the prompt verbatim and web
+#   3. The leak guard finds a tell word in what a reader receives (it is fed a planted word), naming it
+#      by its fingerprint alone.
+#   4. Requests carry the configured model, the configured effort, the prompt verbatim and web
 #      search, and nothing else, using stand-in prompts against the mock API.
 name: verify
 
@@ -66,6 +68,18 @@ jobs:
             echo "The leak guard printed the text it found."; exit 1
           fi
           echo "Guard failed on planted text, as it must, and printed none of it."
+
+      - name: The leak guard finds a tell word in what a reader receives (planted on purpose)
+        run: |
+          # Words a reader's language file carries, given as a tell word: --served must fail, and name it by its
+          # fingerprint alone (server/tells.js).
+          if out=$(CIVIC_TELL_WORDS='{"served": ["Extraction output"]}' node scripts/leak-check.mjs --served 2>&1); then
+            echo "The leak guard did not notice a planted tell word in what a reader receives."; exit 1
+          fi
+          if printf '%s' "$out" | grep -qi "extraction output"; then
+            echo "The leak guard printed the word it found."; exit 1
+          fi
+          echo "Guard failed on a planted tell word, as it must, and printed none of it."
 
       - name: Requests carry the configuration and nothing else (source inside the prompt)
         run: |

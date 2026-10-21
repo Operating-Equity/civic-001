@@ -313,6 +313,36 @@ export function vendorFiles({ publicDir, nodeModules }) {
 }
 
 /**
+ * What a reader receives of the page's own, as [label, text] pairs: every file of the page but the operator's, as sent,
+ * and the reader's form of the page. The vendor files are packages as published, not the operator's to word, and are
+ * left out.
+ */
+export function readerTexts({ publicDir, build }) {
+  const out = [];
+  const walk = (dir, rel) => {
+    for (const d of fs.readdirSync(dir, { withFileTypes: true })) {
+      const r = rel ? `${rel}/${d.name}` : d.name;
+      if (d.isDirectory()) { if (r !== 'assets') walk(path.join(dir, d.name), r); continue; }
+      if (r === 'index.html' || OPERATOR_ONLY.has(r.toLowerCase())) continue;
+      const entry = served(path.join(dir, d.name), r);
+      if (entry) out.push([`public/${r}`, entry.body]);
+    }
+  };
+  walk(publicDir, '');
+  out.push(['the page (a reader\'s form)', indexPage({ publicDir, build, operator: false })]);
+  return out;
+}
+
+/** What a reader receives, read against the tell words (server/tells.js): each finding names the file and the word's
+ * fingerprint, never the word. */
+export function tellCheck({ publicDir, build, find }) {
+  const texts = readerTexts({ publicDir, build });
+  const findings = [];
+  for (const [file, text] of texts) for (const fp of find(text)) findings.push({ file, fingerprint: fp });
+  return { files: texts.length, findings };
+}
+
+/**
  * Everything the server will send of the page, read before the door opens: every script, style sheet and page under
  * public/ (assets/ holds fonts and pictures, sent as they are), both forms of the page, and the vendor files. Anything
  * that cannot be read throws, naming the file.

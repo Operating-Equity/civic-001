@@ -40,6 +40,7 @@ import { registry } from './tools/index.js';
 import { mountGateway } from './tools/gateway.js';
 import * as economics from './economics.js';
 import * as assets from './assets.js';
+import { loadTells, finder, tellReport, setTellReport } from './tells.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const publicDir = path.join(here, '..', 'public');
@@ -62,13 +63,21 @@ const BUILD = buildStamp();
 // load. All of it is read here, before the door opens: a file that cannot be read stops the start,
 // naming it.
 let pageFiles;
+let tells;
 try {
   pageFiles = assets.prepare({ publicDir, build: BUILD, nodeModules });
+  tells = loadTells();   // the operator's tell words (server/tells.js); a list that cannot be read stops the start
 } catch (err) {
   console.error(`\nSTOPPED: ${err?.message || err}, so this FactEngine did not start.\n`);
   process.exit(1);
 }
 const vendorFiles = pageFiles.vendor;
+// The tell words (server/tells.js): what a reader receives is read against the operator's list here, and what is found
+// is named on /check and in the host's log by its fingerprint, never by the word. A finding does not stop the start.
+if (tells) {
+  setTellReport({ installed: tells.installed, words: tells.anywhere.length + tells.served.length,
+    ...assets.tellCheck({ publicDir, build: BUILD, find: finder([...tells.anywhere, ...tells.served]) }) });
+}
 
 // Whose page it is: the operator's form for the operator, and for everyone on an open door (CIVIC_ACCOUNTS=off), as
 // before; a reader's for anyone else. A session that cannot be read gets a reader's page.
@@ -606,6 +615,10 @@ function banner() {
     : `[rank] the claims are listed unranked: ${rs.why}`);
   // The page's files (server/assets.js): how they are sent.
   console.log(`[page] ${pageFiles.files} scripts, style sheets and pages sent without their comments; the ${pageFiles.vendor.size} vendor files the pages load, and no others; /check and the operator's parts of the page ${signinRequired() ? 'for the operator alone' : 'for everyone (an open door)'}`);
+  const tr = tellReport();
+  if (!tr) console.log('[page] no tell words are set (CIVIC_TELL_WORDS or CIVIC_TELL_WORDS_FILE)');
+  else if (!tr.findings.length) console.log(`[page] tell words (list #${tr.installed}, ${tr.words}): none in what a reader receives (${tr.files} files)`);
+  else console.log(`[page] tell words (list #${tr.installed}, ${tr.words}) in what a reader receives: ${tr.findings.map((f) => `${f.fingerprint} in ${f.file}`).join('; ')}`);
   if (config.openaiBaseUrl) console.log(`OpenAI base URL override: ${config.openaiBaseUrl}`);
 }
 
