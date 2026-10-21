@@ -4138,6 +4138,92 @@ async function downloadChecks() {
 }
 await downloadChecks();
 
+// ---- the tell words (20 October, server/tells.js, scripts/leak-check.mjs): the operator's list of words that must never
+// reach a reader, read at start-up against what a reader receives, and by the leak check against the repository, its
+// history and what is served. Wherever a word is found, it is named by its fingerprint and never written.
+async function tellWordChecks() {
+  const MOCKT = MOCK_PORT + 108, PT = PORT + 109;
+  const procs = [];
+  try {
+    const { loadTells, finder, fingerprint } = await import('../server/tells.js');
+    const { historyChecks } = await import('./leak-check.mjs');
+    const SECRET = 'Quillon Verbatim Ninefold';
+    const refusal = (env) => { try { loadTells(env); return ''; } catch (err) { return err.message; } };
+    const BAD = [
+      { CIVIC_TELL_WORDS: `{"anywhere": ["${SECRET}"` }, { CIVIC_TELL_WORDS: `{"served": ["${SECRET}"], "nowhere": ["x"]}` },
+      { CIVIC_TELL_WORDS: `{"anywhere": ["${SECRET}", "  "]}` }, { CIVIC_TELL_WORDS: `{"anywhere": "${SECRET}"}` }, { CIVIC_TELL_WORDS: '{"anywhere": []}' },
+      { CIVIC_TELL_WORDS_FILE: path.join(os.tmpdir(), 'civic-verify-no-such-tell-file.json') },
+    ];
+    const refusals = BAD.map(refusal);
+    const plain = loadTells({ CIVIC_TELL_WORDS: `["${SECRET}", "Two  words"]` });
+    const both = loadTells({ CIVIC_TELL_WORDS: '{"anywhere": ["a1"], "served": ["s1", "s2"]}' });
+    check('a tell list that cannot be read is refused naming its key and never a word of it; a plain list is the words that must appear nowhere; none set is none',
+      refusals.every((m) => /^CIVIC_TELL_WORDS: /.test(m) && !m.includes(SECRET) && !m.includes('Quillon')) && loadTells({}) === null
+        && JSON.stringify(plain.anywhere) === JSON.stringify([SECRET, 'Two words']) && plain.served.length === 0 && /^[0-9a-f]{8}$/.test(plain.installed)
+        && JSON.stringify(both.served) === '["s1","s2"]' && JSON.stringify(both.anywhere) === '["a1"]', JSON.stringify(refusals));
+    const find = finder(['Wren', 'logic audit', 'gpt-5.6-sol']);
+    const found = find('A Logic\n Audit by WREN, on gpt-5.6-sol; not a wrench, nor gpt-5.6-solar, nor Wrens.');
+    check('a tell word is found whatever its capitals and spacing, and whole: never inside a longer word; it is named by its fingerprint',
+      JSON.stringify(found.sort()) === JSON.stringify([fingerprint('Wren'), fingerprint('logic audit'), fingerprint('gpt-5.6-sol')].sort()) && find('a wrench and gpt-5.6-solar').length === 0
+        && fingerprint('Logic  AUDIT') === fingerprint('logic audit') && /^#[0-9a-f]{8}$/.test(fingerprint('x')), JSON.stringify(found));
+
+    // History, on a repository of the guard's own making: a word and a prompt's line committed, then removed.
+    const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'civic-verify-history-'));
+    const g = (...args) => spawnSync('git', ['-c', 'user.email=guard@example.com', '-c', 'user.name=guard', ...args], { cwd: repo, encoding: 'utf8' });
+    g('init', '-q');
+    const LINE = 'the planted line of a prompt that the history must still remember after it is gone';
+    fs.writeFileSync(path.join(repo, 'notes.md'), `Notes.\n${LINE}\nAnd ${SECRET} too.\n`);
+    g('add', '.'); g('commit', '-q', '-m', `First, naming ${SECRET} in the message`);
+    const first = g('rev-parse', '--short', 'HEAD').stdout.trim();
+    fs.writeFileSync(path.join(repo, 'notes.md'), 'Notes.\n');
+    g('add', '.'); g('commit', '-q', '-m', 'Second, clean');
+    const needles = new Map([[LINE.split(' ').slice(2, 7).join(' '), 'extract']]);
+    const hist = historyChecks({ tells: { anywhere: [SECRET], served: [] }, cwd: repo, fetch: false, needles });
+    fs.rmSync(repo, { recursive: true, force: true });
+    const histText = JSON.stringify(hist);
+    check('the history check reads every file and commit message a repository has held: a prompt\'s line and a word removed since are found in the file that held them, in the commit that holds it, and in the message; named by fingerprint, never by their text',
+      hist.length === 2 && hist.every((r) => !r.ok) && hist[0].detail.includes('notes.md') && hist[0].detail.includes(first) && /extract prompt text \(fragment #[0-9a-f]{8}\)/.test(hist[0].detail)
+        && hist[1].detail.includes('notes.md') && hist[1].detail.includes(`the message of commit ${first}`) && hist[1].detail.includes(fingerprint(SECRET))
+        && !histText.includes('Quillon') && !histText.includes('planted line'), histText.slice(0, 600));
+
+    // The leak check's own commands, with a planted list: what is served, and the list's fingerprints.
+    const PLANTED = 'Extraction output';   // a word a reader's language file carries
+    const leak = (args, env) => spawnSync(process.execPath, [path.join(root, 'scripts', 'leak-check.mjs'), ...args], { cwd: root, encoding: 'utf8', timeout: 60000, env: { ...process.env, ...env } });
+    const served = leak(['--served'], { CIVIC_TELL_WORDS: JSON.stringify({ served: [PLANTED] }) });
+    const prints = leak(['--fingerprints'], { CIVIC_TELL_WORDS: JSON.stringify({ anywhere: [SECRET], served: [PLANTED] }) });
+    check('the leak check finds a planted word in what a reader receives, naming the file and the fingerprint and never the word; --fingerprints gives the list\'s fingerprints by place, never the words',
+      served.status === 1 && served.stdout.includes(`public/locales/en.js carries a tell word (${fingerprint(PLANTED)})`) && !served.stdout.toLowerCase().includes(PLANTED.toLowerCase())
+        && prints.status === 0 && prints.stdout.trim() === `anywhere 1: ${fingerprint(SECRET)}\nserved 1: ${fingerprint(PLANTED)}`,
+      `${served.status} ${served.stdout.slice(0, 300)} | ${prints.stdout}`);
+
+    // The server: the list read at start-up against what a reader receives; the finding on /check and in the log by
+    // fingerprint; a list that cannot be read stops the start, naming the key.
+    const mock = start([path.join(root, 'scripts', 'mock-openai.js')], { MOCK_PORT: String(MOCKT), MOCK_SPEED: '0.2' });
+    procs.push(mock);
+    await wait(`http://localhost:${MOCKT}/v1/mock/stats`, 15000, { anyResponse: true });
+    let boot = '';
+    const srv = start([path.join(root, 'server', 'index.js')], { PORT: String(PT), OPENAI_BASE_URL: `http://localhost:${MOCKT}/v1`, OPENAI_API_KEY: KEY, CIVIC_IMAGE_ENABLED: 'false', CIVIC_TELL_WORDS: JSON.stringify({ served: [PLANTED], anywhere: [SECRET] }), CIVIC_LEDGER_FILE: path.join(os.tmpdir(), 'civic-verify-tells-ledger.jsonl') });
+    srv.stdout.on('data', (d) => { boot += String(d); });
+    procs.push(srv);
+    await wait(`http://localhost:${PT}/api/health`, 20000);
+    const st = await (await fetch(`http://localhost:${PT}/api/selftest`)).json();
+    const row = (st.checks || []).find((c) => c.title === 'What a reader receives carries some of your tell words');
+    const bad = spawnSync(process.execPath, [path.join(root, 'server', 'index.js')], { cwd: root, timeout: 20000, encoding: 'utf8', env: { ...process.env, ...ACCOUNTS_OFF, PORT: String(PT + 1), OPENAI_API_KEY: KEY, CIVIC_TELL_WORDS: `{"anywhere": ["${SECRET}", ""]}` } });
+    const said = `${boot}${JSON.stringify(st)}${bad.stdout}${bad.stderr}`;
+    check('the server reads the list at start against what a reader receives and says what it found by fingerprint and file, in its log and on /check, never the word; a list that cannot be read stops the start, naming the key',
+      new RegExp(`\\[page\\] tell words \\(list #[0-9a-f]{8}, 2\\) in what a reader receives: ${fingerprint(PLANTED)} in public/locales/en\\.js`).test(boot)
+        && row?.state === 'warn' && row.detail.includes(`${fingerprint(PLANTED)} in public/locales/en.js`)
+        && bad.status !== 0 && /STOPPED: CIVIC_TELL_WORDS: anywhere must hold no empty word/.test(`${bad.stdout}${bad.stderr}`)
+        && !said.toLowerCase().includes(PLANTED.toLowerCase()) && !said.includes('Quillon'),
+      `${boot.split('\n').filter((l) => l.includes('tell')).join(' / ')} | ${JSON.stringify(row)} | ${String(bad.stderr).slice(0, 200)}`);
+  } catch (err) {
+    check('tell word checks ran', false, err.stack || err.message);
+  } finally {
+    for (const p of procs) { try { p.kill('SIGTERM'); } catch {} }
+  }
+}
+await tellWordChecks();
+
 const failed = results.filter((r) => !r.ok);
 for (const r of results) console.log(`${r.ok ? 'PASS' : 'FAIL'}  ${r.name}${r.ok ? '' : `   ← ${r.detail}`}`);
 console.log(failed.length

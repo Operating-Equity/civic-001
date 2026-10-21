@@ -21,6 +21,7 @@ import { gateStates } from './gate.js';
 import { readers as readersNow } from './jobs.js';
 import { silentSites } from './fetchurl.js';
 import { names } from './names.js';
+import { tellReport } from './tells.js';
 import { searchOn, readerOn } from './copies.js';
 import { registry } from './tools/index.js';
 import { toolsOn, gatewayOn } from './tools/request.js';
@@ -285,6 +286,14 @@ export async function selftest({ apiKey, build, operator = true }) {
   checks.push(ok('The entries are read by their headings', names.installed
     ? `By your own list (#${names.installed}, ${names.keys} name${names.keys === 1 ? '' : 's'} set), kept beside the prompts. A reader sees each inspector as ${names.inspector.replace('{initial}', 'A')}, by the first letter of the name.`
     : `By FactEngine's own words: no list is set (CIVIC_OUTPUT_NAMES or CIVIC_OUTPUT_NAMES_FILE). A reader sees each inspector as ${names.inspector.replace('{initial}', 'A')}, by the first letter of the name.`));
+  // The tell words (server/tells.js): whether what a reader receives carries any, read at start-up, by fingerprint only.
+  const tr = tellReport();
+  if (!tr) checks.push(ok('No tell words are set', 'No list is set (CIVIC_TELL_WORDS or CIVIC_TELL_WORDS_FILE), so what a reader receives is read against none. Kept beside the prompts, a list is read against it at every start.'));
+  else if (!tr.findings.length) checks.push(ok('What a reader receives carries none of your tell words', `Your list (#${tr.installed}, ${tr.words} words) was read at start against the ${tr.files} files a reader receives.`));
+  else {
+    checks.push(warn('What a reader receives carries some of your tell words', `${tr.findings.map((f) => `${f.fingerprint} in ${f.file}`).join('; ')}. A word is named by its fingerprint: the first 8 hex of the SHA-256 of the word in lower case.`,
+      'npm run leak-check -- --fingerprints gives each word\'s fingerprint by its place in your list, without the words. Change those files, or the word, and deploy again.'));
+  }
   // The ranking (server/rank.js, 16 October) is the one optional prompt: without it the claims are listed unranked, as
   // they were before, so its absence is said and never stops anything.
   const ranking = rankState();

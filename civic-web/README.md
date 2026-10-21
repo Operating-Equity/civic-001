@@ -664,7 +664,7 @@ npm run verify
 Starts the mock and the server, runs both steps, and reads the request bodies the server
 **actually sent**. It also scans every file git tracks for any five-word run of the installed
 prompts and fails if one is found, so no template, comment or test fixture can carry prompt text
-into the repository (`npm run leak-check` runs that scan on its own). It fails if a request carries any key beyond the list above, if the model or
+into the repository (`npm run leak-check` runs that scan on its own, and further: see "The tell words" below). It fails if a request carries any key beyond the list above, if the model or
 effort differ from the configuration, if either prompt is not byte-for-byte verbatim, if a
 fallback or truncation occurred, if any streamed character is missing from the delivered text, or
 if a verdict was read from anywhere but the model's own Conclusion. Run it before every deploy.
@@ -720,6 +720,25 @@ without the operator's parts (the cost, the key's minute, the trial bar), which 
 `public/index.html`; their words are in those parts, not in the four locales. A sign-in or sign-out that changes the
 form loads the page again once nothing is running. `/check` and its script are the operator's, however the address is
 spelt. Of the vendor packages, only the files the pages load are sent, as shipped; their source maps are not.
+
+**The tell words, and the leak check over history** (`server/tells.js`, `scripts/leak-check.mjs`, 20 October). The
+operator's tell words are kept with the prompts, never here: `CIVIC_TELL_WORDS` (JSON) or `CIVIC_TELL_WORDS_FILE`,
+`{"anywhere": […], "served": […]}`, a plain list being `anywhere`. An `anywhere` word must appear nowhere (the
+repository, its history, what a reader receives); a `served` word may stand in the server's code and must never reach a
+reader. A word is found whatever its capitals and whole, and is only ever named by its fingerprint (the first 8 hex of
+the SHA-256 of the word in lower case); a list that cannot be read stops the start, naming the key. At start-up the
+server reads what a reader receives against the list and says what it found in its log and on `/check`, without
+stopping. The leak check reads `anywhere` words in every tracked file, and, when asked:
+
+```
+npm run leak-check -- --served         # what a reader receives, for every tell word and fragment of the prompts
+npm run leak-check -- --history        # every file and commit message on every branch and pull request
+npm run leak-check -- --fingerprints   # each tell word's fingerprint by its place in the list, never the word
+```
+
+`--history` needs the prompts installed to look for their fragments, so it is run where they are (the operator's own
+copy); it fetches the pull requests' heads into a namespace of its own, reads every object once (seconds), names each
+finding by its file, commits and fingerprint, and removes the namespace.
 
 ## Models
 

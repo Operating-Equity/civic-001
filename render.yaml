@@ -52,6 +52,8 @@ services:
         sync: false
       - key: GEMINI_API_KEY        # the operator's trial on Gemini 4 Argon (18 October): their own Google key
         sync: false
+      - key: CIVIC_TELL_WORDS      # the operator's tell words (20 October, civic-web/server/tells.js): set in Render, never here
+        sync: false
       - key: CIVIC_EXTRACT_PROVIDER
         value: deepseek            # the operator's choice of 5 October, for speed: DeepSeek's own service. Never Fireworks
                                    # ("Never go back to fireworks", 5 October); the fallback is openai
