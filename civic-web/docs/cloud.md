@@ -976,6 +976,9 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
     retrieved copy.
   - **So the next one is not a guess:** one `[read]` line per link read and one `[copies]` line per copies search in
     the host's log (the site, never the path or the text), and **Try a link** on /check.
+  - **Live** (21 October, 16:35 UTC): PR #81; live check clean, nothing spent, 4/4. Render started no deploy of the
+    merge by itself (no event at all after the merge, with automatic deploys on), so the deploy was started through
+    Render's API.
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 
