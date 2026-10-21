@@ -577,9 +577,10 @@ async function readLinkIntoBox(url, { copy = null } = {}) {
     state.sourceMeta = { kind: 'link', url: got.url, title: got.title || host, author: got.author || '', published: got.published || '', site: got.site || host, ...(got.via === 'search' ? { via: 'search' } : {}) };
     state.loadedText = got.text;
     if (got.wall) {
-      // The site marks the article as for subscribers and sent this text: it is in the box, and the
-      // reader decides whether it is the whole article; the run waits for the next press.
-      const sentence = t('intake.markedWall', { site: got.site || host, button: t('intake.run') });
+      // The site marks the article as for subscribers and sent this text, or the search service holds a copy of a page
+      // the site marks so (21 October): it is in the box, and the reader decides whether it is the whole article; the run
+      // waits for the next press.
+      const sentence = t(got.via === 'search' ? 'intake.markedWallCopy' : 'intake.markedWall', { site: got.site || host, button: t('intake.run') });
       ui.sourceMeta.textContent = sentence;
       toast(sentence, { ms: 12000 });
       return false;

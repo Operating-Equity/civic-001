@@ -317,9 +317,12 @@ order (`/api/read-url`, `server/index.js`):
 2. When that fails on a public web page, the search service's reader is asked for the same address
    (`readerCopy`, `server/copies.js`; Exa's `/contents`, `{urls: [address], text: true}`, which serves its stored
    copy of the page or fetches it itself). That covers a refusal, silence, a page its scripts build, an address that
-   cannot be reached, too many redirects, any other status (404, 451, 5xx) and a page with almost no text. Never
-   asked: a paywall (FactEngine does not get round one), an address that is not a public web page (never fetched,
-   never handed to anyone), a file too large or not text, and a YouTube link (its transcript has its own doors).
+   cannot be reached, too many redirects, any other status (404, 451, 5xx), a page with almost no text, and a page
+   judged a paywall (the site's 402, or its "not free" mark or a wall's words with no paragraph of prose). A paywall's
+   text comes back marked, so it goes into the box and waits for the reader's button: the operator's answer of 21
+   October, after an ms.now column was judged one and never asked for ("Yes, marked for the reader"), and their rule of
+   19 September for a marked page. Never asked: an address that is not a public web page (never fetched, never handed
+   to anyone), a file too large or not text, and a YouTube link (its transcript has its own doors).
    The address asked is the one the failure was about, after redirects. When its text has a paragraph of prose (200
    characters, FactEngine's own rule for a page), it is the answer, exactly as a page read by FactEngine: the box
    fills and the run starts, with the service's title, author and date and `via: 'search'`, so the source's
@@ -340,6 +343,12 @@ key, and /check's row for a refused link names it too. Tested on 19 October: Exa
 ms.now article whole, with its title, author and date, where FactEngine's server had been refused in 0.3 seconds;
 Reuters turns Exa's crawler away too (`CRAWL_HTTP_401`), so a Reuters link still goes on to its copies, where Exa's
 search found Investing.com's full Reuters text.
+
+**Why a link read as it did** (21 October). Each link read leaves one line in the host's log, `[read] <site>: …`,
+with what each way of reading it did (FactEngine's reader, then the search service's reader), and the copies search
+one more, `[copies] <site>: n found`; never the address's path, any of its text, or a key. On `/check`, **Try a
+link** (the operator's alone) reads one address every way without starting a run and says what each way did; it
+costs one read and one search of the search service, and shows none of the text.
 
 **A refused article, found elsewhere.** The same article is often published at another address: papers
 that republish another paper's articles with permission end each one with "This article originally

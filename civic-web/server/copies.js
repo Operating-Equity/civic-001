@@ -141,15 +141,17 @@ export function readerOn() { return Boolean(String(config.readerUrl || '').trim(
  * `via: 'search'` so its attribution says so, when the text has a paragraph of prose (FactEngine's own rule for a
  * page); else null, with the service's own words on /check. Its date is the day alone, as for a copy: the service's
  * dates are timestamps padded to the day. A rate limit is a wait, as for the search. One ledger line
- * per ask: the service's own cost figure, where the text came from, the time; never the text.
+ * per ask: the service's own cost figure, where the text came from, the time; never the text. `explain`, when given,
+ * is told what came of the ask in a few words (for the host's log line and /check's Try a link), never the text.
  */
-export async function readerCopy(address, { signal } = {}) {
+export async function readerCopy(address, { signal, explain } = {}) {
   const endpoint = await assertPublic(String(config.readerUrl).trim());
   const page = new URL(address);
   const host = siteName(page);
   const body = JSON.stringify({ urls: [page.toString()], text: true });
   const noRead = (detail) => {
     failure({ where: 'server:reader', code: 'reader_failed', message: `The search service's reader could not read ${host} either.`, detail });
+    explain?.({ ok: false, why: detail });
     return null;
   };
   for (let backoff = 1000; ;) {
@@ -184,6 +186,7 @@ export async function readerCopy(address, { signal } = {}) {
     if (!read) return noRead(status?.status === 'error' ? `the reader answered ${status.error?.tag || 'an error'}${status.error?.httpStatusCode ? ` (the site's ${status.error.httpStatusCode})` : ''}` : 'the reader returned no paragraph of prose');
     let at = page;
     try { at = new URL(String(result.url || page)); } catch { at = page; }
+    explain?.({ ok: true, from: status?.source || null, chars: got.length });
     return {
       kind: 'page', title: clean(result.title) || host, author: clean(result.author), published: String(result.publishedDate || '').slice(0, 10),
       site: siteName(at), text: got, url: at.toString(), note: null, wall: WALL_PHRASES.test(got), via: 'search',
@@ -219,7 +222,7 @@ export async function findCopies(rawUrl, { signal } = {}) {
   const host = url.hostname.replace(/^www\./, '').toLowerCase();
   const publisher = publisherOf(host);
   const { words, date, day } = linkWords(url.toString());
-  if (!words) return { site: host, publisher, words, date, copies: [] }; // an address without words gives a search nothing to go on
+  if (!words) return { site: host, publisher, words, date, copies: [], notes: ['the address has no words to search by'] }; // an address without words gives a search nothing to go on
   const subject = [words, date].filter(Boolean).join(' ');
   const [republished, reported] = await Promise.all([
     searchOnce('republished', `${subject} "This article originally appeared in ${publisher}"`, [host], { signal }),
@@ -256,5 +259,5 @@ export async function findCopies(rawUrl, { signal } = {}) {
     });
   }
   copies.sort((a, b) => Number(b.credited) - Number(a.credited)); // stable: within each group, the service's order
-  return { site: host, publisher, words, date, copies };
+  return { site: host, publisher, words, date, copies, notes: [republished.note, reported.note].filter(Boolean) };
 }

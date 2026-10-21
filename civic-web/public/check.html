@@ -34,6 +34,10 @@
   .check-failures time { color: var(--ink-soft, #55606e); }
   .check-actions { display: flex; flex-wrap: wrap; gap: .6rem; margin-top: 1.75rem; }
   .check-report { width: 100%; min-height: 12rem; margin-top: 1rem; font-family: var(--font-mono, monospace); font-size: .8rem; }
+  .check-try { margin-top: 2rem; }
+  .check-try-form { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: .75rem; }
+  .check-try-form .input { flex: 1 1 16rem; min-width: 0; }
+  .check-try-out li { margin-bottom: .45rem; font-size: .92rem; overflow-wrap: anywhere; }
 </style>
 </head>
 <body>
@@ -58,6 +62,17 @@
   </div>
 
   <div class="check-failures" id="failures"></div>
+
+  <!-- Try a link (21 October): every way FactEngine reads one address, each told in a few words. -->
+  <section class="check-try" id="try">
+    <h2>Try a link</h2>
+    <p class="check-detail">Reads one address every way FactEngine can, without starting a run: its own reader, the search service's reader, and copies elsewhere. It costs one read and one search of the search service, and shows none of the text.</p>
+    <form class="check-try-form" id="try-form">
+      <input class="input" type="url" id="try-url" placeholder="https://…" aria-label="The address to try" required>
+      <button type="submit" class="btn btn-outline" id="try-go">Try it</button>
+    </form>
+    <ul class="check-try-out" id="try-out"></ul>
+  </section>
   <textarea class="check-report input" id="report" hidden readonly></textarea>
 </main>
 <script type="module" src="js/field.js"></script>

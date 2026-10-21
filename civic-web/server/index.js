@@ -16,7 +16,7 @@ import { gatewayOn } from './tools/request.js';
 import { openStream } from './stream.js';
 import * as jobs from './jobs.js';
 import { fileToText, normalise, ACCEPTED_SOURCE_EXT } from './documents.js';
-import { readUrl, UrlError, isSingleUrl, normalizeUrl, unwrapRedirect, youtubeId } from './fetchurl.js';
+import { readUrl, UrlError, isSingleUrl, normalizeUrl, unwrapRedirect, youtubeId, siteName } from './fetchurl.js';
 import { findCopies, searchOn, readerOn, readerCopy } from './copies.js';
 import { sourceMeta, sourceBlock } from './source.js';
 import { runExtraction } from './extract.js';
@@ -255,13 +255,21 @@ app.post('/api/parse', upload.single('file'), wrap(async (req, res) => {
 // maximum user convenience and minimal failure to return results"):
 //   1. FactEngine's own reader (server/fetchurl.js);
 //   2. when that fails on a public web page, the search service's reader asked for the same address (server/copies.js):
-//      refused, silent, built by scripts, unreachable, redirected too often, any other status, or almost no text. Never
-//      a paywall (FactEngine does not get round one), never an address that is not a public web page, never a file too
-//      large or not text, never YouTube's own (its transcript has its own doors);
+//      refused, silent, built by scripts, unreachable, redirected too often, any other status, almost no text, or a
+//      paywall. A page judged a paywall comes back marked, so it goes into the box and the reader decides whether it is
+//      the whole article (the operator's answer of 21 October, after an ms.now column was judged one and never asked
+//      for: "Yes, marked for the reader"; their rule of 19 September for a marked page). Never an address that is not a
+//      public web page, never a file too large or not text, never YouTube's own (its transcript has its own doors);
 //   3. FactEngine's own failure, as before, so the page goes on to its copies or its sentence.
-const READER_AFTER = new Set(['url_refused', 'url_silent', 'url_shell', 'url_unreachable', 'url_redirects', 'url_status', 'url_no_text']);
+const READER_AFTER = new Set(['url_refused', 'url_silent', 'url_shell', 'url_unreachable', 'url_redirects', 'url_status', 'url_no_text', 'url_paywall']);
 const isYoutube = (u) => { try { return Boolean(u && youtubeId(u)); } catch { return false; } };
 const askedPage = (raw) => { try { const u = normalizeUrl(raw); return (unwrapRedirect(u) || u).toString(); } catch { return ''; } };
+// One line in the host's log for each link read (the operator's answer of 21 October): its site, and what each way of
+// reading it did, so a link that failed can be explained afterwards. Never the address's path, nor any of its text.
+const siteOf = (raw) => { try { return siteName(new URL(askedPage(raw) || raw)); } catch { return 'an address that is not a web address'; } };
+const readLine = (raw, steps) => console.log(`[read] ${siteOf(raw)}: ${steps.join(' → ')}`);
+const readerSaid = (r) => (r?.ok ? `the search service's reader read it (${[r.from, `${r.chars} characters`].filter(Boolean).join(', ')})`
+  : `the search service's reader could not (${r?.why || 'no answer'})`);
 app.post('/api/read-url', wrap(async (req, res) => {
   const url = String(req.body?.url || '').trim();
   if (!url) throw new ApiError(400, 'url_empty', 'No address was given.');
@@ -271,20 +279,33 @@ app.post('/api/read-url', wrap(async (req, res) => {
   try {
     const out = await readUrl(url, { signal: ac.signal });
     if (!out.text || out.text.length < 20) { address = out.url || null; throw new ApiError(422, 'url_no_text', 'That address has almost no readable text.'); }
+    readLine(url, [`FactEngine's reader read it (${out.text.length} characters${out.wall ? ', marked' : ''})`]);
     res.json({ ...out, chars: out.text.length });
   } catch (err) {
     if (ac.signal.aborted) return; // the page has gone (reloaded, or stopped): nothing failed
+    const steps = [`FactEngine's reader: ${err?.code || 'failed'}${err?.detail ? ` (${err.detail})` : ''}`];
     // The failures only a page's own address carries (`url` on the error, set by server/fetchurl.js) are the reader's;
     // a private or non-web address never carries one, so it is never handed on.
     const at = err?.url || address;
     if (READER_AFTER.has(err?.code) && at && readerOn() && !isYoutube(at) && !isYoutube(askedPage(url))) {
-      const copy = await readerCopy(at, { signal: ac.signal }).catch((e) => {
+      let said = null;
+      const copy = await readerCopy(at, { signal: ac.signal, explain: (r) => { said = r; } }).catch((e) => {
         if (!ac.signal.aborted) recordFailure({ where: 'server:reader', code: 'reader_failed', message: 'The search service\'s reader could not be asked.', detail: e?.message || null });
+        said = { ok: false, why: e?.message || 'could not be asked' };
         return null;
       });
       if (ac.signal.aborted) return;
-      if (copy) { res.json({ ...copy, chars: copy.text.length }); return; }
+      steps.push(readerSaid(said));
+      if (copy) {
+        const page = err?.code === 'url_paywall' ? { ...copy, wall: true } : copy;
+        readLine(url, page.wall ? [...steps.slice(0, -1), `${steps.at(-1)}, marked`] : steps);
+        res.json({ ...page, chars: page.text.length });
+        return;
+      }
+    } else {
+      steps.push(`not handed on (${!READER_AFTER.has(err?.code) ? 'not a failure the search service\'s reader is asked for' : !readerOn() ? 'the search service\'s reader is off' : !at ? 'not a public web page' : 'a YouTube address'})`);
     }
+    readLine(url, steps);
     if (err instanceof UrlError) { const e = new ApiError(err.status || 400, err.code, err.message); e.detail = err.detail || null; e.site = err.site || null; throw e; }
     throw err;
   }
@@ -301,12 +322,55 @@ app.post('/api/find-copies', wrap(async (req, res) => {
   const ac = new AbortController();
   res.on('close', () => { if (!res.writableFinished) ac.abort(); });
   try {
-    res.json(await findCopies(url, { signal: ac.signal }));
+    // The third way of reading a link, in the host's log beside the first two (readLine): its site and what came of it.
+    // The search's own words (`notes`) go to the log alone; the page has its copies.
+    const { notes, ...found } = await findCopies(url, { signal: ac.signal });
+    console.log(`[copies] ${siteOf(url)}: ${found.copies.length} found${notes?.length ? ` (${notes.join('; ')})` : ''}`);
+    res.json(found);
   } catch (err) {
     if (ac.signal.aborted) return; // the page has gone, or the reader moved on: nothing failed
     if (err instanceof UrlError) throw new ApiError(err.status || 400, err.code, err.message);
     throw err;
   }
+}));
+
+// /check's Try a link (21 October, the operator's alone: /api/operator/ is theirs at the door): every way FactEngine
+// reads one address, each told in a few words, without starting a run and without any of the text. The search service's
+// reader and its search are asked once each whatever FactEngine's own reader managed, so what each would do is seen.
+app.post('/api/operator/try-link', wrap(async (req, res) => {
+  const url = String(req.body?.url || '').trim();
+  if (!isSingleUrl(url)) throw new ApiError(400, 'url_empty', 'No address was given.');
+  const ac = new AbortController();
+  res.on('close', () => { if (!res.writableFinished) ac.abort(); });
+  const out = { site: siteOf(url), own: null, reader: null, copies: null };
+  let at = null;
+  try {
+    const got = await readUrl(url, { signal: ac.signal });
+    out.own = { ok: Boolean(got.text && got.text.length >= 20), chars: got.text?.length || 0, wall: Boolean(got.wall), kind: got.kind || 'page' };
+    at = got.kind === 'youtube' ? null : got.url || null;
+  } catch (err) {
+    if (ac.signal.aborted) return;
+    out.own = { ok: false, code: err?.code || 'failed', detail: err?.detail || null };
+    at = err?.url || null;
+  }
+  if (!readerOn()) out.reader = { ok: false, why: 'the search service\'s reader is off' };
+  else if (!at || isYoutube(at) || isYoutube(askedPage(url))) out.reader = { ok: false, why: 'not asked: not a public web page' };
+  else {
+    await readerCopy(at, { signal: ac.signal, explain: (r) => { out.reader = r; } }).catch((e) => { out.reader = { ok: false, why: e?.message || 'could not be asked' }; });
+    if (ac.signal.aborted) return;
+  }
+  if (!searchOn()) out.copies = { found: 0, notes: ['no search service is set'] };
+  else {
+    try {
+      const { copies, notes } = await findCopies(url, { signal: ac.signal });
+      out.copies = { found: copies.length, notes: notes || [] };
+    } catch (err) {
+      if (ac.signal.aborted) return;
+      out.copies = { found: 0, notes: [err?.message || 'the search failed'] };
+    }
+  }
+  readLine(url, [`tried from /check: FactEngine's reader ${out.own.ok ? 'read it' : out.own.code}`, readerSaid(out.reader), `${out.copies.found} copies`]);
+  res.json(out);
 }));
 
 // Extraction and determination are jobs (server/jobs.js): the request names one, and the reply is

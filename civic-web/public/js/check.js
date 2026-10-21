@@ -352,6 +352,35 @@ async function run() {
   }
 }
 
+// ---- Try a link (21 October): every way FactEngine reads one address, each told in a few words ------------------------
+const OWN_WORDS = {
+  url_refused: 'refused', url_silent: 'no answer in time', url_shell: 'a page its scripts build, with no prose to read',
+  url_paywall: 'judged a paywall', url_unreachable: 'could not be reached', url_redirects: 'redirected too many times',
+  url_status: 'answered with an error status', url_no_text: 'almost no text', url_private: 'a private address, never read',
+  url_not_web: 'not a web address', url_too_big: 'too large', url_not_text: 'not text',
+};
+$('#try-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const out = $('#try-out');
+  out.textContent = '';
+  const go = $('#try-go');
+  go.disabled = true;
+  go.textContent = 'Trying…';
+  const line = (label, text) => { const li = el('li'); li.append(el('b', null, `${label}: `), document.createTextNode(text)); out.append(li); };
+  try {
+    const r = await post('api/operator/try-link', { url: $('#try-url').value.trim() });
+    const n = (x) => Number(x || 0).toLocaleString('en-US');
+    line(`FactEngine's reader (${r.site})`, r.own.ok ? `read it (${n(r.own.chars)} characters${r.own.wall ? ', marked as for subscribers' : ''})` : `${OWN_WORDS[r.own.code] || r.own.code}${r.own.detail ? ` (${r.own.detail})` : ''}`);
+    line('The search service\'s reader', r.reader?.ok ? `read it (${[r.reader.from, `${n(r.reader.chars)} characters`].filter(Boolean).join(', ')})` : `could not: ${r.reader?.why || 'not asked'}`);
+    line('Copies elsewhere', `${r.copies.found ? `${r.copies.found} found` : 'none found'}${r.copies.notes?.length ? ` (${r.copies.notes.join('; ')})` : ''}`);
+  } catch (err) {
+    out.append(el('li', null, `Could not try it: ${err.message}`));
+  } finally {
+    go.disabled = false;
+    go.textContent = 'Try it';
+  }
+});
+
 $('#again').addEventListener('click', run);
 $('#copy').addEventListener('click', async () => {
   const report = $('#report');
