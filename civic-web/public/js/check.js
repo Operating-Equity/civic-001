@@ -83,10 +83,10 @@ function money(usd, currency) {
 }
 const cents = (c, currency) => (c === null || c === undefined ? 'none yet' : money(c / 100, currency));
 
-function table(head, rows) {
+function table(head, rows, className = '') {
   const wrap = el('div', 'check-scroll');   // a wide table scrolls sideways rather than widening the page
   const t = document.createElement('table');
-  t.className = 'check-settings';
+  t.className = `check-settings ${className}`.trim();
   wrap.append(t);
   const tr = document.createElement('tr');
   for (const h of head) tr.append(el('th', null, h));
@@ -177,18 +177,53 @@ function renderEconomics(e, ctx = {}) {
   box.append(el('p', 'check-detail', 'Cost is each determination\'s own ledger line (the provider\'s token counts at the price table, plus its searches); the listing cost is each run\'s extraction, kept apart. Margin is revenue at list less the determinations\' cost. Coverage is revenue against cost plus the markup: 1.00 means the tokens and the markup are both covered. A free determination counts as given; a failed one keeps its cost and books nothing.'));
 }
 
-/** The operator's trial (14 October): their own fact-checks per model, beside the readers' model, over the price window. */
+// ---- the models, measured (14 October; everything kept since 23 October) ----------------------------------------------
+const msWords = (ms) => (ms === null || ms === undefined ? '—' : ms >= 90000 ? `${(ms / 60000).toFixed(1)} min` : `${Math.round(ms / 1000)} s`);
+const countWords = (v) => (v === null || v === undefined ? '—' : Number(v).toLocaleString('en-US'));
+/** A trial's costs can be fractions of a cent, so they show to the hundredth of a cent. */
+const centsWords = (v, c) => { if (v === null || v === undefined) return '—'; try { return new Intl.NumberFormat('en-US', { style: 'currency', currency: c || 'USD', minimumFractionDigits: 2, maximumFractionDigits: 4 }).format(Number(v)); } catch { return `${Number(v).toFixed(4)} ${c || ''}`; } };
+const modelWords = (x) => `${x.model || '—'}${x.effort ? ` at ${x.effort}` : ''}${x.who === 'readers' ? ' (readers)' : x.provider === 'openai' ? ' (side by side)' : ''}`;
+const sinceWords = (iso) => (iso ? new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', timeZone: 'UTC' }) : '');
+const pairWords = (p) => (modelWords(p.a) === modelWords(p.b) ? `${modelWords(p.a)}, with itself` : `${modelWords(p.a)} and ${modelWords(p.b)}`);
+
+/**
+ * The models, measured (the operator's question of 23 October: "Are you measuring the attributes of the different models,
+ * such as how long they take to run, the length of their outputs, cost, and any other"): their own fact-checks per model
+ * and effort, beside the readers' model, since the trial began. Narrow tables, so they read on an iPad as they are.
+ */
 function renderTrial(box, e) {
   if (!Array.isArray(e.trial) || !e.trial.length) return;
   const c = e.currency;
-  const mins = (ms) => (ms === null || ms === undefined ? '—' : ms >= 90000 ? `${(ms / 60000).toFixed(1)} min` : `${Math.round(ms / 1000)} s`);
-  // A trial's costs can be fractions of a cent, so they show to the hundredth of a cent.
-  const usd = (v) => { if (v === null || v === undefined) return '—'; try { return new Intl.NumberFormat('en-US', { style: 'currency', currency: c || 'USD', minimumFractionDigits: 2, maximumFractionDigits: 4 }).format(Number(v)); } catch { return `${Number(v).toFixed(4)} ${c || ''}`; } };
-  const who = (x) => `${x.model || '—'}${x.effort ? ` at ${x.effort}` : ''}${x.who === 'readers' ? ' (readers)' : x.provider === 'openai' ? ' (side by side)' : ''}`;
-  box.append(el('h2', null, `Your trial, over the last ${e.price.days} days`));
-  box.append(table(['Model', 'Delivered', 'Failed', 'Minutes, mean', 'Three in four within', 'Searches', 'Pages read', 'Cost each', 'Cost, all', 'True', 'False', 'Unverified', 'Verdict unread'],
-    e.trial.map((x) => [who(x), x.n, x.failed, mins(x.meanMs), mins(x.p75Ms), x.meanSearches ?? '—', x.who === 'trial' && x.provider !== 'openai' ? x.meanReads ?? '—' : '—', usd(x.meanUsd), usd(x.totalUsd), x.verdicts.true, x.verdicts.false, x.verdicts.unverified, x.unread])));
-  box.append(el('p', 'check-detail', 'Your own fact-checks on the model you chose on the page, never charged and kept out of the readers\' figures below. On DeepSeek the model searches through FactEngine\'s search service and reads pages through FactEngine; its cost is DeepSeek\'s tokens at the hour\'s price plus each search\'s own. On Gemini the model searches with Google\'s own search and reads pages itself; its cost is Google\'s tokens (thinking included) plus $14 per 1,000 searches, an upper bound while the month\'s 5,000 free searches last. The readers\' row is their fact-checks over the same days.'));
+  const rows = e.trial;
+  box.append(el('h2', null, `The models, measured, since ${sinceWords(e.trialSince)}`));
+  box.append(el('h3', null, 'Speed'));
+  box.append(table(['Model', 'In all, mean', 'In all, three in four within', 'Working, mean', 'Before its first word', 'Writing', 'Waiting', 'Timed'],
+    rows.map((x) => [modelWords(x), msWords(x.meanMs), msWords(x.p75Ms), msWords(x.workMs), msWords(x.firstWordMs), msWords(x.writeMs), msWords(x.waitMs), `${x.timed} of ${x.n}`]), 'check-models'));
+  box.append(el('h3', null, 'Length'));
+  box.append(table(['Model', 'Entry, characters', 'Entry, words', 'Tokens read', 'Tokens thought', 'Tokens written', 'Written a second'],
+    rows.map((x) => [modelWords(x), countWords(x.entryChars), countWords(x.entryWords), countWords(x.tokensIn), countWords(x.tokensThought), countWords(x.tokensWritten), countWords(x.tokensPerSecond)]), 'check-models'));
+  box.append(el('h3', null, 'Work and cost'));
+  box.append(table(['Model', 'Searches', 'Pages read', 'Sources cited', 'Cost each', 'Tokens\' part', 'Searches\' part', 'Cost, all'],
+    rows.map((x) => [modelWords(x), countWords(x.meanQueries), countWords(x.meanReads), countWords(x.meanSources), centsWords(x.meanUsd, c), centsWords(x.tokenUsd, c), centsWords(x.searchUsd, c), centsWords(x.totalUsd, c)]), 'check-models'));
+  box.append(el('h3', null, 'Outcome'));
+  box.append(table(['Model', 'Delivered', 'Failed', 'Stopped early', 'True / False / Unverified', 'Verdict unread', 'Confidence, mean'],
+    rows.map((x) => [modelWords(x), x.n, x.failed, x.incomplete, `${x.verdicts.true} / ${x.verdicts.false} / ${x.verdicts.unverified}`, x.unread, x.confidence === null || x.confidence === undefined ? '—' : `${x.confidence}%`]), 'check-models'));
+  if (Array.isArray(e.agreement) && e.agreement.length) {
+    box.append(el('h3', null, 'Agreement'));
+    box.append(table(['Models', 'Claims in common', 'Same verdict', 'Different verdict'], e.agreement.map((p) => [pairWords(p), p.claims, p.same, p.different]), 'check-models'));
+  }
+  box.append(el('p', 'check-detail', `From every fact-check kept since your trial began: your own on the model you chose on the page, never charged and kept out of the readers' figures below, and the readers' over the same days. Each figure is the mean of the fact-checks that hold it, "—" where none does. The time split and the entry's length are kept from 23 October ("Timed" counts them): working is the time less the waits (the key's minute at the gate, a provider's "wait", a cut connection); before its first word is the searching, reading and thinking, writing is the entry itself. Searches and pages read are counted alike for every model; OpenAI also bills a page opened as a search, so GPT-5.6 Sol's searches' part can count more. DeepSeek cites no sources of its own. Agreement pairs the models that tested the same claim, in the same words, by their latest verdicts read; a model with itself tested a claim twice.`));
+  box.append(el('p', 'check-detail', 'On DeepSeek the model searches through FactEngine\'s search service and reads pages through FactEngine; its cost is DeepSeek\'s tokens at the hour\'s price plus each search\'s own. On Gemini the model searches with Google\'s own search and reads pages itself; its cost is Google\'s tokens (thinking included) plus $14 per 1,000 searches, an upper bound while the month\'s 5,000 free searches last.'));
+}
+
+/** The same, as lines for the copied report: one line per model and one per pair. */
+function modelsLines(e) {
+  if (!Array.isArray(e.trial) || !e.trial.length) return [];
+  const c = e.currency;
+  return [
+    ...e.trial.map((x) => `${modelWords(x)}: ${x.n} delivered, ${x.failed} failed, ${x.incomplete} stopped early; in all ${msWords(x.meanMs)} (three in four within ${msWords(x.p75Ms)}); working ${msWords(x.workMs)}, ${msWords(x.firstWordMs)} before its first word, ${msWords(x.writeMs)} writing, ${msWords(x.waitMs)} waiting (${x.timed} timed); entry ${countWords(x.entryChars)} characters, ${countWords(x.entryWords)} words; tokens ${countWords(x.tokensIn)} read, ${countWords(x.tokensThought)} thought, ${countWords(x.tokensWritten)} written, ${countWords(x.tokensPerSecond)} a second; ${countWords(x.meanQueries)} searches, ${countWords(x.meanReads)} pages read, ${countWords(x.meanSources)} sources; ${centsWords(x.meanUsd, c)} each (tokens ${centsWords(x.tokenUsd, c)}, searches ${centsWords(x.searchUsd, c)}), ${centsWords(x.totalUsd, c)} in all; ${x.verdicts.true} true, ${x.verdicts.false} false, ${x.verdicts.unverified} unverified, ${x.unread} unread; confidence ${x.confidence === null || x.confidence === undefined ? '—' : `${x.confidence}%`}`),
+    ...(e.agreement || []).map((p) => `${pairWords(p)}: ${p.claims} ${p.claims === 1 ? 'claim' : 'claims'} in common, ${p.same} with the same verdict, ${p.different} with a different one`),
+  ];
 }
 
 function renderFailures(list) {
@@ -304,6 +339,8 @@ function asText(data) {
     lines.push('', 'Prices, tiers and what each user costs');
     for (const line of economicsLines(data.economics, { pacing: data.pacing, model: data.settings?.model })) lines.push(`  ${line}`);
     for (const x of data.economics.byTier) lines.push(`  tier ${x.tier}: ${x.users} users, ${x.runs} runs, ${x.determinations} determinations (${x.freeGiven} free, ${x.failed} failed), cost ${money(x.costUsd, data.economics.currency)}, listing ${money(x.extractUsd, data.economics.currency)}, revenue at list ${money(x.revenueUsd, data.economics.currency)}, margin ${money(x.marginUsd, data.economics.currency)}, coverage ${x.coverage === null ? '—' : x.coverage.toFixed(2)}`);
+    const measured = modelsLines(data.economics);
+    if (measured.length) lines.push('', `The models, measured, since ${sinceWords(data.economics.trialSince)}`, ...measured.map((l) => `  ${l}`));
   }
   if (data.recentFailures?.length) {
     lines.push('', 'Recent failures');

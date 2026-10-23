@@ -274,23 +274,25 @@ export const cutReply = () => new Error('terminated: the reply ended before its 
  * what was used, what this request costs, when it fits); the gate takes those, the request waits
  * exactly that long and goes again, first in line. The caller sees a reply, a connection failure
  * (which it waits out, see connectionWait), a used-up quota, or a real error; it never sees a
- * rate limit.
+ * rate limit. `heldMs` on the reply is how long the gate held it, refusals' waits included: a wait, not the model's work.
  */
 export async function throughGate(client, body, { kind = 'request', owner = null, signal, onHold } = {}) {
   const gate = gateFor(body.model);
-  let ticket = await gate.admit({ kind, owner, signal, onHold });
+  let heldMs = 0;
+  const admit = async (opts) => { const at = Date.now(); const ticket = await gate.admit(opts); heldMs += Date.now() - at; return ticket; };
+  let ticket = await admit({ kind, owner, signal, onHold });
   for (;;) {
     try {
       const { data, response } = await client.responses.create(body, { signal }).withResponse();
       noteReply();   // a reply of any kind is OpenAI reached: an outage on record is over
       gate.replied(ticket, response.headers);
-      return { data, response, release: () => gate.done(ticket) };
+      return { data, response, release: () => gate.done(ticket), heldMs };
     } catch (err) {
       if (!isConnectionDrop(err)) noteReply();
       if (!isRateLimit(err)) { gate.failed(ticket, err); throw err; }
       const refusal = parseRefusal(err);
       gate.refused(ticket, refusal);
-      ticket = await gate.admit({ kind, owner, signal, onHold, first: true, notBefore: refusal.waitMs ? Date.now() + refusal.waitMs : 0 });
+      ticket = await admit({ kind, owner, signal, onHold, first: true, notBefore: refusal.waitMs ? Date.now() + refusal.waitMs : 0 });
     }
   }
 }

@@ -455,9 +455,36 @@ export function costLine(line, ctx = {}) {
   }
   if (ctx.determinationId && (kind === 'evaluate' || kind === 'trial')) { const d = mem.dets.get(ctx.determinationId); if (d) { d.costUsd += usd; d.priced = d.priced && priced; d.searches += searches; } }
   else if (ctx.runId && (kind === 'extract' || kind === 'rank')) { const r = mem.runs.get(ctx.runId); if (r) r.extractUsd += usd; }
-  // What /check's trial table reads of a determination's line (trialTable): its model and what it found, never its text.
-  const said = kind === 'evaluate' || kind === 'trial' ? { model: line.model || null, effort: line.effort || null, provider: line.provider || null, usd, verdict: line.verdict || null, verdictSource: line.verdictSource || null, reads: Number(line.reads) || 0, ok: line.ok !== false } : {};
-  if (kind === 'trial' || (line.ok !== false && Number.isFinite(Number(line.ms)))) { mem.lines.push({ at: Number(line.ts) || now(), kind, ms: Number(line.ms), searches, tokens: tokensOf(line.usage), ...said }); if (mem.lines.length > 20000) mem.lines.splice(0, mem.lines.length - 15000); }
+  // What /check's table of the models reads of a fact-check's line (measuresOf): its model and what it did, never its
+  // text. A failed fact-check is kept too, so the table counts it, as the database's lines do.
+  const fact = kind === 'evaluate' || kind === 'trial';
+  if (fact || (line.ok !== false && Number.isFinite(Number(line.ms)))) {
+    mem.lines.push({ at: Date.parse(line.ts) || now(), kind, ms: Number(line.ms), searches, tokens: tokensOf(line.usage), ...(fact ? measuresOf(line) : {}) });
+    if (mem.lines.length > 20000) mem.lines.splice(0, mem.lines.length - 15000);
+  }
+}
+
+/**
+ * What /check's table of the models reads of a fact-check's ledger line (23 October): its model and what it did, never
+ * its text. A figure the line does not hold is null, never an estimate: lines from before 23 October hold no time split
+ * and no entry length, and GPT-5.6 Sol's held no searches and pages read counted apart from what OpenAI bills (DeepSeek's
+ * `searches` were always its searches alone). DeepSeek gives no citations, so its sources are null, never 0.
+ */
+function measuresOf(line) {
+  const num = (v) => (v === null || v === undefined || v === '' || !Number.isFinite(Number(v)) ? null : Number(v));
+  const u = line.usage && typeof line.usage === 'object' ? line.usage : null;
+  return {
+    model: line.model || null, effort: line.effort || null, provider: line.provider || null, ok: line.ok !== false,
+    usd: Number(line.usd) || 0, tokenUsd: num(line.tokenUsd), searchUsd: num(line.searchUsd ?? line.toolUsd),
+    verdict: line.verdict || null, verdictSource: line.verdictSource || null, confidence: num(line.confidence), incomplete: line.incomplete || null,
+    claim: line.claim || null,
+    searches: Number(line.searches) || 0, queries: num(line.queries) ?? (line.provider === 'deepseek' ? num(line.searches) : null),
+    reads: num(line.reads), sources: num(line.sources),
+    tokensIn: u ? num(u.input) : null, tokensThought: u ? num(u.reasoning) : null,
+    tokensWritten: u ? Math.max(0, (Number(u.output) || 0) - (Number(u.reasoning) || 0)) : null,
+    ms: num(line.ms), waitMs: num(line.waitMs), workMs: num(line.workMs), firstWordMs: num(line.firstWordMs), writeMs: num(line.writeMs),
+    entryChars: num(line.entryChars), entryWords: num(line.entryWords),
+  };
 }
 
 /** The tokens one call put through the provider: what it read (its cached part included: OpenAI's minute counts it too) and what it wrote. */
@@ -477,7 +504,7 @@ async function durations(since) {
         COALESCE((line->'usage'->>'input')::float8, 0) + COALESCE((line->'usage'->>'output')::float8, 0) AS tokens
       FROM cost_lines WHERE at >= $1 AND ok IS NOT FALSE AND kind IN ('evaluate', 'extract', 'rank') AND line->>'ms' IS NOT NULL`, [new Date(since)]);
     rows = r.rows.map((x) => ({ kind: x.kind, ms: Number(x.ms), searches: Number(x.searches), tokens: Number(x.tokens) > 0 ? Number(x.tokens) : null }));
-  } else rows = mem.lines.filter((l) => l.at >= since && (l.kind === 'evaluate' || l.kind === 'extract' || l.kind === 'rank'));
+  } else rows = mem.lines.filter((l) => l.at >= since && l.ok !== false && Number.isFinite(l.ms) && (l.kind === 'evaluate' || l.kind === 'extract' || l.kind === 'rank'));
   const stat = (list) => {
     const ms = list.map((l) => l.ms).filter((v) => Number.isFinite(v)).sort((a, b) => a - b);
     if (!ms.length) return { n: 0, meanMs: null, p75Ms: null };
@@ -495,44 +522,111 @@ async function durations(since) {
 }
 
 /**
- * The operator's trial beside the readers' model (14 October), over the price window, from the determinations' own ledger
- * lines: per provider, model and effort, how many were delivered and failed, their minutes (mean, and three in four
- * within), searches and pages read, cost, verdicts and unread verdicts. Never a claim's text. Empty until a trial has run.
+ * The models, measured (14 October; everything kept since 23 October, the operator's "Are you measuring the attributes of
+ * the different models, such as how long they take to run, the length of their outputs, cost, and any other"): the
+ * operator's trial beside the readers' model, from the fact-checks' own ledger lines since the trial's first. Per
+ * provider, model and effort:
+ *   - speed: the minutes in all (mean, and three in four within); of them the work (mean, three in four), the time before
+ *     the delivered entry's first word, the writing, the waits; the tokens written per second of writing;
+ *   - length: the entry's characters and words; the tokens read, thought and written;
+ *   - work: searches as billed, and searches and pages read counted alike for every model; sources cited;
+ *   - cost: each and in all, the tokens' part and the searches' part;
+ *   - outcome: delivered, failed, stopped early, the verdicts, unread verdicts, the entries' own confidence.
+ * Each figure is the mean of the fact-checks whose lines hold it (`timed` counts those with the time split and length),
+ * never an estimate. With it, `agreement`: each pair of models that tested the same claim (by the claim's fingerprint,
+ * the same words), and a model with itself when it tested a claim twice, by their latest verdicts read. Never a claim's
+ * text. Empty until a trial has run.
  */
-async function trialTable(since) {
+async function modelsTable() {
+  // From the start (UTC) of the day the trial's first fact-check was made: "since 14 October" means the whole day, the
+  // readers' fact-checks of that day included.
+  const dayOf = (at) => at - (at % DAY);
   let rows;
+  let since;
   if (dbOn()) {
-    const r = await query("SELECT kind, line FROM cost_lines WHERE at >= $1 AND kind IN ('trial', 'evaluate')", [new Date(since)]);
-    rows = r.rows.map((x) => {
-      const l = typeof x.line === 'string' ? JSON.parse(x.line) : x.line || {};
-      return { kind: x.kind, model: l.model || null, effort: l.effort || null, provider: l.provider || null, ms: Number(l.ms), searches: Number(l.searches) || 0, reads: Number(l.reads) || 0, usd: Number(l.usd) || 0, verdict: l.verdict || null, verdictSource: l.verdictSource || null, ok: l.ok !== false };
-    });
-  } else rows = mem.lines.filter((l) => l.at >= since && (l.kind === 'trial' || l.kind === 'evaluate'));
-  if (!rows.some((r) => r.kind === 'trial')) return [];
+    const first = (await query("SELECT min(at) AS first FROM cost_lines WHERE kind = 'trial'")).rows[0]?.first;
+    if (!first) return { since: null, rows: [], agreement: [] };
+    since = dayOf(new Date(first).getTime());
+    const r = await query("SELECT kind, at, line FROM cost_lines WHERE kind IN ('trial', 'evaluate') AND at >= $1 ORDER BY at", [new Date(since)]);
+    rows = r.rows.map((x) => ({ kind: x.kind, at: new Date(x.at).getTime(), ...measuresOf(typeof x.line === 'string' ? JSON.parse(x.line) : x.line || {}) }));
+  } else {
+    const facts = mem.lines.filter((l) => l.kind === 'trial' || l.kind === 'evaluate');
+    const trials = facts.filter((l) => l.kind === 'trial');
+    if (!trials.length) return { since: null, rows: [], agreement: [] };
+    since = dayOf(Math.min(...trials.map((l) => l.at)));
+    rows = facts.filter((l) => l.at >= since);
+  }
+  const keyOf = (r) => [r.kind, r.provider || 'openai', r.model || '', r.effort || ''].join('|');
   const groups = new Map();
   for (const r of rows) {
-    const key = [r.kind, r.provider || 'openai', r.model || '', r.effort || ''].join('|');
+    const key = keyOf(r);
     if (!groups.has(key)) groups.set(key, { who: r.kind === 'trial' ? 'trial' : 'readers', provider: r.provider || 'openai', model: r.model, effort: r.effort, lines: [] });
     groups.get(key).lines.push(r);
   }
-  const mean = (list, f) => (list.length ? list.reduce((a, x) => a + f(x), 0) / list.length : null);
+  const held = (list, f) => list.map(f).filter((v) => v !== null && v !== undefined && Number.isFinite(v));
+  const mean = (list, f, places = 0) => { const v = held(list, f); if (!v.length) return null; const m = v.reduce((a, b) => a + b, 0) / v.length; const k = 10 ** places; return Math.round(m * k) / k; };
+  const p75 = (list, f) => { const v = held(list, f).sort((a, b) => a - b); return v.length ? v[Math.min(v.length - 1, Math.floor(0.75 * v.length))] : null; };
+  const perSecond = (l) => (l.writeMs > 0 && l.tokensWritten > 0 ? l.tokensWritten / (l.writeMs / 1000) : null);
   const out = [...groups.values()].map((g) => {
     const done = g.lines.filter((l) => l.ok);
-    const ms = done.map((l) => l.ms).filter((v) => Number.isFinite(v)).sort((a, b) => a - b);
     const verdicts = { true: 0, false: 0, unverified: 0 };
     for (const l of done) if (l.verdict in verdicts) verdicts[l.verdict]++;
     return {
       who: g.who, provider: g.provider, model: g.model, effort: g.effort,
-      n: done.length, failed: g.lines.length - done.length,
-      meanMs: ms.length ? Math.round(mean(ms, (v) => v)) : null, p75Ms: ms.length ? ms[Math.min(ms.length - 1, Math.floor(0.75 * ms.length))] : null,
-      meanSearches: done.length ? Math.round(mean(done, (l) => l.searches) * 10) / 10 : null,
-      meanReads: done.length ? Math.round(mean(done, (l) => l.reads) * 10) / 10 : null,
-      meanUsd: done.length ? round4(mean(done, (l) => l.usd)) : null,
-      totalUsd: round4(g.lines.reduce((a, l) => a + l.usd, 0)),
-      verdicts, unread: done.filter((l) => l.verdictSource === 'unread').length,
+      n: done.length, failed: g.lines.length - done.length, timed: done.filter((l) => l.workMs !== null).length,
+      meanMs: mean(done, (l) => l.ms), p75Ms: p75(done, (l) => l.ms),
+      workMs: mean(done, (l) => l.workMs), p75WorkMs: p75(done, (l) => l.workMs), firstWordMs: mean(done, (l) => l.firstWordMs),
+      writeMs: mean(done, (l) => l.writeMs), waitMs: mean(done, (l) => l.waitMs), tokensPerSecond: mean(done, perSecond, 1),
+      entryChars: mean(done, (l) => l.entryChars), entryWords: mean(done, (l) => l.entryWords),
+      tokensIn: mean(done, (l) => l.tokensIn), tokensThought: mean(done, (l) => l.tokensThought), tokensWritten: mean(done, (l) => l.tokensWritten),
+      meanSearches: done.length ? mean(done, (l) => l.searches, 1) : null, meanQueries: mean(done, (l) => l.queries, 1),
+      meanReads: mean(done, (l) => l.reads, 1), meanSources: mean(done, (l) => l.sources, 1),
+      meanUsd: done.length ? round4(mean(done, (l) => l.usd, 6)) : null, totalUsd: round4(g.lines.reduce((a, l) => a + l.usd, 0)),
+      tokenUsd: mean(done, (l) => l.tokenUsd, 6) === null ? null : round4(mean(done, (l) => l.tokenUsd, 6)),
+      searchUsd: mean(done, (l) => l.searchUsd, 6) === null ? null : round4(mean(done, (l) => l.searchUsd, 6)),
+      verdicts, unread: done.filter((l) => l.verdictSource === 'unread').length, incomplete: done.filter((l) => l.incomplete).length,
+      confidence: mean(done, (l) => l.confidence),
     };
   });
-  return out.sort((a, b) => (a.who === b.who ? String(a.model).localeCompare(String(b.model)) || String(a.effort).localeCompare(String(b.effort)) : a.who === 'readers' ? -1 : 1));
+  const order = (a, b) => (a.who === b.who ? String(a.model).localeCompare(String(b.model)) || String(a.effort).localeCompare(String(b.effort)) : a.who === 'readers' ? -1 : 1);
+  return { since: new Date(since).toISOString(), rows: out.sort(order), agreement: agreementOf(rows, groups, keyOf) };
+}
+
+/**
+ * Whether the models agree (23 October): each pair of models that tested the same claim (by the claim's fingerprint, so
+ * the same words), and a model with itself when it tested a claim more than once. A model's latest verdict on a claim
+ * counts (its last two, with itself); an unread verdict counts in neither column, and so does a failed fact-check.
+ */
+function agreementOf(rows, groups, keyOf) {
+  const byClaim = new Map();   // claim → model → its verdicts read, oldest first
+  for (const r of [...rows].sort((a, b) => a.at - b.at)) {
+    if (!r.ok || !r.claim || !r.verdict || r.verdictSource === 'unread') continue;
+    if (!byClaim.has(r.claim)) byClaim.set(r.claim, new Map());
+    const models = byClaim.get(r.claim);
+    const key = keyOf(r);
+    if (!models.has(key)) models.set(key, []);
+    models.get(key).push(r.verdict);
+  }
+  const pairs = new Map();
+  const count = (a, b, same) => {
+    const key = `${a}~${b}`;
+    if (!pairs.has(key)) {
+      const side = (k) => { const g = groups.get(k); return { who: g.who, provider: g.provider, model: g.model, effort: g.effort }; };
+      pairs.set(key, { a: side(a), b: side(b), claims: 0, same: 0, different: 0 });
+    }
+    const p = pairs.get(key);
+    p.claims++;
+    if (same) p.same++; else p.different++;
+  };
+  for (const models of byClaim.values()) {
+    const keys = [...models.keys()].sort();
+    for (let x = 0; x < keys.length; x++) {
+      const mine = models.get(keys[x]);
+      if (mine.length >= 2) count(keys[x], keys[x], mine.at(-1) === mine.at(-2));
+      for (let y = x + 1; y < keys.length; y++) count(keys[x], keys[y], mine.at(-1) === models.get(keys[y]).at(-1));
+    }
+  }
+  return [...pairs.values()].sort((p, q) => q.claims - p.claims);
 }
 
 // ---- what the page and the operator are told --------------------------------------------------------
@@ -604,7 +698,8 @@ export async function report() {
     guard: { ...guard, since: guard.since ? new Date(guard.since).toISOString() : null, windowStart: guard.windowStart ? new Date(guard.windowStart).toISOString() : null, released: guard.released ? new Date(guard.released).toISOString() : null },
     byTier, byUser, byWindow,
     durations: took,   // over the price window: how long a determination and a listing take, and the searches per determination
-    trial: await trialTable(t - config.priceWindowDays * DAY).catch((err) => { warn('the trial could not be read', err); return null; }),
+    ...await modelsTable().then((m) => ({ trial: m.rows, trialSince: m.since, agreement: m.agreement }))
+      .catch((err) => { warn('the models could not be measured', err); return { trial: null, trialSince: null, agreement: null }; }),
     store: dbOn() ? 'postgres' : 'memory',
     credit: await credit.totals().catch((err) => { warn('the credit totals could not be read', err); return null; }),
     note: 'Revenue is at list price; nothing is collected yet.',

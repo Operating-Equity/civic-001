@@ -531,9 +531,38 @@ else. DeepSeek requires a model using tools to be sent back its reasoning of the
 for that one fact-check; it never reaches the page, `done`, the ledger or a failure record. A round waits and goes again
 as the listing does (a 429, a 503, an error mid-stream, a stream that stops early). A trial fact-check is a row of kind
 `trial`: never charged, never one of the document's free ones, never in the readers' measurements, and summed on /check
-per model and effort (delivered and failed, minutes, searches and pages read, cost each and in all, verdicts, unread
-verdicts), beside the readers' model. Its cost is DeepSeek's tokens over its rounds, each at the hour's price, plus each
-search's own cost. Readers' texts (Privacy, Terms) are unchanged: their fact-checks stay on OpenAI.
+per model and effort beside the readers' model. Its cost is DeepSeek's tokens over its rounds, each at the hour's price,
+plus each search's own cost. Readers' texts (Privacy, Terms) are unchanged: their fact-checks stay on OpenAI.
+
+**The models, measured** (23 October; the operator: "Are you measuring the attributes of the different models, such as
+how long they take to run, the length of their outputs, cost, and any other, and many other considerations"). Every
+fact-check's ledger line, on all three models, holds:
+- its waits apart from its work: the gate's holds, a provider's "wait" and a cut connection's (`waitMs`; `workMs` is
+  the rest);
+- of the work, the time before the delivered entry's first word (searching, reading, thinking: `firstWordMs`) and the
+  writing of it (`writeMs`);
+- the entry's length (`entryChars`, `entryWords`);
+- searches and pages read counted alike for every model (`queries`, `reads`). OpenAI also bills a page opened, or a
+  look within one, as a search, and that billed count stays in `searches`;
+- on GPT-5.6 Sol, the cost's tokens' and searches' parts, as the trial's lines already had.
+
+DeepSeek gives no citations of its own, so its lines carry no `sources` and the table says "—". Each finished
+fact-check also writes one line in the host's log, `[fact-check] <model> at <effort> (readers|side by side|trial): …`,
+with the same counts and times, its tokens, cost and verdict. It never carries the claim or a word of the entry.
+
+/check's **The models, measured** covers every fact-check kept since the start of the trial's first day (the operator's
+answer: "Everything kept"), the operator's on each model and the readers' over the same days, in narrow tables that
+read on an iPad:
+- **Speed:** in all (mean, and three in four within), working, before the first word, writing, waiting.
+- **Length:** the entry's characters and words; tokens read, thought and written, and written per second of writing.
+- **Work and cost:** searches, pages read, sources cited; cost each, its tokens' and searches' parts, and in all.
+- **Outcome:** delivered, failed, stopped early, the verdicts, unread verdicts, mean confidence.
+- **Agreement:** each pair of models that tested the same claim (by its fingerprint: the same words), and a model with
+  itself when it tested a claim twice, by their latest verdicts read.
+
+Each figure is the mean of the fact-checks whose lines hold it, "—" where none does; the time split and the length are
+kept from 23 October on. The same figures go into the report /check copies. Quality stays the operator's own reading of
+the entries (their answer: "No, measures only").
 
 **The second pass: the claims a document rests on** (16 October). The operator: "We have way too many claims from a
 single article", and "I only want the top 25% of the most important claims, or 1/4, presented for testing. The rest are

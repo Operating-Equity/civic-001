@@ -29,6 +29,12 @@
   .check-settings th { padding: .3rem .9rem .3rem 0; text-align: left; font-weight: 600; color: var(--ink-soft, #55606e); white-space: nowrap; }
   .check-scroll { overflow-x: auto; max-width: 100%; }
   .check-scroll .check-settings { margin-top: .5rem; white-space: nowrap; }
+  /* The models, measured (23 October): narrow tables whose headings and model names wrap, so they read on an iPad as they are. */
+  .check-failures h3 { margin: 1.25rem 0 0; font-size: 1rem; }
+  .check-scroll .check-models { white-space: normal; font-size: .85rem; }
+  .check-models th { white-space: normal; vertical-align: bottom; padding-right: .6rem; }
+  .check-models td { padding-right: .6rem; white-space: nowrap; }
+  .check-models td:first-child { white-space: normal; min-width: 8rem; }
   .check-failures { margin-top: 2rem; }
   .check-failures li { margin-bottom: .6rem; font-size: .88rem; }
   .check-failures time { color: var(--ink-soft, #55606e); }

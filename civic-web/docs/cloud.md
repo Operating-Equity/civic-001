@@ -979,6 +979,19 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
   - **Live** (21 October, 16:35 UTC): PR #81; live check clean, nothing spent, 4/4. Render started no deploy of the
     merge by itself (no event at all after the merge, with automatic deploys on), so the deploy was started through
     Render's API.
+- **23 October: the models, measured.** The operator: "Are you measuring the attributes of the different models, such as
+  how long they take to run, the length of their outputs, cost, and any other, and many other considerations. The model
+  from Google turned to its highest is extremely fast and extremely good."
+  - **What was measured:** /check's trial table, over the prices' seven days: delivered and failed, minutes (with every
+    wait inside them), searches, pages read, cost, verdicts.
+  - **What was kept but never shown:** tokens, confidence, sources, entries stopped early, and the claim's fingerprint,
+    so the models' agreement on one claim.
+  - **What was not kept:** the entry's length, and the time split (waits, before the first word, writing).
+  - **The operator's answers:** "Everything kept" (the period), and "No, measures only" (no quality marks).
+  - **Now:** every fact-check's line holds the time split, the entry's length, and searches and pages counted alike.
+    Each finished fact-check writes one `[fact-check]` line in the host's log. /check's "The models, measured" has
+    five narrow tables (speed, length, work and cost, outcome, agreement) over everything since the trial's first day,
+    and the copied report carries them.
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 
