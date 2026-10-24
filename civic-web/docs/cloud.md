@@ -1080,6 +1080,8 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
     after one GPT-6.1 Sol trial the readers' fact-checks would have tried GPT-6.1 Sol first until a restart. The memory
     is now each model list's own (`withModelFallback`, `server/openai.js`), and the guard checks a reader's fact-check
     after a trial's.
+  - **Live** (24 October, 23:03 UTC): PR #86 deployed at 23:02. The boot line names gpt-6.1-sol ready at xhigh with
+    OpenAI's web search; the readers' determinations stay on gpt-5.6-sol at xhigh. Live check clean, nothing spent.
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 
