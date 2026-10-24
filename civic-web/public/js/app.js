@@ -82,6 +82,7 @@ const state = {
   // that runs, `ranking` is { at, claims }; the summary arrives as it is written; once done, `rankedRun` says what the
   // list shows: the headline, the claims it rests on most, and how many more wait behind "Show the other claims".
   rankRun: false, ranking: null, rankedRun: null, summaryText: '', showRest: false,
+  streamed: 0,         // the claims shown as the listing streams; one that waits behind "Show the other claims" comes with the finished list
 };
 
 const ui = {};
@@ -787,7 +788,7 @@ function resetRunState() {
     batch: { start: 0, size: 0, done: 0 }, counts: { true: 0, false: 0, unverified: 0 }, unread: 0,
     cost: 0, unpriced: false,
     extractStartedAt: 0, extractChars: 0, found: 0, extractWait: null, extractQueued: null, extractCut: false, runId: '', extractJob: '', evalStartedAt: 0, gate: null, pricing: null, status: { step1: null, step2: null },
-    rankRun: false, ranking: null, rankedRun: null, summaryText: '', showRest: false,
+    rankRun: false, ranking: null, rankedRun: null, summaryText: '', showRest: false, streamed: 0,
   });
   hideSummary();
   ui.showRest.hidden = true;
@@ -959,8 +960,9 @@ async function runExtraction(text) {
   let finished = false;
   const onEvent = (ev) => {
     switch (ev.t) {
-      // A ranked run's claims are counted as they come and shown once, in their order, when the ranking is done.
-      case 'claim': if (!state.rankRun) addClaim(ev.n, ev); break;
+      // A ranked run's claims are counted as they come and shown once, in their order, when the ranking is done; a claim
+      // that waits behind "Show the other claims" (a Supporting one, server/extract.js) comes with the finished list.
+      case 'claim': if (!state.rankRun && ev.top !== false) addClaim(++state.streamed, ev); break;
       case 'progress': state.extractChars = ev.chars; state.found = Math.max(state.found, ev.found || 0); break;
       case 'reasoning':
         state.extractReasoning += ev.text || '';
@@ -1073,8 +1075,9 @@ function renderExtractThinking() {
 // A claim is the text that is tested and, when the model wrote further labelled lines beside it
 // (who said it and when, what the source does not say), those lines, verbatim.
 // The Claim line is the row's title; the further lines are shown under it; the whole entry, as the
-// extractor wrote it, is what is tested, so the who and the when travel with every claim.
-function claimOf(c) { return { n: Number.isInteger(c.n) ? c.n : undefined, text: c.text, more: c.more || '', entry: c.entry || c.text }; }
+// extractor wrote it, is what is tested, so the who and the when travel with every claim. `top` is
+// false for a claim that waits behind "Show the other claims".
+function claimOf(c) { return { n: Number.isInteger(c.n) ? c.n : undefined, text: c.text, more: c.more || '', entry: c.entry || c.text, top: c.top !== false }; }
 function claimNode(c) {
   return el('div', {}, [el('span', { class: 'claim-text', text: c.text }), c.more ? el('div', { class: 'claim-more', text: c.more }) : null]);
 }
@@ -1100,13 +1103,13 @@ function finishExtraction(ev) {
   state.extraction = ev;
   state.claimsRaw = ev.raw || '';
   const listed = (ev.claims || []).filter((c) => c.text).map(claimOf);
-  const all = ev.ranking?.ok ? rankedClaims(listed, ev.ranking) : listed;
+  const all = ev.ranking?.ok ? rankedClaims(listed, ev.ranking) : splitClaims(listed);
   state.ranking = null;
   if (ev.ranking) { state.summaryText = ev.ranking.summary || ''; if (state.summaryText) showSummary(); else hideSummary(); }
   state.claims = all;
   const auto = autoFirst();
   // What runs without a press comes from what the list shows: on a ranked run, never one of the claims kept back.
-  const first = (state.rankedRun ? all.filter((c) => c.top !== false) : all).slice(0, auto);
+  const first = all.filter((c) => c.top !== false).slice(0, auto);
   const running = new Set(first);
   state.beyond = all.filter((c) => !running.has(c)).map((c, k) => ({ n: auto + k + 1, ...c, selected: false, tested: false }));
   ui.claimsList.replaceChildren(...first.map((c, k) => el('li', {}, [tagHeadline(buildCard(c, c.n ?? k + 1), c)])));
@@ -1150,6 +1153,17 @@ function rankedClaims(listed, r) {
   return items.map((c, k) => ({ ...c, n: k + 1 }));
 }
 
+/**
+ * The list a run of one pass shows (24 October): the claims to show first, then those that wait behind "Show the other
+ * claims" (each claim's role, server/extract.js), each numbered by its place in this list, the number the run knows it by.
+ * A list that holds none back is the listing's own, as it came.
+ */
+function splitClaims(listed) {
+  const rest = listed.filter((c) => c.top === false);
+  if (!rest.length) return listed;
+  return [...listed.filter((c) => c.top !== false), ...rest].map((c, k) => ({ ...c, n: k + 1 }));
+}
+
 /** The headline's row says it is the headline: the first fact tested, whatever the rest are. */
 function tagHeadline(card, claim) {
   if (claim?.headline) $('.card-claim', card).prepend(el('span', { class: 'card-tag', text: t('card.headline') }));
@@ -1182,7 +1196,13 @@ function renderBeyondTitle() {
   const items = state.beyond;
   if (!items.length) return;
   const r = state.rankedRun;
-  if (!r) { const auto = autoFirst(); ui.beyondTitle.textContent = t(auto ? 'claims.more' : 'claims.found', { n: items.length }); return; }
+  if (!r) {
+    // A list that holds claims back behind "Show the other claims" says what it shows first, as a ranked list does.
+    const auto = autoFirst();
+    const rest = items.filter((b) => b.top === false).length;
+    ui.beyondTitle.textContent = t(auto ? 'claims.more' : rest ? 'claims.ranked' : 'claims.found', { n: items.length - rest });
+    return;
+  }
   ui.beyondTitle.textContent = r.headline
     ? (r.keep ? t('claims.rankedHead', { n: r.keep }) : t('claims.headlineOnly'))
     : (r.keep ? t('claims.ranked', { n: r.keep }) : t('claims.noneEmpirical'));

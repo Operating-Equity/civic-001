@@ -33,8 +33,8 @@ services:
         value: /etc/secrets/evaluate.txt
       - key: CIVIC_PROMPT_RANK_FILE      # the second pass (16 October): optional; without it the claims are listed unranked
         value: /etc/secrets/rank.txt
-      - key: CIVIC_RANK                  # the operator's runs are ranked first; `on` ranks everyone's, on the operator's word
-        value: operator
+      - key: CIVIC_RANK                  # one pass (24 October): the listing's own order and roles; `operator` brings the second pass back for the operator's runs
+        value: off
       - key: CIVIC_LEDGER_FILE
         value: /var/data/civic-ledger.jsonl
       - key: CIVIC_ERROR_LOG

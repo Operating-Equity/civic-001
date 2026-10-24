@@ -231,7 +231,7 @@ export async function selftest({ apiKey, build, operator = true }) {
   const prompts = promptStatus();
   const versions = promptVersions();
   for (const [name, label] of [['extract', 'extraction'], ['evaluate', 'evaluation']]) {
-    if (prompts[name]) checks.push(ok(`The ${label} prompt is installed`, `Version ${versions[name].version}, ${versions[name].chars.toLocaleString('en-US')} characters.${name === 'extract' ? (extractionShape() === 'inserted' ? ' The source goes in place of its final bracketed line.' : ' It is sent as the instructions, with the source as the only message, its headline ahead of it (or "(none given)").') : ''} Its text is held in memory and never leaves this machine except inside a request to ${name === 'extract' ? listingProviderName() : 'OpenAI'}.`));
+    if (prompts[name]) checks.push(ok(`The ${label} prompt is installed`, `Version ${versions[name].version}, ${versions[name].chars.toLocaleString('en-US')} characters.${name === 'extract' ? (extractionShape() === 'inserted' ? ' The source goes in place of its bracketed line; the lines after it are sent as written.' : ' It is sent as the instructions, with the source as the only message, its headline ahead of it (or "(none given)").') : ''} Its text is held in memory and never leaves this machine except inside a request to ${name === 'extract' ? listingProviderName() : 'OpenAI'}.`));
     else checks.push(bad(`The ${label} prompt is missing`, 'Without it, nothing can be tested.',
       `Point CIVIC_PROMPT_${name.toUpperCase()}_FILE at the prompt file, or place it at server/prompts/${name}.txt.`));
   }

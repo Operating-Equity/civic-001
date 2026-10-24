@@ -14,10 +14,13 @@ import { names, anyOf } from './names.js';
 import { record, spentWords } from './ledger.js';
 import { runRanking } from './rank.js';
 
-/** Parses "1. claim\n2. claim" incrementally. Returns the claims completed so far. */
+/**
+ * Parses "1. claim\n2. claim" incrementally. Returns the claims completed so far. A number written in bold or after a
+ * Markdown heading mark ("**1.**", "### 1.") is the number all the same.
+ */
 export function parseNumberedList(text) {
   const items = [];
-  const re = /(?:^|\n)\s*(\d{1,3})[.)\]:]\s+/g;
+  const re = /(?:^|\n)\s*(?:#{1,6}[ \t]*)?[*_]{0,2}(\d{1,3})[.)\]:][*_]{0,2}\s+/g;
   let match;
   let last = null;
   while ((match = re.exec(text)) !== null) {
@@ -33,22 +36,59 @@ function cleanClaim(s) {
   return String(s).trim();
 }
 
-// The claim's label: the operator's word (server/names.js), "Claim" unless set.
-const CLAIM_LABEL = new RegExp(`^[*_]*(?:${anyOf(names.claim)})[*_]*:[*_]*[ \\t]*`, 'iu');
+// A line's lead-in before its label: any indent, then a bullet, then bold.
+const LEAD = '[ \\t]*(?:[-*•+][ \\t]+)?[*_]*';
+// The claim's label at the start of a line: the operator's word (server/names.js), "Claim" unless set.
+const CLAIM_LINE = new RegExp(`(?:^|\\n)${LEAD}(?:${anyOf(names.claim)})[*_]*:[*_]*[ \\t]*`, 'iu');
+// A further labelled line: a label of up to four words, joined by spaces, slashes or hyphens, then its colon.
+const LABEL_LINE = /\n[ \t]*(?:[-*•+][ \t]+)?[*_]*\p{Lu}\p{L}*(?:[ /-]\p{L}+){0,3}[*_]*:[*_]*(?=\s)/u;
 
 /**
  * An entry may be written as labelled lines: the claim under a "Claim:" label, then further
  * labelled lines, such as who said it and when, or what the source does not say. The claim is
- * what is tested; the further lines are kept beside it, verbatim, and shown with it. An entry
- * without the label is the claim, whole.
+ * what is tested; the further lines are kept beside it, verbatim, and shown with it. Without the
+ * label, the claim is what comes before the first labelled line; an entry with no labelled line
+ * is the claim, whole.
  */
 export function splitEntry(entry) {
-  const head = entry.match(CLAIM_LABEL);
-  if (!head) return { text: entry, more: '' };
-  const rest = entry.slice(head[0].length);
-  const next = rest.search(/\n[ \t]*[*_]*\p{Lu}\p{L}*(?: \p{L}+){0,3}[*_]*:[*_]*[ \t]/u);
-  if (next < 0) return { text: rest.trim(), more: '' };
-  return { text: rest.slice(0, next).trim(), more: rest.slice(next).trim() };
+  const head = entry.match(CLAIM_LINE);
+  if (!head) {
+    const next = entry.search(LABEL_LINE);
+    return next < 0 ? { text: entry, more: '' } : { text: entry.slice(0, next).trim(), more: entry.slice(next).trim() };
+  }
+  const before = entry.slice(0, head.index).trim();   // lines written ahead of the claim's own, kept with the rest
+  const rest = entry.slice(head.index + head[0].length);
+  const next = rest.search(LABEL_LINE);
+  const text = (next < 0 ? rest : rest.slice(0, next)).trim();
+  return { text, more: [before, next < 0 ? '' : rest.slice(next).trim()].filter(Boolean).join('\n') };
+}
+
+// A claim's role (24 October): the words after its role label, read against the operator's role words (server/names.js)
+// whatever their capitals or bold, the longest first, so a longer word is never read as a shorter one.
+const ROLE_LINE = new RegExp(`(?:^|\\n)${LEAD}(?:${anyOf(names.role)})[*_]*:[*_]*[ \\t]*([^\\n]*)`, 'iu');
+const ROLE_WORDS = Object.entries(names.roles).flatMap(([role, list]) => list.map((w) => ({ role, w })))
+  .sort((a, b) => b.w.length - a.w.length)
+  .map(({ role, w }) => ({ role, re: new RegExp(`^(?:${anyOf([w])})(?![\\p{L}\\p{N}])`, 'iu') }));
+
+/** The role an entry gives its claim: central, supporting, incidental or unranked; null when it gives none of them. */
+export function roleOf(entry) {
+  const m = String(entry ?? '').match(ROLE_LINE);
+  if (!m) return null;
+  const value = m[1].replace(/^[\s*_`"'“‘]+/, '');
+  return ROLE_WORDS.find((r) => r.re.test(value))?.role ?? null;
+}
+
+/** Whether an entry carries its claim under the claim label: the log line counts them, so a format kept is seen. */
+export const labelled = (entry) => CLAIM_LINE.test(String(entry ?? ''));
+
+// The entries' counts for the log line: how many the listing wrote, how many under their claim label, and their roles.
+function entryWords(read) {
+  const count = (role) => read.filter((r) => r.role === role).length;
+  const roles = [['central', 'central'], ['supporting', 'supporting'], ['unranked', 'unranked'], ['incidental', 'incidental (not offered)']]
+    .map(([role, word]) => [count(role), word]).filter(([k]) => k > 0).map(([k, word]) => `${k} ${word}`);
+  const none = count(null);
+  const n = read.length;
+  return ` · ${n} ${n === 1 ? 'entry' : 'entries'}, ${read.filter((r) => r.labelled).length} under their claim label; ${roles.length ? `roles: ${roles.join(', ')}${none ? `, ${none} without one` : ''}` : 'no role lines'}`;
 }
 
 export async function runExtraction({ apiKey, text, meta, send, signal, sourceWarning, ctx = {}, rank = false }) {
@@ -63,8 +103,25 @@ export async function runExtraction({ apiKey, text, meta, send, signal, sourceWa
   // "(none given)" (the operator's answer of 24 October): the text read from a link holds no headline of its own.
   const request = extractionRequest(extractionShape() === 'inserted' ? sourceBlock(text, meta) : headlineBlock(text, meta));
   let full = '';
-  let emitted = 0;
+  let emitted = 0;   // the entries read so far
+  let offered = [];   // the claims sent to the page, in the listing's order
+  let read = [];   // each entry read: its role, and whether it had its claim label (the log line's counts)
   const started = Date.now();
+  // Each entry is read once, when the next number closes it. An Incidental claim is not offered for testing, so it is
+  // never sent to the page or counted there (the operator's answers of 24 October: "not important enough to test", and
+  // not erased: the raw output keeps it); a Supporting one waits behind "Show the other claims" (`top: false`).
+  const readEntry = (item) => {
+    const entry = item.text;
+    if (!entry) return;
+    const role = roleOf(entry);
+    read.push({ role, labelled: labelled(entry) });
+    if (role === 'incidental') return;
+    const parts = splitEntry(entry);
+    if (!parts.text) return;
+    const claim = { n: offered.length + 1, ...parts, entry, top: role !== 'supporting' };
+    offered.push(claim);
+    send({ t: 'claim', ...claim });
+  };
 
   let wantSummary = Boolean(config.extractSummary);
   let reasoning = '';
@@ -137,6 +194,8 @@ export async function runExtraction({ apiKey, text, meta, send, signal, sourceWa
     try {
       full = '';
       emitted = 0;
+      offered = [];
+      read = [];
       firstTextAt = null;
       await withModelFallback('extract', config.extractModels, async (model) => {
         const { data: stream, release } = await attempt(model);
@@ -152,13 +211,9 @@ export async function runExtraction({ apiKey, text, meta, send, signal, sourceWa
           firstTextAt ??= Date.now();
           full += piece;
           const items = parseNumberedList(full);
-          // Emit each claim once it is closed by the next number.
-          while (emitted < items.length - 1) {
-            const c = items[emitted];
-            send({ t: 'claim', n: emitted + 1, ...splitEntry(c.text), entry: c.text });
-            emitted++;
-          }
-          send({ t: 'progress', chars: full.length, found: Math.max(emitted, items.length) });
+          // Each claim is read once it is closed by the next number.
+          while (emitted < items.length - 1) readEntry(items[emitted++]);
+          send({ t: 'progress', chars: full.length, found: offered.length });
         };
         try {
         for await (const event of stream) {
@@ -264,18 +319,20 @@ export async function runExtraction({ apiKey, text, meta, send, signal, sourceWa
   }
 
   if (signal.aborted) return null;
-  const items = parseNumberedList(full).filter((c) => c.text.length > 0);
-  while (emitted < items.length) {
-    send({ t: 'claim', n: emitted + 1, ...splitEntry(items[emitted].text), entry: items[emitted].text });
-    emitted++;
-  }
-  const claims = items.map((c, i) => ({ n: i + 1, ...splitEntry(c.text), entry: c.text }));
+  const items = parseNumberedList(full);
+  while (emitted < items.length) readEntry(items[emitted++]);
+  // No claim to show first (none Central, Unranked or without a role): the Supporting ones are shown instead, so a list
+  // never opens empty (the operator's answer of 24 October).
+  if (offered.length && !offered.some((c) => c.top)) for (const c of offered) c.top = true;
+  const claims = offered;
+  const roles = Object.fromEntries(['central', 'supporting', 'unranked', 'incidental', 'none'].map((r) => [r, read.filter((x) => (x.role ?? 'none') === r).length]));
   const ms = Date.now() - started;
   const cost = estimateTextCost({ model: modelUsed, usage, at: pricedAt });
-  record({ kind: 'extract', provider: config.extractProvider, model: modelUsed, effort: config.extractEffort, mode: config.extractReasoningMode || null, ...(fireworks ? { reasoningEcho: reasoningEcho ?? null } : {}), chars: text.length, claims: claims.length, usage, ms, usd: cost.usd, priced: cost.priced }, { runId: ctx.runId, owner: ctx.owner });
+  record({ kind: 'extract', provider: config.extractProvider, model: modelUsed, effort: config.extractEffort, mode: config.extractReasoningMode || null, ...(fireworks ? { reasoningEcho: reasoningEcho ?? null } : {}), chars: text.length, claims: claims.length, entries: read.length, labelled: read.filter((x) => x.labelled).length, roles, usage, ms, usd: cost.usd, priced: cost.priced }, { runId: ctx.runId, owner: ctx.owner });
   // Where the listing's time went, for the service's log (18 October: an article took five minutes at `high`, and nothing
-  // said how much of it was thinking). Counts and times only.
-  console.log(`[listing] ${claims.length} claims from ${text.length.toLocaleString('en-US')} characters in ${Math.round(ms / 1000)} s on ${modelUsed} at ${config.extractEffort}${goes > 1 ? ` (${goes} goes)` : ''}: ${spentWords({ usage, thoughtMs: firstTextAt == null ? null : firstTextAt - pricedAt })}`);
+  // said how much of it was thinking), then the entries' counts (24 October: whether the listing keeps to its format, and
+  // the claims' roles). Counts and times only.
+  console.log(`[listing] ${claims.length} claims from ${text.length.toLocaleString('en-US')} characters in ${Math.round(ms / 1000)} s on ${modelUsed} at ${config.extractEffort}${goes > 1 ? ` (${goes} goes)` : ''}: ${spentWords({ usage, thoughtMs: firstTextAt == null ? null : firstTextAt - pricedAt })}${entryWords(read)}`);
   // The second pass (server/rank.js, 16 October): the same model ranks the claims, inside this job and before the page is
   // told the listing is done, so a cut connection loses nothing and the page draws the list once, in its order. A ranking
   // that fails or cannot be read leaves the list whole.

@@ -44,14 +44,22 @@ function readPrompt(name) {
 const extractPrompt = readPrompt('extract');
 const evaluatePrompt = readPrompt('evaluate');
 
-// A prompt whose last line is entirely in square brackets takes the source in that line's place
-// and travels as the only message; any other prompt is the instructions, with the source as the
-// only message. The guard expects whichever the installed prompt asks for.
-const slot = (() => {
-  const end = extractPrompt.replace(/\s+$/, '').length;
-  const start = extractPrompt.lastIndexOf('\n', end - 1) + 1;
-  return /^\[[^\[\]]+\]$/.test(extractPrompt.slice(start, end)) ? { start, end } : null;
-})();
+// A prompt's last line written entirely in square brackets, wherever it stands, takes the source in
+// that line's place, and the prompt travels whole as the only message, the lines after it included;
+// any other prompt is the instructions, with the source as the only message. The guard expects
+// whichever the installed prompt asks for.
+const slotOf = (text) => {
+  const lines = text.split('\n');
+  let at = 0;
+  let found = null;
+  for (const line of lines) {
+    const m = line.match(/^\[[^\[\]]+\](?=[ \t]*$)/);
+    if (m) found = { start: at, end: at + m[0].length };
+    at += line.length + 1;
+  }
+  return found;
+};
+const slot = slotOf(extractPrompt);
 
 // The only keys a request may carry. Nothing else, ever.
 const ALLOWED = {
@@ -187,7 +195,7 @@ try {
       check('extraction: no instructions field (the prompt is the message)', exBody.instructions === undefined);
       // The slot takes the source with its attribution lines: for pasted text, the day it was pasted.
       const expected = extractPrompt.slice(0, slot.start) + sourceBlock(source, { kind: 'text' }) + extractPrompt.slice(slot.end);
-      check('extraction: the prompt sent verbatim with the source and its attribution lines in place of its final bracketed line, as the only message',
+      check('extraction: the prompt sent verbatim with the source and its attribution lines in place of its bracketed line, the lines after it as written, as the only message',
         exBody.input?.length === 1 && exText === expected, `${exText?.length} vs ${expected.length} chars`);
     } else {
       check('extraction: prompt sent verbatim as instructions', exBody.instructions === extractPrompt, `${exBody.instructions?.length} vs ${extractPrompt.length} chars`);
@@ -2366,7 +2374,7 @@ async function deepseekChecks() {
     const textA = bodyA?.input?.[0]?.content?.[0]?.text;
     if (slot) {
       const expected = extractPrompt.slice(0, slot.start) + sourceBlock(source, { kind: 'text' }) + extractPrompt.slice(slot.end);
-      check('DeepSeek: the prompt sent verbatim with the source in place of its final bracketed line, as the only message', bodyA?.instructions === undefined && bodyA?.input?.length === 1 && textA === expected, `${textA?.length} vs ${expected.length} chars`);
+      check('DeepSeek: the prompt sent verbatim with the source in place of its bracketed line, as the only message', bodyA?.instructions === undefined && bodyA?.input?.length === 1 && textA === expected, `${textA?.length} vs ${expected.length} chars`);
     } else {
       check('DeepSeek: the prompt sent verbatim as the instructions, the document whole as the only message after its headline line', bodyA?.instructions === extractPrompt && bodyA?.input?.length === 1 && textA === headlineBlock(source, { kind: 'text' }), `${bodyA?.instructions?.length} vs ${extractPrompt.length} chars`);
     }
@@ -3433,6 +3441,144 @@ async function rankChecks() {
 }
 await rankChecks();
 
+// ---- the listing's slot, its entries and each claim's role (24 October) -------------------------------------------------
+// A prompt's slot is its last line written entirely in square brackets, wherever it stands. An entry's further lines are
+// read in the shapes a model writes them. Each claim's role decides where the page shows it, by the operator's answers:
+// Central claims are shown, and so are Unranked ones and any whose role cannot be read; Supporting ones wait behind "Show
+// the other claims", and are shown when nothing else is; Incidental ones are not offered for testing ("not important
+// enough to test"), yet are not erased: the raw output keeps them. The labels and role words here are the guard's own
+// invention, set as the operator sets theirs (CIVIC_OUTPUT_NAMES) and written so by the stand-in; never a prompt's.
+async function roleChecks() {
+  const { sourceSlot } = await import('../server/prompts.js');
+  const { parseNumberedList, splitEntry } = await import('../server/extract.js');
+  const at = (text) => { const s = sourceSlot(text); return s ? text.slice(s.start, s.end) : null; };
+  const after = (text) => { const s = sourceSlot(text); return s ? text.slice(s.end) : null; };
+  check('The slot: a prompt\'s last line written entirely in square brackets, wherever it stands: a final line; a line with a closing line after it, which stays as written; the last of two; none; brackets inside a line of text are no slot',
+    at('Read this.\n[The text.]\n') === '[The text.]' && after('Read this.\n[The text.]\n') === '\n'
+      && at('Read this.\n<doc>\n[The text.]\n</doc>\n') === '[The text.]' && after('Read this.\n<doc>\n[The text.]\n</doc>\n') === '\n</doc>\n'
+      && at('[First.]\nThen.\n[Second.]\nEnd.\n') === '[Second.]' && sourceSlot('Read this.\nNo slot here.\n') === null
+      && sourceSlot('See [1] and [2] in the text.\n') === null && sourceSlot('Read [this] text.\n[a] and [b]\n') === null,
+    JSON.stringify([at('Read this.\n<doc>\n[The text.]\n</doc>\n'), after('Read this.\n<doc>\n[The text.]\n</doc>\n')]));
+  const entries = parseNumberedList([
+    'A line before the list.',
+    '1. Claim: The bridge is 1,280 m long.', '   Kind: Main', '   Said by/when: The city, in 2024.', '   Where in the text: "1,280 m"', '',
+    '**2.** **Claim:** The bridge opened in 1937.', '   - **Left open:** the month.',
+    '### 3. Claim: Its towers are 227 m tall.',
+    '4. The fog closes it some days.', 'Left open: how many days.',
+    '5. Kind: Main', 'Claim: Its span was the longest until 1964.',
+    '6. Claim: It is painted orange.',
+  ].join('\n'));
+  const parts = entries.map((x) => splitEntry(x.text));
+  check('Entries: a number in bold or after a heading mark is read; a further line is read after an indent, a bullet or bold, with a slash or several words in its label; without its claim label, the claim is what comes before its first labelled line; lines ahead of the claim\'s own are kept with the rest; every word verbatim',
+    entries.map((x) => x.n).join() === '1,2,3,4,5,6'
+      && parts[0].text === 'The bridge is 1,280 m long.' && parts[0].more === 'Kind: Main\n   Said by/when: The city, in 2024.\n   Where in the text: "1,280 m"'
+      && parts[1].text === 'The bridge opened in 1937.' && parts[1].more === '- **Left open:** the month.'
+      && parts[2].text === 'Its towers are 227 m tall.' && parts[2].more === ''
+      && parts[3].text === 'The fog closes it some days.' && parts[3].more === 'Left open: how many days.'
+      && parts[4].text === 'Its span was the longest until 1964.' && parts[4].more === 'Kind: Main'
+      && parts[5].text === 'It is painted orange.' && parts[5].more === '',
+    JSON.stringify(parts));
+
+  const MOCKR = MOCK_PORT + 110;
+  const DSKEY = 'sk-dsroles00000000000000000000000';
+  const RANK_MARK = 'ROLERANK-5b7d';
+  const NAMES = { role: ['Weight'], roles: { central: ['Keystone'], supporting: ['Buttress'], incidental: ['Aside'], unranked: ['Loose'] } };
+  const stamp = Date.now();
+  const ledger = path.join(os.tmpdir(), `civic-verify-roles-ledger-${stamp}.jsonl`);
+  const output = [];
+  // Thirteen sentences: the stand-in gives them, in turn, the roles central, supporting, incidental, unranked and none,
+  // so claims 3, 8 and 13 are Incidental and 2, 7 and 12 Supporting. A mark in the first sentence names the case.
+  const SENTENCES = [
+    'The bridge spans 1,280 metres between its two towers.', 'Its towers rise 227 metres above the water line.',
+    'The deck carries six lanes of traffic every day.', 'Construction began in January 1933 after years of debate.',
+    'The bridge opened to cars on 28 May 1937.', 'Its main span was the longest in the world until 1964.',
+    'The cables hold some 27,000 strands of wire each.', 'Painters touch up its orange paint all year round.',
+    'Fog closes the deck to walkers on some winter days.', 'About 112,000 vehicles cross it on an average day.',
+    'The toll is charged in one direction only.', 'Eleven workers died during its construction.',
+    'A safety net under the deck saved nineteen men.',
+  ];
+  const doc = (mode) => SENTENCES.map((x, i) => (i === 0 ? x.replace(/\.$/, ` [roles:${mode}].`) : x)).join(' ');
+  const incidental = [2, 7, 12].map((i) => SENTENCES[i].slice(0, 30));
+  const supporting = [1, 6, 11].map((i) => SENTENCES[i].slice(0, 30));
+  const holds = (list, s) => (list || []).some((c) => String(c.text || '').includes(s));
+  const serve = (port, env = {}) => {
+    const child = start([path.join(root, 'server', 'index.js')], {
+      PORT: String(port), OPENAI_BASE_URL: `http://localhost:${MOCKR}/v1`, OPENAI_API_KEY: KEY, CIVIC_IMAGE_ENABLED: 'false', CIVIC_LEDGER_FILE: ledger, DATABASE_URL: '',
+      CIVIC_EXTRACT_PROVIDER: 'deepseek', DEEPSEEK_API_KEY: DSKEY, CIVIC_DEEPSEEK_BASE_URL: `http://localhost:${MOCKR}/deepseek`, CIVIC_OUTPUT_NAMES: JSON.stringify(NAMES), ...env,
+    });
+    if (port === PORT + 110) child.stdout.on('data', (d) => output.push(String(d)));
+    return `http://localhost:${port}`;
+  };
+  start([path.join(root, 'scripts', 'mock-openai.js')], { MOCK_PORT: String(MOCKR), MOCK_SPEED: '0.2', MOCK_EVAL_MARK: process.env.MOCK_EVAL_MARK_FOR_GATE || '', MOCK_RANK_MARK: RANK_MARK, MOCK_OUTPUT_NAMES: JSON.stringify(NAMES) });
+  try {
+    await wait(`http://localhost:${MOCKR}/v1/responses`, 15000, { anyResponse: true });
+    const base = serve(PORT + 110);
+    await wait(`${base}/api/health`);
+    const listing = (b, mode) => stream(`${b}/api/extract`, { text: doc(mode), jobId: `roles-${mode}-${stamp}-${Math.random().toString(36).slice(2, 7)}`, source: { kind: 'text' } });
+
+    const a = await listing(base, 'mix');
+    const done = a.find((e) => e.t === 'done');
+    const sent = a.filter((e) => e.t === 'claim');
+    check('Roles: an Incidental claim is not offered: in no claim event, not in the finished list and in no count; the raw output keeps it, word for word',
+      sent.length === 10 && done?.claims?.length === 10 && done?.total === 10 && !incidental.some((s) => holds(sent, s) || holds(done.claims, s))
+        && a.filter((e) => e.t === 'progress').every((e) => e.found <= 10) && [2, 7, 12].every((i) => done.raw.includes(SENTENCES[i])),
+      JSON.stringify({ sent: sent.length, claims: done?.claims?.length, total: done?.total }));
+    check('Roles: Supporting claims wait behind "Show the other claims"; Central and Unranked ones are shown, and so is a claim with no role line; the claims keep the listing\'s order, numbered 1 to 10',
+      Boolean(done) && done.claims.every((c, k) => c.n === k + 1) && done.claims.filter((c) => c.top === false).length === 3
+        && supporting.every((s) => done.claims.find((c) => c.text.includes(s))?.top === false) && done.claims.filter((c) => c.top === true).length === 7
+        && sent.every((e) => e.top === done.claims[e.n - 1]?.top),
+      JSON.stringify(done?.claims?.map((c) => [c.n, c.top])));
+    check('Roles: a role line is read in each shape (indented, after a bullet, in bold) and kept verbatim under its claim, with the claim line whole in its entry',
+      Boolean(done) && done.claims.filter((c) => /Weight/.test(c.more)).length === 8 && done.claims.every((c) => c.entry.startsWith(`Claim: ${c.text}`) && !/Weight/.test(c.text)),
+      JSON.stringify(done?.claims?.slice(0, 3)));
+
+    const b = await listing(base, 'supporting');
+    const doneB = b.find((e) => e.t === 'done');
+    check('Roles: a list whose claims are all Supporting is shown whole: they stream as waiting behind the button, and the finished list shows every one',
+      doneB?.claims?.length === 13 && doneB.claims.every((c) => c.top === true) && b.filter((e) => e.t === 'claim').length === 13 && b.filter((e) => e.t === 'claim').every((e) => e.top === false),
+      JSON.stringify(doneB?.claims?.map((c) => c.top)));
+    const c = await listing(base, 'none');
+    const doneC = c.find((e) => e.t === 'done');
+    check('Roles: a listing that writes no role lines is as before: all 13 claims offered and shown',
+      doneC?.claims?.length === 13 && doneC.claims.every((x) => x.top === true) && !doneC.claims.some((x) => /Weight/.test(x.more)),
+      JSON.stringify(doneC?.claims?.length));
+
+    const said = output.join('');
+    const logged = said.split('\n').filter((l) => l.startsWith('[listing] '));
+    check('Roles: the service\'s log line counts the entries, those under their claim label and each role, in counts alone',
+      logged.length === 3 && logged[0].endsWith(' · 13 entries, 13 under their claim label; roles: 3 central, 3 supporting, 2 unranked, 3 incidental (not offered), 2 without one')
+        && logged[0].startsWith('[listing] 10 claims from ') && logged[1].endsWith(' · 13 entries, 13 under their claim label; roles: 13 supporting')
+        && logged[2].endsWith(' · 13 entries, 13 under their claim label; no role lines') && !SENTENCES.some((x) => said.includes(x.slice(0, 24))),
+      JSON.stringify(logged));
+    const lines = fs.readFileSync(ledger, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)).filter((l) => l.kind === 'extract');
+    check('Roles: the ledger\'s listing line keeps the same counts: the claims offered, the entries, those under their claim label and each role',
+      lines.some((l) => l.claims === 10 && l.entries === 13 && l.labelled === 13 && JSON.stringify(l.roles) === JSON.stringify({ central: 3, supporting: 3, unranked: 2, incidental: 3, none: 2 })),
+      JSON.stringify(lines.map((l) => [l.claims, l.entries, l.labelled, l.roles])));
+
+    const base2 = serve(PORT + 111, { CIVIC_RANK: 'operator', CIVIC_PROMPT_RANK: `${RANK_MARK} The guard's own stand-in for the second pass, never the operator's.\nTitle given: {{TITLE}}\nNumbered claims:\n{{CLAIMS}}\n` });
+    await wait(`${base2}/api/health`);
+    const r = await listing(base2, 'mix');
+    const st = await (await fetch(`http://localhost:${MOCKR}/deepseek/mock/stats`, { headers: { authorization: `Bearer ${KEY}` } })).json();
+    const rankText = (st.lastRankBody?.input || []).map((m) => m.content?.[0]?.text || '').join('\n');
+    const given = rankText.slice(rankText.indexOf('Numbered claims:'));
+    check('Roles: the second pass, when it is on, is given the claims offered and never an Incidental one',
+      st.rankRequests >= 1 && rankText.includes(RANK_MARK) && supporting.every((s) => given.includes(s)) && !incidental.some((s) => given.includes(s)) && r.some((e) => e.t === 'done'),
+      JSON.stringify({ rank: st.rankRequests, given: given.length }));
+  } catch (err) {
+    check('Role checks completed', false, err.message);
+  }
+
+  const refused = (names) => spawnSync(process.execPath, [path.join(root, 'server', 'index.js')], { cwd: root, timeout: 20000, encoding: 'utf8', env: { ...process.env, ...ACCOUNTS_OFF, PORT: String(PORT + 112), OPENAI_API_KEY: KEY, CIVIC_OUTPUT_NAMES: names } });
+  const empty = refused('{"roles":{"central":["", "VAULTWORD-9"]}}');
+  const unknown = refused('{"roles":{"pivotal":["VAULTWORD-8"]}}');
+  const said = (p) => `${p.stdout}${p.stderr}`;
+  check('Roles: a role list that is wrong stops the start, naming its key and never a word: an empty word, and a role FactEngine does not read',
+    empty.status !== 0 && /CIVIC_OUTPUT_NAMES: roles\.central/.test(said(empty)) && !/VAULTWORD-9/.test(said(empty))
+      && unknown.status !== 0 && /CIVIC_OUTPUT_NAMES: roles\.pivotal is not a role FactEngine reads/.test(said(unknown)) && !/VAULTWORD-8/.test(said(unknown)),
+    `${String(empty.stderr || '').slice(0, 200)} | ${String(unknown.stderr || '').slice(0, 200)}`);
+}
+await roleChecks();
+
 // ---- the listing on Fireworks: DeepSeek V4.1 Flash from a US company, the chain of thought cut off ----
 // The operator's choice of 5 October. Against a stand-in that speaks Fireworks' dialect (scripts/mock-openai.js): the
 // model's reasoning inside the answer's text ahead of `</think>` (with no opening tag, with one, or sent apart), carrying a
@@ -3534,7 +3680,7 @@ async function fireworksChecks() {
     const textA = bodyA?.input?.[0]?.content?.[0]?.text;
     if (slot) {
       const expected = extractPrompt.slice(0, slot.start) + sourceBlock(source, { kind: 'text' }) + extractPrompt.slice(slot.end);
-      check('Fireworks: the prompt sent verbatim with the source in place of its final bracketed line, as the only message', bodyA?.instructions === undefined && bodyA?.input?.length === 1 && textA === expected, `${textA?.length} vs ${expected.length} chars`);
+      check('Fireworks: the prompt sent verbatim with the source in place of its bracketed line, as the only message', bodyA?.instructions === undefined && bodyA?.input?.length === 1 && textA === expected, `${textA?.length} vs ${expected.length} chars`);
     } else {
       check('Fireworks: the prompt sent verbatim as the instructions, the document whole as the only message after its headline line', bodyA?.instructions === extractPrompt && bodyA?.input?.length === 1 && textA === headlineBlock(source, { kind: 'text' }), `${bodyA?.instructions?.length} vs ${extractPrompt.length} chars`);
     }

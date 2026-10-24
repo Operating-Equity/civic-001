@@ -1,11 +1,13 @@
 // The words FactEngine reads the model's entries by: the headings under which an entry states its verdict, its
-// confidence and its inspector, the verdict words themselves, and the listing's claim label. They are the operator's,
-// like the prompts, and live where the prompts live: CIVIC_OUTPUT_NAMES (a JSON object) or CIVIC_OUTPUT_NAMES_FILE (a
-// secret file holding one), never this repository. Unset, each is the word FactEngine has always read. A word the
-// operator sets replaces its default, so a heading the prompt no longer writes is no longer read.
+// confidence and its inspector, the verdict words themselves, and the listing's claim label, role label and role words.
+// They are the operator's, like the prompts, and live where the prompts live: CIVIC_OUTPUT_NAMES (a JSON object) or
+// CIVIC_OUTPUT_NAMES_FILE (a secret file holding one), never this repository. Unset, each is the word FactEngine has
+// always read; the role words (24 October) are those of the listing prompt installed that day. A word the operator sets
+// replaces its default, so a heading the prompt no longer writes is no longer read.
 //
 // {"conclusion": ["…"], "confidence": ["…"], "name": ["…"], "verdicts": {"true": ["…"], "false": ["…"],
-//  "unverified": ["…"]}, "verdictTags": ["…"], "inspector": "Inspector {initial}", "titles": ["…"], "claim": ["…"]}
+//  "unverified": ["…"]}, "verdictTags": ["…"], "inspector": "Inspector {initial}", "titles": ["…"], "claim": ["…"],
+//  "role": ["…"], "roles": {"central": ["…"], "supporting": ["…"], "incidental": ["…"], "unranked": ["…"]}}
 //
 // Every key is optional. A list that is not JSON, a key FactEngine does not read, or an empty word stops the service at
 // start, naming the key and never a value (a deploy that cannot start leaves the one before it running).
@@ -21,6 +23,10 @@ const DEFAULTS = {
   inspector: 'Inspector {initial}',
   titles: [],
   claim: ['Claim'],
+  // A claim's role, read from its role line (server/extract.js): where the page shows it (the operator's answers of 24
+  // October). Supporting claims wait behind "Show the other claims"; Incidental ones are not offered for testing.
+  role: ['Role'],
+  roles: { central: ['Central'], supporting: ['Supporting'], incidental: ['Incidental'], unranked: ['Unranked'] },
 };
 
 const fail = (key, why) => { throw new Error(`CIVIC_OUTPUT_NAMES: ${key} ${why}`); };
@@ -39,7 +45,7 @@ export function loadNames(env = process.env) {
   if (!raw && file) {
     try { raw = fs.readFileSync(file, 'utf8').trim(); } catch { fail('(the file)', 'could not be read'); }
   }
-  const out = { ...DEFAULTS, verdicts: { ...DEFAULTS.verdicts }, installed: null, keys: 0 };
+  const out = { ...DEFAULTS, verdicts: { ...DEFAULTS.verdicts }, roles: { ...DEFAULTS.roles }, installed: null, keys: 0 };
   if (!raw) return out;
   let set;
   try { set = JSON.parse(raw); } catch { fail('(the list)', 'is not JSON'); }
@@ -51,6 +57,12 @@ export function loadNames(env = process.env) {
       for (const [v, list] of Object.entries(value)) {
         if (!(v in DEFAULTS.verdicts)) fail(`verdicts.${v}`, 'is not a verdict FactEngine reads');
         out.verdicts[v] = words(`verdicts.${v}`, list).map((w) => w.toLowerCase());
+      }
+    } else if (key === 'roles') {
+      if (!value || typeof value !== 'object' || Array.isArray(value)) fail(key, 'must be an object of central, supporting, incidental and unranked');
+      for (const [r, list] of Object.entries(value)) {
+        if (!(r in DEFAULTS.roles)) fail(`roles.${r}`, 'is not a role FactEngine reads');
+        out.roles[r] = words(`roles.${r}`, list);
       }
     } else if (key === 'inspector') {
       if (typeof value !== 'string' || !value.includes('{initial}')) fail(key, 'must be words holding {initial}');

@@ -1011,6 +1011,36 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
     - the listing names no tool on any provider (OpenAI and Fireworks too).
   - **The prompt itself** goes to Render as a new secret file, with `CIVIC_PROMPT_EXTRACT_FILE` pointed at it; the old
     `extract.txt` stays there, so going back is one setting. It is never in this repository.
+  - **Live** (24 October, 05:18 UTC): PR #83 deployed at 05:17, then the prompt installed (`extract-2.txt`, the setting
+    switched) and deployed at 05:18. The boot lines name the new extraction prompt and say the listing goes with no
+    tools, as instructions, the document after its headline line. Live check clean, nothing spent.
+- **24 October, evening: another listing prompt, in one pass.** The operator, on the listing: "it is the weakest part of
+  the entire product because it is not very good at extracting claims properly." They had a new prompt written, to try
+  on DeepSeek and perhaps move to OpenAI after, and asked for the claims to be received the way it writes them.
+  - **The operator's answers:**
+    - the prompt as written, word for word;
+    - each claim's role decides where it shows: a central claim is shown, and so is an unranked one or one whose role
+      cannot be read; a supporting one waits behind "Show the other claims", and is shown when nothing else is; an
+      incidental one is not offered for testing ("It does not mean they get erased, it just means they're not important
+      enough to test");
+    - one pass: "if the entire thing can be done in one pass there is a good chance that the quality is going to be
+      higher and that it will be faster. It will certainly be simpler." The second pass is turned off on the service
+      (`CIVIC_RANK=off`); its code and prompt stay;
+    - the slot gets the source lines and the text, as a slotted prompt did before;
+    - each determination gets the claim's whole entry, as before.
+  - **FactEngine's part:**
+    - a prompt's slot is its last line written entirely in square brackets, wherever it stands; the lines after it are
+      sent as written. The two earlier prompts are read exactly as before;
+    - entries are read in the shapes a model writes them: a number in bold or after a heading mark; a further line after
+      an indent, a bullet or bold, with a slash or several words in its label; a claim without its label;
+    - the role words sit in `server/names.js` with the other words entries are read by, and `CIVIC_OUTPUT_NAMES` can
+      rename them;
+    - the page shows the claims to show first, then the supporting ones behind the button, under words it already had
+      in four languages;
+    - the listing's log line and ledger line count the entries, those under their claim label, and each role.
+  - **The prompt itself** goes to Render as a new secret file, with `CIVIC_PROMPT_EXTRACT_FILE` pointed at it; the two
+    earlier files stay there, so going back is two settings (the file, and `CIVIC_RANK=operator`). It is never in this
+    repository.
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 

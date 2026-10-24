@@ -585,7 +585,10 @@ A wait is a wait, as for the listing, and a connection cut while the claims are 
 back to the same job). DeepSeek's chain of thought is neither sent nor kept. The ranking's ledger line is its own (kind
 `rank`), its cost joins the run's listing cost, and /check times it apart. `CIVIC_RANK` says whose runs are ranked:
 `operator` (unset; the operator's runs alone, their choice of 16 October), `on` (everyone's) or `off`. It runs on
-DeepSeek only: with the listing elsewhere, or no ranking prompt installed, the claims are listed unranked.
+DeepSeek only: with the listing elsewhere, or no ranking prompt installed, the claims are listed unranked. Since 24
+October the service runs one pass, `CIVIC_RANK=off` (the operator: "if the entire thing can be done in one pass there is
+a good chance that the quality is going to be higher and that it will be faster. It will certainly be simpler"); its
+code and prompt stay, and `operator` brings it back.
 
 **Fireworks is never used again** (the operator, 5 October: "Never go back to fireworks. That's like killing users by
 making them watch paint dry for 48 hours."). Its code stays, inert, and is described below for the record; the
@@ -613,17 +616,34 @@ on /check, which also reads the key and the model (`GET /models`, no tokens) and
 public address.
 
 **Extraction request:** `model`, `input` (the extraction prompt, verbatim, with the source in
-place of its final bracketed line, as the only message), `reasoning.effort`, `reasoning.mode`, `reasoning.summary`,
+place of its bracketed line, as the only message), `reasoning.effort`, `reasoning.mode`, `reasoning.summary`,
 `stream`, `store`, and no `tools` (24 October: the listing reads the document it is given and nothing else; web
 search and FactEngine's own tools are the determinations'). The source goes into that slot with
 what FactEngine knows of its attribution, since the slot asks for it: for a link, the page's title,
 author, site, date and address and the day FactEngine read it; for a file, its name and the day; for
-pasted text, the day it was pasted and that nothing else was given. Nothing is guessed. A prompt
-without a final bracketed line is sent as `instructions` instead, and the only message is the document's headline
+pasted text, the day it was pasted and that nothing else was given. Nothing is guessed. The bracketed line is the
+prompt's last line written entirely in square brackets, wherever it stands (24 October); the lines after it are sent as
+written. A prompt without such a line is sent as `instructions` instead, and the only message is the document's headline
 line, a blank line, then the text: `Headline: ` and a link's page title, a video's title or a file's own title, or
 `(none given)` for pasted text and for a link titled only by its site or its address's last part (the operator's
 answer of 24 October; the text read from a link holds no headline of its own). The reply is read as a numbered list; in each entry the text under a `Claim:` label is
-what is tested, and any further labelled lines are shown beside it, verbatim.
+the claim, and any further labelled lines are shown beside it, verbatim; the whole entry is what each determination is
+given. A number may be written in bold or after a heading mark; a further line may follow an indent, a bullet or bold,
+with up to four words in its label, joined by spaces, slashes or hyphens; without its claim label, the claim is what
+comes before the entry's first labelled line.
+
+**Each claim's role** (24 October). A listing may give each claim a role line. FactEngine reads it by the words in
+`server/names.js` (the label `role` and the four `roles`, which `CIVIC_OUTPUT_NAMES` can rename, as it can the claim
+label), and the page places the claim by the operator's answers of that day:
+- a central claim, an unranked one and one without a readable role are shown;
+- a supporting one waits behind "Show the other N claims", under the heading "The N claims this document rests on
+  most", and is shown when nothing else is;
+- an incidental one is not offered for testing ("not important enough to test"): it is never sent to the page or
+  counted there, and it is not erased, for the raw output keeps it.
+
+A listing without role lines shows every claim, as before. The listing's log line and its ledger line count the
+entries, those under their claim label, and each role; counts only. With the second pass on, it is given the claims
+offered and never an incidental one.
 
 **Determination request:** `model`, `input` (two messages: first the source exactly as the
 extractor received it, its attribution lines and its text; then the evaluation prompt, verbatim,
@@ -640,7 +660,7 @@ truncation setting. No fallback model. No size limit of ours on the document.
 |---|---|---|
 | Model, both steps | `gpt-5.6-sol` | Operator, tested |
 | The listing's provider | `CIVIC_EXTRACT_PROVIDER`: `openai` (unset), `deepseek` (DeepSeek's own service: `deepseek-flash` on `DEEPSEEK_API_KEY`) or `fireworks` (the same model from the US: `accounts/fireworks/models/deepseek-v4p1-flash` on `FIREWORKS_API_KEY`, searching through FactEngine's tool server, `store: false`). Either runs at effort `high` unless `CIVIC_EXTRACT_EFFORT` says otherwise (the operator's answer of 5 October, `max` before); the service runs it at `low` since 18 October ("DeepSeek thinks at low", after an article took five minutes at `high`); `CIVIC_EXTRACT_MODELS` changes the model. The keys are pasted by the operator in Render; a key is read under its name whatever its capitals (`DEEPSEEK_API_Key` is `DEEPSEEK_API_KEY`), the exact name winning, and two spellings holding different keys are used neither, /check naming both. `CIVIC_DEEPSEEK_BASE_URL` and `CIVIC_FIREWORKS_BASE_URL` are the providers' addresses (only the guard changes them). The readers' determinations stay on OpenAI. | Operator, 4 and 5 October |
-| The second pass | `CIVIC_RANK`: `operator` (unset: the operator's runs are ranked), `on` (everyone's) or `off`; `CIVIC_RANK_KEEP_PERCENT` (25: the part of the ranked claims shown, rounded up, behind an empirical headline); `CIVIC_RANK_EFFORT` (the listing's unless set; `low` on the service since 19 October, after the ranking took 69 s at `high`, `high` from 18 October); the ranking prompt, `rank` (optional; `CIVIC_PROMPT_RANK_FILE`). On the listing's DeepSeek model. See "The second pass" above. | Operator, 16 October |
+| The second pass | `CIVIC_RANK`: `operator` (unset: the operator's runs are ranked), `on` (everyone's) or `off` (the service since 24 October: one pass); `CIVIC_RANK_KEEP_PERCENT` (25: the part of the ranked claims shown, rounded up, behind an empirical headline); `CIVIC_RANK_EFFORT` (the listing's unless set; `low` on the service since 19 October, after the ranking took 69 s at `high`, `high` from 18 October); the ranking prompt, `rank` (optional; `CIVIC_PROMPT_RANK_FILE`). On the listing's DeepSeek model. See "The second pass" above. | Operator, 16 October |
 | The operator's trial | `CIVIC_EVAL_TRIAL_MODELS`: the models the operator may choose on the page for their own determinations (`deepseek-v4-pro,gemini-4-argon` unless set; `off` ends it). DeepSeek V4 Pro needs `DEEPSEEK_API_KEY` and the search service; Gemini 4 Argon, at medium or high, needs `GEMINI_API_KEY` (the operator's own Google key, pasted in Render; `CIVIC_GEMINI_BASE_URL` only the guard changes). Each runs or not on its own. Never charged, never in the readers' figures. | Operator, 14 and 18 October |
 | Reasoning effort, both steps on OpenAI | `xhigh` | Operator, 5 October: back to the setting before 21 September, when `max` in `pro` mode had taken a listing to fifteen minutes and $3.81 and a determination to almost seven minutes and $3.71. `max` from 21 September to 5 October. |
 | Reasoning mode, both steps on OpenAI | `standard` (no mode key sent) | Operator, 5 October, as above. `pro` (GPT-5.6's pro mode, OpenAI's "highest-intelligence API option": more model work per answer at the same per-token rates) from 21 September to 5 October; `CIVIC_REASONING_MODE=pro` brings it back. |
