@@ -1,9 +1,9 @@
 // Step 2 — each claim is tested by the protected evaluation prompt, sent verbatim.
-// Ten claims at a time (config.evalConcurrency). What is tested is the claim's whole entry as the
-// extractor wrote it (Claim, Attribution, what the source leaves unspecified), and the source goes
-// ahead of the prompt as its own message, as the conversation carried it in the workflow the
-// prompts were tested in. A claim tested bare, with "the speech" and no speaker or date, was
-// being tested without the context the extraction prompt had written for it.
+// Ten claims at a time (config.evalConcurrency). What is tested is the claim alone, as the page sends
+// it: nothing else the listing wrote goes with it (the operator, 24 October: "I don't want the
+// extraction to affect downstream processing in any way"). The source goes ahead of the prompt as
+// its own message, with what FactEngine knows of who produced it and when, as the conversation
+// carried it in the workflow the prompts were tested in, so "the speech" has a speaker and a date.
 //
 // Nothing the model returns is edited, trimmed or withheld. The card receives the complete
 // output text, the reasoning summary, every web search the model performed, and every source

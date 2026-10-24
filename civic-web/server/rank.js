@@ -50,9 +50,13 @@ export function rankFor({ operator }) {
   return s.ready && (s.mode === 'on' || (s.mode === 'operator' && Boolean(operator)));
 }
 
-/** The claims as the prompt is given them: each one's number, then its whole entry as the listing wrote it. */
+/**
+ * The claims as the prompt is given them: each one's number, then the claim alone, as the listing wrote it. Nothing else
+ * the listing added goes downstream (the operator, 24 October: "I don't want the extraction to affect downstream
+ * processing in any way").
+ */
 export function claimsBlock(claims) {
-  return claims.map((c) => `${c.n}. ${String(c.entry || c.text || '').trim()}`).join('\n\n');
+  return claims.map((c) => `${c.n}. ${String(c.text || '').trim()}`).join('\n\n');
 }
 
 /**

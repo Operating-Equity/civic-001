@@ -1045,6 +1045,27 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
     switched, `CIVIC_RANK=off`) and deployed at 18:45. The boot lines name the new extraction prompt, say the source goes
     in place of its bracketed line, and say the claims are listed unranked, the ranking off. Live check clean, nothing
     spent.
+- **24 October, night: the listing moves to OpenAI, and only the claim goes anywhere.** The operator, after the first
+  listing with the new prompt on DeepSeek (the ms.now column on Ilhan Omar): it "distributed information beyond what was
+  asked", "it even showed a leaning in one direction based merely on identifying the claim", the extra content made the
+  display "unprofessional", and "I don't want the extraction to affect downstream processing in any way".
+  - **What happened:** DeepSeek wrote each claim's fields on the claim's own line ("Claim: … **Role:** Supporting.
+    **Source anchor:** …"), and FactEngine's reader looked for fields only at the start of a line. So it split nothing:
+    each whole line was shown as the claim and sent whole to the fact-check, and no role was read ("41 entries, 41 under
+    their claim label; no role lines" in the log).
+  - **The operator's answers:** the listing on OpenAI, GPT-6.1 Sol at medium (OpenAI's "near-Astra intelligence for a
+    fifth of the price"); no running summary on the page while it lists.
+  - **FactEngine's part:**
+    - the claim is what comes before its first field, wherever the field is written: on its own line or on the claim's,
+      bold or plain. The labels sit in `server/names.js` (`fields`, beside `role`);
+    - the claim alone is shown, and the claim alone goes to each fact-check and to the second pass; the listing's whole
+      output stays under "Extraction output, verbatim";
+    - the role is read wherever it is written, so the placement works;
+    - `CIVIC_EXTRACT_REASONING_SUMMARY=off` sends no summary key (a blank setting read as unset, so nothing could turn
+      it off);
+    - prices for GPT-6.1 Sol and GPT-6 Luna, from OpenAI's pricing page of 24 October.
+  - **On Render:** `CIVIC_EXTRACT_PROVIDER=openai`, `CIVIC_EXTRACT_MODELS=gpt-6.1-sol`, `CIVIC_EXTRACT_EFFORT=medium`,
+    `CIVIC_EXTRACT_REASONING_SUMMARY=off`. Going back is three settings: `deepseek`, the model unset, `low`.
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 

@@ -2,7 +2,9 @@
 // are exact; the dollar figures are estimates from this table (USD per million tokens) and should
 // be checked against the OpenAI pricing page before being relied on. Override with
 // CIVIC_PRICING_JSON='{"gpt-5.6-sol":{"input":4,"cached":0.4,"output":20}}'.
-// Sol's row is OpenAI's pricing page of 21 September 2026 (promotional through 21 November 2026).
+// Sol's row is OpenAI's pricing page of 21 September 2026 (promotional through 21 November 2026). GPT-6.1 Sol's and
+// GPT-6 Luna's rows are OpenAI's pricing page of 24 October 2026 (standard, under 272K tokens of context); cache writes,
+// which OpenAI bills at 1.25 times the input rate, are not counted.
 // DeepSeek's rows are its Models & Pricing page of 4 October 2026: a peak price, an off-peak price at half, and the
 // peak hours (01:00-04:00 and 06:00-10:00 UTC, Monday to Friday); a call is priced at the hour it went. An override
 // of a DeepSeek row in CIVIC_PRICING_JSON replaces the whole row, so it repeats `offPeak` and `peakUtc`.
@@ -19,6 +21,8 @@ const DEFAULT_PRICES = {
   'gpt-5.6-terra': { input: 2, cached: 0.2, output: 12 },
   'gpt-5.6-luna': { input: 0.2, cached: 0.02, output: 1.2 },
   'gpt-6-astra': { input: 10, cached: 1, output: 50 },
+  'gpt-6.1-sol': { input: 2, cached: 0.10, output: 10 },
+  'gpt-6-luna': { input: 0.10, cached: 0.01, output: 0.50 },
   'gpt-5-mini': { input: 0.25, cached: 0.025, output: 2 },
   'gpt-5-nano': { input: 0.05, cached: 0.005, output: 0.4 },
   'deepseek-flash': { input: 0.30, cached: 0.006, output: 1.20, offPeak: { input: 0.15, cached: 0.003, output: 0.60 }, peakUtc: { days: [1, 2, 3, 4, 5], hours: [[1, 4], [6, 10]] } },

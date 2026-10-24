@@ -919,6 +919,17 @@ function roleLines(source, i) {
   return [[`   ${name}: ${word}`, `   - **${name}:** ${word}`, `**${name}**: ${word}`][i % 3]];
 }
 
+// "[roles:inline]": each entry on one line, its role and one more field after the claim, in bold or plain, as DeepSeek
+// wrote them on 24 October ("Claim: … **Role:** Supporting. **Source anchor:** …"); the roles cycle as in `mix`.
+function inlineEntry(s, i) {
+  const role = ROLE_CYCLE[i % ROLE_CYCLE.length];
+  const word = role ? MOCK_NAMES.roles?.[role]?.[0] || role.replace(/^./, (c) => c.toUpperCase()) : null;
+  const name = label('role', 'Role');
+  const field = (Array.isArray(MOCK_NAMES.fields) && MOCK_NAMES.fields[1]) || 'Source anchor';
+  const bold = (w) => (i % 2 === 0 ? `**${w}:**` : `${w}:`);
+  return `${i + 1}. Claim: ${s} ${role ? `${bold(name)} ${word}. ` : ''}${bold(field)} "${s.slice(0, 24)}"`;
+}
+
 // Invented entries for development only, in the labelled shape the reader keys on: a claim
 // line, then further labelled lines kept beside it. Nothing here is from the real prompt.
 function mockClaims(source) {
@@ -929,6 +940,7 @@ function mockClaims(source) {
     .filter((s) => s.length > 25);
   const picked = sentences.slice(0, 26);
   if (!picked.length) picked.push('The source contains no clearly empirical sentence.');
+  if (/\[roles:inline\]/.test(String(source))) return picked.map((s, i) => inlineEntry(s, i)).join('\n');
   return picked.map((s, i) => [
     `${i + 1}. Claim: ${s}`,
     ...roleLines(source, i),

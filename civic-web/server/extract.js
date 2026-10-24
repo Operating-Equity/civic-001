@@ -42,30 +42,42 @@ const LEAD = '[ \\t]*(?:[-*•+][ \\t]+)?[*_]*';
 const CLAIM_LINE = new RegExp(`(?:^|\\n)${LEAD}(?:${anyOf(names.claim)})[*_]*:[*_]*[ \\t]*`, 'iu');
 // A further labelled line: a label of up to four words, joined by spaces, slashes or hyphens, then its colon.
 const LABEL_LINE = /\n[ \t]*(?:[-*•+][ \t]+)?[*_]*\p{Lu}\p{L}*(?:[ /-]\p{L}+){0,3}[*_]*:[*_]*(?=\s)/u;
+// One of the listing's own fields (server/names.js), on its own line or on the claim's line, bold or plain: DeepSeek
+// wrote "Claim: … **Role:** Supporting. **Source anchor:** …" on one line (24 October). The labels are read as written.
+const FIELD = new RegExp(`(?:^|\\s)(?:[-*•+][ \\t]+)?[*_]*(?:${anyOf([...names.role, ...names.fields])})[*_]*:`, 'u');
+// Where the claim ends in what follows its label: at the first further field, wherever it is written.
+const claimEnd = (rest) => {
+  const field = FIELD.exec(rest);
+  const ends = [rest.search(LABEL_LINE), field ? field.index + field[0].search(/\S/) : -1].filter((i) => i >= 0);
+  return ends.length ? Math.min(...ends) : -1;
+};
 
 /**
- * An entry may be written as labelled lines: the claim under a "Claim:" label, then further
- * labelled lines, such as who said it and when, or what the source does not say. The claim is
- * what is tested; the further lines are kept beside it, verbatim, and shown with it. Without the
- * label, the claim is what comes before the first labelled line; an entry with no labelled line
- * is the claim, whole.
+ * An entry may be written as labelled fields: the claim under a "Claim:" label, then further
+ * fields, such as its role, who said it and when, or what the source does not say, each on its
+ * own line or on the claim's line. The claim is what comes before the first of them, and the
+ * claim alone is shown and tested (24 October: "I don't want the extraction to affect downstream
+ * processing in any way"); the further fields are kept, verbatim, for the role and the raw output.
+ * Without the label, the claim is what comes before the first field; an entry with none is the
+ * claim, whole.
  */
 export function splitEntry(entry) {
   const head = entry.match(CLAIM_LINE);
   if (!head) {
-    const next = entry.search(LABEL_LINE);
+    const next = claimEnd(entry);
     return next < 0 ? { text: entry, more: '' } : { text: entry.slice(0, next).trim(), more: entry.slice(next).trim() };
   }
   const before = entry.slice(0, head.index).trim();   // lines written ahead of the claim's own, kept with the rest
   const rest = entry.slice(head.index + head[0].length);
-  const next = rest.search(LABEL_LINE);
+  const next = claimEnd(rest);
   const text = (next < 0 ? rest : rest.slice(0, next)).trim();
   return { text, more: [before, next < 0 ? '' : rest.slice(next).trim()].filter(Boolean).join('\n') };
 }
 
-// A claim's role (24 October): the words after its role label, read against the operator's role words (server/names.js)
-// whatever their capitals or bold, the longest first, so a longer word is never read as a shorter one.
-const ROLE_LINE = new RegExp(`(?:^|\\n)${LEAD}(?:${anyOf(names.role)})[*_]*:[*_]*[ \\t]*([^\\n]*)`, 'iu');
+// A claim's role (24 October): the words after its role label, on its own line or on the claim's, read against the
+// operator's role words (server/names.js) whatever their capitals or bold, the longest first, so a longer word is never
+// read as a shorter one.
+const ROLE_LINE = new RegExp(`(?:^|\\s)(?:[-*•+][ \\t]+)?[*_]*(?:${anyOf(names.role)})[*_]*:[*_]*[ \\t]*([^\\n]*)`, 'u');
 const ROLE_WORDS = Object.entries(names.roles).flatMap(([role, list]) => list.map((w) => ({ role, w })))
   .sort((a, b) => b.w.length - a.w.length)
   .map(({ role, w }) => ({ role, re: new RegExp(`^(?:${anyOf([w])})(?![\\p{L}\\p{N}])`, 'iu') }));

@@ -116,9 +116,10 @@ export const config = {
   extractEffort: LISTING_EFFORT,
   extractReasoningMode: OWN ? '' : modeOrNone(env('CIVIC_EXTRACT_REASONING_MODE', MODE)), // '' = no mode key in the request
   // Reasoning summaries are the model's own account of its reasoning, shown on the page. They do
-  // not change the answer. 'auto' lets the API decide the form. Blank turns them off. DeepSeek and
+  // not change the answer. 'auto' lets the API decide the form; 'off' asks for none, so nothing of the
+  // kind reaches the page (the operator's answer of 24 October, the listing on OpenAI: "No"). DeepSeek and
   // Fireworks make none (their model's whole chain of thought comes instead, and never reaches the page).
-  extractSummary: OWN ? '' : env('CIVIC_EXTRACT_REASONING_SUMMARY', 'auto'),
+  extractSummary: OWN || /^(off|none)$/i.test(env('CIVIC_EXTRACT_REASONING_SUMMARY', '')) ? '' : env('CIVIC_EXTRACT_REASONING_SUMMARY', 'auto'),
   // DeepSeek's address and key, used only by the listing when it is on DeepSeek. The address is a setting
   // so the guard can point it at its stand-in; the key follows the same rule as OpenAI's (server/key.js).
   deepseekBaseUrl: env('CIVIC_DEEPSEEK_BASE_URL', 'https://api.deepseek.com'),
