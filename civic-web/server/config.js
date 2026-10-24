@@ -5,13 +5,13 @@ import { extractionShape } from './prompts.js';
 //
 // ONE RULE GOVERNS THIS FILE. The requests sent to OpenAI (and, for the listing when the operator
 // puts it there, to DeepSeek or Fireworks) carry the operator's tested configuration and nothing else: the
-// model, the reasoning effort, the prompt, web search.
+// model, the reasoning effort, the prompt, and web search on the fact-checks.
 // No parameter is added that the operator did not test with. No cap, no mode, no verbosity,
 // no context-size, no fallback, no limit. `npm run verify` inspects the request bodies the
 // server actually sends and fails if any key beyond that set appears.
 //
-// Web search is available to BOTH prompts and is not configurable. The prompts were tested in a
-// UI where search is available to every prompt; a request without it is not what was tested.
+// Web search is available to the fact-checks and is not configurable. The listing has no tool at all (24 October):
+// it reads the document it is given and nothing else (the operator's answer of that day).
 //
 // Model ids were read from the OpenAI SDK type definitions (openai@7.15, Sept 2026).
 
@@ -139,7 +139,7 @@ export const config = {
   evalEffort: env('CIVIC_EVAL_EFFORT', EFFORT),
   evalReasoningMode: modeOrNone(env('CIVIC_EVAL_REASONING_MODE', MODE)),
   evalReasoningSummary: env('CIVIC_EVAL_REASONING_SUMMARY', 'auto'),
-  webSearch: true, // both steps, always; not an environment setting
+  webSearch: true, // the fact-checks, always; not an environment setting (the listing has no tool: 24 October)
   // Ten claims at a time. This one figure paces both the page (which sends one claim per request
   // and keeps this many in flight, reading it from publicConfig below) and a request that carries
   // several claims, as the guard's does, so the pace is one setting and never a release. One at a
@@ -322,9 +322,9 @@ export function requestShape() {
   const source = extractionShape();
   const onDeepSeek = config.extractProvider === 'deepseek';
   return {
-    // On Fireworks the listing searches through FactEngine's tool server, so it can search when that has an address and a pass.
-    // On DeepSeek the listing does not search: DeepSeek's Responses API ignores web search, so none is sent.
-    extract: { provider: config.extractProvider, model: config.extractModels[0], effort: config.extractEffort, mode: config.extractReasoningMode || null, summary: config.extractSummary || null, webSearch: config.extractProvider === 'fireworks' ? Boolean(config.gatewayUrl) : !onDeepSeek, fallback: config.extractModels.length > 1, source },
+    // The listing searches nowhere, on any provider (24 October): it reads the document it is given and nothing else.
+    // `source` is how the document goes: in the prompt's slot with its attribution, or as the message after its headline.
+    extract: { provider: config.extractProvider, model: config.extractModels[0], effort: config.extractEffort, mode: config.extractReasoningMode || null, summary: config.extractSummary || null, webSearch: false, fallback: config.extractModels.length > 1, source },
     evaluate: { model: config.evalModels[0], effort: config.evalEffort, mode: config.evalReasoningMode || null, summary: config.evalReasoningSummary || null, webSearch: true, fallback: config.evalModels.length > 1, source: 'ahead' },
     // The second pass (server/rank.js): the listing's own model on DeepSeek, at this effort, for whom `mode` says; the
     // top `keepPercent` of the ranked claims shown, rounded up. No search: it reads the document and the claims.
@@ -333,12 +333,12 @@ export function requestShape() {
     // with Gemini's own summary of its thinking, Google's search and its page reading, and store: false.
     trialGemini: { tools: ['google_search', 'url_context'], thinkingSummaries: 'auto', store: false, source: 'ahead' },
     // Present in every request; never anything else.
-    // On DeepSeek the listing carries no `tools` and no `store` (DeepSeek ignores the one and keeps nothing, so does not
-    // take the other); on Fireworks it carries `store: false`, as on OpenAI. The operator's trial on DeepSeek
-    // (evaluate.js) carries FactEngine's own tools, as functions, and no `store`; on Gemini, Google's own two tools and
-    // `store: false`, the level inside `generation_config`.
+    // The listing carries no `tools` on any provider (24 October); on DeepSeek no `store` either (DeepSeek keeps
+    // nothing, so does not take it); on Fireworks it carries `store: false`, as on OpenAI. The operator's trial on
+    // DeepSeek (evaluate.js) carries FactEngine's own tools, as functions, and no `store`; on Gemini, Google's own two
+    // tools and `store: false`, the level inside `generation_config`.
     keys: {
-      extract: [...(source === 'inserted' ? ['model', 'input'] : ['model', 'instructions', 'input']), 'reasoning', ...(onDeepSeek ? [] : ['tools']), 'stream', ...(onDeepSeek ? [] : ['store'])],
+      extract: [...(source === 'inserted' ? ['model', 'input'] : ['model', 'instructions', 'input']), 'reasoning', 'stream', ...(onDeepSeek ? [] : ['store'])],
       evaluate: ['model', 'input', 'reasoning', 'tools', 'stream', 'store'],
       trial: ['model', 'input', 'reasoning', 'tools', 'stream'],
       trialGemini: ['model', 'input', 'generation_config', 'tools', 'stream', 'store'],

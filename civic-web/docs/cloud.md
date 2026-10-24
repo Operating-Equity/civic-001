@@ -992,6 +992,25 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
     Each finished fact-check writes one `[fact-check]` line in the host's log. /check's "The models, measured" has
     five narrow tables (speed, length, work and cost, outcome, agreement) over everything since the trial's first day,
     and the copied report carries them.
+  - **Live** (24 October, 01:14 UTC): PR #82; live check clean, nothing spent, 3/3. Render deployed the merge by itself
+    this time.
+- **24 October: a new listing prompt, for links, PDFs and pasted text alike.** The operator found that the listing
+  extracted the wrong claims, wrote a new prompt, and tried it in ChatGPT: it worked on pasted text, and refused a
+  link, since ChatGPT would have had to fetch the page itself against the prompt's own rule.
+  - **In FactEngine the model never fetches anything.** FactEngine reads the document itself (a link through its own
+    reader, then the search service's reader, then copies elsewhere; a PDF or another file; a video's transcript), puts
+    the text in the box, and sends only that text. The listing on DeepSeek had no tool already.
+  - **The operator's answers:**
+    - what the model goes by when a document has no headline: a sentence added to the prompt;
+    - "Keep the second pass too" (the ranking prompt on the operator's runs, unchanged);
+    - "Add one sentence" (a numbered list);
+    - "Everyone at once".
+  - **FactEngine's part:**
+    - a prompt without a slot (the new one) now gets the document's headline line ahead of the text, `Headline: ` and
+      the title FactEngine read, or `(none given)`;
+    - the listing names no tool on any provider (OpenAI and Fireworks too).
+  - **The prompt itself** goes to Render as a new secret file, with `CIVIC_PROMPT_EXTRACT_FILE` pointed at it; the old
+    `extract.txt` stays there, so going back is one setting. It is never in this repository.
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 
