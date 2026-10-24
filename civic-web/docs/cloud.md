@@ -992,6 +992,8 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
     Each finished fact-check writes one `[fact-check]` line in the host's log. /check's "The models, measured" has
     five narrow tables (speed, length, work and cost, outcome, agreement) over everything since the trial's first day,
     and the copied report carries them.
+  - **Live** (24 October, 01:14 UTC): PR #82; live check clean, nothing spent, 3/3. Render deployed the merge by itself
+    this time.
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 
