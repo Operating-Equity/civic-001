@@ -31,6 +31,27 @@ export function spentWords({ usage, thoughtMs }) {
 }
 
 /**
+ * A finished fact-check in words for the service's log (23 October, the operator's "Are you measuring the attributes of
+ * the different models"): whose model, how its time went (its work, before the entry's first word and writing it, and
+ * its waits apart), the entry's length, its searches, pages and sources, its tokens, its cost and its verdict. From the
+ * fact-check's own ledger line: counts and times only, never a word of the claim or of the entry.
+ */
+export function factCheckWords(line) {
+  const n = (x) => Math.max(0, Number(x) || 0).toLocaleString('en-US');
+  const s = (ms) => `${Math.round((Number(ms) || 0) / 1000)} s`;
+  const who = line.kind !== 'trial' ? 'readers' : line.provider === 'openai' ? 'side by side' : 'trial';
+  const time = line.writeMs == null ? `worked ${s(line.workMs)} and wrote nothing`
+    : `worked ${s(line.workMs)} (${s(line.firstWordMs)} before its first word, ${s(line.writeMs)} writing)`;
+  const many = (x, one, more) => `${n(x)} ${Number(x) === 1 ? one : more}`;
+  const work = [many(line.queries, 'search', 'searches'), many(line.reads, 'page read', 'pages read'), line.sources == null ? null : many(line.sources, 'source', 'sources')].filter(Boolean).join(', ');
+  const u = line.usage;
+  const tokens = u ? `; tokens ${n(u.input)} read, ${n(u.reasoning)} thought, ${n((Number(u.output) || 0) - (Number(u.reasoning) || 0))} written` : '';
+  const cost = Number.isFinite(Number(line.usd)) ? `; $${Number(line.usd).toFixed(4)}${line.priced === false ? ', unpriced' : ''}` : '';
+  const verdict = `${line.verdict || 'no verdict'}${line.verdictSource === 'unread' ? ' (unread)' : ''}${Number.isFinite(line.confidence) ? ` at ${line.confidence}%` : ''}`;
+  return `[fact-check] ${line.model} at ${line.effort} (${who}): ${time}, waited ${s(line.waitMs)}; entry ${n(line.entryChars)} characters, ${n(line.entryWords)} words; ${work}${tokens}${cost}; ${verdict}${line.incomplete ? `; stopped early (${line.incomplete})` : ''}`;
+}
+
+/**
  * One line per call. `ctx` names whose work it was (the run, the determination, the sign-in that
  * started it), so the economics can put the cost on the right row; the ids go on the JSONL line too.
  */

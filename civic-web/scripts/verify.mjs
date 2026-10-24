@@ -2083,6 +2083,26 @@ async function economicsChecks() {
       check('the report\'s durations carry the mean tokens of a determination (read and written, cached included): the mean of the stand-in\'s own figures on the ledger lines, its 6,000 reasoning tokens in each',
         e?.durations?.determinations?.meanTokens === meanTok && meanTok > 6000 && e.durations.determinations.tokensMeasured === evLines.length && evLines.length === e.durations.determinations.n,
         JSON.stringify({ report: e?.durations?.determinations, lines: evLines.length, meanTok }));
+      // The models, measured (23 October): everything kept since the trial's first day, from the database's own lines, a
+      // fact-check ten days old among them, beyond the prices' seven-day window.
+      const OLD = T1 - 10 * DAY, OLDER = T1 - 12 * DAY;
+      const oldLine = { kind: 'trial', ok: true, provider: 'gemini', model: 'gemini-4-argon', effort: 'high', claim: 'verify-models-claim', verdict: 'true', verdictSource: 'conclusion', confidence: 80,
+        usage: { input: 3000, output: 2500, reasoning: 1000, cached: 0 }, searches: 3, queries: 3, reads: 2, sources: 4, ms: 61000, waitMs: 1000, workMs: 60000, firstWordMs: 45000, writeMs: 15000,
+        entryChars: 4000, entryWords: 600, tokenUsd: 0.03, searchUsd: 0.042, usd: 0.072, priced: true };
+      const olderLine = { kind: 'evaluate', ok: true, model: 'gpt-older', effort: 'xhigh', claim: 'verify-models-older', verdict: 'false', verdictSource: 'conclusion', ms: 90000, usd: 0.2, priced: true };
+      for (const [when, l] of [[OLD, oldLine], [OLDER, olderLine]]) {
+        await dbQuery(DB1, 'INSERT INTO cost_lines (at, kind, model, usd, priced, ok, line) VALUES ($1, $2, $3, $4, $5, $6, $7)', [new Date(when), l.kind, l.model, l.usd, true, true, JSON.stringify({ ts: new Date(when).toISOString(), ...l })]);
+      }
+      const em = (await json(`${base(P2)}/api/selftest`, a2)).economics;
+      const gOld = em?.trial?.find((x) => x.who === 'trial' && x.model === 'gemini-4-argon' && x.effort === 'high');
+      const firstDay = OLD - (OLD % DAY);
+      const readersSince = (await dbQuery(DB1, "SELECT count(*)::int AS n FROM cost_lines WHERE kind = 'evaluate' AND ok IS NOT FALSE AND at >= $1", [new Date(firstDay)])).rows[0].n;
+      const rOld = em?.trial?.find((x) => x.who === 'readers');
+      check('Models, in Postgres: /check\'s table of the models counts everything kept since the trial\'s first day, a fact-check ten days old included (beyond the prices\' seven-day window) with its time split, length, searches, pages, sources, tokens, rate of writing and confidence; the readers\' row over the same days, a readers\' line from before that day left out',
+        em?.trialSince === new Date(firstDay).toISOString() && gOld?.n === 1 && gOld.timed === 1 && gOld.workMs === 60000 && gOld.firstWordMs === 45000 && gOld.writeMs === 15000 && gOld.waitMs === 1000
+          && gOld.entryChars === 4000 && gOld.entryWords === 600 && gOld.meanQueries === 3 && gOld.meanReads === 2 && gOld.meanSources === 4 && gOld.tokensWritten === 1500 && gOld.tokensPerSecond === 100 && gOld.confidence === 80
+          && gOld.tokenUsd === 0.03 && gOld.searchUsd === 0.042 && !em.trial.some((x) => x.model === 'gpt-older') && rOld?.n === readersSince && readersSince > 0,
+        JSON.stringify({ since: em?.trialSince, row: gOld, readers: rOld?.n, readersSince }));
       // 6. A deploy with a determination in flight: the row is failed as deploy, nothing booked.
       const P3 = PORT + 52;
       const s3 = await boot(P3, { DATABASE_URL: DB1, CIVIC_CLOCK: at(T1), CIVIC_LIST_PRICE_CENTS: '45' });
@@ -2686,6 +2706,80 @@ async function trialChecks() {
       report.durations?.determinations?.n === 4 && trow?.n === 5 && trow.failed === 1 && trow.meanSearches === 1 && trow.meanReads === 1 && trow.meanUsd > 0 && rrow?.n === 4
         && (report.trial || []).some((x) => x.who === 'trial' && x.provider === 'openai') && (report.trial || []).some((x) => x.model === 'deepseek-v4-pro' && x.effort === 'high'),
       JSON.stringify({ durations: report.durations?.determinations?.n, trial: report.trial }));
+    // The models, measured (23 October, the operator's "Are you measuring the attributes of the different models"): each
+    // delivered fact-check's line holds its waits apart from its work, the work before its entry's first word apart from
+    // the writing, the entry's length, and searches and pages counted alike; /check's table is their means, worked out
+    // here by hand from the same lines; whether the models agree on the same claim; and one line in the host's log each.
+    const facts = lines().filter((l) => (l.kind === 'trial' || l.kind === 'evaluate') && l.ok);
+    const split = (l) => Number.isFinite(l.waitMs) && l.workMs === Math.max(0, l.ms - l.waitMs) && l.writeMs > 0 && l.firstWordMs >= 0
+      && l.firstWordMs + l.writeMs === l.workMs && l.entryChars > 200 && l.entryWords > 20 && Number.isInteger(l.queries) && Number.isInteger(l.reads);
+    const r1line = facts.find((l) => l.determination === `tr-reader-${stamp}`);
+    const r1done = r1.find((e) => e.t === 'done');
+    check('Models: every delivered fact-check\'s line holds its waits apart from its work, the work before the entry\'s first word apart from the writing, and the entry\'s length (the delivered text\'s); searches and pages read counted alike on OpenAI and DeepSeek, OpenAI\'s billed searches and its tokens\' and searches\' cost kept apart, DeepSeek\'s sources not given as 0',
+      facts.length >= 10 && facts.every(split) && tline.entryChars === (done1?.text || '').length && tline.queries === 1 && tline.reads === 1 && !('sources' in tline) && tline.waitMs === 0
+        && Boolean(r1line) && r1line.entryChars === (r1done?.text || '').length && r1line.queries === r1done.trail.filter((x) => x.kind === 'search').length && r1line.reads === r1done.trail.filter((x) => x.kind === 'open_page').length
+        && r1line.searches >= r1line.queries && r1line.sources === r1done.sources.length && r1line.tokenUsd > 0 && Math.abs(r1line.usd - (r1line.tokenUsd + r1line.searchUsd)) < 0.0002,
+      JSON.stringify({ unsplit: facts.filter((l) => !split(l)).map((l) => ({ kind: l.kind, provider: l.provider, ms: l.ms, waitMs: l.waitMs, workMs: l.workMs, firstWordMs: l.firstWordMs, writeMs: l.writeMs, chars: l.entryChars, q: l.queries, r: l.reads })).slice(0, 3), r1: r1line && { q: r1line.queries, r: r1line.reads, s: r1line.searches, tokenUsd: r1line.tokenUsd, searchUsd: r1line.searchUsd } }));
+    const w1line = facts.find((l) => l.determination === `tr-429-${stamp}`);
+    const w2line = facts.find((l) => l.determination === `tr-503-${stamp}`);
+    const r503 = w2.evs.find((e) => e.t === 'retry');
+    check('Models: a wait DeepSeek asks for is counted as waiting, never as work: the 429\'s second and the 503\'s are the line\'s waits, and its work is the rest',
+      Boolean(w1line) && w1line.waitMs >= rr.waitMs - 5 && w1line.waitMs < rr.waitMs + 1000 && w1line.workMs === w1line.ms - w1line.waitMs && w1line.workMs < w1line.ms
+        && Boolean(w2line) && w2line.waitMs >= r503.waitMs - 5 && w2line.workMs === w2line.ms - w2line.waitMs,
+      JSON.stringify({ w1: w1line && { ms: w1line.ms, waitMs: w1line.waitMs, workMs: w1line.workMs, asked: rr?.waitMs }, w2: w2line && { ms: w2line.ms, waitMs: w2line.waitMs, asked: r503?.waitMs } }));
+    const said = output.join('').split('\n').filter((l) => l.startsWith('[fact-check]'));
+    const FORM = /^\[fact-check\] \S+ at \S+ \((readers|side by side|trial)\): worked \d+ s \(\d+ s before its first word, \d+ s writing\), waited \d+ s; entry [\d,]+ characters, [\d,]+ words; [\d,]+ search(es)?, [\d,]+ pages? read(, [\d,]+ sources?)?; tokens [\d,]+ read, [\d,]+ thought, [\d,]+ written; \$\d+\.\d{4}(, unpriced)?; (true|false|unverified)( \(unread\))?( at \d+%)?(; stopped early \([^)]*\))?$/;
+    const entryBits = [done1?.text, r1done?.text].filter(Boolean).map((t) => t.slice(0, 40));
+    check('Models: the host\'s log has one line for each delivered fact-check, in its own form (the model and whose, the time split, the length, searches and pages, tokens, cost, verdict), and none carries the claim, the source or a word of an entry',
+      said.length === facts.length && said.every((l) => FORM.test(l)) && said.some((l) => /^\[fact-check\] deepseek-v4-pro at max \(trial\): .*; 1 search, 1 page read; tokens/.test(l))
+        && said.some((l) => / \(readers\): /.test(l)) && said.some((l) => / \(side by side\): /.test(l))
+        && !said.some((l) => l.includes('Eiffel') || l.includes('Celsius') || entryBits.some((b) => l.includes(b)) || l.includes(COT)),
+      said.filter((l) => !FORM.test(l)).slice(0, 2).join(' | ') || `${said.length} lines, ${facts.length} fact-checks`);
+    const keyOf = (l) => [l.kind, l.provider || 'openai', l.model || '', l.effort || ''].join('|');
+    const rowKey = (x) => [x.who === 'trial' ? 'trial' : 'evaluate', x.provider, x.model || '', x.effort || ''].join('|');
+    const meanOf = (list, f, places = 0) => { const v = list.map(f).filter((x) => x !== null && x !== undefined && Number.isFinite(x)); if (!v.length) return null; const k = 10 ** places; return Math.round((v.reduce((a, b) => a + b, 0) / v.length) * k) / k; };
+    const writtenOf = (l) => (l.usage ? Math.max(0, l.usage.output - l.usage.reasoning) : null);
+    const byHand = (list) => ({
+      n: list.length, timed: list.filter((l) => Number.isFinite(l.workMs)).length,
+      workMs: meanOf(list, (l) => l.workMs), firstWordMs: meanOf(list, (l) => l.firstWordMs), writeMs: meanOf(list, (l) => l.writeMs), waitMs: meanOf(list, (l) => l.waitMs),
+      entryChars: meanOf(list, (l) => l.entryChars), entryWords: meanOf(list, (l) => l.entryWords),
+      tokensIn: meanOf(list, (l) => l.usage?.input), tokensThought: meanOf(list, (l) => l.usage?.reasoning), tokensWritten: meanOf(list, writtenOf),
+      tokensPerSecond: meanOf(list, (l) => (l.writeMs > 0 && writtenOf(l) > 0 ? writtenOf(l) / (l.writeMs / 1000) : null), 1),
+      meanQueries: meanOf(list, (l) => l.queries, 1), meanReads: meanOf(list, (l) => l.reads, 1), meanSources: meanOf(list, (l) => l.sources, 1),
+      confidence: meanOf(list, (l) => l.confidence),
+    });
+    const groupsByHand = new Map();
+    for (const l of facts) { const k = keyOf(l); if (!groupsByHand.has(k)) groupsByHand.set(k, []); groupsByHand.get(k).push(l); }
+    const mismatches = [];
+    for (const [k, list] of groupsByHand) {
+      const row = (report.trial || []).find((x) => rowKey(x) === k);
+      const want = byHand(list);
+      for (const f of Object.keys(want)) if (row?.[f] !== want[f]) mismatches.push(`${k} ${f}: ${row?.[f]} vs ${want[f]}`);
+    }
+    const firstTrial = Date.parse(lines().find((l) => l.kind === 'trial').ts);
+    check('Models: /check\'s table of the models is the lines\' own means, worked out here by hand for every model and effort (the time split, the length, the tokens and the rate of writing, searches, pages, sources, confidence), DeepSeek\'s sources "—", over everything since the start of the trial\'s first day',
+      groupsByHand.size >= 4 && mismatches.length === 0 && (report.trial || []).find((x) => rowKey(x) === keyOf(tline))?.meanSources === null
+        && report.trialSince === new Date(firstTrial - (firstTrial % 86400e3)).toISOString(),
+      mismatches.slice(0, 4).join(' | ') || JSON.stringify(report.trialSince));
+    const verdictsBy = new Map();   // claim → model → its verdicts read, in order
+    for (const l of facts) {
+      if (!l.claim || !l.verdict || l.verdictSource === 'unread') continue;
+      if (!verdictsBy.has(l.claim)) verdictsBy.set(l.claim, new Map());
+      const m = verdictsBy.get(l.claim);
+      if (!m.has(keyOf(l))) m.set(keyOf(l), []);
+      m.get(keyOf(l)).push(l.verdict);
+    }
+    const pairsByHand = new Map();
+    const tallyPair = (a, b, same) => { const k = `${a}~${b}`; const p = pairsByHand.get(k) || { claims: 0, same: 0, different: 0 }; p.claims++; if (same) p.same++; else p.different++; pairsByHand.set(k, p); };
+    for (const m of verdictsBy.values()) {
+      const keys = [...m.keys()].sort();
+      keys.forEach((a, x) => { const va = m.get(a); if (va.length >= 2) tallyPair(a, a, va.at(-1) === va.at(-2)); for (const b of keys.slice(x + 1)) tallyPair(a, b, va.at(-1) === m.get(b).at(-1)); });
+    }
+    const agreed = new Map((report.agreement || []).map((p) => [`${rowKey(p.a)}~${rowKey(p.b)}`, p]));
+    const pairMismatch = [...pairsByHand].filter(([k, p]) => { const q = agreed.get(k); return !q || q.claims !== p.claims || q.same !== p.same || q.different !== p.different; }).map(([k]) => k);
+    check('Models: whether the models agree is counted from the same claim tested by two models (side by side, DeepSeek, the readers\' own) and by one model twice, by their latest verdicts read, as worked out here by hand',
+      pairsByHand.size >= 4 && agreed.size === pairsByHand.size && pairMismatch.length === 0 && [...pairsByHand.keys()].some((k) => k.split('~')[0] === k.split('~')[1]),
+      JSON.stringify({ byHand: [...pairsByHand], report: report.agreement }).slice(0, 700));
     check('Trial: the chain of thought is in no ledger line and no failure record, and neither key is in the health line, the check data or the server\'s output',
       !fs.readFileSync(ledger, 'utf8').includes(COT) && !(fs.existsSync(errlog) ? fs.readFileSync(errlog, 'utf8') : '').includes(COT)
         && ![await (await fetch(`${base}/api/health`)).text(), await (await fetch(`${base}/api/selftest`)).text(), output.join('')].some((t) => t.includes(DSKEY) || t.includes(KEY) || t.includes(SKEY)), '');
@@ -2862,6 +2956,11 @@ async function geminiChecks() {
     const rr = w1.evs.find((e) => e.t === 'retry');
     check('Gemini: a 429 is a wait for the second Google names (its RetryInfo), then the fact-check is delivered',
       rr?.reason === 'rate_limit' && rr.status === 429 && rr.waitMs === 1000 && w1.sends === 2 && w1.evs.filter((e) => e.t === 'done').length === 1, JSON.stringify({ retry: rr, sends: w1.sends }));
+    const g429 = lines().find((l) => l.determination === `gm-429-${stamp}` && l.ok);
+    check('Models: Gemini\'s line holds the same measures: the second Google asked for is counted as waiting, not work; the time before the entry\'s first word and the writing; the entry\'s length; its searches, pages read and sources counted alike',
+      Boolean(g429) && g429.waitMs >= rr.waitMs - 5 && g429.waitMs < rr.waitMs + 1000 && g429.workMs === g429.ms - g429.waitMs && g429.writeMs > 0 && g429.firstWordMs + g429.writeMs === g429.workMs
+        && g429.entryChars === (w1.evs.find((e) => e.t === 'done')?.text || '').length && g429.entryWords > 20 && g429.queries === 2 && g429.reads === 1 && Number.isInteger(g429.sources) && l1.waitMs === 0,
+      JSON.stringify(g429 && { ms: g429.ms, waitMs: g429.waitMs, workMs: g429.workMs, firstWordMs: g429.firstWordMs, writeMs: g429.writeMs, chars: g429.entryChars, q: g429.queries, r: g429.reads, s: g429.sources, asked: rr?.waitMs, first: l1?.waitMs }));
     check('Gemini: its wait says whose it is (Google), until when, and why, in Google\'s own words on one line of at most 300 characters, with the key taken out (the operator\'s answer of 18 October: "Say why and keep waiting")',
       rr?.who === 'Google' && /GMWAIT-7f3a/.test(rr.why || '') && /limit: 25, model: gemini-4-argon/.test(rr.why) && rr.why.includes('<key>') && !rr.why.includes(GMKEY) && rr.why.length <= 300 && !/\n/.test(rr.why)
         && Number.isFinite(rr.until) && rr.until >= t429 + rr.waitMs && rr.until <= t429end + rr.waitMs,

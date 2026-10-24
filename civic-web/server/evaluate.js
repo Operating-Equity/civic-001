@@ -31,7 +31,7 @@ import { noteFailure, noteReply } from './reach.js';
 import { gateFor, parseRefusal } from './gate.js';
 import { record as recordFailure } from './diagnostics.js';
 import { estimateTextCost } from './pricing.js';
-import { record, claimHash } from './ledger.js';
+import { record, claimHash, factCheckWords } from './ledger.js';
 import { parseEntry, conclusionExcerpt } from './verdict.js';
 import { requestTools, toolStep, searchCount, verbOf } from './tools/request.js';
 import { registry } from './tools/index.js';
@@ -45,6 +45,41 @@ export const trialTools = () => registry.table.map((t) => ({ type: 'function', n
 /** How many of a trial's steps were searches, and how many read a page or a transcript. */
 const searchesOf = (trail) => trail.filter((s) => s.kind === 'tool' && s.name === 'search_web').length;
 const readsOf = (trail) => trail.filter((s) => s.kind === 'tool' && s.name !== 'search_web').length;
+
+/**
+ * A delivered entry's searches and pages read, counted alike for every model (23 October), so the operator's table
+ * compares like with like: a search is a query sent (OpenAI's or Google's own, or FactEngine's search service), a page
+ * read is a page opened (OpenAI's or Google's own) or read through FactEngine's tools. What each provider bills stays
+ * on the line as `searches`: OpenAI bills a page opened, or a look within one, as a search.
+ */
+const queriesIn = (trail) => trail.filter((s) => s.kind === 'search' || (s.kind === 'tool' && s.name === 'search_web')).length;
+const pagesIn = (trail) => trail.filter((s) => s.kind === 'open_page' || (s.kind === 'tool' && s.name !== 'search_web')).length;
+
+/**
+ * A fact-check's time and entry, for its line (23 October, the operator's "Are you measuring the attributes of the
+ * different models, such as how long they take to run, the length of their outputs, cost"): its waits (the gate, a
+ * provider's "wait", a connection's) apart from its work; of the work, what came before the delivered entry's first word
+ * apart from the writing of it; and the entry's length. Counts and times only, never a word of it.
+ */
+function measured({ ms, waitMs, firstAt, endAt, text }) {
+  const workMs = Math.max(0, ms - waitMs);
+  const writeMs = firstAt !== null && endAt !== null && endAt >= firstAt ? endAt - firstAt : null;
+  return { waitMs, workMs, firstWordMs: writeMs === null ? null : Math.max(0, workMs - writeMs), writeMs, entryChars: text.length, entryWords: (text.match(/\S+/g) || []).length };
+}
+
+/** A wait, timed: `onWaited` is told how long it took, so the line can keep the waits apart from the work. */
+async function pause(ms, onWaited) {
+  if (!(ms > 0)) return;
+  const at = Date.now();
+  await sleep(ms);
+  onWaited(Date.now() - at);
+}
+
+/** A finished fact-check's line: kept on the ledger and said in the host's log, counts and times only. */
+function recordDone(line, ctx) {
+  record(line, ctx);
+  console.log(factCheckWords(line));
+}
 
 export async function runEvaluation({ apiKey, claims, document = '', send, signal, ctx = {}, trial = null }) {
   // `trial`: null for the readers' determination; else the operator's choice (server/trial.js): DeepSeek's model and
@@ -100,6 +135,10 @@ export async function runEvaluation({ apiKey, claims, document = '', send, signa
     const sources = []; // every URL it cited, in that attempt
     const seen = new Set();
     let spentSearches = 0;   // the searches of attempts cut short: OpenAI ran them, so they are paid for
+    let waited = 0;          // the gate's holds and every wait, apart from the work (the line's `waitMs`)
+    let firstAt = null;      // the delivered entry's first written word, and its last event
+    let endAt = null;
+    const waitedFor = (ms) => { waited += ms; };
 
     const request = (model) => {
       // The operator's tested configuration and nothing else. No cap, no mode, no verbosity,
@@ -129,11 +168,14 @@ export async function runEvaluation({ apiKey, claims, document = '', send, signa
       seen.clear();
       usage = null;
       incomplete = null;
+      firstAt = null;
+      endAt = null;
       try {
         text = '';
         reasoning = '';
         await withModelFallback('evaluate', models, async (model) => {
-          const { data: stream, release } = await request(model);
+          const { data: stream, release, heldMs } = await request(model);
+          waitedFor(heldMs || 0);
           modelUsed = model;
           announceGate(model);
           let ended = false;   // completed or incomplete: the reply's own last word
@@ -143,6 +185,7 @@ export async function runEvaluation({ apiKey, claims, document = '', send, signa
             if (signal.aborted) return;
             switch (event.type) {
               case 'response.output_text.delta':
+                if (firstAt === null && event.delta) firstAt = Date.now();
                 text += event.delta;
                 send({ t: 'delta', i, text: event.delta });
                 break;
@@ -212,6 +255,7 @@ export async function runEvaluation({ apiKey, claims, document = '', send, signa
           // A reply that stops without its last word was cut, however politely: it goes again, as a cut connection does.
           // It is never delivered as an entry, and never charged as one.
           if (!ended && !signal.aborted) throw cutReply();
+          endAt = Date.now();
           } finally {
             release();   // the gate learns the request is over, whatever ended it
           }
@@ -236,7 +280,7 @@ export async function runEvaluation({ apiKey, claims, document = '', send, signa
           const refusal = parseRefusal(err);
           gateFor(modelUsed || models[0]).refusedInStream('determination', refusal);
           send({ t: 'retry', i, attempt: tries + 1, status: 429, reason: 'rate_limit', waitMs: refusal.waitMs || 0 });
-          if (refusal.waitMs) await sleep(refusal.waitMs);
+          await pause(refusal.waitMs, waitedFor);
           continue;
         }
         if (isConnectionDrop(err)) {
@@ -249,7 +293,7 @@ export async function runEvaluation({ apiKey, claims, document = '', send, signa
           const { code, why, waitMs } = connectionWait(err, attemptAt);
           const { since } = noteFailure({ code, why });
           send({ t: 'retry', i, attempt: tries + 1, status: null, reason: 'connection', code, why, since, waitMs, at: Date.now() });
-          if (waitMs > 0) await sleep(waitMs);
+          await pause(waitMs, waitedFor);
           continue;
         }
         if (tries < config.evalRetries && isRetryable(err)) {
@@ -259,7 +303,7 @@ export async function runEvaluation({ apiKey, claims, document = '', send, signa
           // the door never arrives here: the gate handles it.
           const waitMs = rateLimitWaitMs(err) || 0;
           send({ t: 'retry', i, attempt: tries + 1, status: err?.status ?? null, reason: 'error', waitMs });
-          if (waitMs > 0) await sleep(waitMs);
+          await pause(waitMs, waitedFor);
           continue;
         }
         const safe = describeError(err);
@@ -279,11 +323,13 @@ export async function runEvaluation({ apiKey, claims, document = '', send, signa
     const ms = Date.now() - startedAt;
     const searches = searchCount(trail) + spentSearches;
     const cost = estimateTextCost({ model: modelUsed, usage, searches });
-    record({
+    const tokens = estimateTextCost({ model: modelUsed, usage });
+    recordDone({
       kind, ok: true, ...(trial ? { provider: 'openai' } : {}), model: modelUsed, effort: config.evalEffort, mode: config.evalReasoningMode || null, webSearch: true,
       claim: claimHash(claim), chars: claim.length, fellBack: fellBack?.used || null, verdict: parsed.verdict, verdictSource: parsed.verdictSource,
-      confidence: parsed.confidence, usage, searches, sources: sources.length, incomplete, ms,
-      usd: cost.usd, priced: cost.priced,
+      confidence: parsed.confidence, usage, searches, queries: queriesIn(trail), reads: pagesIn(trail), sources: sources.length, incomplete, ms,
+      ...measured({ ms, waitMs: waited, firstAt, endAt, text }),
+      tokenUsd: tokens.priced ? tokens.usd : null, searchUsd: round4(cost.usd - tokens.usd), usd: cost.usd, priced: cost.priced,
     }, lineCtx(i));
     completed++;
     send({
@@ -310,7 +356,7 @@ export async function runEvaluation({ apiKey, claims, document = '', send, signa
    * DeepSeek's figure or a second from the go's start, a 5xx is spaced the same way on the operator's count, a mid-stream
    * error is read for its status, and a round that stops before its last event goes again. Nothing else is repeated.
    */
-  const deepseekRound = async ({ input, i, onDelta }) => {
+  const deepseekRound = async ({ input, i, onDelta, onWaited }) => {
     for (let tries = 0; ; tries++) {
       const attemptAt = Date.now();
       try {
@@ -325,10 +371,12 @@ export async function runEvaluation({ apiKey, claims, document = '', send, signa
         let incompleteReason = null;
         let ended = false;
         let thinking = false;
+        let firstAt = null;   // this round's first written word
         for await (const event of stream) {
           if (signal.aborted) return null;
           switch (event.type) {
             case 'response.output_text.delta':
+              if (firstAt === null && event.delta) firstAt = Date.now();
               text += event.delta || '';
               onDelta(event.delta || '');
               break;
@@ -358,14 +406,14 @@ export async function runEvaluation({ apiKey, claims, document = '', send, signa
           }
         }
         if (!ended) throw cutReply();
-        return { text, output, usage, incomplete: incompleteReason, at: attemptAt };
+        return { text, output, usage, incomplete: incompleteReason, at: attemptAt, firstAt, endAt: Date.now() };
       } catch (caught) {
         if (signal.aborted) return null;
         const err = asStreamFailure(caught, 'evaluation failed');
         if (isRateLimit(err)) {
           const waitMs = parseRefusal(err).waitMs || spacedWaitMs(attemptAt);
           send({ t: 'retry', i, attempt: tries + 1, status: 429, reason: 'rate_limit', waitMs });
-          if (waitMs > 0) await sleep(waitMs);
+          await pause(waitMs, onWaited);
           continue;
         }
         if (isConnectionDrop(err)) {
@@ -373,13 +421,13 @@ export async function runEvaluation({ apiKey, claims, document = '', send, signa
           const why = String(wait.why || '').split(openaiHost()).join(deepseek.host());
           const { since } = noteFailure({ code: wait.code, why, who: deepseek.NAME });
           send({ t: 'retry', i, attempt: tries + 1, status: null, reason: 'connection', code: wait.code, why, since, waitMs: wait.waitMs, at: Date.now() });
-          if (wait.waitMs > 0) await sleep(wait.waitMs);
+          await pause(wait.waitMs, onWaited);
           continue;
         }
         if (tries < config.evalRetries && isRetryable(err)) {
           const waitMs = rateLimitWaitMs(err) || spacedWaitMs(attemptAt);
           send({ t: 'retry', i, attempt: tries + 1, status: err?.status ?? null, reason: 'error', waitMs });
-          if (waitMs > 0) await sleep(waitMs);
+          await pause(waitMs, onWaited);
           continue;
         }
         throw err;
@@ -398,6 +446,9 @@ export async function runEvaluation({ apiKey, claims, document = '', send, signa
     let rounds = 0;
     let text = '';
     let incomplete = null;
+    let waited = 0;          // every round's waits, apart from the work (the line's `waitMs`)
+    let firstAt = null;      // the delivered entry's first written word (its own round's), and that round's end
+    let endAt = null;
     const tally = (round) => {
       for (const k of Object.keys(used)) used[k] += Number(round.usage?.[k]) || 0;
       const c = estimateTextCost({ model: trial.model, usage: round.usage, at: round.at });   // DeepSeek's price is the hour's
@@ -429,11 +480,11 @@ export async function runEvaluation({ apiKey, claims, document = '', send, signa
     try {
       for (;;) {
         rounds++;
-        const round = await deepseekRound({ input, i, onDelta: (d) => send({ t: 'delta', i, text: d }) });
+        const round = await deepseekRound({ input, i, onDelta: (d) => send({ t: 'delta', i, text: d }), onWaited: (ms) => { waited += ms; } });
         if (!round || signal.aborted) return;
         tally(round);
         const calls = round.output.filter((item) => item?.type === 'function_call');
-        if (!calls.length || round.incomplete) { text = round.text; incomplete = round.incomplete; break; }
+        if (!calls.length || round.incomplete) { text = round.text; incomplete = round.incomplete; firstAt = round.firstAt; endAt = round.endAt; break; }
         // The round goes back as DeepSeek wrote it (its reasoning, held for DeepSeek alone, and its calls), then each
         // call's answer.
         input.push(...round.output);
@@ -456,10 +507,12 @@ export async function runEvaluation({ apiKey, claims, document = '', send, signa
     if (parsed.verdictSource === 'unread') recordFailure({ where: 'trial:verdict', code: 'verdict_unread', message: conclusionExcerpt(text) });
     const ms = Date.now() - startedAt;
     const cost = { usd: round4(tokenUsd + toolUsd), priced };
-    record({
+    // No `sources`: DeepSeek gives no citations of its own (its card lists none), so the table says "—", never 0.
+    recordDone({
       kind: 'trial', ok: true, provider: 'deepseek', model: trial.model, effort: trial.effort, mode: null,
       claim: claimHash(claim), chars: claim.length, verdict: parsed.verdict, verdictSource: parsed.verdictSource, confidence: parsed.confidence,
-      usage: used, rounds, searches: searchesOf(trail), reads: readsOf(trail), incomplete, ms,
+      usage: used, rounds, searches: searchesOf(trail), queries: queriesIn(trail), reads: readsOf(trail), incomplete, ms,
+      ...measured({ ms, waitMs: waited, firstAt, endAt, text }),
       tokenUsd: round4(tokenUsd), toolUsd: round4(toolUsd), usd: cost.usd, priced,
     }, lineCtx(i));
     completed++;
@@ -507,6 +560,10 @@ export async function runEvaluation({ apiKey, claims, document = '', send, signa
     const sources = [];        // the delivered go's citations
     const seen = new Set();
     let spentSearches = 0;     // the searches of goes cut short: Google ran them, so they are paid for
+    let waited = 0;            // every wait, apart from the work (the line's `waitMs`)
+    let firstAt = null;        // the delivered go's first written word, and its last event
+    let endAt = null;
+    const waitedFor = (ms) => { waited += ms; };
     const addSources = (annotations) => {
       for (const a of annotations || []) {
         if (a?.type !== 'url_citation' || !a.url || seen.has(a.url)) continue;
@@ -516,7 +573,7 @@ export async function runEvaluation({ apiKey, claims, document = '', send, signa
         send({ t: 'source', i, source });
       }
     };
-    const addText = (piece) => { if (piece) { text += piece; send({ t: 'delta', i, text: piece }); } };
+    const addText = (piece) => { if (piece) { if (firstAt === null) firstAt = Date.now(); text += piece; send({ t: 'delta', i, text: piece }); } };
     const addThought = (piece) => { if (piece) { reasoning += piece; send({ t: 'reasoning', i, text: piece }); } };
     let lastSaid = null;       // the wording of Google's last refusal kept for this claim, its figures aside
 
@@ -532,6 +589,8 @@ export async function runEvaluation({ apiKey, claims, document = '', send, signa
       usage = null;
       billed = null;
       incomplete = null;
+      firstAt = null;
+      endAt = null;
       try {
         // The model, the two messages, the operator's level with Gemini's own summary of its thinking, Google's search and
         // its page reading, the stream, and store: false (Google would otherwise keep the interaction for 55 days).
@@ -618,6 +677,7 @@ export async function runEvaluation({ apiKey, claims, document = '', send, signa
         }
         // A reply that stops without its last word was cut, however politely: it goes again, as a cut connection does.
         if (!ended && !signal.aborted) throw cutReply();
+        endAt = Date.now();
         break;
       } catch (err) {
         if (signal.aborted) return;
@@ -643,7 +703,7 @@ export async function runEvaluation({ apiKey, claims, document = '', send, signa
               console.log(`[gemini] ${asked} (refusal ${tries + 1} of this fact-check): "${why}"`);
             }
             send({ t: 'retry', i, attempt: tries + 1, status: 429, reason: 'rate_limit', waitMs, who: gemini.PROVIDER, why, until: Date.now() + waitMs });
-            if (waitMs > 0) await sleep(waitMs);
+            await pause(waitMs, waitedFor);
             continue;
           }
           if (isConnectionDrop(err)) {
@@ -651,13 +711,13 @@ export async function runEvaluation({ apiKey, claims, document = '', send, signa
             const why = String(wait.why || '').split(openaiHost()).join(gemini.host());
             const { since } = noteFailure({ code: wait.code, why, who: gemini.NAME });
             send({ t: 'retry', i, attempt: tries + 1, status: null, reason: 'connection', code: wait.code, why, since, waitMs: wait.waitMs, at: Date.now() });
-            if (wait.waitMs > 0) await sleep(wait.waitMs);
+            await pause(wait.waitMs, waitedFor);
             continue;
           }
           if (tries < config.evalRetries && isRetryable(err)) {
             const waitMs = err.waitMs > 0 ? err.waitMs : spacedWaitMs(attemptAt);
             send({ t: 'retry', i, attempt: tries + 1, status: err?.status ?? null, reason: 'error', waitMs });
-            if (waitMs > 0) await sleep(waitMs);
+            await pause(waitMs, waitedFor);
             continue;
           }
         }
@@ -689,10 +749,11 @@ export async function runEvaluation({ apiKey, claims, document = '', send, signa
     const tokens = estimateTextCost({ model: trial.model, usage, at: pricedAt });   // the day's price: Argon's changes on 1 December
     const all = estimateTextCost({ model: trial.model, usage, searches, at: pricedAt });
     const cost = { usd: all.usd, priced: all.priced };
-    record({
+    recordDone({
       kind: 'trial', ok: true, provider: 'gemini', model: trial.model, effort: trial.effort, mode: null,
       claim: claimHash(claim), chars: claim.length, verdict: parsed.verdict, verdictSource: parsed.verdictSource, confidence: parsed.confidence,
-      usage, searches, reads: readsIn(trail), sources: sources.length, incomplete, ms,
+      usage, searches, queries: queriesIn(trail), reads: readsIn(trail), sources: sources.length, incomplete, ms,
+      ...measured({ ms, waitMs: waited, firstAt, endAt, text }),
       tokenUsd: tokens.usd, searchUsd: round4(all.usd - tokens.usd), usd: cost.usd, priced: cost.priced,
     }, lineCtx(i));
     completed++;
