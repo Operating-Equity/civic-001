@@ -299,17 +299,19 @@ export async function throughGate(client, body, { kind = 'request', owner = null
 
 /**
  * Tries each model id in order until one is accepted by the account. Remembers the winner
- * for the life of the process so later calls skip straight to it.
+ * for the life of the process so later calls skip straight to it. The memory is the list's own
+ * (24 October): a trial's model that answered never becomes the readers' first try.
  */
 const resolved = new Map();
 export async function withModelFallback(kind, models, run, onFallback) {
   const first = models[0];
-  const order = resolved.has(kind) ? [resolved.get(kind), ...models.filter((m) => m !== resolved.get(kind))] : models;
+  const key = `${kind}|${models.join(',')}`;
+  const order = resolved.has(key) ? [resolved.get(key), ...models.filter((m) => m !== resolved.get(key))] : models;
   let lastErr;
   for (const model of order) {
     try {
       const out = await run(model);
-      resolved.set(kind, model);
+      resolved.set(key, model);
       // A downgrade is never silent: the caller reports it on the card and in the ledger.
       if (model !== first && typeof onFallback === 'function') onFallback({ used: model, requested: first });
       return out;

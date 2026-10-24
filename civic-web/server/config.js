@@ -99,10 +99,10 @@ function keepPercent() {
   return v > 0 && v <= 100 ? v : 25;
 }
 
-/** The trial's models (CIVIC_EVAL_TRIAL_MODELS): DeepSeek V4 Pro and Gemini 4 Argon unless the operator names others;
- *  `off` or `none`, no trial. */
+/** The trial's models (CIVIC_EVAL_TRIAL_MODELS): DeepSeek V4 Pro, Gemini 4 Argon and GPT-6.1 Sol (24 October) unless the
+ *  operator names others; `off` or `none`, no trial. */
 function trialModels() {
-  const raw = env('CIVIC_EVAL_TRIAL_MODELS', 'deepseek-v4-pro,gemini-4-argon').trim();
+  const raw = env('CIVIC_EVAL_TRIAL_MODELS', 'deepseek-v4-pro,gemini-4-argon,gpt-6.1-sol').trim();
   return /^(off|none)$/i.test(raw) ? [] : raw.split(',').map((m) => m.trim()).filter(Boolean);
 }
 

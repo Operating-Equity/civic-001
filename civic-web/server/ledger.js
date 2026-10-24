@@ -39,7 +39,8 @@ export function spentWords({ usage, thoughtMs }) {
 export function factCheckWords(line) {
   const n = (x) => Math.max(0, Number(x) || 0).toLocaleString('en-US');
   const s = (ms) => `${Math.round((Number(ms) || 0) / 1000)} s`;
-  const who = line.kind !== 'trial' ? 'readers' : line.provider === 'openai' ? 'side by side' : 'trial';
+  // Side by side is the readers' own model run beside a trial; GPT-6.1 Sol (24 October) is a trial on OpenAI of its own.
+  const who = line.kind !== 'trial' ? 'readers' : line.provider === 'openai' && config.evalModels.includes(line.model) ? 'side by side' : 'trial';
   const time = line.writeMs == null ? `worked ${s(line.workMs)} and wrote nothing`
     : `worked ${s(line.workMs)} (${s(line.firstWordMs)} before its first word, ${s(line.writeMs)} writing)`;
   const many = (x, one, more) => `${n(x)} ${Number(x) === 1 ? one : more}`;

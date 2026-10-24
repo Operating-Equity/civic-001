@@ -60,7 +60,7 @@ app.use((req, res, next) => {
   next();
 });
 
-const KNOWN_MODELS = new Set(['gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna', 'gpt-5.6', 'gpt-5.5', 'gpt-5.4-mini', 'gpt-image-2.5-flare', 'gpt-image-1-mini']);
+const KNOWN_MODELS = new Set(['gpt-6-astra', 'gpt-6.1-sol', 'gpt-6-luna', 'gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna', 'gpt-5.6', 'gpt-5.5', 'gpt-5.4-mini', 'gpt-image-2.5-flare', 'gpt-image-1-mini']);
 const modelError = (res, model) => res.status(404).json({ error: { message: `The model \`${model}\` does not exist or you do not have access to it.`, type: 'invalid_request_error', code: 'model_not_found' } });
 
 // ---- Responses API -----------------------------------------------------------------------
