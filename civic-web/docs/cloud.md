@@ -1041,6 +1041,10 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
   - **The prompt itself** goes to Render as a new secret file, with `CIVIC_PROMPT_EXTRACT_FILE` pointed at it; the two
     earlier files stay there, so going back is two settings (the file, and `CIVIC_RANK=operator`). It is never in this
     repository.
+  - **Live** (24 October, 18:46 UTC): PR #84 deployed at 18:44, then the prompt installed (`extract-3.txt`, the setting
+    switched, `CIVIC_RANK=off`) and deployed at 18:45. The boot lines name the new extraction prompt, say the source goes
+    in place of its bracketed line, and say the claims are listed unranked, the ranking off. Live check clean, nothing
+    spent.
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 
