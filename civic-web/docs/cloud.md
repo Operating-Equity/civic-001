@@ -1011,6 +1011,9 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
     - the listing names no tool on any provider (OpenAI and Fireworks too).
   - **The prompt itself** goes to Render as a new secret file, with `CIVIC_PROMPT_EXTRACT_FILE` pointed at it; the old
     `extract.txt` stays there, so going back is one setting. It is never in this repository.
+  - **Live** (24 October, 05:18 UTC): PR #83 deployed at 05:17, then the prompt installed (`extract-2.txt`, the setting
+    switched) and deployed at 05:18. The boot lines name the new extraction prompt and say the listing goes with no
+    tools, as instructions, the document after its headline line. Live check clean, nothing spent.
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 
