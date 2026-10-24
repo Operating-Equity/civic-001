@@ -27,7 +27,7 @@ import { toolsOn } from './tools/request.js';
 import { doorsOpen } from './tools/doors.js';
 import { listPrice, retiredSettings } from './economics.js';
 import * as deepseek from './deepseek.js';
-import { modelReady, isDeepSeekModel, isGeminiModel, modelLabel, trialState } from './trial.js';
+import { modelReady, isDeepSeekModel, isGeminiModel, isOpenAIModel, modelLabel, trialState, OPENAI_EFFORTS } from './trial.js';
 import * as gemini from './gemini.js';
 
 const ok = (title, detail = '') => ({ state: 'ok', title, detail });
@@ -61,8 +61,9 @@ async function checkKeyAndModel(apiKey) {
   checks.push(ok('A key is configured', `It ends ${apiKey.slice(-4)} and is ${apiKey.length} characters long.`));
 
   const client = clientFor(apiKey);
-  // OpenAI is asked about the models it serves: both steps', or only the determinations' when the listing is elsewhere.
-  const models = [...new Set(onOwnProvider() ? [config.evalModels[0]] : [config.extractModels[0], config.evalModels[0]])];
+  // OpenAI is asked about the models it serves: both steps', or only the determinations' when the listing is elsewhere,
+  // and the operator's trial models of its own (24 October: GPT-6.1 Sol).
+  const models = [...new Set([...(onOwnProvider() ? [config.evalModels[0]] : [config.extractModels[0], config.evalModels[0]]), ...config.evalTrialModels.filter(isOpenAIModel)])];
   for (const model of models) {
     const started = Date.now();
     try {
@@ -76,8 +77,11 @@ async function checkKeyAndModel(apiKey) {
         break;
       }
       if (safe.status === 404 || /does not exist|do not have access|not found/i.test(safe.message)) {
-        checks.push(bad(`This key cannot use ${model}`, safe.message,
-          `The account behind this key has no access to ${model}. Check the model's availability on your OpenAI account, or set CIVIC_MODEL to one it can use.`));
+        // A trial model the key cannot use is the operator's trial alone: a warning, as the trial's other rows are.
+        const trialOnly = !config.evalModels.includes(model) && !(config.extractModels.includes(model) && !onOwnProvider());
+        checks.push((trialOnly ? warn : bad)(`This key cannot use ${model}`, safe.message,
+          trialOnly ? `The account behind this key has no access to ${model}, so your trial cannot run it. Readers are unaffected.`
+            : `The account behind this key has no access to ${model}. Check the model's availability on your OpenAI account, or set CIVIC_MODEL to one it can use.`));
         continue;
       }
       if (safe.status === 429) {
@@ -185,7 +189,17 @@ async function checkTrial() {
   if (ids.length) await checkTrialDeepSeek(checks, ids, readers);
   const gids = config.evalTrialModels.filter(isGeminiModel);
   if (gids.length) await checkTrialGemini(checks, gids, readers);
+  const oids = config.evalTrialModels.filter(isOpenAIModel);
+  if (oids.length) checkTrialOpenAI(checks, oids, readers);
   return checks;
+}
+
+/** The trial on OpenAI (24 October): the readers' own fact-check with its model and level; OpenAI's answer for the model is above. */
+function checkTrialOpenAI(checks, ids, readers) {
+  const ready = modelReady(ids[0]);
+  if (!ready.ok) { checks.push(warn('Your trial on OpenAI cannot run', ready.why, readers)); return; }
+  checks.push(ok('Your trial on OpenAI can run',
+    `${ids.map(modelLabel).join(' and ')} at ${OPENAI_EFFORTS.join(' or ')}, its own entry on the page beside ${modelLabel(config.evalModels[0])}, for your account alone: the same key, web search and pacing as a reader's fact-check, with only the model and its level its own. Whether OpenAI serves it to this key is said above.`));
 }
 
 async function checkTrialGemini(checks, ids, readers) {

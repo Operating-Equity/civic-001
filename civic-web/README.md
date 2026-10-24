@@ -481,18 +481,21 @@ sentence, and DeepSeek's words go to the record on /check, which also reads Deep
 /models`, `GET /user/balance`, no tokens; the figures to the operator alone). The readers' determinations stay on
 OpenAI as below. `CIVIC_EXTRACT_PROVIDER=openai` (or unset) puts the listing back on OpenAI exactly as before.
 
-**The operator's trial on DeepSeek and Gemini** (14 October: "I think the best experiment is to use the new DeepSeek deep
+**The operator's trial on DeepSeek, Gemini and OpenAI** (14 October: "I think the best experiment is to use the new DeepSeek deep
 reasoning model through the already connected API"; 18 October: "There is only 1 DeepSeek model for fact checking", and
 "I want to test the new Gemini model using argon medium and argon high"). On the operator's page alone, above "Test N
 selected claims", the operator chooses what determines the claims in one pull-down: the readers' model; DeepSeek V4 Pro
 (`deepseek-v4-pro`, the deep-reasoning one) at one of DeepSeek's efforts beside it (`none`, `low`, `high`, `max`; the page
-opens on `high`, the level DeepSeek gives `xhigh`); or "Gemini 4 Argon · medium" or "Gemini 4 Argon · high", each level
-its own entry. And whether each claim also runs on the readers' model, side by side (its card right under the trial's,
+opens on `high`, the level DeepSeek gives `xhigh`); "Gemini 4 Argon · medium" or "Gemini 4 Argon · high", each level
+its own entry; or "GPT-6.1 Sol · xhigh" (24 October: "GPT-6.1 Sol make it also an option for testing side by side"; at
+the readers' level), which is a reader's own OpenAI fact-check (the same key, web search and pacing) with only its model
+and level its own. And whether each claim also runs on the readers' model, side by side (its card right under the trial's,
 labelled, not counted on the scoreboard). The choice is remembered in that browser; an entry that cannot run here is
 shown and cannot be chosen, its reason said beneath. The server takes a model and an effort from the operator's session
 only; from anyone else they are ignored and the request is the readers' own. The models are `CIVIC_EVAL_TRIAL_MODELS`
-(`deepseek-v4-pro,gemini-4-argon` unless set; `off` ends the trial). V4.1 Flash lists and ranks the claims and is not a
-fact-checker.
+(`deepseek-v4-pro,gemini-4-argon,gpt-6.1-sol` unless set; `off` ends the trial); an OpenAI model there (an id beginning
+`gpt-`) runs at `xhigh` alone, and /check asks OpenAI whether the key may use it, without a token. V4.1 Flash listed the
+claims until 24 October and is not a fact-checker.
 
 On Gemini (`server/gemini.js`) a fact-check is one request to Google's Interactions API, with the operator's own key
 (`GEMINI_API_KEY`, sent in `x-goog-api-key` and nowhere else): `model`, `input` (the two messages a reader's
@@ -664,7 +667,7 @@ truncation setting. No fallback model. No size limit of ours on the document.
 | Model, both steps | `gpt-5.6-sol` | Operator, tested |
 | The listing's provider | `CIVIC_EXTRACT_PROVIDER`: `openai` (unset), `deepseek` (DeepSeek's own service: `deepseek-flash` on `DEEPSEEK_API_KEY`) or `fireworks` (the same model from the US: `accounts/fireworks/models/deepseek-v4p1-flash` on `FIREWORKS_API_KEY`, searching through FactEngine's tool server, `store: false`). Either runs at effort `high` unless `CIVIC_EXTRACT_EFFORT` says otherwise (the operator's answer of 5 October, `max` before); the service runs it at `low` since 18 October ("DeepSeek thinks at low", after an article took five minutes at `high`); `CIVIC_EXTRACT_MODELS` changes the model. The keys are pasted by the operator in Render; a key is read under its name whatever its capitals (`DEEPSEEK_API_Key` is `DEEPSEEK_API_KEY`), the exact name winning, and two spellings holding different keys are used neither, /check naming both. `CIVIC_DEEPSEEK_BASE_URL` and `CIVIC_FIREWORKS_BASE_URL` are the providers' addresses (only the guard changes them). The readers' determinations stay on OpenAI. | Operator, 4 and 5 October |
 | The second pass | `CIVIC_RANK`: `operator` (unset: the operator's runs are ranked), `on` (everyone's) or `off` (the service since 24 October: one pass); `CIVIC_RANK_KEEP_PERCENT` (25: the part of the ranked claims shown, rounded up, behind an empirical headline); `CIVIC_RANK_EFFORT` (the listing's unless set; `low` on the service since 19 October, after the ranking took 69 s at `high`, `high` from 18 October); the ranking prompt, `rank` (optional; `CIVIC_PROMPT_RANK_FILE`). On the listing's DeepSeek model. See "The second pass" above. | Operator, 16 October |
-| The operator's trial | `CIVIC_EVAL_TRIAL_MODELS`: the models the operator may choose on the page for their own determinations (`deepseek-v4-pro,gemini-4-argon` unless set; `off` ends it). DeepSeek V4 Pro needs `DEEPSEEK_API_KEY` and the search service; Gemini 4 Argon, at medium or high, needs `GEMINI_API_KEY` (the operator's own Google key, pasted in Render; `CIVIC_GEMINI_BASE_URL` only the guard changes). Each runs or not on its own. Never charged, never in the readers' figures. | Operator, 14 and 18 October |
+| The operator's trial | `CIVIC_EVAL_TRIAL_MODELS`: the models the operator may choose on the page for their own determinations (`deepseek-v4-pro,gemini-4-argon,gpt-6.1-sol` unless set; `off` ends it). DeepSeek V4 Pro needs `DEEPSEEK_API_KEY` and the search service; Gemini 4 Argon, at medium or high, needs `GEMINI_API_KEY` (the operator's own Google key, pasted in Render; `CIVIC_GEMINI_BASE_URL` only the guard changes); GPT-6.1 Sol, at xhigh, needs only the readers' OpenAI key. Each runs or not on its own. Never charged, never in the readers' figures. | Operator, 14, 18 and 24 October |
 | Reasoning effort, both steps on OpenAI | `xhigh` | Operator, 5 October: back to the setting before 21 September, when `max` in `pro` mode had taken a listing to fifteen minutes and $3.81 and a determination to almost seven minutes and $3.71. `max` from 21 September to 5 October. |
 | Reasoning mode, both steps on OpenAI | `standard` (no mode key sent) | Operator, 5 October, as above. `pro` (GPT-5.6's pro mode, OpenAI's "highest-intelligence API option": more model work per answer at the same per-token rates) from 21 September to 5 October; `CIVIC_REASONING_MODE=pro` brings it back. |
 | Web search | on for the determinations, never on the listing; not configurable | The determinations' prompt was tested in a UI where search is available. The listing reads the document it is given and nothing else (24 October). |

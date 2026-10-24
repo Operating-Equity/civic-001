@@ -2614,7 +2614,7 @@ async function trialChecks() {
     // server, with no Gemini key, offers as unable to run (geminiChecks below run it).
     const dsEntry = (tr.entries || []).find((e) => e.model === 'deepseek-v4-pro');
     check('Trial: the operator\'s page is offered DeepSeek V4 Pro alone of DeepSeek\'s models, its four efforts opening on high, beside the readers\' model, and ready; V4.1 Flash is not offered for fact-checking',
-      JSON.stringify((tr.models || []).map((m) => m.id)) === JSON.stringify(['deepseek-v4-pro', 'gemini-4-argon']) && !(tr.entries || []).some((e) => e.model === 'deepseek-flash')
+      JSON.stringify((tr.models || []).map((m) => m.id)) === JSON.stringify(['deepseek-v4-pro', 'gemini-4-argon', 'gpt-6.1-sol']) && !(tr.entries || []).some((e) => e.model === 'deepseek-flash')
         && dsEntry?.fixed === false && JSON.stringify(dsEntry.efforts) === JSON.stringify(['none', 'low', 'high', 'max']) && dsEntry.effort === 'high' && dsEntry.ready === true
         && tr.readers?.id === config.evalModels[0] && tr.ready === true && JSON.stringify(health.request?.keys?.trial) === JSON.stringify(['model', 'input', 'reasoning', 'tools', 'stream']),
       JSON.stringify({ trial: tr, keys: health.request?.keys?.trial }));
@@ -2827,8 +2827,10 @@ async function trialChecks() {
     const rC = await fetch(`${baseC}/api/evaluate`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ claims: [claim], text: source, jobId: `tr-nosearch-${stamp}`, model: 'deepseek-v4-pro' }) });
     const bC = await rC.json().catch(() => ({}));
     const stC = await (await fetch(`${baseC}/api/selftest`)).json();
-    check('Trial: without FactEngine\'s search service the trial is offered as unavailable with the reason, refused (503 trial_unavailable) and nothing reaches DeepSeek; /check warns, and is still ready for readers',
-      hC.trial?.ready === false && /search service/.test(hC.trial?.why || '') && rC.status === 503 && bC?.error?.code === 'trial_unavailable' && (await dsStats()).requests === beforeC
+    const dsC = (hC.trial?.entries || []).find((e) => e.model === 'deepseek-v4-pro');
+    check('Trial: without FactEngine\'s search service DeepSeek V4 Pro is offered as unable to run, with the reason, refused (503 trial_unavailable), and nothing reaches DeepSeek; GPT-6.1 Sol still runs on OpenAI; /check warns, and is still ready for readers',
+      dsC?.ready === false && /search service/.test(dsC?.why || '') && hC.trial?.ready === true && (hC.trial?.entries || []).find((e) => e.model === 'gpt-6.1-sol')?.ready === true
+        && rC.status === 503 && bC?.error?.code === 'trial_unavailable' && (await dsStats()).requests === beforeC
         && stC.ready === true && (stC.checks || []).some((x) => x.state === 'warn' && x.title === 'Your trial on DeepSeek cannot run'),
       JSON.stringify({ trial: hC.trial, status: rC.status, body: bC, ready: stC.ready }));
 
@@ -2874,6 +2876,73 @@ async function trialChecks() {
   }
 }
 await trialChecks();
+
+// ---- GPT-6.1 Sol in the operator's trial (24 October): "GPT-6.1 Sol make it also an option for testing side by side" ----
+// At xhigh, the readers' level, one entry. It is a reader's own OpenAI fact-check (the same messages, web search, pacing
+// and key) with only its model and level its own; side by side runs the readers' model beside it.
+async function openaiTrialChecks() {
+  const OMOCK = MOCK_PORT + 113;
+  const stamp = Date.now();
+  const rec = path.join(os.tmpdir(), `civic-verify-openai-trial-${stamp}.jsonl`);
+  const ledger = path.join(os.tmpdir(), `civic-verify-openai-trial-ledger-${stamp}.jsonl`);
+  const output = [];
+  start([path.join(root, 'scripts', 'mock-openai.js')], { MOCK_PORT: String(OMOCK), MOCK_RECORD: rec, MOCK_SPEED: '0.2', MOCK_EVAL_MARK: process.env.MOCK_EVAL_MARK_FOR_GATE || '' });
+  const child = start([path.join(root, 'server', 'index.js')], {
+    PORT: String(PORT + 113), OPENAI_BASE_URL: `http://localhost:${OMOCK}/v1`, OPENAI_API_KEY: KEY, CIVIC_IMAGE_ENABLED: 'false',
+    CIVIC_LEDGER_FILE: ledger, DATABASE_URL: '', CIVIC_EVAL_TRIAL_MODELS: '',
+  });
+  child.stdout.on('data', (d) => output.push(String(d)));
+  const base = `http://localhost:${PORT + 113}`;
+  try {
+    await wait(`http://localhost:${OMOCK}/v1/responses`, 15000, { anyResponse: true });
+    await wait(`${base}/api/health`);
+    const health = await (await fetch(`${base}/api/health`)).json();
+    const entry = (health.trial?.entries || []).find((e) => e.model === 'gpt-6.1-sol');
+    check('OpenAI trial: the operator\'s page is offered "GPT-6.1 Sol · xhigh", one entry, its level fixed, ready on the readers\' key',
+      entry?.label === 'GPT-6.1 Sol · xhigh' && entry.effort === 'xhigh' && entry.fixed === true && entry.ready === true
+        && (health.trial?.entries || []).filter((e) => e.model === 'gpt-6.1-sol').length === 1,
+      JSON.stringify(health.trial?.entries));
+    const source = 'The Eiffel Tower stands about 330 metres tall. Water boils at 100 degrees Celsius at sea level.';
+    const claim = 'The Eiffel Tower stands about 330 metres tall.';
+    const evaluate = (extra, label) => stream(`${base}/api/evaluate`, { claims: [claim], text: source, source: { kind: 'text' }, jobId: `otr-${label}-${stamp}`, ...extra });
+    const bodies = () => (fs.existsSync(rec) ? fs.readFileSync(rec, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)).filter((r) => r.path === '/v1/responses').map((r) => r.body) : []);
+    const a = await evaluate({ model: 'gpt-6.1-sol', effort: 'xhigh' }, 'sol61');
+    const b = await evaluate({ model: config.evalModels[0] }, 'twin');
+    const sent = bodies();
+    // A reader's fact-check after the trial's: still the readers' model, first try, no fallback (24 October: the model
+    // that answered for the trial was remembered for every fact-check until FactEngine restarted).
+    const c = await evaluate({}, 'readers');
+    const readersBody = bodies()[2];
+    check('OpenAI trial: a reader\'s fact-check after GPT-6.1 Sol\'s runs on the readers\' model, as its first try, with no fallback',
+      readersBody?.model === config.evalModels[0] && readersBody?.reasoning?.effort === config.evalEffort && !c.some((e) => e.t === 'warning') && c.find((e) => e.t === 'done')?.model === config.evalModels[0],
+      JSON.stringify({ sent: readersBody && [readersBody.model, readersBody.reasoning], warnings: c.filter((e) => e.t === 'warning') }));
+    const [s61, twin] = [sent.find((x) => x.model === 'gpt-6.1-sol'), sent.find((x) => x.model === config.evalModels[0])];
+    const doneA = a.find((e) => e.t === 'done');
+    check('OpenAI trial: GPT-6.1 Sol is asked exactly as a reader\'s fact-check is, with its own model and reasoning.effort xhigh, web search and store false; side by side asks the readers\' model at the readers\' level; both are delivered',
+      sent.length === 2 && JSON.stringify(Object.keys(s61 || {}).sort()) === JSON.stringify(Object.keys(twin || {}).sort()) && s61?.reasoning?.effort === 'xhigh'
+        && twin?.reasoning?.effort === config.evalEffort && (s61.tools || []).some((x) => x.type === 'web_search') && s61.store === false
+        && JSON.stringify(s61.input) === JSON.stringify(twin.input) && doneA?.model === 'gpt-6.1-sol' && doneA?.effort === 'xhigh' && b.some((e) => e.t === 'done'),
+      JSON.stringify({ sent: sent.map((x) => [x.model, x.reasoning]), done: doneA && [doneA.model, doneA.effort] }));
+    const lines = fs.readFileSync(ledger, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)).filter((l) => l.kind === 'trial');
+    check('OpenAI trial: its ledger line is a trial on OpenAI, gpt-6.1-sol at xhigh, priced at its own rates; the side-by-side line is the readers\' model at the readers\' level',
+      lines.some((l) => l.provider === 'openai' && l.model === 'gpt-6.1-sol' && l.effort === 'xhigh' && l.ok === true && l.priced === true && l.usd > 0)
+        && lines.some((l) => l.provider === 'openai' && l.model === config.evalModels[0] && l.effort === config.evalEffort),
+      JSON.stringify(lines.map((l) => [l.provider, l.model, l.effort, l.priced])));
+    const refused = await fetch(`${base}/api/evaluate`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ claims: [claim], text: source, model: 'gpt-6.1-sol', effort: 'max', jobId: `otr-max-${stamp}` }) });
+    const refusedBody = await refused.json().catch(() => ({}));
+    check('OpenAI trial: GPT-6.1 Sol at another level is refused (400 trial_effort) and nothing reaches OpenAI',
+      refused.status === 400 && refusedBody.error?.code === 'trial_effort' && bodies().length === 3, JSON.stringify({ status: refused.status, body: refusedBody, sent: bodies().length }));
+    const st = await (await fetch(`${base}/api/selftest`)).json();
+    const said = output.join('');
+    check('OpenAI trial: /check says the trial on OpenAI can run and that OpenAI accepts the key for gpt-6.1-sol; the boot line names it at xhigh; the fact-check\'s log line names it',
+      (st.checks || []).some((c) => c.title === 'Your trial on OpenAI can run' && c.state === 'ok') && (st.checks || []).some((c) => c.title === 'OpenAI accepts this key for gpt-6.1-sol' && c.state === 'ok')
+        && /gpt-6\.1-sol ready, at xhigh, with OpenAI's web search/.test(said) && /\[fact-check\] gpt-6\.1-sol at xhigh \(trial\)/.test(said),
+      JSON.stringify((st.checks || []).filter((c) => /OpenAI/.test(c.title)).map((c) => `${c.state}:${c.title}`)));
+  } catch (err) {
+    check('OpenAI trial checks completed', false, err.message);
+  }
+}
+await openaiTrialChecks();
 
 // ---- the operator's trial on Gemini (18 October) ------------------------------------------------------------------
 // "I want to test the new Gemini model using argon medium and argon high." Their answers: Google's own search and page

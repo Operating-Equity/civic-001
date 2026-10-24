@@ -1069,6 +1069,17 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
   - **Live** (24 October, 21:30 UTC): PR #85 deployed at 21:28, then the four settings switched and deployed at 21:29.
     The boot lines say the listing goes to OpenAI's gpt-6.1-sol at medium with no tools, store false and no summary,
     and that each determination gets the claim in its slot. Live check clean, nothing spent.
+- **24 October, late night: GPT-6.1 Sol in the operator's trial.** The operator: "GPT-6.1 Sol make it also an option
+  for testing side by side." Their answer: at xhigh, the readers' level, as one entry, "GPT-6.1 Sol · xhigh".
+  - It is a reader's own OpenAI fact-check (the same two messages, web search, pacing and key) with only its model and
+    level its own; the ledger line, the `[fact-check]` line and the card's footer say the level it ran at.
+  - The trial's default list gains `gpt-6.1-sol`; /check says whether OpenAI serves it to the key, without a token, and
+    a key that cannot use it is a warning, the trial being the operator's alone.
+  - Side by side runs each claim on GPT-6.1 Sol and on the readers' GPT-5.6 Sol, and /check's tables compare them.
+  - **Found while proving it:** FactEngine remembered the model that last answered a fact-check, for every fact-check, so
+    after one GPT-6.1 Sol trial the readers' fact-checks would have tried GPT-6.1 Sol first until a restart. The memory
+    is now each model list's own (`withModelFallback`, `server/openai.js`), and the guard checks a reader's fact-check
+    after a trial's.
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 

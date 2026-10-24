@@ -661,7 +661,9 @@ function banner() {
   // The operator's trial (server/trial.js): whether it can run, for the host's log. No key, nothing of anyone's.
   const trial = trialState();
   if (trial) {
-    const how = (m) => (m.provider === 'gemini' ? `at ${m.efforts.join(' or ')}, with Google's own search and page reading` : 'with FactEngine\'s search and page reader as the model\'s tools');
+    const how = (m) => (m.provider === 'gemini' ? `at ${m.efforts.join(' or ')}, with Google's own search and page reading`
+      : m.provider === 'openai' ? `at ${m.efforts.join(' or ')}, with OpenAI's web search, as a reader's fact-check`
+        : 'with FactEngine\'s search and page reader as the model\'s tools');
     console.log(`[trial] the operator's own determinations may run, chosen on their page: ${trial.models.map((m) => `${m.id} ${m.ready ? `ready, ${how(m)}` : `not ready: ${String(m.why || '').replace(/\.$/, '')}`}`).join('; ')}`);
   }
   // A link FactEngine's server cannot read (server/copies.js): the search service's reader, then the copies, then the

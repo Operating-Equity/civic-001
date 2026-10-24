@@ -83,12 +83,14 @@ function recordDone(line, ctx) {
 
 export async function runEvaluation({ apiKey, claims, document = '', send, signal, ctx = {}, trial = null }) {
   // `trial`: null for the readers' determination; else the operator's choice (server/trial.js): DeepSeek's model and
-  // effort, Gemini's model and level, or the readers' own model beside them, recorded as a trial.
+  // effort, Gemini's model and level, an OpenAI model at its level (24 October: GPT-6.1 Sol), or the readers' own model
+  // beside them, recorded as a trial.
   const onDeepSeek = trial?.provider === 'deepseek';
   const onGemini = trial?.provider === 'gemini';
+  const onOpenAITrial = trial?.provider === 'openai' && Boolean(trial.effort);   // OpenAI's fact-check, its own model and level
   const client = onDeepSeek ? deepseek.client(apiKey) : onGemini ? null : clientFor(apiKey);
-  const models = onDeepSeek || onGemini ? [trial.model] : config.evalModels;
-  const effort = onDeepSeek || onGemini ? trial.effort : config.evalEffort;
+  const models = onDeepSeek || onGemini || onOpenAITrial ? [trial.model] : config.evalModels;
+  const effort = onDeepSeek || onGemini || onOpenAITrial ? trial.effort : config.evalEffort;
   const mode = onDeepSeek || onGemini ? null : config.evalReasoningMode || null;
   const kind = trial ? 'trial' : 'evaluate';
   // Whose work each claim's line is: the run, the sign-in, and the determination's own id (server/economics.js).
@@ -143,7 +145,7 @@ export async function runEvaluation({ apiKey, claims, document = '', send, signa
     const request = (model) => {
       // The operator's tested configuration and nothing else. No cap, no mode, no verbosity,
       // no context size. `npm run verify` fails if any other key ever appears here.
-      const reasoning = { effort: config.evalEffort };
+      const reasoning = { effort };
       if (config.evalReasoningMode) reasoning.mode = config.evalReasoningMode; // pro: more model work per answer, at the same rates
       if (wantSummary) reasoning.summary = config.evalReasoningSummary;
       const body = {
@@ -307,7 +309,7 @@ export async function runEvaluation({ apiKey, claims, document = '', send, signa
           continue;
         }
         const safe = describeError(err);
-        record({ kind, ok: false, code: safe.code, ...(trial ? { provider: 'openai' } : {}), model: modelUsed, effort: config.evalEffort, claim: claimHash(claim), ms: Date.now() - startedAt }, lineCtx(i));
+        record({ kind, ok: false, code: safe.code, ...(trial ? { provider: 'openai' } : {}), model: modelUsed, effort, claim: claimHash(claim), ms: Date.now() - startedAt }, lineCtx(i));
         send({ t: 'error', i, code: safe.code, message: safe.message });
         completed++;
         send({ t: 'batch-progress', completed, total });
@@ -325,7 +327,7 @@ export async function runEvaluation({ apiKey, claims, document = '', send, signa
     const cost = estimateTextCost({ model: modelUsed, usage, searches });
     const tokens = estimateTextCost({ model: modelUsed, usage });
     recordDone({
-      kind, ok: true, ...(trial ? { provider: 'openai' } : {}), model: modelUsed, effort: config.evalEffort, mode: config.evalReasoningMode || null, webSearch: true,
+      kind, ok: true, ...(trial ? { provider: 'openai' } : {}), model: modelUsed, effort, mode: config.evalReasoningMode || null, webSearch: true,
       claim: claimHash(claim), chars: claim.length, fellBack: fellBack?.used || null, verdict: parsed.verdict, verdictSource: parsed.verdictSource,
       confidence: parsed.confidence, usage, searches, queries: queriesIn(trail), reads: pagesIn(trail), sources: sources.length, incomplete, ms,
       ...measured({ ms, waitMs: waited, firstAt, endAt, text }),
@@ -339,7 +341,7 @@ export async function runEvaluation({ apiKey, claims, document = '', send, signa
       text: parsed.text,            // complete, unmodified
       reasoning: reasoning.trim() || null,
       trail, sources,
-      model: modelUsed, requested: models[0], fellBack, effort: config.evalEffort, mode: config.evalReasoningMode || null, // no token figures go to the page; the ledger keeps them
+      model: modelUsed, requested: models[0], fellBack, effort, mode: config.evalReasoningMode || null, // no token figures go to the page; the ledger keeps them
       searches: searchCount(trail), ms, cost, incomplete,
       ...(trial ? { trial: true, provider: 'openai' } : {}),
     });
