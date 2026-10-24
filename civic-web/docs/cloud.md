@@ -1066,6 +1066,9 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
     - prices for GPT-6.1 Sol and GPT-6 Luna, from OpenAI's pricing page of 24 October.
   - **On Render:** `CIVIC_EXTRACT_PROVIDER=openai`, `CIVIC_EXTRACT_MODELS=gpt-6.1-sol`, `CIVIC_EXTRACT_EFFORT=medium`,
     `CIVIC_EXTRACT_REASONING_SUMMARY=off`. Going back is three settings: `deepseek`, the model unset, `low`.
+  - **Live** (24 October, 21:30 UTC): PR #85 deployed at 21:28, then the four settings switched and deployed at 21:29.
+    The boot lines say the listing goes to OpenAI's gpt-6.1-sol at medium with no tools, store false and no summary,
+    and that each determination gets the claim in its slot. Live check clean, nothing spent.
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 
