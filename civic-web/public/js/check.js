@@ -54,7 +54,7 @@ function renderSettings(s, build, pacing, silent, tools, readers) {
     ...((s.listingModel && s.listingModel !== s.model) || (s.listingProvider && s.listingProvider !== 'OpenAI')
       ? [['Listing', `${s.listingModel} on ${s.listingProvider}, effort ${s.listingEffort}`], ['Determinations', `${s.model} on OpenAI, effort ${s.effort}`]]
       : [['Model', s.model], ['Reasoning effort', s.effort]]),
-    ['Web search', s.listingWebSearch === false ? 'on for the determinations; the listing does not search (DeepSeek ignores web search)' : s.webSearch ? 'on, for both steps' : 'off'],
+    ['Web search', s.listingWebSearch === false ? 'on for the determinations; never on the listing, which reads the document it is given and nothing else' : s.webSearch ? 'on, for both steps' : 'off'],
     ...(s.trialModels && s.trialModels !== 'off' ? [['Your trial', `${s.trialModels}, chosen on the page, for your account alone`]] : []),
     ...(s.rank ? [['Ranking the claims', s.rank]] : []),
     ['Claims one request may carry', `${s.claimsPerRun} (the page sends one claim per request; this bounds nothing it does)`],

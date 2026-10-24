@@ -51,3 +51,34 @@ export function attributionLines(meta, now = new Date()) {
 export function sourceBlock(text, meta, now = new Date()) {
   return `${attributionLines(meta, now).join('\n')}\n\n${text}`;
 }
+
+/** What fills {{TITLE}} when FactEngine was given no headline. */
+export const NO_TITLE = '(none given)';
+
+/**
+ * The headline as published, when FactEngine was given one: a link's page title, a video's title, a file's own title.
+ * Not a link's host or the last part of its address, which is what the reader shows for a page without a title.
+ */
+export function titleOf(meta) {
+  const m = meta || {};
+  const title = String(m.title || '').trim();
+  if (!title) return '';
+  if (m.kind === 'link' && m.url) {
+    try {
+      const u = new URL(m.url);
+      const last = decodeURIComponent(u.pathname.split('/').filter(Boolean).pop() || '');
+      if (title === u.hostname || (last && title === last)) return '';
+    } catch { /* not an address: the title stands */ }
+  }
+  return title;
+}
+
+/**
+ * The document as a prompt without a slot is given it (24 October, the operator's answer): the headline FactEngine was
+ * given, or "(none given)", a blank line, then the text. The text read from a link holds no headline of its own (the
+ * page's title is kept apart from it), so without this line the model would not know it. A prompt with a slot gets its
+ * attribution lines instead (sourceBlock).
+ */
+export function headlineBlock(text, meta) {
+  return `Headline: ${titleOf(meta) || NO_TITLE}\n\n${text}`;
+}

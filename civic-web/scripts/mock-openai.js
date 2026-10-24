@@ -231,8 +231,7 @@ app.post('/v1/responses', async (req, res) => {
     }
     // When the prompt is sent around the source as one message, the stand-in reads the source
     // from the last paragraph, so no line of a prompt is ever echoed back as a claim.
-    const cut = text.lastIndexOf('\n\n');
-    output = mockClaims(body.instructions || cut < 0 ? text : text.slice(cut + 2).replace(/^[^\n]*:[ \t]*\n/, ''));
+    output = mockClaims(documentOf(body, text));
   }
 
   const chunks = output.match(/[\s\S]{1,28}/g) || [];
@@ -436,8 +435,7 @@ app.post('/deepseek/responses', async (req, res) => {
   }
   // DeepSeek ignores built-in tools, web search among them: nothing is searched, whatever the request says.
   const text = inputText(body);
-  const cut = text.lastIndexOf('\n\n');
-  const output = mockClaims(body.instructions || cut < 0 ? text : text.slice(cut + 2).replace(/^[^\n]*:[ \t]*\n/, ''));
+  const output = mockClaims(documentOf(body, text));
   send({ type: 'response.output_item.added', output_index: 2, item: { type: 'message', id: 'msg_1', status: 'in_progress', role: 'assistant', content: [] } });
   for (const delta of output.match(/[\s\S]{1,28}/g) || []) {
     if (res.writableEnded || res.destroyed) return;
@@ -757,8 +755,7 @@ app.post('/fireworks/responses', async (req, res) => {
   const mcp = (body.tools || []).find((t) => t.type === 'mcp');
   if (mcp && FW_TOOL_CALLS.length) await playMcp(mcp, send, FW_TOOL_CALLS, { style: 'fireworks' });
   const text = inputText(body);
-  const cut = text.lastIndexOf('\n\n');
-  const claims = mockClaims(body.instructions || cut < 0 ? text : text.slice(cut + 2).replace(/^[^\n]*:[ \t]*\n/, ''));
+  const claims = mockClaims(documentOf(body, text));
   const output = FW_APART.has(ordinal) ? claims : FW_TAGGED.has(ordinal) ? `<think>${thought}</think>\n\n${claims}` : `${thought}</think>\n\n${claims}`;
   send({ type: 'response.output_item.added', output_index: 2, item: { type: 'message', id: 'msg_fw', status: 'in_progress', role: 'assistant', content: [] } });
   // Pieces of thirteen characters, so the marker is split between two pieces as often as not.
@@ -897,6 +894,15 @@ function refuse(res, model, what, b, need) {
   return false;
 }
 let requestOrdinal = 0;
+
+// The document a listing was given: the message whole when the prompt went as instructions, its headline line (put
+// ahead of it by FactEngine since 24 October) set aside, as a model reads it; else what follows the prompt's slot, its
+// attribution lines set aside.
+function documentOf(body, text) {
+  if (body.instructions) return text.replace(/^Headline: [^\n]*\n\n/, '');
+  const cut = text.lastIndexOf('\n\n');
+  return cut < 0 ? text : text.slice(cut + 2).replace(/^[^\n]*:[ \t]*\n/, '');
+}
 
 // Invented entries for development only, in the labelled shape the reader keys on: a claim
 // line, then further labelled lines kept beside it. Nothing here is from the real prompt.

@@ -11,8 +11,7 @@ import { config, publicConfig, requestShape } from './config.js';
 import { promptStatus, hasPrompt, promptVersions } from './prompts.js';
 import { ApiError, operatorKey, describeError } from './openai.js';
 import { readerView, readerError } from './view.js';
-import { listingKey, onOwnProvider, onFireworks, onDeepSeek, listingHost, listingProviderName } from './listing.js';
-import { gatewayOn } from './tools/request.js';
+import { listingKey, onOwnProvider, onDeepSeek, listingHost, listingProviderName } from './listing.js';
 import { openStream } from './stream.js';
 import * as jobs from './jobs.js';
 import { fileToText, normalise, ACCEPTED_SOURCE_EXT } from './documents.js';
@@ -653,10 +652,10 @@ function banner() {
   const mark = (n) => (status[n] ? `${n} ${v[n].version} (${v[n].chars} chars)` : `${n} MISSING`);
   console.log(`prompts installed: ${mark('extract')} · ${mark('evaluate')} · ${status.rank ? mark('rank') : 'rank not installed'}`);
   const shape = requestShape();
-  const placing = shape.extract.source === 'inserted' ? 'the prompt verbatim with the source in place of its final bracketed line, as the only message' : 'the prompt verbatim as instructions · the document whole as the only message';
-  // On Fireworks the listing names FactEngine's tool server for its searches and says store: false.
-  // On DeepSeek it names none: DeepSeek ignores web search, so the listing reads the document it is given.
-  const listingTools = onFireworks() ? `${gatewayOn() ? 'FactEngine\'s tool server (search_web, read_page, get_transcript) through a door opened for that listing alone' : 'no tools (the tool server has no public address)'} · store false` : onDeepSeek() ? 'no tools (DeepSeek ignores web search)' : 'web_search';
+  const placing = shape.extract.source === 'inserted' ? 'the prompt verbatim with the source in place of its final bracketed line, as the only message' : 'the prompt verbatim as instructions · the document whole as the only message, its headline ahead of it';
+  // The listing names no tool on any provider (24 October): it reads the document it is given and nothing else. On
+  // Fireworks and OpenAI it says store: false.
+  const listingTools = `no tools${onDeepSeek() ? '' : ' · store false'}`;
   console.log(`extraction requests ${onOwnProvider() ? `go to ${listingHost()} (${listingProviderName()}) and ` : ''}carry: model ${shape.extract.model} · reasoning.effort ${shape.extract.effort}${shape.extract.mode ? ` · reasoning.mode ${shape.extract.mode}` : ''}${shape.extract.summary ? ` · reasoning.summary ${shape.extract.summary}` : ''} · ${listingTools} · ${placing} · nothing else${shape.extract.fallback ? '  (FALLBACK LIST SET)' : ''}`);
   console.log(`determination requests carry: model ${shape.evaluate.model} · reasoning.effort ${shape.evaluate.effort}${shape.evaluate.mode ? ` · reasoning.mode ${shape.evaluate.mode}` : ''}${shape.evaluate.summary ? ` · reasoning.summary ${shape.evaluate.summary}` : ''} · web_search · the source as a message ahead of the prompt · the prompt verbatim with the claim's whole entry in its slot · nothing else${shape.evaluate.fallback ? '  (FALLBACK LIST SET)' : ''}`);
   // The operator's trial (server/trial.js): whether it can run, for the host's log. No key, nothing of anyone's.

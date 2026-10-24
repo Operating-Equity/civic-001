@@ -17,7 +17,8 @@
 // sent nor kept.
 import { config } from './config.js';
 import { rankingPrompt, rankingProblem } from './prompts.js';
-import { sourceBlock } from './source.js';
+import { sourceBlock, titleOf, NO_TITLE } from './source.js';
+export { titleOf, NO_TITLE } from './source.js';
 import { usageOf, isRetryable, isRateLimit, isConnectionDrop, connectionWait, rateLimitWaitMs, sleep, streamFailure, asStreamFailure, spacedWaitMs, cutReply } from './openai.js';
 import { onDeepSeek, listingFailure, openaiHost } from './listing.js';
 import * as deepseek from './deepseek.js';
@@ -47,27 +48,6 @@ export function rankState() {
 export function rankFor({ operator }) {
   const s = rankState();
   return s.ready && (s.mode === 'on' || (s.mode === 'operator' && Boolean(operator)));
-}
-
-/** What fills {{TITLE}} when FactEngine was given no headline. */
-export const NO_TITLE = '(none given)';
-
-/**
- * The headline as published, when FactEngine was given one: a link's page title, a video's title, a file's own title.
- * Not a link's host or the last part of its address, which is what the reader shows for a page without a title.
- */
-export function titleOf(meta) {
-  const m = meta || {};
-  const title = String(m.title || '').trim();
-  if (!title) return '';
-  if (m.kind === 'link' && m.url) {
-    try {
-      const u = new URL(m.url);
-      const last = decodeURIComponent(u.pathname.split('/').filter(Boolean).pop() || '');
-      if (title === u.hostname || (last && title === last)) return '';
-    } catch { /* not an address: the title stands */ }
-  }
-  return title;
 }
 
 /** The claims as the prompt is given them: each one's number, then its whole entry as the listing wrote it. */

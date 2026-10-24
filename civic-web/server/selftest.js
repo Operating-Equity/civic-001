@@ -13,7 +13,6 @@ import { rankState } from './rank.js';
 import { clientFor, describeError } from './openai.js';
 import { onDeepSeek, onFireworks, onOwnProvider, listingKey, listingClient, listingFailure, listingProviderName, listingHost } from './listing.js';
 import { HEADER_SAFE } from './key.js';
-import { siteFetch } from './http.js';
 import { lastEcho } from './fireworks.js';
 import { recent } from './diagnostics.js';
 import { whereTheShellSetsIt } from './key.js';
@@ -24,8 +23,8 @@ import { names } from './names.js';
 import { tellReport } from './tells.js';
 import { searchOn, readerOn } from './copies.js';
 import { registry } from './tools/index.js';
-import { toolsOn, gatewayOn } from './tools/request.js';
-import { openDoor, doorsOpen } from './tools/doors.js';
+import { toolsOn } from './tools/request.js';
+import { doorsOpen } from './tools/doors.js';
 import { listPrice, retiredSettings } from './economics.js';
 import * as deepseek from './deepseek.js';
 import { modelReady, isDeepSeekModel, isGeminiModel, modelLabel, trialState } from './trial.js';
@@ -162,7 +161,6 @@ async function checkListing({ operator }) {
     }
   }
   if (onFireworks()) {
-    checks.push(...await checkToolServer());
     // What Fireworks says it applied, from its own echo of the last listing's request (none yet: no row).
     const e = lastEcho();
     if (e) {
@@ -225,50 +223,6 @@ async function checkTrialDeepSeek(checks, ids, readers) {
   }
 }
 
-/**
- * The listing on Fireworks searches through FactEngine's tool server: Fireworks' servers call it at the address the
- * listing's request gives, through a door opened for that listing alone (tools/doors.js). Asked here as they ask it: a
- * door is opened for this check, the tool server is asked for its tools at its public address through that door, and
- * the door is closed; then the same address must be refused, as each listing's is when it ends. No tool is called and
- * nothing is spent.
- */
-async function checkToolServer() {
-  const checks = [];
-  if (!gatewayOn()) {
-    checks.push(warn('The listing on Fireworks cannot search or read pages', 'FactEngine\'s tool server has no public address: neither CIVIC_TOOLS_URL nor RENDER_EXTERNAL_URL is set. The listing reads the document alone.',
-      'On Render the address is the service\'s own and is set by Render; elsewhere set CIVIC_TOOLS_URL to this server\'s public address followed by /mcp.'));
-    return checks;
-  }
-  let at = config.gatewayUrl;
-  try { at = new URL(config.gatewayUrl).host; } catch { /* the setting as written */ }
-  const door = openDoor();
-  const ask = async () => {
-    const r = await siteFetch(`${config.gatewayUrl}/t/${door.id}`, { method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} }) });
-    let json = null;
-    try { json = JSON.parse(await r.text()); } catch { /* not the tool server's answer */ }
-    return { status: r.status, names: (json?.result?.tools || []).map((t) => t.name) };
-  };
-  try {
-    const open = await ask();
-    door.close();
-    const shut = await ask();
-    if (open.status === 200 && open.names.length > 0 && shut.status === 401) {
-      checks.push(ok(`FactEngine's tool server answers at ${at}`, `Through a door opened for this check it listed ${open.names.join(', ')}, and refused the same door once closed. Fireworks reaches it the same way during a listing, through a door of that listing's own.`));
-    } else {
-      checks.push(warn(`FactEngine's tool server did not answer as expected at ${at}`, `Through an open door it answered ${open.status}${open.status === 200 ? ` and listed ${open.names.length ? open.names.join(', ') : 'no tools'}` : ''}; through the same door closed, ${shut.status} rather than 401.`,
-        'Fireworks will not be able to use it either: the listing would read the document alone.'));
-    }
-  } catch (err) {
-    checks.push(warn(`FactEngine's tool server could not be reached at ${at}`, String(err?.cause?.code || err?.message || err), 'Fireworks will not be able to reach it either: the listing would read the document alone.'));
-  } finally {
-    door.close();
-  }
-  if (!registry.summary().verbs.includes('search_web')) {
-    checks.push(warn('The listing on Fireworks cannot search the web', 'The search service is not set (CIVIC_SEARCH_URL and CIVIC_SEARCH_KEY); the model can still read a page or a video\'s transcript.'));
-  }
-  return checks;
-}
-
 export async function selftest({ apiKey, build, operator = true }) {
   const checks = [];
 
@@ -277,7 +231,7 @@ export async function selftest({ apiKey, build, operator = true }) {
   const prompts = promptStatus();
   const versions = promptVersions();
   for (const [name, label] of [['extract', 'extraction'], ['evaluate', 'evaluation']]) {
-    if (prompts[name]) checks.push(ok(`The ${label} prompt is installed`, `Version ${versions[name].version}, ${versions[name].chars.toLocaleString('en-US')} characters.${name === 'extract' ? (extractionShape() === 'inserted' ? ' The source goes in place of its final bracketed line.' : ' It is sent as the instructions, with the source as the only message.') : ''} Its text is held in memory and never leaves this machine except inside a request to ${name === 'extract' ? listingProviderName() : 'OpenAI'}.`));
+    if (prompts[name]) checks.push(ok(`The ${label} prompt is installed`, `Version ${versions[name].version}, ${versions[name].chars.toLocaleString('en-US')} characters.${name === 'extract' ? (extractionShape() === 'inserted' ? ' The source goes in place of its final bracketed line.' : ' It is sent as the instructions, with the source as the only message, its headline ahead of it (or "(none given)").') : ''} Its text is held in memory and never leaves this machine except inside a request to ${name === 'extract' ? listingProviderName() : 'OpenAI'}.`));
     else checks.push(bad(`The ${label} prompt is missing`, 'Without it, nothing can be tested.',
       `Point CIVIC_PROMPT_${name.toUpperCase()}_FILE at the prompt file, or place it at server/prompts/${name}.txt.`));
   }
@@ -378,7 +332,7 @@ export async function selftest({ apiKey, build, operator = true }) {
       // The trial's entries as the page offers them: DeepSeek V4 Pro at the effort chosen beside it; Gemini at each level.
       trialModels: (trialState()?.entries || []).map((e) => (e.fixed ? e.label : `${e.label} (at the effort chosen beside it)`)).join('; ') || 'off',
       rank: ranking.ready ? `${ranking.mode === 'on' ? 'every run' : 'your runs alone'}: an empirical headline first, then the top ${ranking.keepPercent}%, rounded up, on ${ranking.model} at ${ranking.effort}` : `unranked: ${ranking.why}`,
-      listingWebSearch: requestShape().extract.webSearch,   // the listing on DeepSeek does not search: DeepSeek ignores web search
+      listingWebSearch: requestShape().extract.webSearch,   // false: the listing reads the document it is given and nothing else
       webSearch: true,
       claimsPerRun: config.maxClaims,
       keySource: config.serverKey ? config.key.source : 'the browser',
@@ -390,10 +344,10 @@ export async function selftest({ apiKey, build, operator = true }) {
     pacing: gateStates(),
     readers: readersNow(),   // readers with work in flight on this instance right now
     silentSites: silentSites(),
-    // The sources the model can reach for, and which requests name the gateway: OpenAI's two when its address and pass
-    // are both set, the listing's on Fireworks whenever the tool server has an address; and how many listings' doors
-    // are open now (one for each listing on Fireworks in flight).
-    tools: { reachable: toolsOn() || (onFireworks() && gatewayOn()), requests: { determinations: toolsOn(), listing: onFireworks() ? gatewayOn() : toolsOn() }, doors: doorsOpen(), ...registry.summary() },
+    // The sources the model can reach for, and which requests name the gateway: the determinations' when its address and
+    // pass are both set, the listing's never (24 October: it reads the document it is given and nothing else); and how
+    // many doors are open now (none: no listing opens one any more).
+    tools: { reachable: toolsOn(), requests: { determinations: toolsOn(), listing: false }, doors: doorsOpen(), ...registry.summary() },
     recentFailures: recent(10),
   };
 }

@@ -431,13 +431,10 @@ standard, MCP, over HTTP). The gateway is FactEngine's server itself; a provider
 response, with a pass FactEngine issues, and the model's call is answered at once. OpenAI's requests name it
 with one entry in the existing `tools` list beside web search when `CIVIC_TOOLS_URL` and `CIVIC_TOOLS_PASS` are
 both set (neither is on the service), and nothing else changes: the prompts go byte for byte, and whether the
-model calls a tool is the model's decision. A listing on Fireworks names it always, as its only tool, since
-Fireworks has no web search of its own: at `CIVIC_TOOLS_URL`, or else at the service's own address, which
-Render sets on every web service as `RENDER_EXTERNAL_URL`, followed by `/mcp`. Fireworks' servers forward no
-header of the entry's (its first live listing, 5 October: ten calls without the pass, each refused), so each
-listing's request names a door of its own in the address, `/mcp/t/<door>` (`server/tools/doors.js`): 24 random
-bytes, open from the moment the request is made until its reply ends, then shut, so the address answers no one
-again. No pass goes to Fireworks, and nothing new is pasted. At `/mcp` itself the gateway answers OpenAI's pass and
+model calls a tool is the model's decision. The listing names no tool on any provider (24 October): it reads the
+document it is given and nothing else. Until then a listing on Fireworks named the tool server as its only tool,
+through a door of its own in the address, `/mcp/t/<door>` (`server/tools/doors.js`), since Fireworks' servers forward
+no header of the entry's; the doors remain, and no listing opens one. No pass goes to Fireworks, and nothing new is pasted. At `/mcp` itself the gateway answers OpenAI's pass and
 no other; neither the pass nor a door appears in any record, page or line of output.
 
 The tools are **verbs**, few and stable (`server/tools/verbs.js`): `read_page`, `get_transcript` and
@@ -470,9 +467,8 @@ with DeepSeek's key (`DEEPSEEK_API_KEY`) and carries `model`, `input` (or `instr
 `reasoning.effort` (`CIVIC_EXTRACT_EFFORT`, never inherited from `CIVIC_EFFORT`: `high` unless set, the operator's answer of
 5 October; `low` on the service since 18 October, their answer after an article took five minutes at `high`, "DeepSeek
 thinks at low") and `stream`: nothing else. DeepSeek has no reasoning mode, makes no summary and keeps nothing, so no `reasoning.mode`,
-`reasoning.summary` or `store` goes. DeepSeek's Responses API ignores `web_search` and every other built-in tool,
-silently (its own guide, read 14 October; the listing sent `web_search` from 5 to 14 October and never searched), so
-no `tools` goes: the listing reads the document it is given. DeepSeek streams its whole chain of thought instead of a
+`reasoning.summary` or `store` goes. No `tools` goes either: the listing reads the document it is given and nothing
+else, on every provider (24 October). DeepSeek streams its whole chain of thought instead of a
 summary: it is neither sent to the page nor kept anywhere, because it restates the prompt's instructions in the
 model's words (the operator's answer of 4 October). The client is built only with DeepSeek's own key and takes none
 of OpenAI's settings from the environment (key, organisation, project, admin key, custom headers). DeepSeek sends no
@@ -600,10 +596,8 @@ someone in the US is hosting the model so we can avoid the China issue"): the sa
 (`accounts/fireworks/models/deepseek-v4p1-flash`), served by Fireworks, a US company, through its Responses API
 (`https://api.fireworks.ai/inference/v1`, `POST /responses`) with Fireworks' key (`FIREWORKS_API_KEY`). DeepSeek the
 company receives nothing. The request carries `model`, `input` (or `instructions` and `input`), `reasoning.effort`
-(`high`, the operator's answer of 5 October after a small article took over seven minutes at `max`; `CIVIC_EXTRACT_EFFORT`, never inherited from `CIVIC_EFFORT`), `tools`
-(one `mcp` entry naming FactEngine's tool server, as above: Fireworks has no web search of its own and calls the
-tool server itself, so the model searches, reads a page or a transcript through FactEngine), `stream` and `store:
-false`, without which Fireworks keeps the conversation 30 days; with it, nothing is kept, and Fireworks trains on
+(`high`, the operator's answer of 5 October after a small article took over seven minutes at `max`; `CIVIC_EXTRACT_EFFORT`, never inherited from `CIVIC_EFFORT`), `stream` and `store:
+false` (no `tools`, as on every provider since 24 October), without which Fireworks keeps the conversation 30 days; with it, nothing is kept, and Fireworks trains on
 nothing. Fireworks serves this model from its own data centers in the United States, Germany, Iceland and Japan
 (its US-only service covers other models). The model's chain of thought arrives inside the answer's own text, ahead
 of `</think>` (Fireworks' own examples read the answer after it): FactEngine holds each answer's text until the
@@ -620,12 +614,15 @@ public address.
 
 **Extraction request:** `model`, `input` (the extraction prompt, verbatim, with the source in
 place of its final bracketed line, as the only message), `reasoning.effort`, `reasoning.mode`, `reasoning.summary`,
-`tools` (one `web_search`, no options; and, when the gateway is set, one `mcp` entry naming it, with `server_label`, `server_url`, `headers` carrying the pass and `require_approval: never`, nothing else), `stream`, `store`. The source goes into that slot with
+`stream`, `store`, and no `tools` (24 October: the listing reads the document it is given and nothing else; web
+search and FactEngine's own tools are the determinations'). The source goes into that slot with
 what FactEngine knows of its attribution, since the slot asks for it: for a link, the page's title,
 author, site, date and address and the day FactEngine read it; for a file, its name and the day; for
 pasted text, the day it was pasted and that nothing else was given. Nothing is guessed. A prompt
-without a final bracketed line is sent as `instructions` instead, with the text alone as the only
-message. The reply is read as a numbered list; in each entry the text under a `Claim:` label is
+without a final bracketed line is sent as `instructions` instead, and the only message is the document's headline
+line, a blank line, then the text: `Headline: ` and a link's page title, a video's title or a file's own title, or
+`(none given)` for pasted text and for a link titled only by its site or its address's last part (the operator's
+answer of 24 October; the text read from a link holds no headline of its own). The reply is read as a numbered list; in each entry the text under a `Claim:` label is
 what is tested, and any further labelled lines are shown beside it, verbatim.
 
 **Determination request:** `model`, `input` (two messages: first the source exactly as the
@@ -647,7 +644,7 @@ truncation setting. No fallback model. No size limit of ours on the document.
 | The operator's trial | `CIVIC_EVAL_TRIAL_MODELS`: the models the operator may choose on the page for their own determinations (`deepseek-v4-pro,gemini-4-argon` unless set; `off` ends it). DeepSeek V4 Pro needs `DEEPSEEK_API_KEY` and the search service; Gemini 4 Argon, at medium or high, needs `GEMINI_API_KEY` (the operator's own Google key, pasted in Render; `CIVIC_GEMINI_BASE_URL` only the guard changes). Each runs or not on its own. Never charged, never in the readers' figures. | Operator, 14 and 18 October |
 | Reasoning effort, both steps on OpenAI | `xhigh` | Operator, 5 October: back to the setting before 21 September, when `max` in `pro` mode had taken a listing to fifteen minutes and $3.81 and a determination to almost seven minutes and $3.71. `max` from 21 September to 5 October. |
 | Reasoning mode, both steps on OpenAI | `standard` (no mode key sent) | Operator, 5 October, as above. `pro` (GPT-5.6's pro mode, OpenAI's "highest-intelligence API option": more model work per answer at the same per-token rates) from 21 September to 5 October; `CIVIC_REASONING_MODE=pro` brings it back. |
-| Web search | on, both steps, not configurable | The prompts were tested in a UI where search is available to every prompt. A request without it is not what was tested. |
+| Web search | on for the determinations, never on the listing; not configurable | The determinations' prompt was tested in a UI where search is available. The listing reads the document it is given and nothing else (24 October). |
 | Reasoning summary | `auto` | Display only: the model's own account of its reasoning, shown on the card. Does not change the answer. Blank to turn off. |
 | Claims run automatically | `CIVIC_AUTO_TEST_FIRST` of them (10 unless set; 0 = none: every claim found waits for the reader's checkbox and runs when chosen), ten at a time (`CIVIC_EVAL_CONCURRENCY`, the operator's figure of 3 October on a minute budget of 40,000,000 tokens), each on its own request, the whole selection in one batch. The page is told both figures by the server (`autoTestFirst` and `inFlight` on `/api/health`), so what runs and how fast change with one setting and no release. The intake sentences follow the figures too. | Operator's rule; 0 since 1 October |
 | Prices and tiers | Listing free; a determination at one list price for everyone, `CIVIC_LIST_PRICE_CENTS` (125: "each fact-check is $1.25"; unset, nothing priced), said once above the claims and on no row or button; a run's tier (1: nothing free; 2, 3: one, two of the reader's choices free per document) rotating every six hours in `CIVIC_TIER_ORDER` (1,2,3) with a daily shift; a loss guard to tier 1 when a window loses more than `CIVIC_TIER_LOSS_GUARD_USD`; revenue at list, not collected; every user measured in Postgres, and /check's figure of how many fact-checks the key runs at once. See "Facts have a price". | Operator's program, 2 October; the list price and 0, 1 or 2 free, 6 October; every figure theirs |
@@ -663,7 +660,7 @@ Environment variables: `CIVIC_MODEL`, `CIVIC_EFFORT` (both steps), or per step
 `CIVIC_EXTRACT_PROVIDER`, `DEEPSEEK_API_KEY`, `CIVIC_DEEPSEEK_BASE_URL`, `FIREWORKS_API_KEY` and
 `CIVIC_FIREWORKS_BASE_URL`; for the second pass, `CIVIC_RANK`, `CIVIC_RANK_KEEP_PERCENT` and `CIVIC_RANK_EFFORT`; for the
 operator's trial, `CIVIC_EVAL_TRIAL_MODELS`, `GEMINI_API_KEY` and `CIVIC_GEMINI_BASE_URL`. There is no setting that removes
-web search.
+web search from the determinations, or that gives the listing a tool.
 The server prints the exact shape of both requests at startup.
 
 The image is a picture, not a determination, and the operator asked for the fast model there
@@ -782,7 +779,7 @@ finding by its file, commits and fingerprint, and removes the namespace.
 
 | Step | Default | Why |
 |---|---|---|
-| Extraction | `gpt-5.6-sol`, effort `xhigh`, standard mode, web search on; with `CIVIC_EXTRACT_PROVIDER=deepseek`, DeepSeek's `deepseek-flash`, effort `high`, no search (DeepSeek ignores it); with `CIVIC_EXTRACT_PROVIDER=fireworks`, the same model on Fireworks, effort `high`, FactEngine's tool server for its searches | The operator's configuration; DeepSeek flash on the operator's word of 4 October ("10 times faster and better"), served from the US by Fireworks on their word of 5 October, and back on DeepSeek's own service the same day for speed (never Fireworks again). Fireworks' price per million tokens (its serverless price from 1 October 2026, per its release note): input $0.30, cached input $0.006, output $1.20, at every hour. DeepSeek's price per million tokens (its page, 4 October): input $0.30, cached input $0.006, output $1.20 at peak hours (01:00-04:00 and 06:00-10:00 UTC, Monday to Friday), half at every other hour; FactEngine prices each listing at the hour it went. A `CIVIC_PRICING_JSON` override of a DeepSeek row replaces the whole row, so it repeats `offPeak` and `peakUtc`. |
+| Extraction | `gpt-5.6-sol`, effort `xhigh`, standard mode; with `CIVIC_EXTRACT_PROVIDER=deepseek`, DeepSeek's `deepseek-flash`, effort `high`; with `CIVIC_EXTRACT_PROVIDER=fireworks`, the same model on Fireworks, effort `high`. No tool on any of them (24 October) | The operator's configuration; DeepSeek flash on the operator's word of 4 October ("10 times faster and better"), served from the US by Fireworks on their word of 5 October, and back on DeepSeek's own service the same day for speed (never Fireworks again). Fireworks' price per million tokens (its serverless price from 1 October 2026, per its release note): input $0.30, cached input $0.006, output $1.20, at every hour. DeepSeek's price per million tokens (its page, 4 October): input $0.30, cached input $0.006, output $1.20 at peak hours (01:00-04:00 and 06:00-10:00 UTC, Monday to Friday), half at every other hour; FactEngine prices each listing at the hour it went. A `CIVIC_PRICING_JSON` override of a DeepSeek row replaces the whole row, so it repeats `offPeak` and `peakUtc`. |
 | Determination | `gpt-5.6-sol`, effort `xhigh`, standard mode, web search on | As requested (5 October: back to the setting before 21 September). Web search lets the inspector reach primary sources, and every query and citation is shown. |
 | The operator's trial | `deepseek-v4-pro`, at the effort chosen on the page (opening on `high`), FactEngine's own tools for its searches and pages; or `gemini-4-argon` at `medium` or `high`, Google's own search and page reading, `store: false` | The operator's words of 14 and 18 October: their own runs alone, beside the readers' model. DeepSeek's price per million tokens (its page): V4 Pro $1.32 in, $0.044 cached, $3.96 out at peak hours, half otherwise. Google's (its page of 16 October): Argon $2 in, $0.10 cached, $10 out (thinking included) through 30 November 2026, then $4, $0.20 and $20; Google Search $14 per 1,000 searches after 5,000 free a month. |
 | Art direction | `gpt-5.6-luna`, effort `low` | Reads the document and writes a concrete photographic brief for the echo. About two seconds. |

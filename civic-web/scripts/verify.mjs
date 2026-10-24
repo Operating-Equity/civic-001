@@ -14,7 +14,7 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import express from 'express';
 import { leakChecks } from './leak-check.mjs';
-import { sourceBlock, attributionLines } from '../server/source.js';
+import { sourceBlock, attributionLines, headlineBlock } from '../server/source.js';
 import { linkWords, publisherOf } from '../server/copies.js';
 import { Bucket, RateGate, parseRefusal } from '../server/gate.js';
 import { parseEntry } from '../server/verdict.js';
@@ -55,7 +55,7 @@ const slot = (() => {
 
 // The only keys a request may carry. Nothing else, ever.
 const ALLOWED = {
-  extract: slot ? ['model', 'input', 'reasoning', 'tools', 'stream', 'store'] : ['model', 'instructions', 'input', 'reasoning', 'tools', 'stream', 'store'],
+  extract: slot ? ['model', 'input', 'reasoning', 'stream', 'store'] : ['model', 'instructions', 'input', 'reasoning', 'stream', 'store'],   // no tools (24 October)
   evaluate: ['model', 'input', 'reasoning', 'tools', 'stream', 'store'],
   reasoning: ['effort', 'mode', 'summary'],
   webSearchTool: ['type'],
@@ -180,8 +180,7 @@ try {
     check('extraction: reasoning.effort is the configured effort', exBody.reasoning?.effort === shape.extract.effort, JSON.stringify(exBody.reasoning));
     check('extraction: reasoning.mode is the configured mode (standard since 5 October: no key), and the key is there only when a mode is set', (exBody.reasoning?.mode ?? null) === shape.extract.mode && ('mode' in (exBody.reasoning || {})) === Boolean(shape.extract.mode), JSON.stringify({ sent: exBody.reasoning, configured: shape.extract.mode }));
     check(`extraction: no keys beyond ${ALLOWED.extract.join(', ')}`, extraKeys(exBody, ALLOWED.extract).length === 0, extraKeys(exBody, ALLOWED.extract).join(', '));
-    const exTools = exBody.tools || [];
-    check('extraction: web search available (exactly one web_search, no options)', exTools.length === 1 && exTools[0].type === 'web_search' && extraKeys(exTools[0], ALLOWED.webSearchTool).length === 0, JSON.stringify(exTools));
+    check('extraction: no tool at all, no web search and none of FactEngine\'s own (24 October): the listing reads the document it is given and nothing else', exBody.tools === undefined, JSON.stringify(exBody.tools));
     check('extraction: no reasoning keys beyond effort, mode, summary', extraKeys(exBody.reasoning, ALLOWED.reasoning).length === 0, extraKeys(exBody.reasoning, ALLOWED.reasoning).join(', '));
     const exText = exBody.input?.[0]?.content?.[0]?.text;
     if (slot) {
@@ -192,8 +191,19 @@ try {
         exBody.input?.length === 1 && exText === expected, `${exText?.length} vs ${expected.length} chars`);
     } else {
       check('extraction: prompt sent verbatim as instructions', exBody.instructions === extractPrompt, `${exBody.instructions?.length} vs ${extractPrompt.length} chars`);
-      check('extraction: the document sent whole, as the only message', exBody.input?.length === 1 && exText === source);
+      check('extraction: the document sent whole as the only message, after its headline line ("(none given)" for pasted text)', exBody.input?.length === 1 && exText === `Headline: (none given)\n\n${source}` && exText === headlineBlock(source, { kind: 'text' }), JSON.stringify(exText?.slice(0, 60)));
     }
+    // The headline a prompt without a slot is given (24 October): a link's page title, a video's title or a file's own
+    // title; "(none given)" for pasted text, and for a link whose only title is its site or the last part of its address.
+    const hb = (meta) => headlineBlock('The text.', meta).split('\n\n')[0];
+    check('the headline line: a link\'s page title, a file\'s own title, a video\'s title; "(none given)" for pasted text, for a link titled only by its site or its address\'s last part, and for a file with no title of its own; then a blank line and the text whole',
+      hb({ kind: 'link', url: 'https://news.example.org/2026/10/a-column', title: 'A column\'s own headline' }) === 'Headline: A column\'s own headline'
+        && hb({ kind: 'link', url: 'https://www.youtube.com/watch?v=abc', title: 'A video\'s title' }) === 'Headline: A video\'s title'
+        && hb({ kind: 'file', name: 'report.pdf', title: 'A report\'s own title' }) === 'Headline: A report\'s own title'
+        && hb({ kind: 'text' }) === 'Headline: (none given)' && hb({ kind: 'link', url: 'https://news.example.org/x', title: 'news.example.org' }) === 'Headline: (none given)'
+        && hb({ kind: 'link', url: 'https://news.example.org/files/report.pdf', title: 'report.pdf' }) === 'Headline: (none given)' && hb({ kind: 'file', name: 'notes.txt' }) === 'Headline: (none given)'
+        && headlineBlock('Line one.\n\nLine two.', { kind: 'text' }) === 'Headline: (none given)\n\nLine one.\n\nLine two.',
+      JSON.stringify([hb({ kind: 'link', url: 'https://news.example.org/2026/10/a-column', title: 'A column\'s own headline' }), hb({ kind: 'text' })]));
     const first = ex.find((e) => e.t === 'done')?.claims?.[0];
     check('extraction: each entry\'s claim is its Claim line, the further lines kept beside it verbatim',
       Boolean(first) && !/^claim:/i.test(first.text) && first.text.length > 0 && /^Attribution:/.test(first.more) && first.entry.startsWith(`Claim: ${first.text}`),
@@ -1842,7 +1852,14 @@ async function toolChecks() {
     const bodies = sent.filter((r) => r.path === '/v1/responses').map((r) => r.body);
     const mcpEntry = (b) => (b.tools || []).find((t) => t.type === 'mcp');
     const expectedMcp = { type: 'mcp', server_label: 'civic', server_url: `${base}/mcp`, headers: { authorization: `Bearer ${PASS}` }, require_approval: 'never' };
-    check('both requests carry web search and the gateway entry with exactly these keys (type, server_label, server_url, headers, require_approval) and no key beyond the six', bodies.length >= 2 && bodies.every((b) => b.tools.length === 2 && b.tools[0].type === 'web_search' && JSON.stringify(mcpEntry(b)) === JSON.stringify(expectedMcp) && extraKeys(b, ['model', 'instructions', 'input', 'reasoning', 'tools', 'stream', 'store']).length === 0), JSON.stringify(bodies.map((b) => b.tools)).slice(0, 400));
+    // The listing is the one message (or the prompt's instructions and one message); a determination is two (the source
+    // ahead of the prompt). Since 24 October the listing carries no tool, though the gateway is set.
+    const listingBodies = bodies.filter((b) => b.input?.length === 1);
+    const detBodies = bodies.filter((b) => b.input?.length === 2);
+    check('the determination carries web search and the gateway entry with exactly these keys (type, server_label, server_url, headers, require_approval) and no key beyond the six; the listing carries no tool at all, though the gateway is set',
+      listingBodies.length === 1 && listingBodies[0].tools === undefined && detBodies.length >= 1
+        && detBodies.every((b) => b.tools.length === 2 && b.tools[0].type === 'web_search' && JSON.stringify(mcpEntry(b)) === JSON.stringify(expectedMcp) && extraKeys(b, ['model', 'instructions', 'input', 'reasoning', 'tools', 'stream', 'store']).length === 0),
+      JSON.stringify(bodies.map((b) => [b.input?.length, b.tools])).slice(0, 400));
     const client = sent.filter((r) => r.path === '/mcp-client');
     const listed = client.find((r) => r.step === 'list');
     const made = client.filter((r) => r.step === 'call');
@@ -1860,7 +1877,7 @@ async function toolChecks() {
     check('a search through the tool server is one ledger line priced at the search service\'s own figure for it, and no line of the copies search beside it', searchLines.length === 1 && searchLines[0].verb === 'search_web' && searchLines[0].usd === 0.005 && searchLines[0].ok === true && searchLines[0].items === 1 && !ledger.some((l) => l.kind === 'search'), JSON.stringify({ search: searchLines, copies: ledger.filter((l) => l.kind === 'search').length }));
     const st = await (await fetch(`${base}/api/selftest`)).json();
     const bySource = (id) => (st.tools?.sources || []).find((x) => x.id === id);
-    check('/check lists the sources the model can reach for, by name and verb, and that the requests name the gateway', st.tools?.reachable === true && st.tools?.on === true && st.tools?.requests?.determinations === true && JSON.stringify(bySource('web')?.verbs) === JSON.stringify(['read_page', 'get_transcript']) && JSON.stringify(bySource('search')?.verbs) === JSON.stringify(['search_web']), JSON.stringify(st.tools));
+    check('/check lists the sources the model can reach for, by name and verb, and that the determinations name the gateway and the listing never does', st.tools?.reachable === true && st.tools?.on === true && st.tools?.requests?.determinations === true && st.tools?.requests?.listing === false && JSON.stringify(bySource('web')?.verbs) === JSON.stringify(['read_page', 'get_transcript']) && JSON.stringify(bySource('search')?.verbs) === JSON.stringify(['search_web']), JSON.stringify(st.tools));
     const everywhere = readIf(ledgerFile) + readIf(errorLog) + JSON.stringify(st) + JSON.stringify(ev) + JSON.stringify(ex) + await (await fetch(`${base}/`)).text() + await (await fetch(`${base}/api/health`)).text();
     check('the pass appears in no record, no stream, no page and no health line', !everywhere.includes(PASS), '');
   } finally {
@@ -2330,7 +2347,7 @@ async function deepseekChecks() {
     const health = await (await fetch(`${base}/api/health`)).json();
     const sx = health.request?.extract || {};
     const wantKeys = [...(slot ? ['model', 'input'] : ['model', 'instructions', 'input']), 'reasoning', 'stream'];
-    check('DeepSeek: the health line says the listing goes to DeepSeek\'s deepseek-flash at effort high with no mode, no summary and no search (DeepSeek ignores it), and lists its keys (no tools, no store); the readers\' determinations stay on OpenAI',
+    check('DeepSeek: the health line says the listing goes to DeepSeek\'s deepseek-flash at effort high with no mode, no summary and no search (the listing has no tool on any provider), and lists its keys (no tools, no store); the readers\' determinations stay on OpenAI',
       sx.provider === 'deepseek' && sx.model === 'deepseek-flash' && sx.effort === 'high' && sx.mode === null && sx.summary === null && sx.webSearch === false && JSON.stringify(health.request?.keys?.extract) === JSON.stringify(wantKeys) && health.request?.evaluate?.model === config.evalModels[0],
       JSON.stringify({ extract: sx, keys: health.request?.keys?.extract }));
 
@@ -2342,7 +2359,7 @@ async function deepseekChecks() {
     check('DeepSeek: a listing completes with its claims, on deepseek-flash at effort high, no mode, and nothing searched',
       Boolean(doneA) && doneA.total >= 3 && doneA.model === 'deepseek-flash' && doneA.effort === 'high' && doneA.mode === null && (doneA.trail || []).length === 0 && !a.some((e) => e.t === 'error'),
       JSON.stringify(doneA && { total: doneA.total, model: doneA.model, effort: doneA.effort, mode: doneA.mode, trail: doneA.trail }));
-    check('DeepSeek: the listing\'s body carries exactly the model, the prompt, reasoning {effort: high} and stream; no tools (DeepSeek ignores web search), no store, mode or summary, and not CIVIC\'s own tools though the gateway is set',
+    check('DeepSeek: the listing\'s body carries exactly the model, the prompt, reasoning {effort: high} and stream; no tools (none on any provider), no store, mode or summary, and not CIVIC\'s own tools though the gateway is set',
       Boolean(bodyA) && JSON.stringify(Object.keys(bodyA).sort()) === JSON.stringify([...wantKeys].sort()) && JSON.stringify(bodyA.reasoning) === JSON.stringify({ effort: 'high' })
         && bodyA.tools === undefined && bodyA.stream === true && bodyA.model === 'deepseek-flash' && !JSON.stringify(bodyA).includes(PASS),
       JSON.stringify(bodyA && { keys: Object.keys(bodyA), reasoning: bodyA.reasoning, tools: bodyA.tools }));
@@ -2351,7 +2368,7 @@ async function deepseekChecks() {
       const expected = extractPrompt.slice(0, slot.start) + sourceBlock(source, { kind: 'text' }) + extractPrompt.slice(slot.end);
       check('DeepSeek: the prompt sent verbatim with the source in place of its final bracketed line, as the only message', bodyA?.instructions === undefined && bodyA?.input?.length === 1 && textA === expected, `${textA?.length} vs ${expected.length} chars`);
     } else {
-      check('DeepSeek: the prompt sent verbatim as the instructions, the document whole as the only message', bodyA?.instructions === extractPrompt && bodyA?.input?.length === 1 && textA === source, `${bodyA?.instructions?.length} vs ${extractPrompt.length} chars`);
+      check('DeepSeek: the prompt sent verbatim as the instructions, the document whole as the only message after its headline line', bodyA?.instructions === extractPrompt && bodyA?.input?.length === 1 && textA === headlineBlock(source, { kind: 'text' }), `${bodyA?.instructions?.length} vs ${extractPrompt.length} chars`);
     }
     const replay = await stream(`${base}/api/extract`, { text: source, jobId: jobA, cursor: 0 });
     check('DeepSeek: the chain of thought reaches no page: no reasoning event on the stream or in its replay from the start, nothing of it in done',
@@ -2956,7 +2973,8 @@ async function geminiChecks() {
     const rr = w1.evs.find((e) => e.t === 'retry');
     check('Gemini: a 429 is a wait for the second Google names (its RetryInfo), then the fact-check is delivered',
       rr?.reason === 'rate_limit' && rr.status === 429 && rr.waitMs === 1000 && w1.sends === 2 && w1.evs.filter((e) => e.t === 'done').length === 1, JSON.stringify({ retry: rr, sends: w1.sends }));
-    const g429 = lines().find((l) => l.determination === `gm-429-${stamp}` && l.ok);
+    let g429 = null;   // the ledger is appended after the stream ends: the line is waited for, up to two seconds
+    for (let k = 0; k < 20 && !g429; k++) { g429 = lines().find((l) => l.determination === `gm-429-${stamp}` && l.ok) || null; if (!g429) await new Promise((r) => setTimeout(r, 100)); }
     check('Models: Gemini\'s line holds the same measures: the second Google asked for is counted as waiting, not work; the time before the entry\'s first word and the writing; the entry\'s length; its searches, pages read and sources counted alike',
       Boolean(g429) && g429.waitMs >= rr.waitMs - 5 && g429.waitMs < rr.waitMs + 1000 && g429.workMs === g429.ms - g429.waitMs && g429.writeMs > 0 && g429.firstWordMs + g429.writeMs === g429.workMs
         && g429.entryChars === (w1.evs.find((e) => e.t === 'done')?.text || '').length && g429.entryWords > 20 && g429.queries === 2 && g429.reads === 1 && Number.isInteger(g429.sources) && l1.waitMs === 0,
@@ -3415,11 +3433,12 @@ async function rankChecks() {
 }
 await rankChecks();
 
-// ---- the listing on Fireworks: DeepSeek V4.1 Flash from a US company, FactEngine's own search, the chain of thought cut off ----
+// ---- the listing on Fireworks: DeepSeek V4.1 Flash from a US company, the chain of thought cut off ----
 // The operator's choice of 5 October. Against a stand-in that speaks Fireworks' dialect (scripts/mock-openai.js): the
 // model's reasoning inside the answer's text ahead of `</think>` (with no opening tag, with one, or sent apart), carrying a
-// marker and numbered lines of its own; the input echoed among the output; usage as prompt_tokens and completion_tokens;
-// no web search, and FactEngine's tool server called by the stand-in itself during the response, as Fireworks calls one.
+// marker and numbered lines of its own; the input echoed among the output; usage as prompt_tokens and completion_tokens.
+// Since 24 October the listing names no tool on any provider: the stand-in, ready to call FactEngine's tool server
+// during the response as Fireworks would, is given none to call.
 async function fireworksChecks() {
   const FMOCK = MOCK_PORT + 85, SITE = PORT + 88;
   const FWKEY = 'fw_verify0000000000000000000000';
@@ -3470,7 +3489,8 @@ async function fireworksChecks() {
   };
   // Request ordinals at the stand-in Fireworks: 1 the reasoning inline with no opening tag; 2 opened with <think>; 3 sent
   // apart; 4 a 429 with no wait, 5 clean; 6 a 503, 7 clean; 8 an error event mid-stream, 9 clean; 10 a stream closed with
-  // no event, 11 clean; 12 a 402 (out of credits). Every stream calls the tool server twice: a search and a page.
+  // no event, 11 clean; 12 a 402 (out of credits). A stream would call the tool server twice (a search and a page) if
+  // the listing named it; none does.
   const toolCalls = [{ name: 'search_web', arguments: { query: 'height of the Eiffel Tower' } }, { name: 'read_page', arguments: { url: `http://localhost:${SITE}/tower` } }];
   start([path.join(root, 'scripts', 'mock-openai.js')], {
     MOCK_PORT: String(FMOCK), MOCK_RECORD: rec, MOCK_SPEED: '0.2', MOCK_EVAL_MARK: process.env.MOCK_EVAL_MARK_FOR_GATE || '', MOCK_FW_TOOL_CALLS: JSON.stringify(toolCalls),
@@ -3483,9 +3503,9 @@ async function fireworksChecks() {
     await wait(`${base}/api/health`);
     const health = await (await fetch(`${base}/api/health`)).json();
     const sx = health.request?.extract || {};
-    const wantKeys = [...(slot ? ['model', 'input'] : ['model', 'instructions', 'input']), 'reasoning', 'tools', 'stream', 'store'];
-    check('Fireworks: the health line says the listing goes to Fireworks\' DeepSeek V4.1 Flash at effort high with no mode and no summary, can search, and lists its keys (store among them); the determinations stay on OpenAI',
-      sx.provider === 'fireworks' && sx.model === MODEL && sx.effort === 'high' && sx.mode === null && sx.summary === null && sx.webSearch === true && JSON.stringify(health.request?.keys?.extract) === JSON.stringify(wantKeys) && health.request?.evaluate?.model === config.evalModels[0],
+    const wantKeys = [...(slot ? ['model', 'input'] : ['model', 'instructions', 'input']), 'reasoning', 'stream', 'store'];
+    check('Fireworks: the health line says the listing goes to Fireworks\' DeepSeek V4.1 Flash at effort high with no mode and no summary, cannot search, and lists its keys (store among them, no tools); the determinations stay on OpenAI',
+      sx.provider === 'fireworks' && sx.model === MODEL && sx.effort === 'high' && sx.mode === null && sx.summary === null && sx.webSearch === false && JSON.stringify(health.request?.keys?.extract) === JSON.stringify(wantKeys) && health.request?.evaluate?.model === config.evalModels[0],
       JSON.stringify({ extract: sx, keys: health.request?.keys?.extract }));
 
     const source = 'The Eiffel Tower stands about 330 metres tall. Water boils at 100 degrees Celsius at sea level. Mount Everest is 8,849 metres above sea level.';
@@ -3494,35 +3514,29 @@ async function fireworksChecks() {
     const a = await listing('a');
     const doneA = a.find((e) => e.t === 'done');
     const bodyA = fwBodies()[0]?.body;
-    const toolStepsA = (doneA?.trail || []).filter((t) => t.kind === 'tool');
-    check('Fireworks: a listing completes with exactly the document\'s three claims, on DeepSeek V4.1 Flash at effort high, no mode, its search and its page read on the trail',
+    check('Fireworks: a listing completes with exactly the document\'s three claims, on DeepSeek V4.1 Flash at effort high, no mode, nothing searched or read: its trail is empty',
       Boolean(doneA) && doneA.total === 3 && JSON.stringify(doneA.claims.map((c) => c.text)) === JSON.stringify(sentences) && doneA.model === MODEL && doneA.effort === 'high' && doneA.mode === null
-        && toolStepsA.length === 2 && toolStepsA[0].name === 'search_web' && toolStepsA[0].query === 'height of the Eiffel Tower' && toolStepsA[0].status === 'completed' && toolStepsA[1].name === 'read_page' && toolStepsA[1].url === `http://localhost:${SITE}/tower` && !a.some((e) => e.t === 'error'),
+        && (doneA.trail || []).length === 0 && !a.some((e) => e.t === 'error'),
       JSON.stringify(doneA && { total: doneA.total, claims: doneA.claims.map((c) => c.text), model: doneA.model, trail: doneA.trail }));
-    // The tool server is named at a door of the listing's own, in the address: Fireworks forwards no header of the entry's.
+    // A door of a listing's own would be named in a tool entry's address; a listing names none.
     const doorOf = (b) => new RegExp(`^${base.replace(/[.]/g, '\\.')}/mcp/t/([0-9a-f]{48})$`).exec(String(b?.tools?.[0]?.server_url || ''))?.[1] || null;
-    const entryA = bodyA?.tools?.[0];
-    const doorA = doorOf(bodyA);
-    check('Fireworks: the listing\'s body carries exactly the model, the prompt, reasoning {effort: high}, the one entry naming FactEngine\'s tool server at the service\'s own address through a door of the listing\'s own and with no header (no pass goes to Fireworks), stream, and store: false; no web search, mode or summary',
+    check('Fireworks: the listing\'s body carries exactly the model, the prompt, reasoning {effort: high}, stream, and store: false; no tools (no web search, no tool server), mode or summary',
       Boolean(bodyA) && JSON.stringify(Object.keys(bodyA).sort()) === JSON.stringify([...wantKeys].sort()) && JSON.stringify(bodyA.reasoning) === JSON.stringify({ effort: 'high' })
-        && bodyA.tools.length === 1 && JSON.stringify(Object.keys(entryA)) === JSON.stringify(['type', 'server_label', 'server_url', 'require_approval'])
-        && entryA.type === 'mcp' && entryA.server_label === 'civic' && entryA.require_approval === 'never' && Boolean(doorA)
-        && bodyA.store === false && bodyA.stream === true && bodyA.model === MODEL,
+        && bodyA.tools === undefined && bodyA.store === false && bodyA.stream === true && bodyA.model === MODEL,
       JSON.stringify(bodyA && { keys: Object.keys(bodyA), reasoning: bodyA.reasoning, store: bodyA.store, tools: (bodyA.tools || []).map((t) => ({ ...t, server_url: String(t.server_url || '').replace(/[0-9a-f]{48}$/, '<door>') })) }));
-    // As Fireworks' servers do, the stand-in called that address with no header at all; once the listing ended, the door is shut.
+    // The stand-in, ready to call a tool server as Fireworks' servers do, was named none; no door was opened.
     const knock = async (url) => (await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} }) })).status;
-    const callsA = records().filter((r) => r.path === '/mcp-client' && r.style === 'fireworks').slice(0, 3);
-    const afterA = { door: await knock(entryA?.server_url || `${base}/mcp/t/none`), never: await knock(`${base}/mcp/t/${'0'.repeat(48)}`), bare: await knock(`${base}/mcp`) };
-    check('Fireworks: the stand-in Fireworks reached the tool server through the listing\'s door with no header at all and was answered; once the listing ended that door is refused (401), as are a door never opened and /mcp itself (no pass is set)',
-      callsA.length === 3 && callsA.every((r) => r.url === entryA?.server_url && r.headers?.length === 0 && r.status === 200) && callsA[0].initialize === 200
-        && afterA.door === 401 && afterA.never === 401 && afterA.bare === 401,
-      JSON.stringify({ calls: callsA.map((r) => ({ status: r.status, headers: r.headers, sameDoor: r.url === entryA?.server_url })), afterA }));
+    const callsA = records().filter((r) => r.path === '/mcp-client' && r.style === 'fireworks');
+    const afterA = { never: await knock(`${base}/mcp/t/${'0'.repeat(48)}`), bare: await knock(`${base}/mcp`) };
+    check('Fireworks: the stand-in Fireworks never reached FactEngine\'s tool server, since the listing named none; a door never opened and /mcp itself are refused (401, no pass is set)',
+      callsA.length === 0 && afterA.never === 401 && afterA.bare === 401,
+      JSON.stringify({ calls: callsA.length, afterA }));
     const textA = bodyA?.input?.[0]?.content?.[0]?.text;
     if (slot) {
       const expected = extractPrompt.slice(0, slot.start) + sourceBlock(source, { kind: 'text' }) + extractPrompt.slice(slot.end);
       check('Fireworks: the prompt sent verbatim with the source in place of its final bracketed line, as the only message', bodyA?.instructions === undefined && bodyA?.input?.length === 1 && textA === expected, `${textA?.length} vs ${expected.length} chars`);
     } else {
-      check('Fireworks: the prompt sent verbatim as the instructions, the document whole as the only message', bodyA?.instructions === extractPrompt && bodyA?.input?.length === 1 && textA === source, `${bodyA?.instructions?.length} vs ${extractPrompt.length} chars`);
+      check('Fireworks: the prompt sent verbatim as the instructions, the document whole as the only message after its headline line', bodyA?.instructions === extractPrompt && bodyA?.input?.length === 1 && textA === headlineBlock(source, { kind: 'text' }), `${bodyA?.instructions?.length} vs ${extractPrompt.length} chars`);
     }
     const replay = await listing('a', 0);
     const marked = (evs) => JSON.stringify(evs).includes(COT) || JSON.stringify(evs).includes(ECHO) || JSON.stringify(evs).includes('</think>') || JSON.stringify(evs).includes('<think>');
@@ -3536,20 +3550,14 @@ async function fireworksChecks() {
       [doneB, doneC].every((d) => d && JSON.stringify(d.claims.map((x) => x.text)) === JSON.stringify(sentences)) && !marked(b) && !marked(c),
       JSON.stringify({ tagged: doneB?.claims?.map((x) => x.text), apart: doneC?.claims?.map((x) => x.text) }));
 
-    // The search: through the tool server, with the search service's key, the model's words as the query.
+    // Nothing searched: no call reached the tool server or the search service, and the ledger has no search line.
     const mcpCalls = records().filter((r) => r.path === '/mcp-client' && r.step === 'call' && r.style === 'fireworks');
-    const firstSearch = mcpCalls.find((r) => r.call?.name === 'search_web');
-    const firstRead = mcpCalls.find((r) => r.call?.name === 'read_page');
-    check('Fireworks: the model\'s search reached the search service through FactEngine\'s tool server, in the model\'s own words, with the service\'s key and no site left out; its pages came back to the model, and the page it read came back whole',
-      searchCalls.length >= 1 && searchCalls.every((x) => x.key === SKEY && x.auth === '' && x.body.query === 'height of the Eiffel Tower' && x.body.excludeDomains === undefined && x.body.contents?.text === true)
-        && firstSearch?.status === 200 && firstSearch.failed === false && /height of the Eiffel Tower: the Eiffel Tower is about 330 metres tall/.test(firstSearch.output) && firstRead?.failed === false && /Champ de Mars/.test(firstRead.output),
-      JSON.stringify({ searches: searchCalls.map((x) => x.body), search: firstSearch && [firstSearch.status, String(firstSearch.output).slice(0, 120)] }));
     const lines = () => fs.readFileSync(ledger, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l));
     await new Promise((r) => setTimeout(r, 300));   // the ledger is appended after the stream ends
     const searchLines = lines().filter((l) => l.kind === 'tool' && l.source === 'search');
-    check('Fireworks: each search is one ledger line at the search service\'s own figure, beside the listing\'s own line',
-      searchLines.length === searchCalls.length && searchLines.every((l) => l.verb === 'search_web' && l.usd === 0.005 && l.ok === true) && !lines().some((l) => l.kind === 'search'),
-      JSON.stringify({ lines: searchLines.length, calls: searchCalls.length }));
+    check('Fireworks: the listing searched nothing and read nothing: no call reached the tool server or the search service, and the ledger has no search line beside the listing\'s own',
+      mcpCalls.length === 0 && searchCalls.length === 0 && searchLines.length === 0 && !lines().some((l) => l.kind === 'search') && lines().some((l) => l.kind === 'extract'),
+      JSON.stringify({ mcp: mcpCalls.length, searches: searchCalls.length, lines: searchLines.length }));
 
     // A determination of the first claim: OpenAI, with OpenAI's key, and the gateway not in its request.
     const entry = doneA?.claims?.[0]?.entry || 'Claim: The Eiffel Tower stands about 330 metres tall.';
@@ -3590,22 +3598,20 @@ async function fireworksChecks() {
       err402?.status === 402 && err402.code === 'balance_exhausted' && err402.message === '' && /Fireworks answered 402 \(Your account is out of credits/.test(rec402?.detail || ''),
       JSON.stringify({ error: err402, record: rec402 }));
 
-    // Every go had a door of its own, and every door is shut now: the refused sends (429, 503, 402), the stream that
-    // failed, the one that closed early and the ones that completed alike.
+    // No go named a door, whether its send was refused (429, 503, 402), its stream failed or closed early, or it completed.
     const doors = fwBodies().map((r) => doorOf(r.body));
-    const knocks = await Promise.all(doors.filter(Boolean).map((d) => knock(`${base}/mcp/t/${d}`)));
     const stDoors = await (await fetch(`${base}/api/selftest`)).json();
-    check('Fireworks: each request to Fireworks named a door of its own, and once the listings ended every door is shut, whether its send was refused, its stream failed or closed early, or it completed; /check counts none open',
-      doors.length >= 12 && doors.every(Boolean) && new Set(doors).size === doors.length && knocks.every((x) => x === 401) && stDoors.tools?.doors === 0,
-      JSON.stringify({ sends: doors.length, named: doors.filter(Boolean).length, distinct: new Set(doors).size, open: knocks.filter((x) => x !== 401).length, counted: stDoors.tools?.doors }));
+    check('Fireworks: no request to Fireworks named a door or any tool, whether its send was refused, its stream failed or closed early, or it completed; /check counts no door open',
+      doors.length >= 12 && doors.every((d) => d === null) && fwBodies().every((r) => r.body?.tools === undefined) && stDoors.tools?.doors === 0,
+      JSON.stringify({ sends: doors.length, named: doors.filter(Boolean).length, counted: stDoors.tools?.doors }));
 
     const st = await (await fetch(`${base}/api/selftest`)).json();
     const row = (re) => (st.checks || []).find((x) => re.test(x.title));
-    check('Fireworks: /check accepts the listing\'s key and model without spending a token, finds the tool server answering at its public address, checks OpenAI for the determinations\' model alone, shows Fireworks\' own echo of the effort it took, and is ready',
+    check('Fireworks: /check accepts the listing\'s key and model without spending a token, has no row about the tool server (the listing names none), checks OpenAI for the determinations\' model alone, shows Fireworks\' own echo of the effort it took, and is ready',
       st.ready === true && row(/^A Fireworks key is configured/)?.state === 'ok' && row(new RegExp(`^Fireworks accepts this key for ${MODEL.replace(/[.]/g, '\\.')}`))?.state === 'ok'
-        && row(/^FactEngine's tool server answers at localhost/)?.state === 'ok' && row(/^OpenAI accepts this key for/)?.title === `OpenAI accepts this key for ${config.evalModels[0]}` && !(st.checks || []).some((x) => x.title === `OpenAI accepts this key for ${MODEL}`)
+        && !row(/tool server/i) && row(/^OpenAI accepts this key for/)?.title === `OpenAI accepts this key for ${config.evalModels[0]}` && !(st.checks || []).some((x) => x.title === `OpenAI accepts this key for ${MODEL}`)
         && row(/^Fireworks took the listing's effort as high$/)?.state === 'ok'
-        && st.settings?.listingProvider === 'Fireworks' && st.settings?.listingModel === MODEL && st.settings?.listingEffort === 'high' && st.tools?.requests?.listing === true && st.tools?.requests?.determinations === false,
+        && st.settings?.listingProvider === 'Fireworks' && st.settings?.listingModel === MODEL && st.settings?.listingEffort === 'high' && st.tools?.requests?.listing === false && st.tools?.requests?.determinations === false,
       JSON.stringify((st.checks || []).filter((x) => /Fireworks|OpenAI|tool server/.test(x.title)).map((x) => `${x.state}:${x.title}`)));
     check('Fireworks: the listing\'s ledger lines say Fireworks, are priced at its rates from its own token counts (cached apart), and keep Fireworks\' echo of the effort it was asked for; the chain of thought is in no ledger line and no failure record',
       (() => {
@@ -3636,7 +3642,8 @@ async function fireworksChecks() {
         && (st2.checks || []).some((x) => x.state === 'bad' && x.title === 'No Fireworks key for the listing' && /FIREWORKS_API_KEY/.test(x.detail)) && fwEntries().length === before,
       JSON.stringify({ status: noKey.status, body: noKeyBody, sent: fwEntries().length - before }));
 
-    // No public address for the tool server (not on Render, no CIVIC_TOOLS_URL): the listing goes without tools, and /check says so.
+    // No public address for the tool server (not on Render, no CIVIC_TOOLS_URL): the listing is the same, with no tools,
+    // and /check has nothing to warn of.
     const before3 = fwBodies().length;
     const base3 = serve(PORT + 87, { RENDER_EXTERNAL_URL: '' });
     await wait(`${base3}/api/health`);
@@ -3644,9 +3651,9 @@ async function fireworksChecks() {
     const l3 = await stream(`${base3}/api/extract`, { text: source, jobId: `fw-notools-${stamp}` });
     const body3 = fwBodies()[before3]?.body;
     const st3 = await (await fetch(`${base3}/api/selftest`)).json();
-    check('Fireworks: with no public address for the tool server, the listing goes with an empty tools list and completes, the health line says it cannot search, and /check says why',
-      h3.request?.extract?.webSearch === false && JSON.stringify(body3?.tools) === '[]' && JSON.stringify(Object.keys(body3 || {}).sort()) === JSON.stringify([...wantKeys].sort()) && l3.some((e) => e.t === 'done')
-        && (st3.checks || []).some((x) => x.state === 'warn' && x.title === 'The listing on Fireworks cannot search or read pages'),
+    check('Fireworks: with no public address for the tool server, the listing is the same (no tools) and completes, the health line says it cannot search, and /check warns of nothing about it',
+      h3.request?.extract?.webSearch === false && body3?.tools === undefined && JSON.stringify(Object.keys(body3 || {}).sort()) === JSON.stringify([...wantKeys].sort()) && l3.some((e) => e.t === 'done')
+        && !(st3.checks || []).some((x) => /listing on Fireworks|tool server/i.test(x.title)),
       JSON.stringify({ webSearch: h3.request?.extract?.webSearch, tools: body3?.tools, warn: (st3.checks || []).filter((x) => x.state === 'warn').map((x) => x.title) }));
 
     // The keys and the pass, nowhere they could be read.
@@ -3659,7 +3666,7 @@ async function fireworksChecks() {
     const secretIn = (t) => t.includes(FWKEY) || t.includes(KEY) || fwBodies().map((r) => doorOf(r.body)).filter(Boolean).some((d) => t.includes(d));
     check('Fireworks: neither key nor any listing\'s door appears in the health line, the check data, the page, the ledger, the failure records or the server\'s own output; the startup line says where the listing goes and what it carries',
       ![health2, check2, pageHtml, ledgerText, errText, said].some(secretIn)
-        && said.includes(`extraction requests go to localhost (Fireworks) and carry: model ${MODEL} · reasoning.effort high · FactEngine's tool server (search_web, read_page, get_transcript) through a door opened for that listing alone · store false`),
+        && said.includes(`extraction requests go to localhost (Fireworks) and carry: model ${MODEL} · reasoning.effort high · no tools · store false`),
       [['health', health2], ['check', check2], ['page', pageHtml], ['ledger', ledgerText], ['errors', errText], ['output', said]].filter(([, t]) => secretIn(t)).map(([n]) => n).join(', ') || said.split('\n').find((l) => l.startsWith('extraction requests')));
   } catch (err) {
     check('Fireworks checks completed', false, err.message);
@@ -4365,5 +4372,5 @@ const failed = results.filter((r) => !r.ok);
 for (const r of results) console.log(`${r.ok ? 'PASS' : 'FAIL'}  ${r.name}${r.ok ? '' : `   ← ${r.detail}`}`);
 console.log(failed.length
   ? `\n${failed.length} FAILED. A request carries something the operator did not configure.`
-  : `\nAll ${results.length} checks passed. Requests carry the configured model and effort, the prompts verbatim, web search on both steps, and nothing else.`);
+  : `\nAll ${results.length} checks passed. Requests carry the configured model and effort, the prompts verbatim, web search on the fact-checks and no tool on the listing, and nothing else.`);
 process.exit(failed.length ? 1 : 0);

@@ -2,16 +2,15 @@
 // list as it arrives so the browser can show them one by one.
 import { config } from './config.js';
 import { extractionRequest, extractionShape } from './prompts.js';
-import { sourceBlock } from './source.js';
+import { sourceBlock, headlineBlock } from './source.js';
 import { withModelFallback, usageOf, isRetryable, isRateLimit, isConnectionDrop, connectionWait, rateLimitWaitMs, sleep, throughGate, streamFailure, asStreamFailure, spacedWaitMs, cutReply } from './openai.js';
 import { onDeepSeek, onFireworks, onOwnProvider, listingClient, listingFailure, listingHost, listingProviderName, openaiHost } from './listing.js';
 import { ThoughtCut, usageFrom, noteEcho } from './fireworks.js';
 import { noteFailure, noteReply } from './reach.js';
 import { gateFor, parseRefusal } from './gate.js';
 import { estimateTextCost } from './pricing.js';
-import { requestTools, gatewayTools, gatewayOn, toolStep, searchCount, verbOf } from './tools/request.js';
+import { toolStep, searchCount, verbOf } from './tools/request.js';
 import { names, anyOf } from './names.js';
-import { openDoor } from './tools/doors.js';
 import { record, spentWords } from './ledger.js';
 import { runRanking } from './rank.js';
 
@@ -60,8 +59,9 @@ export async function runExtraction({ apiKey, text, meta, send, signal, sourceWa
   const own = onOwnProvider();   // not OpenAI: not through OpenAI's gate, and its waits name its own provider
   const client = listingClient(apiKey);
   // A prompt with a slot for the source asked for what is known of its origin too, so the source
-  // goes in with what CIVIC knows of that. A prompt without a slot gets the text alone.
-  const request = extractionRequest(extractionShape() === 'inserted' ? sourceBlock(text, meta) : text);
+  // goes in with what CIVIC knows of that. A prompt without a slot gets the text with its headline ahead of it, or
+  // "(none given)" (the operator's answer of 24 October): the text read from a link holds no headline of its own.
+  const request = extractionRequest(extractionShape() === 'inserted' ? sourceBlock(text, meta) : headlineBlock(text, meta));
   let full = '';
   let emitted = 0;
   const started = Date.now();
@@ -72,29 +72,20 @@ export async function runExtraction({ apiKey, text, meta, send, signal, sourceWa
   const trail = []; // every web action the model took during extraction, if any
   const attempt = async (model) => {
     if (fireworks) {
-      // Fireworks: the model, the prompt verbatim, the effort, FactEngine's tool server (Fireworks has no web search of
-      // its own; it calls the tool server itself, during the response) and `store: false`, without which Fireworks
-      // keeps the conversation for 30 days. Nothing else. Not through OpenAI's gate: a 429 is a wait, below.
-      // The tool server is named at a door opened for this go alone (tools/doors.js), since Fireworks forwards no
-      // header of ours; the door closes when the go ends, however it ends.
-      const door = gatewayOn() ? openDoor() : null;
+      // Fireworks: the model, the prompt verbatim, the effort and `store: false`, without which Fireworks keeps the
+      // conversation for 30 days. Nothing else, and no tool: the listing reads the document it is given and nothing
+      // else (24 October). Not through OpenAI's gate: a 429 is a wait, below.
       const body = {
         model,
         ...(request.instructions ? { instructions: request.instructions } : {}),
         input: [{ role: 'user', content: [{ type: 'input_text', text: request.message }] }],
         reasoning: { effort: config.extractEffort },
-        tools: gatewayTools(door?.id),
         stream: true,
         store: false,
       };
-      try {
-        const { data, response } = await client.responses.create(body, { signal }).withResponse();
-        noteReply('Fireworks');
-        return { data, response, release: () => door?.close() };
-      } catch (err) {
-        door?.close();
-        throw err;
-      }
+      const { data, response } = await client.responses.create(body, { signal }).withResponse();
+      noteReply('Fireworks');
+      return { data, response, release: () => {} };
     }
     if (deepseek) {
       // DeepSeek: the model, the prompt verbatim and the effort, and nothing else. DeepSeek has no mode, makes no
@@ -124,7 +115,8 @@ export async function runExtraction({ apiKey, text, meta, send, signal, sourceWa
       ...(request.instructions ? { instructions: request.instructions } : {}),
       input: [{ role: 'user', content: [{ type: 'input_text', text: request.message }] }],
       reasoning: r,
-      tools: requestTools(), // web search, as in the UI the prompt was tested in; CIVIC's own tools when the gateway is set
+      // No tool: the listing reads the document it is given and nothing else (24 October). Web
+      // search and FactEngine's own tools are the fact-checks'.
       stream: true,
       store: false,
     };
