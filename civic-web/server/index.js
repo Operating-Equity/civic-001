@@ -652,7 +652,7 @@ function banner() {
   const mark = (n) => (status[n] ? `${n} ${v[n].version} (${v[n].chars} chars)` : `${n} MISSING`);
   console.log(`prompts installed: ${mark('extract')} · ${mark('evaluate')} · ${status.rank ? mark('rank') : 'rank not installed'}`);
   const shape = requestShape();
-  const placing = shape.extract.source === 'inserted' ? 'the prompt verbatim with the source in place of its final bracketed line, as the only message' : 'the prompt verbatim as instructions · the document whole as the only message, its headline ahead of it';
+  const placing = shape.extract.source === 'inserted' ? 'the prompt verbatim with the source in place of its bracketed line, as the only message' : 'the prompt verbatim as instructions · the document whole as the only message, its headline ahead of it';
   // The listing names no tool on any provider (24 October): it reads the document it is given and nothing else. On
   // Fireworks and OpenAI it says store: false.
   const listingTools = `no tools${onDeepSeek() ? '' : ' · store false'}`;

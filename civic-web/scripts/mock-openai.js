@@ -897,11 +897,26 @@ let requestOrdinal = 0;
 
 // The document a listing was given: the message whole when the prompt went as instructions, its headline line (put
 // ahead of it by FactEngine since 24 October) set aside, as a model reads it; else what follows the prompt's slot, its
-// attribution lines set aside.
+// attribution lines set aside, up to the closing line a prompt may put after its slot (24 October).
 function documentOf(body, text) {
   if (body.instructions) return text.replace(/^Headline: [^\n]*\n\n/, '');
-  const cut = text.lastIndexOf('\n\n');
-  return cut < 0 ? text : text.slice(cut + 2).replace(/^[^\n]*:[ \t]*\n/, '');
+  const closed = text.replace(/\n<\/[^>\n]+>\s*$/, '');
+  const cut = closed.lastIndexOf('\n\n');
+  return cut < 0 ? closed : closed.slice(cut + 2).replace(/^[^\n]*:[ \t]*\n/, '');
+}
+
+// Role lines (24 October), when the document carries a mark "[roles:mix]" or "[roles:supporting]", or MOCK_ROLES says
+// so: `mix` cycles central, supporting, incidental, unranked and none; `supporting` gives every claim that role. The
+// words are the operator's when MOCK_OUTPUT_NAMES sets them (role, roles), and each line is written in one of the shapes
+// a model may use: indented, after a bullet, in bold.
+const ROLE_CYCLE = ['central', 'supporting', 'incidental', 'unranked', null];
+function roleLines(source, i) {
+  const mode = (String(source).match(/\[roles:(mix|supporting)\]/) || [])[1] || process.env.MOCK_ROLES || '';
+  const role = mode === 'supporting' ? 'supporting' : mode === 'mix' ? ROLE_CYCLE[i % ROLE_CYCLE.length] : null;
+  if (!role) return [];
+  const word = MOCK_NAMES.roles?.[role]?.[0] || role.replace(/^./, (c) => c.toUpperCase());
+  const name = label('role', 'Role');
+  return [[`   ${name}: ${word}`, `   - **${name}:** ${word}`, `**${name}**: ${word}`][i % 3]];
 }
 
 // Invented entries for development only, in the labelled shape the reader keys on: a claim
@@ -916,6 +931,7 @@ function mockClaims(source) {
   if (!picked.length) picked.push('The source contains no clearly empirical sentence.');
   return picked.map((s, i) => [
     `${i + 1}. Claim: ${s}`,
+    ...roleLines(source, i),
     'Attribution: The supplied text; no date given.',
     ...(i % 3 === 0 ? ['Unspecified in source: the period the figure refers to.'] : []),
   ].join('\n')).join('\n');

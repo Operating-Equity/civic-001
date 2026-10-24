@@ -67,15 +67,15 @@ export function promptVersions() {
 }
 
 /**
- * Where the extraction prompt takes the source. A prompt whose last line is written entirely in
- * square brackets marks that line as the place for the source: the prompt, with the source in
- * that place and nothing else changed, is sent as the only message. A prompt without such a line
- * is sent as the instructions, with the source as the only message.
+ * Where the extraction prompt takes the source: its last line written entirely in square brackets, wherever that line
+ * stands (24 October: a prompt may close its slot with a line after it). The prompt, with the source in that line's
+ * place and nothing else changed, the lines after it included, is sent as the only message. A prompt without such a
+ * line is sent as the instructions, with the source as the only message.
  */
-function sourceSlot(text) {
-  const end = text.replace(/\s+$/, '').length;
-  const start = text.lastIndexOf('\n', end - 1) + 1;
-  return /^\[[^\[\]]+\]$/.test(text.slice(start, end)) ? { start, end } : null;
+export function sourceSlot(text) {
+  let slot = null;
+  for (const m of String(text ?? '').matchAll(/^\[[^\[\]\n]+\](?=[ \t]*$)/gm)) slot = { start: m.index, end: m.index + m[0].length };
+  return slot;
 }
 
 /** 'inserted' when the source goes inside the prompt; 'message' when it is sent beside it. */
