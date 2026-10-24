@@ -55,11 +55,17 @@ services:
       - key: CIVIC_TELL_WORDS      # the operator's tell words (20 October, civic-web/server/tells.js): set in Render, never here
         sync: false
       - key: CIVIC_EXTRACT_PROVIDER
-        value: deepseek            # the operator's choice of 5 October, for speed: DeepSeek's own service. Never Fireworks
-                                   # ("Never go back to fireworks", 5 October); the fallback is openai
+        value: openai              # the operator's choice of 24 October, after DeepSeek's first listing with the new
+                                   # prompt; DeepSeek's own service from 5 to 24 October. Never Fireworks ("Never go back
+                                   # to fireworks", 5 October)
+      - key: CIVIC_EXTRACT_MODELS
+        value: gpt-6.1-sol         # the operator's choice of 24 October: OpenAI's "near-Astra intelligence for a fifth of
+                                   # the price"; one id = no fallback
       - key: CIVIC_EXTRACT_EFFORT
-        value: low                 # the listing thinks at low: the operator's answer of 18 October ("DeepSeek thinks at
-                                   # low") after an article took five minutes at high
+        value: medium              # the operator's answer of 24 October (OpenAI's default; "work requiring judgment");
+                                   # low on DeepSeek from 18 October
+      - key: CIVIC_EXTRACT_REASONING_SUMMARY
+        value: "off"               # no running summary on the page while the claims are listed (24 October: "No")
       - key: CIVIC_RANK_EFFORT
         value: low                 # the ranking thinks at low too: the operator's answer of 19 October, after it took
                                    # 69 s at high (68 of them thinking) beside the listing's 55 s at low

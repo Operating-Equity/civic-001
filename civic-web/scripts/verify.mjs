@@ -155,9 +155,9 @@ try {
   const source = 'The Eiffel Tower stands about 330 metres tall. Water boils at 100 degrees Celsius at sea level. Mount Everest is 8,849 metres above sea level.';
   const claim = 'The Eiffel Tower stands about 330 metres tall.';
   const ex = await stream(`http://localhost:${PORT}/api/extract`, { text: source });
-  // The page tests each claim's whole entry, with the source it came from, as the page does.
-  const entry = ex.find((e) => e.t === 'done')?.claims?.[0]?.entry || claim;
-  const ev = await stream(`http://localhost:${PORT}/api/evaluate`, { claims: [entry], text: source, source: { kind: 'text' } });
+  // The page tests the claim alone (24 October), with the source it came from, as the page does.
+  const tested = ex.find((e) => e.t === 'done')?.claims?.[0]?.text || claim;
+  const ev = await stream(`http://localhost:${PORT}/api/evaluate`, { claims: [tested], text: source, source: { kind: 'text' } });
 
   const sent = fs.readFileSync(record, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)).filter((r) => r.path === '/v1/responses');
   // The extraction is sent and completed before the determination is sent, so arrival order is
@@ -227,7 +227,7 @@ try {
     check('determination: no keys beyond model, input, reasoning, tools, stream, store', extraKeys(evBody, ALLOWED.evaluate).length === 0, extraKeys(evBody, ALLOWED.evaluate).join(', '));
     check('determination: no reasoning keys beyond effort, mode, summary', extraKeys(evBody.reasoning, ALLOWED.reasoning).length === 0, extraKeys(evBody.reasoning, ALLOWED.reasoning).join(', '));
     check('determination: no instructions field (nothing added around the prompt)', evBody.instructions === undefined);
-    check('determination: the prompt sent verbatim with the claim\'s whole entry (Claim, Attribution, what is unspecified) in place of {{CLAIM}}', userText === evaluatePrompt.split('{{CLAIM}}').join(entry) && /^Claim:/.test(entry) && /\nAttribution:/.test(entry), `${userText?.length} chars; entry: ${JSON.stringify(entry).slice(0, 120)}`);
+    check('determination: the prompt sent verbatim with the claim alone in place of {{CLAIM}}: no label, and nothing else the listing wrote with it (24 October)', userText === evaluatePrompt.split('{{CLAIM}}').join(tested) && !/^claim:/i.test(tested) && tested.length > 0 && !/Attribution:|Unspecified in source:/.test(userText), `${userText?.length} chars; claim: ${JSON.stringify(tested).slice(0, 120)}`);
     check('determination: exactly two messages, the source ahead of the prompt exactly as the extractor received it, then the prompt', Array.isArray(evBody.input) && evBody.input.length === 2 && ahead === sourceBlock(source, { kind: 'text' }), `${evBody.input?.length} messages`);
     const tools = evBody.tools || [];
     check('determination: web search available (exactly one web_search, no options)', tools.length === 1 && tools[0].type === 'web_search' && extraKeys(tools[0], ALLOWED.webSearchTool).length === 0, JSON.stringify(tools));
@@ -378,6 +378,16 @@ async function modeChecks() {
   const bodies = fs.existsSync(modeRecord) ? fs.readFileSync(modeRecord, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)).filter((x) => x.path === '/v1/responses').map((x) => x.body) : [];
   check('with CIVIC_REASONING_MODE=pro and CIVIC_EFFORT=max both requests carry exactly that (effort max, mode pro, the summary), as from 21 September to 5 October',
     bodies.length >= 2 && bodies.every((b) => b.reasoning?.mode === 'pro' && b.reasoning?.effort === 'max' && JSON.stringify(Object.keys(b.reasoning).sort()) === JSON.stringify(['effort', 'mode', 'summary'])) && !r.failure, JSON.stringify({ reasoning: bodies.map((b) => b.reasoning), failure: r.failure }));
+  // The listing's running summary off (24 October, the listing on OpenAI: "No"): no summary key in its request, so OpenAI
+  // writes none and nothing of the kind reaches the page; the determinations keep theirs.
+  const offRecord = path.join(os.tmpdir(), `civic-verify-summary-off-${Date.now()}.jsonl`);
+  const off = await gateRun(18, { MOCK_RECORD: offRecord }, { extraction: true, claims: [SIX[0]], serverEnv: { CIVIC_EXTRACT_REASONING_SUMMARY: 'off' } });
+  const offBodies = fs.existsSync(offRecord) ? fs.readFileSync(offRecord, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)).filter((x) => x.path === '/v1/responses').map((x) => x.body) : [];
+  const listings = offBodies.filter((b) => !b.tools);
+  check('with CIVIC_EXTRACT_REASONING_SUMMARY=off the listing\'s request carries no summary key and the health line says none; the determination keeps its summary; the listing\'s events carry no running summary',
+    listings.length >= 2 && listings.every((b) => !('summary' in (b.reasoning || {}))) && offBodies.some((b) => b.tools && b.reasoning?.summary === 'auto')
+      && off.health?.request?.extract?.summary === null && !off.ex.some((e) => e.t === 'reasoning') && off.ex.some((e) => e.t === 'done') && !off.failure,
+    JSON.stringify({ listings: listings.map((b) => b.reasoning), summary: off.health?.request?.extract?.summary, failure: off.failure }));
   // The defaults as the code holds them: judged only where no shell sets these (CI sets none).
   const set = ['CIVIC_EFFORT', 'CIVIC_EVAL_EFFORT', 'CIVIC_EXTRACT_EFFORT', 'CIVIC_REASONING_MODE', 'CIVIC_EVAL_REASONING_MODE', 'CIVIC_EXTRACT_REASONING_MODE'].filter((n) => process.env[n]);
   const shape = requestShape();
@@ -3246,10 +3256,10 @@ async function rankChecks() {
         && body.model === 'deepseek-flash' && body.stream === true,
       JSON.stringify(body && { keys: Object.keys(body), reasoning: body.reasoning }));
     const listed = a.done?.claims || [];
-    const block = listed.map((c) => `${c.n}. ${String(c.entry).trim()}`).join('\n\n');
+    const block = listed.map((c) => `${c.n}. ${String(c.text).trim()}`).join('\n\n');
     const expectPrompt = RANK_PROMPT.replace('{{TITLE}}', META.title).replace('{{CLAIMS}}', block);
     const [m0, m1] = (body?.input || []).map((m) => (m.content || []).map((c) => c.text || '').join(''));
-    check('Ranking: the source goes first, exactly as a determination is given it (the page\'s title, site and address, then the text); the prompt second, verbatim but for its two slots: the headline as published, and each claim\'s number with its whole entry',
+    check('Ranking: the source goes first, exactly as a determination is given it (the page\'s title, site and address, then the text); the prompt second, verbatim but for its two slots: the headline as published, and each claim\'s number with the claim alone (24 October)',
       body?.input?.length === 2 && body.input.every((m) => m.role === 'user') && m0 === sourceBlock(doc(''), META) && m1 === expectPrompt && !m1.includes('{{'),
       JSON.stringify({ messages: body?.input?.length, first: m0?.slice(0, 90), second: m1?.slice(0, 160) }));
     const r = a.done?.ranking;
@@ -3482,7 +3492,7 @@ async function roleChecks() {
   const MOCKR = MOCK_PORT + 110;
   const DSKEY = 'sk-dsroles00000000000000000000000';
   const RANK_MARK = 'ROLERANK-5b7d';
-  const NAMES = { role: ['Weight'], roles: { central: ['Keystone'], supporting: ['Buttress'], incidental: ['Aside'], unranked: ['Loose'] } };
+  const NAMES = { fields: ['Said by/when', 'Where in the text', 'Left open'], role: ['Weight'], roles: { central: ['Keystone'], supporting: ['Buttress'], incidental: ['Aside'], unranked: ['Loose'] } };
   const stamp = Date.now();
   const ledger = path.join(os.tmpdir(), `civic-verify-roles-ledger-${stamp}.jsonl`);
   const output = [];
@@ -3543,12 +3553,24 @@ async function roleChecks() {
       doneC?.claims?.length === 13 && doneC.claims.every((x) => x.top === true) && !doneC.claims.some((x) => /Weight/.test(x.more)),
       JSON.stringify(doneC?.claims?.length));
 
+    // Fields on the claim's own line (24 October: DeepSeek wrote "Claim: … **Role:** Supporting. **Source anchor:** …"):
+    // the claim is what comes before the first field, the role is read where it stands, and nothing else is the claim.
+    const d = await listing(base, 'inline');
+    const doneD = d.find((e) => e.t === 'done');
+    check('Roles: fields written on the claim\'s own line, bold or plain, are split off: each claim is its sentence alone; the role is read there, so the Supporting ones wait and the Incidental ones are not offered',
+      doneD?.claims?.length === 10 && doneD.claims.every((c) => SENTENCES.some((s) => c.text === s || c.text === s.replace(/\.$/, ' [roles:inline].')) && !/Weight|Where in the text|Left open/.test(c.text))
+        && doneD.claims.filter((c) => c.top === false).length === 3 && supporting.every((s) => doneD.claims.find((c) => c.text.includes(s))?.top === false)
+        && !incidental.some((s) => holds(doneD.claims, s)) && doneD.claims.filter((c) => /Weight/.test(c.more)).length === 8,
+      JSON.stringify(doneD?.claims?.slice(0, 2)));
+
     const said = output.join('');
     const logged = said.split('\n').filter((l) => l.startsWith('[listing] '));
     check('Roles: the service\'s log line counts the entries, those under their claim label and each role, in counts alone',
-      logged.length === 3 && logged[0].endsWith(' · 13 entries, 13 under their claim label; roles: 3 central, 3 supporting, 2 unranked, 3 incidental (not offered), 2 without one')
+      logged.length === 4 && logged[0].endsWith(' · 13 entries, 13 under their claim label; roles: 3 central, 3 supporting, 2 unranked, 3 incidental (not offered), 2 without one')
         && logged[0].startsWith('[listing] 10 claims from ') && logged[1].endsWith(' · 13 entries, 13 under their claim label; roles: 13 supporting')
-        && logged[2].endsWith(' · 13 entries, 13 under their claim label; no role lines') && !SENTENCES.some((x) => said.includes(x.slice(0, 24))),
+        && logged[2].endsWith(' · 13 entries, 13 under their claim label; no role lines')
+        && logged[3].endsWith(' · 13 entries, 13 under their claim label; roles: 3 central, 3 supporting, 2 unranked, 3 incidental (not offered), 2 without one')
+        && !SENTENCES.some((x) => said.includes(x.slice(0, 24))),
       JSON.stringify(logged));
     const lines = fs.readFileSync(ledger, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)).filter((l) => l.kind === 'extract');
     check('Roles: the ledger\'s listing line keeps the same counts: the claims offered, the entries, those under their claim label and each role',

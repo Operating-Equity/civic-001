@@ -1072,14 +1072,14 @@ function renderExtractThinking() {
   ui.step1ThinkingBody.scrollTop = ui.step1ThinkingBody.scrollHeight;
 }
 
-// A claim is the text that is tested and, when the model wrote further labelled lines beside it
-// (who said it and when, what the source does not say), those lines, verbatim.
-// The Claim line is the row's title; the further lines are shown under it; the whole entry, as the
-// extractor wrote it, is what is tested, so the who and the when travel with every claim. `top` is
-// false for a claim that waits behind "Show the other claims".
-function claimOf(c) { return { n: Number.isInteger(c.n) ? c.n : undefined, text: c.text, more: c.more || '', entry: c.entry || c.text, top: c.top !== false }; }
+// A claim is the text the listing wrote under its claim label, and only that: it is the row's title
+// and it is what is tested. Nothing else the listing wrote with it is shown or sent (the operator, 24
+// October: "I don't want the extraction to affect downstream processing in any way"); the listing's
+// whole output stays under "Extraction output, verbatim". `top` is false for a claim that waits
+// behind "Show the other claims".
+function claimOf(c) { return { n: Number.isInteger(c.n) ? c.n : undefined, text: c.text, top: c.top !== false }; }
 function claimNode(c) {
-  return el('div', {}, [el('span', { class: 'claim-text', text: c.text }), c.more ? el('div', { class: 'claim-more', text: c.more }) : null]);
+  return el('div', {}, [el('span', { class: 'claim-text', text: c.text })]);
 }
 
 function addClaim(n, c) {
@@ -1147,7 +1147,7 @@ function finishExtraction(ev) {
 function rankedClaims(listed, r) {
   const byN = new Map(listed.map((c) => [c.n, c]));
   const items = [];
-  if (r.headline?.tested && r.headline.text) items.push({ text: r.headline.text, more: '', entry: r.headline.text, headline: true, top: true });
+  if (r.headline?.tested && r.headline.text) items.push({ text: r.headline.text, headline: true, top: true });
   (r.order || []).forEach((n, k) => { const c = byN.get(n); if (c) items.push({ ...c, top: k < r.keep }); });
   state.rankedRun = { keep: r.keep, rest: items.filter((c) => !c.top).length, setAside: (r.notEmpirical || []).length, headline: Boolean(items[0]?.headline) };
   return items.map((c, k) => ({ ...c, n: k + 1 }));
@@ -1564,7 +1564,7 @@ async function runClaim(i, signal, { keepGoing = () => true, onSettled = () => {
     };
     try {
       await api.evaluate({
-        jobId: job, claims: [claim.entry || claim.text], text: state.source, source: state.sourceMeta, signal, onEvent,
+        jobId: job, claims: [claim.text], text: state.source, source: state.sourceMeta, signal, onEvent,
         model: claim.trial?.model, effort: claim.trial?.effort,   // the operator's trial; the server ignores them from anyone else
         runId: state.extractJob, n: Number.isInteger(claim.n) ? claim.n : i + 1,   // the run is its extraction's job at the server, which is what the row is filed under; so the server can say whether this one is free
         // Whatever the row was saying (queued at the gate, inspecting, writing), it says the connection
@@ -1731,7 +1731,6 @@ function buildCard(claim, n) {
   const node = ui.cardTpl.content.firstElementChild.cloneNode(true);
   $('.card-n', node).textContent = String(n).padStart(2, '0');
   $('.card-claim', node).textContent = claim.text;
-  if (claim.more) $('.card-claim', node).append(el('span', { class: 'card-more', text: claim.more }));
   $('.card-status', node).textContent = t('card.pending');
   // The row's place in the run is known only once its batch starts; everything reads it then.
   const idx = () => Number(node.dataset.index);

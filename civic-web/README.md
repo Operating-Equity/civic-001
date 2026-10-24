@@ -567,7 +567,7 @@ before the page is told the listing is done, the listing's own DeepSeek model re
 listed, under the operator's ranking prompt (the vault's third, `rank`: `server/prompts/rank.txt`, or Render's secret
 file `rank.txt` through `CIVIC_PROMPT_RANK_FILE`). The request carries `model` (the model the listing used), `input`
 (two messages: the source exactly as a determination is given it, then the prompt verbatim with `{{TITLE}}` filled with
-the page's own title, or "(none given)", and `{{CLAIMS}}` with each claim's number and whole entry), `reasoning.effort`
+the page's own title, or "(none given)", and `{{CLAIMS}}` with each claim's number and the claim alone), `reasoning.effort`
 (the listing's, unless `CIVIC_RANK_EFFORT`: `low` on the service since 19 October, the operator's answer after the
 ranking took 69 s at `high`, 68 of them thinking, beside the listing's 55 s at `low`) and `stream`: nothing else. No tools (it reads what it is given) and no
 store. The answer is read by its headings, SUMMARY, HEADLINE, HEADLINE TYPE, HEADLINE CLAIM, RANKED and NOT EMPIRICAL,
@@ -626,13 +626,17 @@ prompt's last line written entirely in square brackets, wherever it stands (24 O
 written. A prompt without such a line is sent as `instructions` instead, and the only message is the document's headline
 line, a blank line, then the text: `Headline: ` and a link's page title, a video's title or a file's own title, or
 `(none given)` for pasted text and for a link titled only by its site or its address's last part (the operator's
-answer of 24 October; the text read from a link holds no headline of its own). The reply is read as a numbered list; in each entry the text under a `Claim:` label is
-the claim, and any further labelled lines are shown beside it, verbatim; the whole entry is what each determination is
-given. A number may be written in bold or after a heading mark; a further line may follow an indent, a bullet or bold,
-with up to four words in its label, joined by spaces, slashes or hyphens; without its claim label, the claim is what
-comes before the entry's first labelled line.
+answer of 24 October; the text read from a link holds no headline of its own). The reply is read as a numbered list; in each entry the claim is the text
+under its `Claim:` label, up to its first further field, wherever that field is written: on a line of its own, or on
+the claim's own line, bold or plain (24 October: DeepSeek wrote "Claim: … **Role:** Supporting. **Source anchor:** …"
+on one line). The listing's field labels are in `server/names.js` (`fields`, beside `role`), and `CIVIC_OUTPUT_NAMES`
+can rename them. The claim alone is shown, and the claim alone is what each determination is given: nothing else the
+listing wrote goes downstream (the operator, 24 October: "I don't want the extraction to affect downstream processing
+in any way"); the listing's whole output stays under "Extraction output, verbatim". A number may be written in bold or
+after a heading mark; a labelled line may follow an indent, a bullet or bold, with up to four words in its label,
+joined by spaces, slashes or hyphens; without its claim label, the claim is what comes before the entry's first field.
 
-**Each claim's role** (24 October). A listing may give each claim a role line. FactEngine reads it by the words in
+**Each claim's role** (24 October). A listing may give each claim a role, on its own line or on the claim's. FactEngine reads it by the words in
 `server/names.js` (the label `role` and the four `roles`, which `CIVIC_OUTPUT_NAMES` can rename, as it can the claim
 label), and the page places the claim by the operator's answers of that day:
 - a central claim, an unranked one and one without a readable role are shown;
@@ -647,11 +651,10 @@ offered and never an incidental one.
 
 **Determination request:** `model`, `input` (two messages: first the source exactly as the
 extractor received it, its attribution lines and its text; then the evaluation prompt, verbatim,
-with the claim's whole entry, Claim, Attribution and Unspecified lines, in place of `{{CLAIM}}`),
+with the claim alone in place of `{{CLAIM}}`: since 24 October nothing else the listing wrote goes with it),
 `reasoning.effort`, `reasoning.mode`, `reasoning.summary`, `tools` (one `web_search`, no options; and, when the gateway is set, one `mcp` entry naming it, with `server_label`, `server_url`, `headers` carrying the pass and `require_approval: never`, nothing else), `stream`,
 `store`. The source goes ahead because the conversation carried it in the workflow the prompts
-were tested in; a claim tested bare, "the speech" with no speaker or date, was being tested
-without the context the extraction prompt had written for it.
+were tested in, so "the speech" has a speaker and a date.
 
 Nothing else. No output token cap. No reasoning mode. No verbosity. No search context size. No
 truncation setting. No fallback model. No size limit of ours on the document.
