@@ -17,7 +17,7 @@ import { siteFetch, openaiFetch } from './http.js';
 import { assertPublic, siteName, longestParagraph, PROSE_CHARS, WALL_PHRASES } from './fetchurl.js';
 import { record as ledger } from './ledger.js';
 import { record as failure } from './diagnostics.js';
-import { blockedSites, listedSite } from './sites.js';
+import { searchExclusions, listedSite } from './sites.js';
 
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 const DAY = 24 * 60 * 60 * 1000;
@@ -196,13 +196,13 @@ export async function readerCopy(address, { signal, explain } = {}) {
 }
 
 /** A search in the model's own words (the tool server's search_web, server/tools/adapters/search.js): the same
- *  request and the same waits as the copies search, with the sites the operator keeps out of the research left out
- *  (server/sites.js): the service is asked to leave them out, and a result it returns from one anyway, a subdomain
- *  say, is dropped before the model sees it. Its cost goes on the tool's own ledger line. */
+ *  request and the same waits as the copies search, with what the operator keeps out of the research left out
+ *  (server/sites.js): the service is asked to leave both lists out, sites and columns, and a result it returns from one
+ *  anyway, a subdomain say, or a page whose address names it one of the kinds kept out, is dropped before the model sees
+ *  it. Its cost goes on the tool's own ledger line. */
 export async function searchWeb(query, { signal } = {}) {
-  const sites = blockedSites();
-  const got = await searchOnce('web', String(query || ''), sites, { signal, ledgerLine: false });
-  return sites.length ? { ...got, results: got.results.filter((r) => !listedSite(r?.url, { sites })) } : got;
+  const got = await searchOnce('web', String(query || ''), searchExclusions(), { signal, ledgerLine: false });
+  return { ...got, results: got.results.filter((r) => !listedSite(r?.url)) };
 }
 
 const escapeRe = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');

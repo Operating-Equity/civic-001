@@ -21,7 +21,7 @@ import { readers as readersNow } from './jobs.js';
 import { silentSites } from './fetchurl.js';
 import { names } from './names.js';
 import { tellReport } from './tells.js';
-import { sitesState } from './sites.js';
+import { sitesState, sitesWords } from './sites.js';
 import { searchOn, readerOn } from './copies.js';
 import { registry } from './tools/index.js';
 import { toolsOn } from './tools/request.js';
@@ -263,11 +263,11 @@ export async function selftest({ apiKey, build, operator = true }) {
     checks.push(warn('What a reader receives carries some of your tell words', `${tr.findings.map((f) => `${f.fingerprint} in ${f.file}`).join('; ')}. A word is named by its fingerprint: the first 8 hex of the SHA-256 of the word in lower case.`,
       'npm run leak-check -- --fingerprints gives each word\'s fingerprint by its place in your list, without the words. Change those files, or the word, and deploy again.'));
   }
-  // The sites kept out of the research (server/sites.js, 25 October): by count and fingerprint, never a site.
+  // What is kept out of the research (server/sites.js, 25 October): by counts and fingerprints, never an entry.
   const kept = sitesState();
-  checks.push(ok(kept ? 'Your list of sites is kept out of the research' : 'No site is kept out of the research', kept
-    ? `${kept.count} site${kept.count === 1 ? '' : 's'} (list ${kept.fingerprint}), kept beside the prompts, each with its subdomains. Blocked in OpenAI's web search, on every fact-check that runs on OpenAI (the readers', your trial's, side by side), and in FactEngine's own search and page reader (DeepSeek in your trial). Google's developer API cannot keep a site out, so on Gemini what a fact-check takes from them is counted and marked on your cards, never kept from it. A reader's own document is never touched; a reader never sees the list or its marks.`
-    : 'No list is set (CIVIC_BLOCKED_SITES or CIVIC_BLOCKED_SITES_FILE), so every fact-check may search and read any site. Kept beside the prompts, a list is blocked in OpenAI\'s web search and in FactEngine\'s own search and page reader.'));
+  checks.push(ok(kept ? 'Your lists of sites are kept out of the research' : 'No site is kept out of the research', kept
+    ? `${sitesWords()}. All of it is kept beside the prompts, and a site covers its subdomains. OpenAI's web search takes whole sites alone, so the readers' fact-checks, your trial on OpenAI and side by side are kept from the first list, and what they take of the rest is counted and marked "zero credibility" on your cards. Google's developer API cannot keep a site out, so on Gemini all of it is counted and marked, never kept from it. FactEngine's own search and reader (DeepSeek in your trial) keep all of it out. A reader's own document is never touched; a reader never sees the lists or their marks.`
+    : 'No list is set (CIVIC_BLOCKED_SITES, CIVIC_BLOCKED_MORE, CIVIC_BLOCKED_WORDS, CIVIC_BLOCKED_MARKUP), so every fact-check may search and read any site. Kept beside the prompts, the first list is blocked in OpenAI\'s web search and in FactEngine\'s own search and page reader, and the rest in FactEngine\'s own.'));
   // The ranking (server/rank.js, 16 October) is the one optional prompt: without it the claims are listed unranked, as
   // they were before, so its absence is said and never stops anything.
   const ranking = rankState();

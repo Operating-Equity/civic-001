@@ -11,6 +11,7 @@ import net from 'node:net';
 import { PDFParse } from 'pdf-parse';
 import { config } from './config.js';
 import { siteFetch, SITE_SILENCE_MS } from './http.js';
+import { markedByMarkup } from './sites.js';
 
 const MAX_BYTES = 12 * 1024 * 1024;
 const UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125 Safari/537.36';
@@ -589,7 +590,9 @@ export async function readUrl(rawUrl, { signal } = {}) {
       // paragraph of prose is a shell built by scripts, not an article.
       const wall = notFree || WALL_PHRASES.test(text);
       if (!text || longest < PROSE_CHARS) throw about(siteError(wall ? 'url_paywall' : 'url_shell', name), finalUrl);
-      return { kind: 'page', title: title || finalUrl.hostname, author, published, site: name, text, url: finalUrl.toString(), note: null, wall };
+      // A page whose markup names it one of the kinds the operator keeps out of the research (server/sites.js) says so
+      // (`kept`): the research's reader refuses it; the reader's own document is read as always.
+      return { kind: 'page', title: title || finalUrl.hostname, author, published, site: name, text, url: finalUrl.toString(), note: null, wall, ...(markedByMarkup(html) ? { kept: true } : {}) };
     }
 
     if (type.startsWith('text/') || type.includes('json')) {

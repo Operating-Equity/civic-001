@@ -1117,6 +1117,18 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
     deploy carried both. The boot lines name the list by its count and fingerprint, and every fact-check's search
     carries it. Before it, one request to OpenAI (searching nothing) proved the search accepts the list; it ran as a
     Render one-off job, since this sandbox cannot reach OpenAI. Live check clean, nothing spent.
+- **25 October, later: all of the kind kept out, and given zero credibility.** The operator: "Certain kinds of sites can
+  be banned, and all … should be banned and given zero credibility." Their answers: outlets kept, their columns banned
+  where FactEngine can; Gemini kept for testing; the mark "zero credibility".
+  - **A second list** (`CIVIC_BLOCKED_MORE_FILE`, a secret file on Render): more sites, and columns (`host/path`), left
+    out of FactEngine's own search (`excludeDomains`, columns included) and reader, and counted and marked wherever a
+    model cites them. OpenAI's search keeps the first list (100 sites at most, whole sites only).
+  - **By kind:** a page whose address carries one of the operator's words (`CIVIC_BLOCKED_WORDS`), or whose structured
+    data is of one of their types (`CIVIC_BLOCKED_MARKUP`, seen when FactEngine reads the page), is dropped from
+    FactEngine's search, refused by its reader, and counted and marked wherever a model cites it. The words and types
+    are on Render, so this repository names no kind.
+  - The reader's refusal is one sentence for all: "This page is not consulted." The log line counts "of zero
+    credibility"; /check and the boot line name each list, the words and the types by count and fingerprint.
 - **25 October: four more sets of the background, held until the operator says.** The operator: "at least 4 different
   sets", the backgrounds rotating "with obviously no memory of prior visitors' experiences", "user independent", "No
   need to make it complicated"; and "You can hold these images until I have done some experimentation with the site
