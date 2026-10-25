@@ -1095,6 +1095,9 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
   - **The page follows a new version by itself** (the operator's answer, "By itself"): it reads `/api/health` again when
     the reader comes back to it and at Start a new test; another build loads at once when nothing is on the page (the
     text and its origin kept), else at the next Start a new test; never a load after a load.
+  - **Live** (25 October, 00:18 UTC): PR #87 deployed at 00:17:47. Live check clean, nothing spent. A page loaded before
+    it is the old code and loads it once by hand; from then on a page follows each release by itself. Four fact-checks
+    started seconds before the deploy were cut by it and started over on the new process, as the page does after a cut.
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 
