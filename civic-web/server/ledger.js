@@ -50,9 +50,9 @@ export function factCheckWords(line) {
   const tokens = u ? `; tokens ${n(u.input)} read, ${n(u.reasoning)} thought, ${n((Number(u.output) || 0) - (Number(u.reasoning) || 0))} written` : '';
   const cost = Number.isFinite(Number(line.usd)) ? `; $${Number(line.usd).toFixed(4)}${line.priced === false ? ', unpriced' : ''}` : '';
   const verdict = `${line.verdict || 'no verdict'}${line.verdictSource === 'unread' ? ' (unread)' : ''}${Number.isFinite(line.confidence) ? ` at ${line.confidence}%` : ''}`;
-  // With the operator's list of sites kept out of the research set (server/sites.js): what the fact-check took from it,
-  // and what it asked for and did not get.
-  const listed = line.listed == null ? '' : ` · ${n(line.listed)} from the blocked list${line.keptOut ? `, ${n(line.keptOut)} kept out` : ''}`;
+  // With anything kept out of the research set (server/sites.js): what the fact-check took of it ("zero credibility",
+  // the operator's word of 25 October), and what it asked for and did not get.
+  const listed = line.listed == null ? '' : ` · ${n(line.listed)} of zero credibility${line.keptOut ? `, ${n(line.keptOut)} kept out` : ''}`;
   return `[fact-check] ${line.model} at ${line.effort} (${who}): ${time}, waited ${s(line.waitMs)}; entry ${n(line.entryChars)} characters, ${n(line.entryWords)} words; ${work}${tokens}${cost}; ${verdict}${line.incomplete ? `; stopped early (${line.incomplete})` : ''}${listed}`;
 }
 

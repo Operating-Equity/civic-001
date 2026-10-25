@@ -12,7 +12,7 @@
 // page or a transcript through FactEngine, as it searched through OpenAI. Fireworks forwards no header of
 // the entry's, so its entry carries none and no pass goes to Fireworks.
 import { config } from '../config.js';
-import { blockedSites } from '../sites.js';
+import { blockedSites, sitesState } from '../sites.js';
 
 export const toolsOn = () => Boolean(config.toolsUrl && config.toolsPass);
 
@@ -40,9 +40,10 @@ export function requestTools() {
   return tools;
 }
 
-/** What a fact-check asks OpenAI to add to its reply: with a list set, every address each search consulted, not only
- *  those the entry cites, so what it took from the list can be counted (server/sites.js); without one, nothing. */
-export const requestInclude = () => (blockedSites().length ? ['web_search_call.action.sources'] : null);
+/** What a fact-check asks OpenAI to add to its reply: with anything kept out of the research set, every address each
+ *  search consulted, not only those the entry cites, so what it took of them can be counted (server/sites.js); with
+ *  nothing set, nothing. */
+export const requestInclude = () => (sitesState() ? ['web_search_call.action.sources'] : null);
 
 /** A listing on Fireworks: the tool server alone, at the address of the door opened for this listing; with no public
  *  address (or no door), nothing (said on /check). */

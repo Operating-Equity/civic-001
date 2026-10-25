@@ -40,7 +40,7 @@ import { mountGateway } from './tools/gateway.js';
 import * as economics from './economics.js';
 import * as assets from './assets.js';
 import { loadTells, finder, tellReport, setTellReport } from './tells.js';
-import { sitesState } from './sites.js';
+import { sitesState, sitesWords } from './sites.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const publicDir = path.join(here, '..', 'public');
@@ -663,11 +663,11 @@ function banner() {
   console.log(`extraction requests ${onOwnProvider() ? `go to ${listingHost()} (${listingProviderName()}) and ` : ''}carry: model ${shape.extract.model} · reasoning.effort ${shape.extract.effort}${shape.extract.mode ? ` · reasoning.mode ${shape.extract.mode}` : ''}${shape.extract.summary ? ` · reasoning.summary ${shape.extract.summary}` : ''} · ${listingTools} · ${placing} · nothing else${shape.extract.fallback ? '  (FALLBACK LIST SET)' : ''}`);
   // The sites kept out of the research (server/sites.js): by count and fingerprint, never a site.
   const kept = sitesState();
-  const search = kept ? `web_search with filters.blocked_domains (list ${kept.fingerprint}, ${kept.count} sites) · include web_search_call.action.sources` : 'web_search';
+  const search = !kept ? 'web_search' : `${kept.count ? `web_search with filters.blocked_domains (list ${kept.fingerprint}, ${kept.count} sites)` : 'web_search'} · include web_search_call.action.sources`;
   console.log(`determination requests carry: model ${shape.evaluate.model} · reasoning.effort ${shape.evaluate.effort}${shape.evaluate.mode ? ` · reasoning.mode ${shape.evaluate.mode}` : ''}${shape.evaluate.summary ? ` · reasoning.summary ${shape.evaluate.summary}` : ''} · ${search} · the source as a message ahead of the prompt · the prompt verbatim with the claim in its slot · nothing else${shape.evaluate.fallback ? '  (FALLBACK LIST SET)' : ''}`);
   console.log(kept
-    ? `[sites] ${kept.count} sites kept out of the research (list ${kept.fingerprint}): blocked in OpenAI's web search and in FactEngine's own search and page reader; on Gemini, counted and marked only`
-    : '[sites] no site is kept out of the research (CIVIC_BLOCKED_SITES or CIVIC_BLOCKED_SITES_FILE)');
+    ? `[sites] kept out of the research: ${sitesWords()}; whatever a model takes of it is counted and marked, and on Gemini that is all`
+    : '[sites] no site is kept out of the research (CIVIC_BLOCKED_SITES, CIVIC_BLOCKED_MORE, CIVIC_BLOCKED_WORDS, CIVIC_BLOCKED_MARKUP)');
   // The operator's trial (server/trial.js): whether it can run, for the host's log. No key, nothing of anyone's.
   const trial = trialState();
   if (trial) {

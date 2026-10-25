@@ -34,7 +34,7 @@ import { estimateTextCost } from './pricing.js';
 import { record, claimHash, factCheckWords } from './ledger.js';
 import { parseEntry, conclusionExcerpt } from './verdict.js';
 import { requestTools, requestInclude, toolStep, searchCount, verbOf } from './tools/request.js';
-import { listedSite, listedCounts } from './sites.js';
+import { listedSite, listedCounts, NOT_CONSULTED } from './sites.js';
 import { registry } from './tools/index.js';
 export { parseEntry, VERDICTS } from './verdict.js';
 
@@ -77,13 +77,15 @@ async function pause(ms, onWaited) {
 }
 
 /**
- * The sites the operator keeps out of the research (server/sites.js, 25 October): a cited source or a step of the trail
- * on the list is marked for the operator's card (server/view.js keeps the mark from a reader's), and what the fact-check
- * took from the list is counted for its line. With no list set, nothing is marked and the line holds no count.
+ * What the operator keeps out of the research (server/sites.js, 25 October): a cited source or a step of the trail of
+ * one of their sites or columns, or of a page that names itself one of the kinds kept out, is marked for the operator's
+ * card (server/view.js keeps the mark from a reader's), and what the fact-check took of them is counted for its line. A
+ * read FactEngine's reader refused for it (its own sentence) is marked too, whatever the page's address. With nothing
+ * set, nothing is marked and the line holds no count.
  */
 const marked = (item, title = null) => (item?.url && listedSite(item.url, { title }) ? { ...item, listed: true } : item);
 const markSource = (source) => marked(source, source?.title);
-const markStep = (step) => marked(step);
+const markStep = (step) => (step?.kind === 'tool' && step.url && step.error === NOT_CONSULTED ? { ...step, listed: true } : marked(step));
 const counted = (what) => listedCounts(what) || {};
 
 /** The addresses a search through FactEngine's own tools returned to the model (the tool's answer, as the model reads it). */
