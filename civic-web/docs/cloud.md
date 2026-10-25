@@ -1129,25 +1129,6 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
     are on Render, so this repository names no kind.
   - The reader's refusal is one sentence for all: "This page is not consulted." The log line counts "of zero
     credibility"; /check and the boot line name each list, the words and the types by count and fingerprint.
-- **25 October: four more sets of the background, held until the operator says.** The operator: "at least 4 different
-  sets", the backgrounds rotating "with obviously no memory of prior visitors' experiences", "user independent", "No
-  need to make it complicated"; and "You can hold these images until I have done some experimentation with the site
-  … I will tell you when to do that."
-  - **Made to the brief of 2 October** (`public/js/field.js`, `public/js/field-worker.js`): sixteen new fields, each a
-    proof, a design, a fractal or a field of chaos, chance and number, in four sets of four:
-    - Bayes's rule, the sunflower's golden angle, the Barnsley fern, Buffon's needle;
-    - the caustic of a round mirror, the Hilbert curve, the Clifford attractor, Gauss's sum counted;
-    - Cantor's diagonal over the true digits of twelve known numbers (worked out with whole-number arithmetic), the
-      17-gon with its 136 diagonals and Gauss's cosine for it, four Heighway dragons, the Ford circles;
-    - a Penrose tiling, the Sierpinski triangle, the logistic map's cascade, the Basel sum.
-  - **The rotation:** a visit draws one of the six sets from its own random word; nothing is stored, sent or looked up.
-    The two first sets are unchanged.
-  - **Held:** on the working branch, out of rotation, until the operator says; then a pull request, merged when no run
-    is in flight.
-  - **Proof:** a browser check (scratchpad `browser/sets-check.mjs`, 10/10): twenty-seven fields, each set one of each
-    kind; every new field draws its content in under 0.4 s; the ink stays faint; the fractals drift and stop under
-    reduced motion; sixty visits meet all six sets and leave nothing in any storage; the phases show the set's four
-    fields; a phone; the plain pages keep the golden rectangle; no page errors.
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 

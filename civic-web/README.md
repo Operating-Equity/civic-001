@@ -32,7 +32,7 @@ civic-web/
 ├── public/            The page. No build step. Plain ES modules.
 │   ├── index.html · css/civic.css
 │   ├── js/app.js      State machine and UI. js/api.js streaming client. js/render.js markdown, toasts.
-│   ├── js/field.js    The mathematics behind the glass: twenty-seven drawn fields in six sets, changing with the run (field-worker.js draws the rasters).
+│   ├── js/field.js    The mathematics behind the glass: ten drawn fields that change with the run (field-worker.js draws the fractals).
 │   ├── js/i18n.js     Translation layer. locales/en.js es.js fr.js de.js (add more here).
 │   └── assets/        Logos, the favicon, the fonts, and the style-reference photograph for the echo.
 └── scripts/           verify.mjs (the guard), mock-openai.js (dev stand-in), trial-run.mjs, ledger-summary.mjs.
@@ -44,22 +44,15 @@ The page is one light theme, by the operator's rule of 2 October: light and neve
 clears darkness and reveals truth; glass, because truth has two factors, light and transparency. Every
 panel is clear glass (`css/civic.css`: `--glass`, `--glass-strong`, `--glass-blur`, `--glass-shine`), and
 behind the glass sits a drawn field of mathematics rather than a photograph (`js/field.js`; no picture
-file is loaded). Twenty-seven fields of four kinds, each built from its own definition when it is shown: proofs
-typeset by KaTeX (Euclid's infinitude of primes, the irrationality of √2, Euclid I.47 as the windmill
-figure, Euler's identity, Gauss's sum with its count of squares, the Basel sum, Cantor's diagonal over the
-true digits of known numbers, Bayes's rule with its square of chances); designs known in mathematics (the
-golden rectangle and its spiral, the sunflower's golden angle, a Penrose tiling, the caustic light makes in
-a round mirror, the regular 17-gon with its every diagonal and Gauss's cosine for it); the fractals (the
-Mandelbrot set, a Julia set and the Barnsley fern, drawn by `js/field-worker.js` off the page's thread, and
-the Koch snowflake, the Sierpinski triangle, four Heighway dragons and the Hilbert curve); chaos, chance and
-number (the Lorenz attractor, a double pendulum's trace, the Clifford attractor, the logistic map's cascade,
-Buffon's needles, the Ulam spiral, the Ford circles). The field is fixed to the window, so every panel has it
-behind it at any scroll depth, and it changes with the run: a visit opens on one field, extraction shifts to
-a second, testing to a third and done settles on a fourth. The fields come in six sets, each one field of
-every kind (the operator, 25 October: "at least 4 different sets", rotating, "user independent", with "no
-memory of prior visitors' experiences"); a visit draws one at random, from a random word of its own, so the
-same reader seldom meets the same page twice and no one's visits are kept. The fractal fields drift in
-slowly; `prefers-reduced-motion` stops that and makes every change instant. The field is decoration only: hidden from screen readers,
+file is loaded). Ten fields of four kinds, each built from its own definition when it is shown: four
+proofs typeset by KaTeX (Euclid's infinitude of primes, the irrationality of √2, Euclid I.47 as the
+windmill figure, Euler's identity); the golden rectangle and its spiral; the fractals (the Mandelbrot set
+and a Julia set, drawn by `js/field-worker.js` off the page's thread, and the Koch snowflake); chaos and
+primes (the Lorenz attractor, a double pendulum's trace, the Ulam spiral). The field is fixed to the
+window, so every panel has it behind it at any scroll depth, and it changes with the run: a visit opens
+on one field, extraction shifts to a second, testing to a third and done settles on a fourth, by one of
+two decks drawn at random once per visit. The three fractal fields drift in slowly; `prefers-reduced-motion`
+stops that and makes every change instant. The field is decoration only: hidden from screen readers,
 inert, never reading matter, and nothing about it is stored or sent. Its ink stays faint (large forms at
 or under .2 alpha over the ground, thin strokes to .3), so body text on the strong glass keeps a contrast
 of 14 : 1 and hints 4.7 : 1. The check page holds the golden rectangle still. The verdicts keep their own
