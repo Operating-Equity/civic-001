@@ -1082,6 +1082,19 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
     after a trial's.
   - **Live** (24 October, 23:03 UTC): PR #86 deployed at 23:02. The boot line names gpt-6.1-sol ready at xhigh with
     OpenAI's web search; the readers' determinations stay on gpt-5.6-sol at xhigh. Live check clean, nothing spent.
+- **24 October, night: a page left open, and the claim alone for every copy of the page.** The operator, on the iPad at
+  23:33 UTC: "Have you done nothing?" The pull-down had no GPT-6.1 Sol, and each claim had its fields under it.
+  - **What happened:** the run went through the current server (`[listing] … on gpt-6.1-sol at medium … roles: 18
+    central, 37 supporting, 9 incidental (not offered)`), but the page was a copy loaded before 21:28, never reloaded.
+    A page read the server's offer once, at load, and never loaded itself again but for a sign-in change; Safari kept the
+    tab in memory. That copy drew each claim's fields under it, and would have sent the whole entry to a fact-check,
+    because the server still gave the page each claim's entry and the fact-check took whatever text the page sent.
+  - **The server, for every copy of the page:** each claim leaves the listing as its number, its text and `top`; the
+    fact-check takes the claim alone whatever a page sends (`claimAlone`, `server/extract.js`), for the readers' model,
+    a trial and side by side, into the prompt, the fingerprint and the books.
+  - **The page follows a new version by itself** (the operator's answer, "By itself"): it reads `/api/health` again when
+    the reader comes back to it and at Start a new test; another build loads at once when nothing is on the page (the
+    text and its origin kept), else at the next Start a new test; never a load after a load.
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 

@@ -212,10 +212,13 @@ try {
         && hb({ kind: 'link', url: 'https://news.example.org/files/report.pdf', title: 'report.pdf' }) === 'Headline: (none given)' && hb({ kind: 'file', name: 'notes.txt' }) === 'Headline: (none given)'
         && headlineBlock('Line one.\n\nLine two.', { kind: 'text' }) === 'Headline: (none given)\n\nLine one.\n\nLine two.',
       JSON.stringify([hb({ kind: 'link', url: 'https://news.example.org/2026/10/a-column', title: 'A column\'s own headline' }), hb({ kind: 'text' })]));
-    const first = ex.find((e) => e.t === 'done')?.claims?.[0];
-    check('extraction: each entry\'s claim is its Claim line, the further lines kept beside it verbatim',
-      Boolean(first) && !/^claim:/i.test(first.text) && first.text.length > 0 && /^Attribution:/.test(first.more) && first.entry.startsWith(`Claim: ${first.text}`),
-      JSON.stringify(first));
+    const done0 = ex.find((e) => e.t === 'done');
+    const first = done0?.claims?.[0];
+    const offeredAll = [...ex.filter((e) => e.t === 'claim').map(({ t, ...c }) => c), ...(done0?.claims || [])];
+    check('extraction: each entry\'s claim is its Claim line, and only the claim leaves the listing: its number, its text and whether it is shown first, as it streams and in the finished list; the lines written with it stay, verbatim, in the raw output (24 October, night)',
+      Boolean(first) && !/^claim:/i.test(first.text) && first.text.length > 0 && offeredAll.length > 1
+        && offeredAll.every((c) => Object.keys(c).sort().join() === 'n,text,top') && done0.raw.includes(`Claim: ${first.text}\nAttribution:`),
+      JSON.stringify({ first, keys: [...new Set(offeredAll.map((c) => Object.keys(c).sort().join()))] }));
     check('extraction: store = false', exBody.store === false);
   }
   if (evBody) {
@@ -945,10 +948,10 @@ async function creditChecks(label, dbUrl) {
     const r = await c.stream('/api/extract', { text: ACCT_TEXT, jobId }, cookie);
     return { pricing: r.events.find((e) => e.t === 'pricing'), claims: r.events.find((e) => e.t === 'done')?.claims || [] };
   };
-  const det = (cookie, runId, claims, n, jobId, extra = {}) => c.stream('/api/evaluate', { jobId, claims: [claims[n - 1].entry], text: ACCT_TEXT, source: { kind: 'text' }, runId, n, ...extra }, cookie);
+  const det = (cookie, runId, claims, n, jobId, extra = {}) => c.stream('/api/evaluate', { jobId, claims: [claims[n - 1].text], text: ACCT_TEXT, source: { kind: 'text' }, runId, n, ...extra }, cookie);
   const quote = (r) => r.events.find((e) => e.t === 'quote');
   const done = (r) => r.events.some((e) => e.t === 'done');
-  const idx = (claims, word) => claims.findIndex((x) => x.entry.includes(word)) + 1;
+  const idx = (claims, word) => claims.findIndex((x) => x.text.includes(word)) + 1;
   try {
     const reader = (await c.signup('payer@example.com')).cookie;
     const run1 = await listRun(reader, 'verify-credit-run-1');
@@ -1863,7 +1866,7 @@ async function toolChecks() {
     // stand-in OpenAI calls the gateway as OpenAI's servers do; the page's stream shows each call.
     const source = 'The Nile is about 6,650 kilometres long. Water boils at 100 degrees Celsius at sea level.';
     const ex = await stream(`${base}/api/extract`, { text: source });
-    const entry = ex.find((e) => e.t === 'done')?.claims?.[0]?.entry || 'Claim: The Nile is about 6,650 kilometres long.';
+    const entry = ex.find((e) => e.t === 'done')?.claims?.[0]?.text || 'The Nile is about 6,650 kilometres long.';
     const ev = await stream(`${base}/api/evaluate`, { claims: [entry], text: source, source: { kind: 'text' } });
     await new Promise((r) => setTimeout(r, 500)); // the ledger is appended after the stream ends
     const sent = readIf(mockRecord).split('\n').filter(Boolean).map((l) => JSON.parse(l));
@@ -2040,7 +2043,7 @@ async function economicsChecks() {
         JSON.stringify(health.pricing));
       const r1 = await runOn(P1, a, 'verify-econ-r1');
       const claims = r1.find((e) => e.t === 'done')?.claims || [];
-      const entry = (i) => claims[i % Math.max(1, claims.length)]?.entry || text;
+      const entry = (i) => claims[i % Math.max(1, claims.length)]?.text || text;
       check('the extraction\'s first event after attaching tells the page this run\'s tier, free count and price, fixed for the document',
         r1[0]?.t === 'attached' && JSON.stringify(pricingOf(r1)) === JSON.stringify({ tier: 3, freeFacts: 2, priceCents: 45, currency: 'USD', note: null }) && claims.length >= 3, JSON.stringify(r1.slice(0, 2)));
       const d1 = await detOn(P1, a, { jobId: 'verify-econ-r1-c1', runId: 'verify-econ-r1', n: 1, entry: entry(0) });
@@ -2200,7 +2203,7 @@ async function economicsChecks() {
       const h9b = await json(`${base(P9)}/api/health`, a9);
       const row9 = (await dbQuery(DB4, 'SELECT price_cents, basis FROM windows')).rows;
       const r9b = await runOn(P9, a9, 'verify-econ-r9b');
-      const c9 = (r) => r.find((e) => e.t === 'done')?.claims?.[0]?.entry || text;
+      const c9 = (r) => r.find((e) => e.t === 'done')?.claims?.[0]?.text || text;
       const dOld = await detOn(P9, a9, { jobId: 'verify-econ-r8b-c1', runId: 'verify-econ-r8b', n: 1, entry: c9(r8b) });
       const dNew = await detOn(P9, a9, { jobId: 'verify-econ-r9b-c1', runId: 'verify-econ-r9b', n: 1, entry: c9(r9b) });
       const st9b = await json(`${base(P9)}/api/selftest`, a9);
@@ -2247,7 +2250,7 @@ async function economicsChecks() {
     const h9 = await json(`${base(P9)}/api/health`, a9);
     const r9 = await runOn(P9, a9, 'verify-econ-r9');
     const claims9 = r9.find((e) => e.t === 'done')?.claims || [];
-    const e9 = (i) => claims9[i % Math.max(1, claims9.length)]?.entry || text;
+    const e9 = (i) => claims9[i % Math.max(1, claims9.length)]?.text || text;
     const q = [];
     for (let i = 0; i < 3; i++) q.push(quoteOf(await detOn(P9, a9, { jobId: `verify-econ-r9-c${i + 1}`, runId: 'verify-econ-r9', n: i + 1, entry: e9(i) })));
     const st9 = await json(`${base(P9)}/api/selftest`, a9);
@@ -2394,7 +2397,7 @@ async function deepseekChecks() {
       JSON.stringify([...a, ...replay].filter((e) => e.t === 'reasoning').slice(0, 2)));
 
     // A determination of the first claim: OpenAI, with OpenAI's key.
-    const entry = doneA?.claims?.[0]?.entry || 'The Eiffel Tower stands about 330 metres tall.';
+    const entry = doneA?.claims?.[0]?.text || 'The Eiffel Tower stands about 330 metres tall.';
     const ev = await stream(`${base}/api/evaluate`, { claims: [entry], text: source, source: { kind: 'text' } });
     check('DeepSeek: a reader\'s determination still runs on OpenAI and completes', ev.some((e) => e.t === 'done') && !ev.some((e) => e.t === 'error'), JSON.stringify(ev.filter((e) => e.t === 'error')));
     const openaiRecs = records().filter((r) => r.path === '/v1/responses');
@@ -2938,6 +2941,33 @@ async function openaiTrialChecks() {
       (st.checks || []).some((c) => c.title === 'Your trial on OpenAI can run' && c.state === 'ok') && (st.checks || []).some((c) => c.title === 'OpenAI accepts this key for gpt-6.1-sol' && c.state === 'ok')
         && /gpt-6\.1-sol ready, at xhigh, with OpenAI's web search/.test(said) && /\[fact-check\] gpt-6\.1-sol at xhigh \(trial\)/.test(said),
       JSON.stringify((st.checks || []).filter((c) => /OpenAI/.test(c.title)).map((c) => `${c.state}:${c.title}`)));
+
+    // The claim alone is tested, whatever the page sends (24 October, night): a copy of the page from before the claim
+    // alone was shown sends each claim's whole entry. Only the claim reaches the prompt's slot and the books, on the
+    // readers' model, a trial and side by side alike. The labels are the listing's own words (server/names.js).
+    const { claimHash } = await import('../server/ledger.js');
+    const whole = [
+      `Claim: ${claim}\nRole: Central.\nAttribution/context: The supplied text.\nSource anchor: "330 metres"\nQualification needed: None.`,
+      `**Claim:** ${claim} **Role:** Supporting. **Source anchor:** "330 metres"`,
+      `- Claim: ${claim}\n   - **Role:** Unranked.\n   - **Qualification needed:** the year.`,
+      `${claim} Role: Central. Source anchor: "330 metres"`,
+    ];
+    const asked0 = bodies().length;
+    const runs = [];
+    for (const [k, e] of whole.entries()) runs.push(await evaluate({ claims: [e] }, `whole-${k}`));
+    runs.push(await evaluate({ claims: [whole[0]], model: 'gpt-6.1-sol', effort: 'xhigh' }, 'whole-trial'));
+    runs.push(await evaluate({ claims: [whole[1]], model: config.evalModels[0] }, 'whole-twin'));
+    const asked = bodies().slice(asked0);
+    const slotted = evaluatePrompt.split('{{CLAIM}}').join(claim);
+    const userOf = (x) => x?.input?.[x.input.length - 1]?.content?.[0]?.text;
+    check('Claim alone: a page that sends a claim\'s whole entry, its fields on their own lines or on the claim\'s, bold or plain, has the claim alone tested: the prompt\'s slot holds the claim and nothing written with it, on the readers\' model, a trial and side by side',
+      asked.length === 6 && asked.every((x) => userOf(x) === slotted) && asked.filter((x) => x.model === 'gpt-6.1-sol').length === 1 && runs.every((r) => r.some((e) => e.t === 'done')),
+      JSON.stringify({ asked: asked.map((x) => [x.model, (userOf(x) || '').length]), slotted: slotted.length }));
+    await new Promise((r) => setTimeout(r, 500));   // the ledger is appended after the stream ends
+    const tail = fs.readFileSync(ledger, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)).filter((l) => l.kind === 'evaluate' || l.kind === 'trial').slice(-6);
+    check('Claim alone: the books count the claim alone: each of those fact-checks\' ledger lines holds the claim\'s own fingerprint and length, never the entry\'s',
+      tail.length === 6 && tail.every((l) => l.claim === claimHash(claim) && l.chars === claim.length),
+      JSON.stringify(tail.map((l) => [l.kind, l.model, l.claim === claimHash(claim), l.chars])));
   } catch (err) {
     check('OpenAI trial checks completed', false, err.message);
   }
@@ -3529,7 +3559,7 @@ await rankChecks();
 // invention, set as the operator sets theirs (CIVIC_OUTPUT_NAMES) and written so by the stand-in; never a prompt's.
 async function roleChecks() {
   const { sourceSlot } = await import('../server/prompts.js');
-  const { parseNumberedList, splitEntry } = await import('../server/extract.js');
+  const { parseNumberedList, splitEntry, claimAlone } = await import('../server/extract.js');
   const at = (text) => { const s = sourceSlot(text); return s ? text.slice(s.start, s.end) : null; };
   const after = (text) => { const s = sourceSlot(text); return s ? text.slice(s.end) : null; };
   check('The slot: a prompt\'s last line written entirely in square brackets, wherever it stands: a final line; a line with a closing line after it, which stays as written; the last of two; none; brackets inside a line of text are no slot',
@@ -3557,6 +3587,15 @@ async function roleChecks() {
       && parts[4].text === 'Its span was the longest until 1964.' && parts[4].more === 'Kind: Main'
       && parts[5].text === 'It is painted orange.' && parts[5].more === '',
     JSON.stringify(parts));
+  // What a page sends to be tested (24 October, night): a copy of the page from before the claim alone was shown sends
+  // each claim's whole entry; the fact-check takes its claim, as the listing read it, and a claim given alone as sent.
+  const inline = ['Claim: The bridge is 1,280 m long. **Role:** Central. **Source anchor:** "1,280 m"', '**Claim:** The bridge is 1,280 m long. Role: Supporting.', 'The bridge is 1,280 m long. Qualification needed: None.'];
+  check('Claim alone: each whole entry a page sends gives its claim, exactly as the listing reads it, its fields on their own lines or on the claim\'s, bold or plain; a claim given alone is taken exactly as sent, so the listing\'s own claims pass unchanged; a role named mid-sentence, or a colon inside a figure, is no entry',
+    entries.every((x, k) => claimAlone(x.text) === parts[k].text) && parts.every((p) => claimAlone(p.text) === p.text)
+      && inline.every((e) => claimAlone(e) === 'The bridge is 1,280 m long.')
+      && claimAlone('  The bridge is 1,280 m long.  ') === 'The bridge is 1,280 m long.' && claimAlone('The ratio was 3:1 in 2024.') === 'The ratio was 3:1 in 2024.'
+      && claimAlone('The Role of the court is limited.') === 'The Role of the court is limited.' && claimAlone('') === '' && claimAlone(null) === '',
+    JSON.stringify([entries.map((x) => claimAlone(x.text)), inline.map((e) => claimAlone(e))]));
 
   const MOCKR = MOCK_PORT + 110;
   const DSKEY = 'sk-dsroles00000000000000000000000';
@@ -3580,6 +3619,15 @@ async function roleChecks() {
   const incidental = [2, 7, 12].map((i) => SENTENCES[i].slice(0, 30));
   const supporting = [1, 6, 11].map((i) => SENTENCES[i].slice(0, 30));
   const holds = (list, s) => (list || []).some((c) => String(c.text || '').includes(s));
+  // A claim's entry in the raw output: from its claim line to the next numbered line.
+  const entryIn = (raw, text) => {
+    const lines = String(raw || '').split('\n');
+    const k = lines.findIndex((l) => l.includes(`Claim: ${text}`));
+    if (k < 0) return '';
+    let j = k + 1;
+    while (j < lines.length && !/^\d+\. /.test(lines[j])) j++;
+    return lines.slice(k, j).join('\n');
+  };
   const serve = (port, env = {}) => {
     const child = start([path.join(root, 'server', 'index.js')], {
       PORT: String(port), OPENAI_BASE_URL: `http://localhost:${MOCKR}/v1`, OPENAI_API_KEY: KEY, CIVIC_IMAGE_ENABLED: 'false', CIVIC_LEDGER_FILE: ledger, DATABASE_URL: '',
@@ -3607,8 +3655,9 @@ async function roleChecks() {
         && supporting.every((s) => done.claims.find((c) => c.text.includes(s))?.top === false) && done.claims.filter((c) => c.top === true).length === 7
         && sent.every((e) => e.top === done.claims[e.n - 1]?.top),
       JSON.stringify(done?.claims?.map((c) => [c.n, c.top])));
-    check('Roles: a role line is read in each shape (indented, after a bullet, in bold) and kept verbatim under its claim, with the claim line whole in its entry',
-      Boolean(done) && done.claims.filter((c) => /Weight/.test(c.more)).length === 8 && done.claims.every((c) => c.entry.startsWith(`Claim: ${c.text}`) && !/Weight/.test(c.text)),
+    check('Roles: a role line is read in each shape (indented, after a bullet, in bold); only the claim leaves the listing, and the raw output keeps each role line verbatim, in its claim\'s entry',
+      Boolean(done) && done.claims.filter((c) => /Weight/.test(entryIn(done.raw, c.text))).length === 8
+        && done.claims.every((c) => Object.keys(c).sort().join() === 'n,text,top' && !/Weight/.test(c.text)) && sent.every((e) => !('more' in e) && !('entry' in e)),
       JSON.stringify(done?.claims?.slice(0, 3)));
 
     const b = await listing(base, 'supporting');
@@ -3619,7 +3668,7 @@ async function roleChecks() {
     const c = await listing(base, 'none');
     const doneC = c.find((e) => e.t === 'done');
     check('Roles: a listing that writes no role lines is as before: all 13 claims offered and shown',
-      doneC?.claims?.length === 13 && doneC.claims.every((x) => x.top === true) && !doneC.claims.some((x) => /Weight/.test(x.more)),
+      doneC?.claims?.length === 13 && doneC.claims.every((x) => x.top === true) && !/Weight/.test(doneC.raw),
       JSON.stringify(doneC?.claims?.length));
 
     // Fields on the claim's own line (24 October: DeepSeek wrote "Claim: … **Role:** Supporting. **Source anchor:** …"):
@@ -3629,7 +3678,7 @@ async function roleChecks() {
     check('Roles: fields written on the claim\'s own line, bold or plain, are split off: each claim is its sentence alone; the role is read there, so the Supporting ones wait and the Incidental ones are not offered',
       doneD?.claims?.length === 10 && doneD.claims.every((c) => SENTENCES.some((s) => c.text === s || c.text === s.replace(/\.$/, ' [roles:inline].')) && !/Weight|Where in the text|Left open/.test(c.text))
         && doneD.claims.filter((c) => c.top === false).length === 3 && supporting.every((s) => doneD.claims.find((c) => c.text.includes(s))?.top === false)
-        && !incidental.some((s) => holds(doneD.claims, s)) && doneD.claims.filter((c) => /Weight/.test(c.more)).length === 8,
+        && !incidental.some((s) => holds(doneD.claims, s)) && doneD.claims.filter((c) => /Weight/.test(entryIn(doneD.raw, c.text))).length === 8,
       JSON.stringify(doneD?.claims?.slice(0, 2)));
 
     const said = output.join('');
@@ -3797,7 +3846,7 @@ async function fireworksChecks() {
       JSON.stringify({ mcp: mcpCalls.length, searches: searchCalls.length, lines: searchLines.length }));
 
     // A determination of the first claim: OpenAI, with OpenAI's key, and the gateway not in its request.
-    const entry = doneA?.claims?.[0]?.entry || 'Claim: The Eiffel Tower stands about 330 metres tall.';
+    const entry = doneA?.claims?.[0]?.text || 'The Eiffel Tower stands about 330 metres tall.';
     const ev = await stream(`${base}/api/evaluate`, { claims: [entry], text: source, source: { kind: 'text' } });
     const openaiRecs = records().filter((r) => r.path === '/v1/responses');
     check('Fireworks: the determination still runs on OpenAI and completes, and its request carries web search alone though the tool server is mounted with a pass',

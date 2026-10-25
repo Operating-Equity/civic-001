@@ -635,7 +635,11 @@ the claim's own line, bold or plain (24 October: DeepSeek wrote "Claim: … **Ro
 on one line). The listing's field labels are in `server/names.js` (`fields`, beside `role`), and `CIVIC_OUTPUT_NAMES`
 can rename them. The claim alone is shown, and the claim alone is what each determination is given: nothing else the
 listing wrote goes downstream (the operator, 24 October: "I don't want the extraction to affect downstream processing
-in any way"); the listing's whole output stays under "Extraction output, verbatim". A number may be written in bold or
+in any way"); the listing's whole output stays under "Extraction output, verbatim". Since 24 October, night, the server
+holds to this for every copy of the page: each claim leaves the listing as its number, its text and whether it is
+shown first, nothing else; and the fact-check takes the claim alone whatever a page sends, an entry with its fields
+(from a copy of the page loaded before the change) read as the listing reads it (`claimAlone`, `server/extract.js`),
+a claim alone taken as sent. A number may be written in bold or
 after a heading mark; a labelled line may follow an indent, a bullet or bold, with up to four words in its label,
 joined by spaces, slashes or hyphens; without its claim label, the claim is what comes before the entry's first field.
 
@@ -781,6 +785,15 @@ without the operator's parts (the cost, the key's minute, the trial bar), which 
 `public/index.html`; their words are in those parts, not in the four locales. A sign-in or sign-out that changes the
 form loads the page again once nothing is running. `/check` and its script are the operator's, however the address is
 spelt. Of the vendor packages, only the files the pages load are sent, as shipped; their source maps are not.
+
+**A page follows a new version by itself** (`public/js/app.js`, 24 October, night: the operator's answer "By itself").
+A page left open across a release kept its old code and what the server offered when it loaded. Now the page knows the
+build its script was loaded as, and reads `/api/health` again when the reader comes back to it (another tab or app,
+the screen unlocked, the browser's back-forward cache) and at Start a new test, never on a timer. A server of another
+build loads the new version: at once when nothing is on the page (no run, no result, no copies to choose from, no file
+being read, the account box closed), keeping the text in the box and its link's or file's origin; otherwise at the next
+Start a new test, so no run and no result is lost. A page loaded again for a build that still finds another (a release
+under way) waits for the reader: a load never follows a load by itself.
 
 **The tell words, and the leak check over history** (`server/tells.js`, `scripts/leak-check.mjs`, 20 October). The
 operator's tell words are kept with the prompts, never here: `CIVIC_TELL_WORDS` (JSON) or `CIVIC_TELL_WORDS_FILE`,

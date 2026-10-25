@@ -74,6 +74,18 @@ export function splitEntry(entry) {
   return { text, more: [before, next < 0 ? '' : rest.slice(next).trim()].filter(Boolean).join('\n') };
 }
 
+/**
+ * The claim alone, from what a page sends to be tested (24 October, night): a copy of the page loaded before the claim
+ * alone was shown sends each claim's whole entry, its fields with it. Anything carrying the claim's label at its start, a
+ * further labelled line or one of the listing's fields is an entry, read as the listing reads it; anything else is a
+ * claim already, the listing's own, and is taken exactly as sent.
+ */
+export function claimAlone(sent) {
+  const s = String(sent ?? '').trim();
+  const entry = CLAIM_LINE.exec(s)?.index === 0 || LABEL_LINE.test(s) || FIELD.test(s);
+  return entry ? splitEntry(s).text : s;
+}
+
 // A claim's role (24 October): the words after its role label, on its own line or on the claim's, read against the
 // operator's role words (server/names.js) whatever their capitals or bold, the longest first, so a longer word is never
 // read as a shorter one.
@@ -121,16 +133,19 @@ export async function runExtraction({ apiKey, text, meta, send, signal, sourceWa
   const started = Date.now();
   // Each entry is read once, when the next number closes it. An Incidental claim is not offered for testing, so it is
   // never sent to the page or counted there (the operator's answers of 24 October: "not important enough to test", and
-  // not erased: the raw output keeps it); a Supporting one waits behind "Show the other claims" (`top: false`).
+  // not erased: the raw output keeps it); a Supporting one waits behind "Show the other claims" (`top: false`). Only the
+  // claim leaves the listing (24 October, night): its number, its text and whether it is shown first. Its entry's fields
+  // stay here, for its role and the counts, and in the raw output; a copy of the page from before the claim alone was
+  // shown drew them under the claim and sent them to the fact-check.
   const readEntry = (item) => {
     const entry = item.text;
     if (!entry) return;
     const role = roleOf(entry);
     read.push({ role, labelled: labelled(entry) });
     if (role === 'incidental') return;
-    const parts = splitEntry(entry);
-    if (!parts.text) return;
-    const claim = { n: offered.length + 1, ...parts, entry, top: role !== 'supporting' };
+    const { text: claimText } = splitEntry(entry);
+    if (!claimText) return;
+    const claim = { n: offered.length + 1, text: claimText, top: role !== 'supporting' };
     offered.push(claim);
     send({ t: 'claim', ...claim });
   };

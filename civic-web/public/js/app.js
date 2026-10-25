@@ -56,6 +56,7 @@ const state = {
   video: null,         // a YouTube source: { id, embeddable, thumbnails } for the picture's box
   copies: null,        // a refused link's copies found elsewhere: { list, publisher, site }, under the box
   copiesAbort: null,   // the search for them while it runs
+  parsing: false,      // a file being read into the box (/api/parse)
   batch: { start: 0, size: 0, done: 0 },
   counts: { true: 0, false: 0, unverified: 0 },
   unread: 0,
@@ -166,13 +167,20 @@ async function boot() {
 
   wireIntake();
   wireAccount();
-  // The text kept across a load that followed a sign-in or a sign-out (followAccount), put back once.
+  // The text kept across a load that followed a sign-in, a sign-out (followAccount) or a new version (followBuild), put
+  // back once, with what is known of its origin when a link or a file brought it in.
   try {
     const kept = sessionStorage.getItem(KEEP);
+    const origin = sessionStorage.getItem(KEEP_ORIGIN);
+    sessionStorage.removeItem(KEEP);
+    sessionStorage.removeItem(KEEP_ORIGIN);
     if (kept !== null) {
-      sessionStorage.removeItem(KEEP);
       ui.source.value = kept;
+      let from = null;
+      try { from = origin ? JSON.parse(origin) : null; } catch { /* the text alone is kept */ }
+      if (from?.meta) Object.assign(state, { sourceMeta: from.meta, sourceLink: from.link || null, video: from.video || null, loadedText: kept });
       updateSourceMeta();
+      if (from?.line) ui.sourceMeta.textContent = from.line;
     }
   } catch { /* nothing kept */ }
   ui.resetTop.addEventListener('click', resetAll);
@@ -201,6 +209,10 @@ async function boot() {
   // Leaving the page is the one way, besides Start a new test, that a run is stopped: the server
   // keeps working through a cut connection, so it has to be told when nobody will come back.
   window.addEventListener('pagehide', () => { if (state.jobs.size) api.cancel([...state.jobs], { beacon: true }); });
+  // Coming back to the page (from another tab or app, the screen unlocked, or from the browser's back-forward cache): a
+  // new version of FactEngine is looked for (followBuild).
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') followBuild(); });
+  window.addEventListener('pageshow', (e) => { if (e.persisted) followBuild(); });
 
   // The launcher opens the page at a one-off address so a browser holding an older copy of the page
   // cannot serve it back instead of asking the server. Tidy that marker out of the address bar.
@@ -213,6 +225,8 @@ async function boot() {
     if (ui.buildStamp && state.server?.build) ui.buildStamp.textContent = `build ${state.server.build}`;
     state.accounting = Boolean(state.server.accounting);
     state.session = state.server.access?.session || null;
+    pageBuild = OWN_BUILD || state.server?.build || null;
+    if (noteBuild(state.server, { atLoad: true })) return;
   } catch {
     state.server = null;
   }
@@ -419,16 +433,55 @@ async function signOut() {
 // The page's parts follow the account (server/assets.js): the operator's page carries the operator's parts, anyone
 // else's does not. A sign-in or a sign-out that changes which page this account should have loads the page again: at
 // once when nothing is running, else at the next Start a new test, so no run and no result is lost to it. The text in
-// the box is kept across the load. A page never loads itself again otherwise.
+// the box is kept across the load, with what is known of its origin. A page loads itself again otherwise only for a new
+// version of FactEngine (followBuild, below).
 const KEEP = 'fe.keep';
+const KEEP_ORIGIN = 'fe.keep.origin';   // the kept text's link or file, while the text is still what it brought in
+const RELOADED = 'fe.reloaded';         // the build a page was loaded again for (followBuild)
 let pageStale = false;
 const quiet = () => state.phase === 'idle' && !state.jobs.size && !state.urlAbort && !state.copiesAbort;
-function reloadPage({ keepText }) {
+function reloadPage({ keepText, forBuild = null }) {
   try {
-    if (keepText && ui.source.value) sessionStorage.setItem(KEEP, ui.source.value);
-    else sessionStorage.removeItem(KEEP);
+    if (keepText && ui.source.value) {
+      sessionStorage.setItem(KEEP, ui.source.value);
+      if (state.loadedText && ui.source.value === state.loadedText) {
+        sessionStorage.setItem(KEEP_ORIGIN, JSON.stringify({ meta: state.sourceMeta, link: state.sourceLink || null, video: state.video || null, line: ui.sourceMeta.textContent }));
+      } else sessionStorage.removeItem(KEEP_ORIGIN);
+    } else {
+      sessionStorage.removeItem(KEEP);
+      sessionStorage.removeItem(KEEP_ORIGIN);
+    }
+    if (forBuild) sessionStorage.setItem(RELOADED, forBuild);
+    else sessionStorage.removeItem(RELOADED);
   } catch { /* the text is not kept; the page still loads */ }
   location.reload();
+}
+
+// A page follows a new version of FactEngine by itself (the operator's answer of 24 October, night: "By itself"): a page
+// left open across a release otherwise kept its old code and its old trial entries, and an old copy drew each claim's
+// fields under it. The page is the build its script was loaded as (/b/<build>/js/app.js, server/assets.js). It reads the
+// health line again when the reader comes back to it and at Start a new test, never on a timer; a server of another
+// build is a new version, loaded at once when nothing is on the page, else at the next Start a new test, so no run and
+// no result is lost to it. A page loaded again for a build that still finds another (a release under way served it the
+// old page) waits for the reader: a load never follows a load by itself.
+const OWN_BUILD = (() => { try { return new URL(import.meta.url).pathname.match(/^\/b\/([^/]+)\/js\/app\.js$/)?.[1] || null; } catch { return null; } })();
+const RELOADED_FOR = (() => { try { const b = sessionStorage.getItem(RELOADED); sessionStorage.removeItem(RELOADED); return b; } catch { return null; } })();
+let pageBuild = OWN_BUILD;
+let newBuild = null;   // the server's build, once it is not this page's
+// Nothing on the page a load would lose: no run and no result, no copies to choose from, no file being read, and the
+// account box closed.
+const calm = () => quiet() && !state.copies && !state.parsing && ui.accountBox.hidden;
+function noteBuild(h, { atLoad = false } = {}) {
+  if (!h?.build || !pageBuild || h.build === pageBuild) return false;
+  newBuild = h.build;
+  if ((atLoad && RELOADED_FOR === h.build) || !calm()) return false;
+  reloadPage({ keepText: true, forBuild: h.build });
+  return true;
+}
+let looking = null;
+function followBuild() {
+  looking ??= api.health().then((h) => noteBuild(h), () => false).finally(() => { looking = null; });
+  return looking;
 }
 function followAccount({ now }) {
   const operatorPage = Boolean(document.getElementById('op-words'));
@@ -486,6 +539,7 @@ function wireIntake() {
     const file = ui.sourceFile.files?.[0];
     if (!file) return;
     ui.sourceMeta.textContent = t('intake.reading', { name: file.name });
+    state.parsing = true;
     try {
       if (!state.server) throw new api.ApiError(0, 'no_server', t('errors.server'));
       const parsed = await api.parseFile(file);
@@ -499,6 +553,7 @@ function wireIntake() {
       updateSourceMeta();
       toast(t('errors.file', { message: err.message }), { error: true });
     } finally {
+      state.parsing = false;
       ui.sourceFile.value = '';
     }
   });
@@ -818,7 +873,8 @@ function resetRunState() {
 }
 
 function resetAll() {
-  if (pageStale) { reloadPage({ keepText: false }); return; }   // the page this account should have (followAccount)
+  // The page this account should have (followAccount), or a new version of FactEngine (followBuild).
+  if (pageStale || newBuild) { reloadPage({ keepText: false, forBuild: newBuild }); return; }
   resetRunState();
   field.setPhase('idle');
   hideCopies();
@@ -833,6 +889,7 @@ function resetAll() {
   updateSourceMeta();
   window.scrollTo({ top: 0, behavior: 'smooth' });
   ui.source.focus();
+  followBuild();   // a new version since the reader came back, looked for with nothing on the page
 }
 
 function setStep(stepEl, stateName) { stepEl.dataset.state = stateName; }

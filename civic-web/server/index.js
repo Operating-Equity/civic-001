@@ -18,7 +18,7 @@ import { fileToText, normalise, ACCEPTED_SOURCE_EXT } from './documents.js';
 import { readUrl, UrlError, isSingleUrl, normalizeUrl, unwrapRedirect, youtubeId, siteName } from './fetchurl.js';
 import { findCopies, searchOn, readerOn, readerCopy } from './copies.js';
 import { sourceMeta, sourceBlock } from './source.js';
-import { runExtraction } from './extract.js';
+import { runExtraction, claimAlone } from './extract.js';
 import { runEvaluation } from './evaluate.js';
 import { trialOf, trialState } from './trial.js';
 import { rankFor, rankState } from './rank.js';
@@ -448,7 +448,10 @@ app.post('/api/evaluate', wrap(async (req, res) => {
   const trial = trialOf(req.body, { operator: seesAll(req) });
   const apiKey = trial?.provider === 'deepseek' ? deepseekProvider.key() : trial?.provider === 'gemini' ? geminiProvider.key() : operatorKey();
   if (!hasPrompt('evaluate')) throw new ApiError(503, 'prompt_missing', 'The evaluation prompt is not installed on this server.');
-  const claims = Array.isArray(req.body?.claims) ? req.body.claims.map((c) => String(c || '').trim()).filter(Boolean) : [];
+  // The claim alone is tested, whatever the page sends (24 October, night: "I don't want the extraction to affect
+  // downstream processing in any way"): a copy of the page from before the claim alone was shown sends each claim's whole
+  // entry, and only its claim goes on, into the prompt, the fingerprint and the books (claimAlone, server/extract.js).
+  const claims = Array.isArray(req.body?.claims) ? req.body.claims.map((c) => claimAlone(c)).filter(Boolean) : [];
   if (!claims.length) throw new ApiError(400, 'no_claims', 'No claims to test.');
   if (claims.length > config.maxClaims) throw new ApiError(400, 'too_many_claims', `At most ${config.maxClaims} claims can be tested in one run.`);
   // The source the claims came from goes ahead of the prompt in every determination, exactly as
