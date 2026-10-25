@@ -822,6 +822,7 @@ function newResult() {
     status: 'pending', phase: 'pending', text: '', reasoning: '', chars: 0, startedAt: 0,
     verdict: null, verdictSource: 'none', confidence: null, inspector: null, inspectorMark: null,
     usage: null, cost: null, ms: null, trail: [], sources: [], incomplete: null, renderAt: 0,
+    listed: null, keptOut: null,  // the operator's alone: what the fact-check took from their list of sites kept out (server/sites.js)
     jobId: null, cutFrom: null,   // the claim's job at the server, and what the row said before its connection was cut
     free: null, priceCents: null, // what the server said this one costs: one of the document's free ones, or the price
   };
@@ -1899,6 +1900,7 @@ function finalizeCard(i, ev) {
     model: ev.model || null, requested: ev.requested || null, fellBack: ev.fellBack || null, effort: ev.effort || null, mode: ev.mode || null, depth: ev.depth ?? null,
     trail: ev.trail?.length ? ev.trail : r.trail, sources: ev.sources?.length ? ev.sources : r.sources,
     incomplete: ev.incomplete || r.incomplete || null,
+    listed: ev.listed ?? null, keptOut: ev.keptOut ?? null,
   });
   const card = cardOf(i);
   card.classList.remove('verdict-true', 'verdict-false', 'verdict-unverified', 'verdict-unread');
@@ -1935,6 +1937,13 @@ function renderBadge(i) {
   } else if (conf) conf.remove();
 }
 
+/** The operator's mark on a source or a step of a site on their list (server/sites.js): "zero credibility", their word of
+ *  25 October. A reader's page has neither the mark nor the word for it. */
+function markOf(item) {
+  const word = item?.listed ? opWord('listed') : '';
+  return word ? [el('span', { class: 'card-mark mono', text: word })] : [];
+}
+
 /** Anything the run produced that is not the entry itself: reasoning, searches, sources, raw text. */
 function renderCardDetail(i) {
   const r = state.results[i];
@@ -1959,7 +1968,7 @@ function renderCardDetail(i) {
       // A search shows its query; one of CIVIC's tools shows its verb and what it was asked, and the source's answer if it kept the page.
       const what = (s.query ? `“${s.query}”` : s.url || s.pattern || s.kind || '') + (s.kind === 'tool' && s.error ? ` · ${s.error}` : '');
       const kind = s.kind ? (s.kind === 'tool' ? s.name || 'tool' : s.kind) : t(`trail.${s.verb || 'search'}`);
-      return el('li', {}, [el('span', { class: 'trail-kind mono', text: kind }), el('span', { text: what })]);
+      return el('li', {}, [el('span', { class: 'trail-kind mono', text: kind }), el('span', { text: what }), ...markOf(s)]);
     }));
   } else trail.hidden = true;
 
@@ -1968,7 +1977,7 @@ function renderCardDetail(i) {
     sources.hidden = false;
     $('.raw-summary', sources).textContent = t('card.details.sources', { n: r.sources.length });
     $('.sources-list', sources).replaceChildren(...r.sources.map((s) =>
-      el('li', {}, [el('a', { href: s.url, target: '_blank', rel: 'noopener', text: s.title || s.url })])));
+      el('li', {}, [el('a', { href: s.url, target: '_blank', rel: 'noopener', text: s.title || s.url }), ...markOf(s)])));
   } else sources.hidden = true;
 
   const raw = $('.card-raw', card);
@@ -2006,6 +2015,9 @@ function renderCardFoot(i) {
     if (work.searches) parts.push(t('card.log.searches', { n: work.searches }));
     if (work.pages) parts.push(t('card.log.pages', { n: work.pages }));
     if (r.sources?.length) parts.push(t('card.log.sources', { n: r.sources.length }));
+    // The operator's alone: what it took from their list of sites kept out of the research, and what it asked for and did not get.
+    const fromList = r.status === 'done' && Number.isFinite(r.listed) ? opWord(r.keptOut ? 'fromListKept' : 'fromList', { n: r.listed, kept: r.keptOut || 0 }) : '';
+    if (fromList) parts.push(fromList);
     if (r.status === 'done' && r.ms) parts.push(fmtSeconds(r.ms));
     log.textContent = parts.join(' · ');
     log.hidden = parts.length === 0;
@@ -2070,7 +2082,7 @@ async function retryClaim(i) {
   $('.card-brief', card).hidden = true;
   $('.btn-retry', card).hidden = true;
   $('.card-foot', card).hidden = true;
-  Object.assign(r, { status: 'running', phase: 'starting', startedAt: Date.now(), text: '', reasoning: '', chars: 0, error: null, trail: [], sources: [], jobId: null, cutFrom: null });
+  Object.assign(r, { status: 'running', phase: 'starting', startedAt: Date.now(), text: '', reasoning: '', chars: 0, error: null, trail: [], sources: [], listed: null, keptOut: null, jobId: null, cutFrom: null });
   setCardState(i, 'running');
   renderCardStatus(i);
   const tick = setInterval(() => {

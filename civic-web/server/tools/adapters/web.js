@@ -3,6 +3,8 @@
 // No key: always on. It costs nothing but the reader's time, so its ledger line is priced at zero
 // unless the operator sets a figure.
 import { readUrl, youtubeTranscript } from '../../fetchurl.js';
+import { listedSite } from '../../sites.js';
+import { ToolRefusal } from '../contract.js';
 
 // THE MODEL READS THE BLURB: the operator's text.
 const BLURB = 'any public web page, article or PDF, and the transcripts of YouTube videos';
@@ -18,6 +20,11 @@ const item = (got) => ({
   note: got.wall ? 'The site marks this article as for subscribers; this is what it sent.' : got.note || null,
 });
 
+// A site the operator keeps out of the research (server/sites.js): refused before it is asked, and refused when the
+// address it is asked for ends there. The model reads this sentence; the site is not named.
+const NOT_CONSULTED = 'This site is not consulted.';
+const refuseListed = (address) => { if (listedSite(address)) throw new ToolRefusal(NOT_CONSULTED, 'site_kept_out'); };
+
 export default {
   id: 'web',
   name: 'the web',
@@ -26,10 +33,13 @@ export default {
   usdPerCall: { env: 'CIVIC_WEB_USD_PER_CALL', fallback: '0' },
   verbs: {
     async read_page({ url }, { signal }) {
+      refuseListed(url);
       const got = await readUrl(String(url || ''), { signal });
+      refuseListed(got.url);
       return { items: [item(got)], cursor: null };
     },
     async get_transcript({ url }, { signal }) {
+      refuseListed(url);
       const got = await youtubeTranscript(String(url || ''), { signal });
       return { items: [item({ ...got, url: got.url || String(url || '') })], cursor: null };
     },

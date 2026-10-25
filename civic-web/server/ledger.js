@@ -33,8 +33,9 @@ export function spentWords({ usage, thoughtMs }) {
 /**
  * A finished fact-check in words for the service's log (23 October, the operator's "Are you measuring the attributes of
  * the different models"): whose model, how its time went (its work, before the entry's first word and writing it, and
- * its waits apart), the entry's length, its searches, pages and sources, its tokens, its cost and its verdict. From the
- * fact-check's own ledger line: counts and times only, never a word of the claim or of the entry.
+ * its waits apart), the entry's length, its searches, pages and sources, its tokens, its cost and its verdict, and what it
+ * took from the operator's list of sites kept out of the research, when one is set. From the fact-check's own ledger
+ * line: counts and times only, never a word of the claim or of the entry, never an address.
  */
 export function factCheckWords(line) {
   const n = (x) => Math.max(0, Number(x) || 0).toLocaleString('en-US');
@@ -49,7 +50,10 @@ export function factCheckWords(line) {
   const tokens = u ? `; tokens ${n(u.input)} read, ${n(u.reasoning)} thought, ${n((Number(u.output) || 0) - (Number(u.reasoning) || 0))} written` : '';
   const cost = Number.isFinite(Number(line.usd)) ? `; $${Number(line.usd).toFixed(4)}${line.priced === false ? ', unpriced' : ''}` : '';
   const verdict = `${line.verdict || 'no verdict'}${line.verdictSource === 'unread' ? ' (unread)' : ''}${Number.isFinite(line.confidence) ? ` at ${line.confidence}%` : ''}`;
-  return `[fact-check] ${line.model} at ${line.effort} (${who}): ${time}, waited ${s(line.waitMs)}; entry ${n(line.entryChars)} characters, ${n(line.entryWords)} words; ${work}${tokens}${cost}; ${verdict}${line.incomplete ? `; stopped early (${line.incomplete})` : ''}`;
+  // With the operator's list of sites kept out of the research set (server/sites.js): what the fact-check took from it,
+  // and what it asked for and did not get.
+  const listed = line.listed == null ? '' : ` · ${n(line.listed)} from the blocked list${line.keptOut ? `, ${n(line.keptOut)} kept out` : ''}`;
+  return `[fact-check] ${line.model} at ${line.effort} (${who}): ${time}, waited ${s(line.waitMs)}; entry ${n(line.entryChars)} characters, ${n(line.entryWords)} words; ${work}${tokens}${cost}; ${verdict}${line.incomplete ? `; stopped early (${line.incomplete})` : ''}${listed}`;
 }
 
 /**

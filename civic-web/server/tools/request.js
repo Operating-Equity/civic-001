@@ -1,7 +1,8 @@
 // What the two requests to OpenAI carry for tools, what a listing on Fireworks carries, and how a tool
 // call in the stream becomes a step of the trail the page shows.
 //
-// Web search is always there for OpenAI (both prompts were tested with it). The gateway is there when the
+// Web search is always there for OpenAI (both prompts were tested with it), with one option alone: the sites the
+// operator keeps out of the research (server/sites.js, 25 October), when a list is set. The gateway is there when the
 // operator has set its address and pass: one entry in the same `tools` list, no other parameter. The
 // prompts are not touched: a tool is reachable because it is declared here, and whether the model
 // calls it is the model's decision. `npm run verify` inspects this entry and fails on any other key.
@@ -11,6 +12,7 @@
 // page or a transcript through FactEngine, as it searched through OpenAI. Fireworks forwards no header of
 // the entry's, so its entry carries none and no pass goes to Fireworks.
 import { config } from '../config.js';
+import { blockedSites } from '../sites.js';
 
 export const toolsOn = () => Boolean(config.toolsUrl && config.toolsPass);
 
@@ -30,10 +32,17 @@ function gatewayEntry(url, pass = '') {
 }
 
 export function requestTools() {
-  const tools = [{ type: 'web_search' }];
+  // The operator's list, when one is set: OpenAI's search returns no page of those sites or their subdomains. Without
+  // one, the entry is the bare search, as it always was.
+  const sites = blockedSites();
+  const tools = [sites.length ? { type: 'web_search', filters: { blocked_domains: sites } } : { type: 'web_search' }];
   if (toolsOn()) tools.push(gatewayEntry(config.toolsUrl, config.toolsPass));
   return tools;
 }
+
+/** What a fact-check asks OpenAI to add to its reply: with a list set, every address each search consulted, not only
+ *  those the entry cites, so what it took from the list can be counted (server/sites.js); without one, nothing. */
+export const requestInclude = () => (blockedSites().length ? ['web_search_call.action.sources'] : null);
 
 /** A listing on Fireworks: the tool server alone, at the address of the door opened for this listing; with no public
  *  address (or no door), nothing (said on /check). */

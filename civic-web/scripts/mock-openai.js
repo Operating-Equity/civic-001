@@ -169,10 +169,16 @@ app.post('/v1/responses', async (req, res) => {
       const queries = pickQueries(claim);
       // MOCK_SEARCH_ACTIONS: the web search's own actions, in order (search, open_page, find_in_page); two searches unless set.
       const actions = String(process.env.MOCK_SEARCH_ACTIONS || 'search,search').split(',').map((a) => a.trim()).filter(Boolean);
+      // Asked for every address a search consulted (`include`), the stand-in lists them as OpenAI does: its two sources, a
+      // feed of its own by name, and MOCK_CONSULT_URL when set, whatever the request's filters say (a stand-in that lets
+      // one through, so what FactEngine counts is proved).
+      const listSources = Array.isArray(body.include) && body.include.includes('web_search_call.action.sources');
+      const consulted = [...MOCK_SOURCES.map((x) => ({ type: 'url', url: x.url })), { type: 'api', name: 'oai-news' },
+        ...(process.env.MOCK_CONSULT_URL ? [{ type: 'url', url: process.env.MOCK_CONSULT_URL }] : [])];
       for (let k = 0; k < actions.length; k++) {
-        const action = actions[k] === 'open_page' ? { type: 'open_page', url: MOCK_SOURCES[1].url }
+        const action = actions[k] === 'open_page' ? { type: 'open_page', url: process.env.MOCK_OPEN_URL || MOCK_SOURCES[1].url }
           : actions[k] === 'find_in_page' ? { type: 'find_in_page', url: MOCK_SOURCES[1].url, pattern: '330' }
-            : { type: 'search', query: queries[k % queries.length] };
+            : { type: 'search', query: queries[k % queries.length], ...(listSources ? { sources: consulted } : {}) };
         send({ type: 'response.web_search_call.in_progress', item_id: `ws_${k}` });
         send({ type: 'response.web_search_call.searching', item_id: `ws_${k}` });
         await sleep(400 + Math.random() * 900);
@@ -244,7 +250,9 @@ app.post('/v1/responses', async (req, res) => {
     await sleep(isEvaluation ? 18 : 25);
   }
   if (isEvaluation && body.tools?.some((t) => t.type === 'web_search')) {
-    for (const src of MOCK_SOURCES) {
+    // MOCK_CITE_URL: one more source cited, after the stand-in's own two (a page the operator's list should have kept out).
+    const extra = process.env.MOCK_CITE_URL ? [{ url: process.env.MOCK_CITE_URL, title: process.env.MOCK_CITE_TITLE || 'Another page on the claim (mock source)' }] : [];
+    for (const src of [...MOCK_SOURCES, ...extra]) {
       send({ type: 'response.output_text.annotation.added', item_id: 'msg_1', output_index: 0, content_index: 0, annotation_index: 0, annotation: { type: 'url_citation', url: src.url, title: src.title, start_index: 0, end_index: 0 } });
     }
   }
@@ -681,6 +689,9 @@ app.post('/gemini/v1beta/interactions', async (req, res) => {
     { type: 'url_citation', url: readUrl, title: 'The tower, measured', start_index: 0, end_index: 20 },
     { type: 'url_citation', url: 'https://example.org/second-source', title: 'A second source', start_index: 21, end_index: 40 },
     { type: 'url_citation', url: readUrl, title: 'The tower, measured', start_index: 41, end_index: 60 },
+    // MOCK_GM_REDIRECT_TITLE: one more source cited as Google's search cites one, through its own redirect link with the
+    // site's name as the title.
+    ...(process.env.MOCK_GM_REDIRECT_TITLE ? [{ type: 'url_citation', url: `https://vertexaisearch.cloud.google.com/grounding-api-redirect/AbC${ordinal}xYz`, title: process.env.MOCK_GM_REDIRECT_TITLE, start_index: 61, end_index: 80 }] : []),
   ] } });
   send({ event_type: 'step.stop', index: index++ });
   const usage = {

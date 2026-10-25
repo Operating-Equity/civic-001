@@ -8,6 +8,8 @@
 // - a provider's own words for a failure or a wait keep their sense, with model ids, companies, hosts and accounts named
 //   no more.
 // Fields no page shows are not sent: where a verdict was read, the request's own settings, the key's minute figures.
+// Nor is what is the operator's alone: which sources and steps are of a site the operator keeps out of the research, and
+// how many a fact-check took from that list (server/sites.js), so the list is never a tell.
 //
 // The view is applied where the job records each event (server/jobs.js), so a page that comes back after a cut connection,
 // or reads a finished run again, receives exactly what it would have received.
@@ -48,6 +50,9 @@ export function readerError(ev) {
   };
 }
 
+/** A cited source as a reader receives it: its address and title, and nothing the operator's card adds to it. */
+const readerSource = (s) => (s && typeof s === 'object' ? pick(s, ['url', 'title']) : s);
+
 /** A research step as a reader receives it: what it did, in a plain word, what it asked and where it went; never the tool. */
 function readerStep(step, name) {
   if (!step || typeof step !== 'object') return null;
@@ -83,8 +88,10 @@ export function readerView() {
   return (ev) => {
     if (!ev || typeof ev !== 'object') return null;
     switch (ev.t) {
-      case 'pricing': case 'quote': case 'claim': case 'progress': case 'summary': case 'source': case 'batch-progress': case 'complete':
+      case 'pricing': case 'quote': case 'claim': case 'progress': case 'summary': case 'batch-progress': case 'complete':
         return ev;
+      case 'source':
+        return { ...ev, source: readerSource(ev.source) };
       case 'start':
         if (ev.i !== undefined) { maskers.set(ev.i, new NameMasker()); thinking.delete(ev.i); }   // a claim starting again starts its entry again
         return pick(ev, ['t', 'i', 'at', 'rank']);
@@ -132,7 +139,8 @@ export function readerView() {
           maskers.delete(ev.i);
           const name = ev.inspector || null;
           const done = {
-            ...pick(ev, ['t', 'i', 'verdict', 'confidence', 'sources', 'searches', 'ms']),
+            ...pick(ev, ['t', 'i', 'verdict', 'confidence', 'searches', 'ms']),
+            ...(Array.isArray(ev.sources) ? { sources: ev.sources.map(readerSource) } : {}),
             inspectorMark: name ? inspectorMark(name) : null,
             conclusion: ev.conclusion ? maskName(ev.conclusion, name) : ev.conclusion ?? null,
             text: maskEntry(ev.text || ''),

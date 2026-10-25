@@ -659,9 +659,31 @@ offered and never an incidental one.
 **Determination request:** `model`, `input` (two messages: first the source exactly as the
 extractor received it, its attribution lines and its text; then the evaluation prompt, verbatim,
 with the claim alone in place of `{{CLAIM}}`: since 24 October nothing else the listing wrote goes with it),
-`reasoning.effort`, `reasoning.mode`, `reasoning.summary`, `tools` (one `web_search`, no options; and, when the gateway is set, one `mcp` entry naming it, with `server_label`, `server_url`, `headers` carrying the pass and `require_approval: never`, nothing else), `stream`,
+`reasoning.effort`, `reasoning.mode`, `reasoning.summary`, `tools` (one `web_search`, with no option but the sites the operator keeps out of the research, `filters.blocked_domains`, when a list is set; and, when the gateway is set, one `mcp` entry naming it, with `server_label`, `server_url`, `headers` carrying the pass and `require_approval: never`, nothing else), `include` (with that list set only: `web_search_call.action.sources`, every address the search consulted, so what it took from the list can be counted), `stream`,
 `store`. The source goes ahead because the conversation carried it in the workflow the prompts
 were tested in, so "the speech" has a speaker and a date.
+
+**Sites kept out of the research** (`server/sites.js`, 25 October; the operator: "I want the truth and the documents
+that support it", and their answers: the sites on their list blocked wherever they can be, and shown; Gemini kept and
+marked). The list is the operator's, kept where the prompts are kept and never here:
+`CIVIC_BLOCKED_SITES` (sites separated by commas, spaces or lines) or `CIVIC_BLOCKED_SITES_FILE`. A site is a host name,
+read in lower case and without "www.", and covers its subdomains, as OpenAI reads it; an address that carries a listed
+site's address inside it (an archived copy, a redirect) counts as that site. At most 100 sites, OpenAI's own ceiling; a
+list that cannot be read stops the start, naming the key and never a site; with no list every request is as before.
+- **Blocked:** OpenAI's web search leaves the sites out on every fact-check that runs on OpenAI (the readers', a trial
+  on OpenAI, side by side); FactEngine's own search asks the search service to leave them out (`excludeDomains`) and
+  drops a result from one that comes anyway, and its page reader refuses them ("This site is not consulted."), for
+  DeepSeek in the trial and the tool server alike. Only whole sites can be blocked, never a section of one.
+- **Counted only:** Google's developer API cannot leave a site out, so on Gemini what a fact-check takes from the list is
+  counted and marked, never kept from it. A source Google cites through its own link is read by the site its title
+  names.
+- **Shown, counts only, never an address:** each fact-check's ledger line holds `listed` (the addresses of listed sites
+  among what it cited, opened or read, and what its search says it consulted) and `keptOut` (those it asked for and did
+  not get); its `[fact-check]` log line ends "· 0 from the blocked list" or the number; the operator's card marks each
+  such source and step "zero credibility" (their word) and its footer counts them; /check has a row for the list (its
+  count and fingerprint) and a "Zero credibility" column in "The models, measured". A reader never sees the list, its marks or its counts
+  (`server/view.js`), and the reader's own document is never touched: a link to a listed site is read when it is the
+  document being tested.
 
 Nothing else. No output token cap. No reasoning mode. No verbosity. No search context size. No
 truncation setting. No fallback model. No size limit of ours on the document.
@@ -674,7 +696,7 @@ truncation setting. No fallback model. No size limit of ours on the document.
 | The operator's trial | `CIVIC_EVAL_TRIAL_MODELS`: the models the operator may choose on the page for their own determinations (`deepseek-v4-pro,gemini-4-argon,gpt-6.1-sol` unless set; `off` ends it). DeepSeek V4 Pro needs `DEEPSEEK_API_KEY` and the search service; Gemini 4 Argon, at medium or high, needs `GEMINI_API_KEY` (the operator's own Google key, pasted in Render; `CIVIC_GEMINI_BASE_URL` only the guard changes); GPT-6.1 Sol, at xhigh, needs only the readers' OpenAI key. Each runs or not on its own. Never charged, never in the readers' figures. | Operator, 14, 18 and 24 October |
 | Reasoning effort, both steps on OpenAI | `xhigh` | Operator, 5 October: back to the setting before 21 September, when `max` in `pro` mode had taken a listing to fifteen minutes and $3.81 and a determination to almost seven minutes and $3.71. `max` from 21 September to 5 October. |
 | Reasoning mode, both steps on OpenAI | `standard` (no mode key sent) | Operator, 5 October, as above. `pro` (GPT-5.6's pro mode, OpenAI's "highest-intelligence API option": more model work per answer at the same per-token rates) from 21 September to 5 October; `CIVIC_REASONING_MODE=pro` brings it back. |
-| Web search | on for the determinations, never on the listing; not configurable | The determinations' prompt was tested in a UI where search is available. The listing reads the document it is given and nothing else (24 October). |
+| Web search | on for the determinations, never on the listing; not configurable, save the sites the operator keeps out of the research (`CIVIC_BLOCKED_SITES`, 25 October; see above) | The determinations' prompt was tested in a UI where search is available. The listing reads the document it is given and nothing else (24 October). |
 | Reasoning summary | `auto` | Display only: the model's own account of its reasoning, shown on the card. Does not change the answer. Blank to turn off. |
 | Claims run automatically | `CIVIC_AUTO_TEST_FIRST` of them (10 unless set; 0 = none: every claim found waits for the reader's checkbox and runs when chosen), ten at a time (`CIVIC_EVAL_CONCURRENCY`, the operator's figure of 3 October on a minute budget of 40,000,000 tokens), each on its own request, the whole selection in one batch. The page is told both figures by the server (`autoTestFirst` and `inFlight` on `/api/health`), so what runs and how fast change with one setting and no release. The intake sentences follow the figures too. | Operator's rule; 0 since 1 October |
 | Prices and tiers | Listing free; a determination at one list price for everyone, `CIVIC_LIST_PRICE_CENTS` (125: "each fact-check is $1.25"; unset, nothing priced), said once above the claims and on no row or button; a run's tier (1: nothing free; 2, 3: one, two of the reader's choices free per document) rotating every six hours in `CIVIC_TIER_ORDER` (1,2,3) with a daily shift; a loss guard to tier 1 when a window loses more than `CIVIC_TIER_LOSS_GUARD_USD`; revenue at list, not collected; every user measured in Postgres, and /check's figure of how many fact-checks the key runs at once. See "Facts have a price". | Operator's program, 2 October; the list price and 0, 1 or 2 free, 6 October; every figure theirs |
@@ -689,8 +711,9 @@ Environment variables: `CIVIC_MODEL`, `CIVIC_EFFORT` (both steps), or per step
 `CIVIC_EXTRACT_REASONING_SUMMARY`, `CIVIC_EVAL_REASONING_SUMMARY`; for the listing's provider,
 `CIVIC_EXTRACT_PROVIDER`, `DEEPSEEK_API_KEY`, `CIVIC_DEEPSEEK_BASE_URL`, `FIREWORKS_API_KEY` and
 `CIVIC_FIREWORKS_BASE_URL`; for the second pass, `CIVIC_RANK`, `CIVIC_RANK_KEEP_PERCENT` and `CIVIC_RANK_EFFORT`; for the
-operator's trial, `CIVIC_EVAL_TRIAL_MODELS`, `GEMINI_API_KEY` and `CIVIC_GEMINI_BASE_URL`. There is no setting that removes
-web search from the determinations, or that gives the listing a tool.
+operator's trial, `CIVIC_EVAL_TRIAL_MODELS`, `GEMINI_API_KEY` and `CIVIC_GEMINI_BASE_URL`; for the sites kept out of the
+research, `CIVIC_BLOCKED_SITES` and `CIVIC_BLOCKED_SITES_FILE`. There is no setting that removes web search from the
+determinations, or that gives the listing a tool.
 The server prints the exact shape of both requests at startup.
 
 The image is a picture, not a determination, and the operator asked for the fast model there

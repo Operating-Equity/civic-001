@@ -440,6 +440,7 @@ body {
 .trail-list, .sources-list { margin: 0; padding: 0 12px 12px 30px; font-size: 13.5px; color: var(--ink-2); display: grid; gap: 4px; }
 .trail-list li { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
 .trail-kind { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--ink-3); }
+.card-mark { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--false); margin-inline-start: 8px; }
 .sources-list a { color: var(--blue-deep); word-break: break-word; }
 .claims .raw { margin-block-start: 14px; }
 
