@@ -1129,6 +1129,11 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
     are on Render, so this repository names no kind.
   - The reader's refusal is one sentence for all: "This page is not consulted." The log line counts "of zero
     credibility"; /check and the boot line name each list, the words and the types by count and fingerprint.
+  - **Held out of this release:** the four new background sets (the branch carries them back, held, after it).
+  - **Live** (25 October, 15:36 UTC): PR #89 deployed at 15:36, with both lists, the words and the types set on Render
+    before it, so one deploy carried them all. The boot lines name each by count and fingerprint, and every
+    fact-check's search on OpenAI carries the first list. Before it, a Render one-off job proved that OpenAI's search
+    accepts the first list and the search service both lists, columns included. Live check clean, nothing spent.
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 
