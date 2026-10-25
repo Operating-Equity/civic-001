@@ -1937,8 +1937,8 @@ function renderBadge(i) {
   } else if (conf) conf.remove();
 }
 
-/** The operator's mark on a source or a step of a site on their list (server/sites.js); a reader's page has neither the
- *  mark nor the word for it. */
+/** The operator's mark on a source or a step of a site on their list (server/sites.js): "zero credibility", their word of
+ *  25 October. A reader's page has neither the mark nor the word for it. */
 function markOf(item) {
   const word = item?.listed ? opWord('listed') : '';
   return word ? [el('span', { class: 'card-mark mono', text: word })] : [];

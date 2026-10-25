@@ -1109,8 +1109,9 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
     dropped anyway) and page reader ("This site is not consulted."), for DeepSeek in the trial and the tool server.
   - **Counted only:** Gemini, since Google's developer API cannot exclude a site.
   - **Shown, counts only:** `listed` and `keptOut` on each fact-check's ledger line; "· n from the blocked list" on its
-    `[fact-check]` log line; "on your list" on the operator's card and a count in its footer, never on a reader's; a
-    row on /check and a column in "The models, measured"; the boot line by count and fingerprint, never a site.
+    `[fact-check]` log line; "zero credibility" (the operator's word) on the operator's card and a count in its footer,
+    never on a reader's; a row on /check and a column in "The models, measured"; the boot line by count and
+    fingerprint, never a site.
   - **Held out of this release:** the four new background sets (the branch carries them back, held, after it).
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.

@@ -680,8 +680,8 @@ list that cannot be read stops the start, naming the key and never a site; with 
 - **Shown, counts only, never an address:** each fact-check's ledger line holds `listed` (the addresses of listed sites
   among what it cited, opened or read, and what its search says it consulted) and `keptOut` (those it asked for and did
   not get); its `[fact-check]` log line ends "· 0 from the blocked list" or the number; the operator's card marks each
-  such source and step "on your list" and its footer counts them; /check has a row for the list (its count and
-  fingerprint) and a column in "The models, measured". A reader never sees the list, its marks or its counts
+  such source and step "zero credibility" (their word) and its footer counts them; /check has a row for the list (its
+  count and fingerprint) and a "Zero credibility" column in "The models, measured". A reader never sees the list, its marks or its counts
   (`server/view.js`), and the reader's own document is never touched: a link to a listed site is read when it is the
   document being tested.
 

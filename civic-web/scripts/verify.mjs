@@ -4671,7 +4671,7 @@ async function blockedSiteChecks() {
   const SKEY = 'search-key-sites-verify-41c2';
   const GMKEY = 'gm-verify-key-sites-0000';
   const SITES = 'Kept-One.example,\nwww.kept-two.example  kept-one.example';   // invented, written loosely, never a real site
-  const LISTED = ['kept-two.example', 'kept-one.example'];
+  const LISTED = ['kept-one.example', 'kept-two.example'];
   const stamp = Date.now();
   const rec = path.join(os.tmpdir(), `civic-verify-sites-${stamp}.jsonl`);
   const ledger = path.join(os.tmpdir(), `civic-verify-sites-ledger-${stamp}.jsonl`);
