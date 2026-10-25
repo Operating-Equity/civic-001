@@ -1113,6 +1113,10 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
     never on a reader's; a row on /check and a column in "The models, measured"; the boot line by count and
     fingerprint, never a site.
   - **Held out of this release:** the four new background sets (the branch carries them back, held, after it).
+  - **Live** (25 October, 03:59 UTC): PR #88 deployed at 03:59, with the operator's list set on Render before it, so one
+    deploy carried both. The boot lines name the list by its count and fingerprint, and every fact-check's search
+    carries it. Before it, one request to OpenAI (searching nothing) proved the search accepts the list; it ran as a
+    Render one-off job, since this sandbox cannot reach OpenAI. Live check clean, nothing spent.
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 
