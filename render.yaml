@@ -54,6 +54,8 @@ services:
         sync: false
       - key: CIVIC_TELL_WORDS      # the operator's tell words (20 October, civic-web/server/tells.js): set in Render, never here
         sync: false
+      - key: CIVIC_BLOCKED_SITES   # the sites the operator keeps out of the research (25 October, civic-web/server/sites.js): set in Render, never here
+        sync: false
       - key: CIVIC_EXTRACT_PROVIDER
         value: openai              # the operator's choice of 24 October, after DeepSeek's first listing with the new
                                    # prompt; DeepSeek's own service from 5 to 24 October. Never Fireworks ("Never go back

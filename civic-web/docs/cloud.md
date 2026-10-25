@@ -1098,6 +1098,20 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
   - **Live** (25 October, 00:18 UTC): PR #87 deployed at 00:17:47. Live check clean, nothing spent. A page loaded before
     it is the old code and loads it once by hand; from then on a page follows each release by itself. Four fact-checks
     started seconds before the deploy were cut by it and started over on the new process, as the page does after a cut.
+- **25 October: sites kept out of the research.** The operator: "I don't want left- or right-leaning. I want the truth
+  and the documents that support it." Their answers: the sites on their list blocked wherever they can be, and shown;
+  Gemini kept, marked.
+  - **The list** is the operator's, on Render alone (`CIVIC_BLOCKED_SITES`, never in this repository): host names, each
+    covering its subdomains, at most 100 (OpenAI's ceiling). `server/sites.js` reads it; a bad list stops the start,
+    naming the key and no site; with none, every request is as before.
+  - **Blocked:** OpenAI's web search on every fact-check that runs on OpenAI (`filters.blocked_domains`, with `include`
+    asking for every address consulted); FactEngine's own search (`excludeDomains`, and a result from a listed site
+    dropped anyway) and page reader ("This site is not consulted."), for DeepSeek in the trial and the tool server.
+  - **Counted only:** Gemini, since Google's developer API cannot exclude a site.
+  - **Shown, counts only:** `listed` and `keptOut` on each fact-check's ledger line; "· n from the blocked list" on its
+    `[fact-check]` log line; "on your list" on the operator's card and a count in its footer, never on a reader's; a
+    row on /check and a column in "The models, measured"; the boot line by count and fingerprint, never a site.
+  - **Held out of this release:** the four new background sets (the branch carries them back, held, after it).
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 

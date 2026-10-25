@@ -479,7 +479,7 @@ function measuresOf(line) {
     verdict: line.verdict || null, verdictSource: line.verdictSource || null, confidence: num(line.confidence), incomplete: line.incomplete || null,
     claim: line.claim || null,
     searches: Number(line.searches) || 0, queries: num(line.queries) ?? (line.provider === 'deepseek' ? num(line.searches) : null),
-    reads: num(line.reads), sources: num(line.sources),
+    reads: num(line.reads), sources: num(line.sources), listed: num(line.listed), keptOut: num(line.keptOut),
     tokensIn: u ? num(u.input) : null, tokensThought: u ? num(u.reasoning) : null,
     tokensWritten: u ? Math.max(0, (Number(u.output) || 0) - (Number(u.reasoning) || 0)) : null,
     ms: num(line.ms), waitMs: num(line.waitMs), workMs: num(line.workMs), firstWordMs: num(line.firstWordMs), writeMs: num(line.writeMs),
@@ -529,7 +529,9 @@ async function durations(since) {
  *   - speed: the minutes in all (mean, and three in four within); of them the work (mean, three in four), the time before
  *     the delivered entry's first word, the writing, the waits; the tokens written per second of writing;
  *   - length: the entry's characters and words; the tokens read, thought and written;
- *   - work: searches as billed, and searches and pages read counted alike for every model; sources cited;
+ *   - work: searches as billed, and searches and pages read counted alike for every model; sources cited; what the
+ *     fact-checks took from the operator's list of sites kept out of the research (server/sites.js), in all, over those
+ *     whose lines hold the count (`listedOf`);
  *   - cost: each and in all, the tokens' part and the searches' part;
  *   - outcome: delivered, failed, stopped early, the verdicts, unread verdicts, the entries' own confidence.
  * Each figure is the mean of the fact-checks whose lines hold it (`timed` counts those with the time split and length),
@@ -581,6 +583,9 @@ async function modelsTable() {
       tokensIn: mean(done, (l) => l.tokensIn), tokensThought: mean(done, (l) => l.tokensThought), tokensWritten: mean(done, (l) => l.tokensWritten),
       meanSearches: done.length ? mean(done, (l) => l.searches, 1) : null, meanQueries: mean(done, (l) => l.queries, 1),
       meanReads: mean(done, (l) => l.reads, 1), meanSources: mean(done, (l) => l.sources, 1),
+      listed: held(done, (l) => l.listed).length ? held(done, (l) => l.listed).reduce((a, b) => a + b, 0) : null,
+      keptOut: held(done, (l) => l.keptOut).length ? held(done, (l) => l.keptOut).reduce((a, b) => a + b, 0) : null,
+      listedOf: held(done, (l) => l.listed).length,
       meanUsd: done.length ? round4(mean(done, (l) => l.usd, 6)) : null, totalUsd: round4(g.lines.reduce((a, l) => a + l.usd, 0)),
       tokenUsd: mean(done, (l) => l.tokenUsd, 6) === null ? null : round4(mean(done, (l) => l.tokenUsd, 6)),
       searchUsd: mean(done, (l) => l.searchUsd, 6) === null ? null : round4(mean(done, (l) => l.searchUsd, 6)),

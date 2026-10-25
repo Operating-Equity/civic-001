@@ -133,9 +133,10 @@ export function buildRegistry(loaded, env = process.env) {
     } catch (err) {
       if (signal?.aborted) throw err;
       if (err instanceof ToolRefusal || err instanceof UrlError) {
-        // The source's answer, in the sentence the reader would get: information for the model.
+        // The source's answer, in the sentence the reader would get: information for the model. A site the operator keeps
+        // out of the research (server/sites.js) is their rule kept, not a failure, so it goes on no failure list.
         line({ ok: false, code: err.code || 'tool_refusal' });
-        recordFailure({ where: `tool:${name}`, code: err.code || 'tool_refusal', message: err.message, detail: err.detail || null });
+        if (err.code !== 'site_kept_out') recordFailure({ where: `tool:${name}`, code: err.code || 'tool_refusal', message: err.message, detail: err.detail || null });
         return refuse(err.message);
       }
       line({ ok: false, code: 'tool_failed' });

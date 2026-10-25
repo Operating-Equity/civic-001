@@ -87,8 +87,11 @@ const RANK_OFF = { CIVIC_RANK: 'off', CIVIC_PROMPT_RANK: '', CIVIC_PROMPT_RANK_F
 // And Google's Gemini out of reach (the operator's trial of 18 October, server/gemini.js), as DeepSeek is, unless a check
 // points it at the stand-in: no key from the shell, an address on a closed port.
 const GEMINI_OFF = { GEMINI_API_KEY: '', CIVIC_GEMINI_BASE_URL: 'http://127.0.0.1:9/gemini' };
+// No list of sites kept out of the research (server/sites.js) unless a check sets one: a developer's own list never
+// reaches the guard's servers.
+const SITES_OFF = { CIVIC_BLOCKED_SITES: '', CIVIC_BLOCKED_SITES_FILE: '' };
 const start = (args, extraEnv) => {
-  const child = spawn(process.execPath, args, { cwd: root, env: { ...process.env, ...DEEPSEEK_OFF, ...FIREWORKS_OFF, ...ACCOUNTS_OFF, ...PRICES_OFF, ...RANK_OFF, ...GEMINI_OFF, ...extraEnv }, stdio: ['ignore', 'pipe', 'pipe'] });
+  const child = spawn(process.execPath, args, { cwd: root, env: { ...process.env, ...DEEPSEEK_OFF, ...FIREWORKS_OFF, ...ACCOUNTS_OFF, ...PRICES_OFF, ...RANK_OFF, ...GEMINI_OFF, ...SITES_OFF, ...extraEnv }, stdio: ['ignore', 'pipe', 'pipe'] });
   child.stdout.on('data', () => {});
   child.stderr.on('data', (d) => process.stderr.write(`  [${path.basename(args[0])}] ${d}`));
   children.push(child);
@@ -4653,6 +4656,236 @@ async function tellWordChecks() {
   }
 }
 await tellWordChecks();
+
+// ---- the sites kept out of the research (25 October) ---------------------------------------------------------------
+// The operator: "I want the truth and the documents that support it." Their answers: the sites on their list blocked
+// wherever they can be, and shown; Gemini kept and marked. Proved with an invented list, never the operator's: OpenAI's search carries the list and
+// asks for every address consulted, on a reader's fact-check, a trial and side by side, and with no list the request is
+// as it was; FactEngine's search asks the service to leave the sites out and drops what comes from them anyway, and its
+// page reader refuses them; Gemini's request is unchanged and what it takes from the list is counted; the counts are on
+// the ledger line, in the log line and on the operator's card, never in what a reader receives; /check and the boot line
+// name the list by its count and fingerprint; a list that cannot be read stops the start, naming the key, never a site.
+async function blockedSiteChecks() {
+  const BMOCK = MOCK_PORT + 114, SITEP = MOCK_PORT + 115, PB = PORT + 114, PN = PORT + 115;
+  const DSKEY = 'sk-dssites00000000000000000000000';
+  const SKEY = 'search-key-sites-verify-41c2';
+  const GMKEY = 'gm-verify-key-sites-0000';
+  const SITES = 'Kept-One.example,\nwww.kept-two.example  kept-one.example';   // invented, written loosely, never a real site
+  const LISTED = ['kept-two.example', 'kept-one.example'];
+  const stamp = Date.now();
+  const rec = path.join(os.tmpdir(), `civic-verify-sites-${stamp}.jsonl`);
+  const ledger = path.join(os.tmpdir(), `civic-verify-sites-ledger-${stamp}.jsonl`);
+  const ledgerN = path.join(os.tmpdir(), `civic-verify-sites-ledger-n-${stamp}.jsonl`);
+  const errlog = path.join(os.tmpdir(), `civic-verify-sites-errors-${stamp}.log`);
+  fs.writeFileSync(rec, '');
+  const recorded = () => fs.readFileSync(rec, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l));
+  const bodiesAt = (p) => recorded().filter((r) => r.path === p && r.body).map((r) => r.body);
+  const lines = () => (fs.existsSync(ledger) ? fs.readFileSync(ledger, 'utf8') : '').split('\n').filter(Boolean).map((l) => JSON.parse(l));
+  const procs = [];
+  const output = [];
+  const outputN = [];
+  const searchCalls = [];
+  // The search service, in Exa's shape: one page of a plain site, and one of a listed site's subdomain, as a service that
+  // matched the bare site alone would return it.
+  const site = http.createServer((req, res) => {
+    if (req.method === 'POST' && req.url.startsWith('/search')) {
+      let raw = '';
+      req.on('data', (c) => { raw += c; });
+      req.on('end', () => {
+        let body = {}; try { body = JSON.parse(raw); } catch {}
+        searchCalls.push(body);
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ requestId: 'standin', results: [
+          { url: `http://localhost:${SITEP}/tower`, title: 'The tower, measured', publishedDate: '2026-01-02T00:00:00.000Z', text: 'The Eiffel Tower is about 330 metres tall.' },
+          { url: 'https://desk.kept-two.example/page/tower', title: 'Another page on the claim', publishedDate: '2026-01-03T00:00:00.000Z', text: 'FROM-A-KEPT-SITE' },
+        ], costDollars: { total: 0.005 } }));
+      });
+      return;
+    }
+    res.writeHead(404); res.end();
+  });
+  try {
+    const { parseSites, loadSites, listedSite, sitesFingerprint } = await import('../server/sites.js');
+    const { readerView } = await import('../server/view.js');
+    const FP = sitesFingerprint(LISTED);
+
+    // The list, read: loosely written, it is the sites, once each, in order; anything else is refused naming the key.
+    const refusal = (fn) => { try { fn(); return ''; } catch (err) { return err.message; } };
+    const hundredAndOne = Array.from({ length: 101 }, (_, k) => `site${k}.example`).join(',');
+    const refused = [
+      refusal(() => parseSites('https://hidden-site.example/pages')),
+      refusal(() => parseSites('hidden-site.example:8080')),
+      refusal(() => parseSites('hidden_verdicts')),
+      refusal(() => parseSites(hundredAndOne)),
+      refusal(() => loadSites({ CIVIC_BLOCKED_SITES_FILE: path.join(os.tmpdir(), 'civic-verify-no-such-sites-file.txt') })),
+    ];
+    check('Sites: the operator\'s list is read loosely written (commas, spaces, lines, capitals, "www.", a final dot), once each and in order; none set is none; a list that cannot be read is refused naming its key, never a site',
+      JSON.stringify(parseSites(SITES)) === JSON.stringify(LISTED) && JSON.stringify(parseSites('WWW.Kept-One.Example.')) === '["kept-one.example"]' && loadSites({}) === null && loadSites({ CIVIC_BLOCKED_SITES: '  ' }) === null
+        && /^CIVIC_BLOCKED_SITES: an entry carries a scheme, a path or a port/.test(refused[0]) && /^CIVIC_BLOCKED_SITES: an entry carries/.test(refused[1])
+        && /^CIVIC_BLOCKED_SITES: an entry is not the host name of a site/.test(refused[2]) && /^CIVIC_BLOCKED_SITES: it holds 101 sites, and OpenAI's web search takes 100 at most/.test(refused[3])
+        && refused[4] === 'CIVIC_BLOCKED_SITES_FILE: the file could not be read' && !refused.some((m) => /hidden|site0\./.test(m))
+        && sitesFingerprint(parseSites('kept-one.example kept-two.example')) === FP && /^#[0-9a-f]{8}$/.test(FP),
+      JSON.stringify(refused));
+    const g = 'https://vertexaisearch.cloud.google.com/grounding-api-redirect/AbCxYz';
+    const at = (u, opts = {}) => listedSite(u, { sites: LISTED, ...opts });
+    check('Sites: an address is of a listed site by its host, a subdomain included, never a longer name; an address carried inside another (an archived copy, a redirect, encoded or not) counts as its own; Google\'s link to a page it cites is read by its title',
+      at('https://desk.kept-two.example/a') === 'kept-two.example' && at('http://www.kept-one.example') === 'kept-one.example' && at('kept-one.example/x') === 'kept-one.example'
+        && at('https://notkept-one.example/') === null && at('https://kept-one.example.org/') === null && at('https://example.com/kept-one.example') === null
+        && at('https://web.archive.org/web/2026/https://kept-one.example/old') === 'kept-one.example' && at('https://example.com/out?u=https%3A%2F%2Fdesk.kept-two.example%2Fx') === 'kept-two.example'
+        && at(g, { title: 'www.Kept-Two.example' }) === 'kept-two.example' && at(g, { title: 'Some page' }) === null && at('https://example.com/', { title: 'kept-two.example' }) === null
+        && listedSite('https://kept-one.example/', { sites: [] }) === null,
+      '');
+
+    // What a reader receives: no mark and no count, from a live source or a finished claim.
+    const view = readerView();
+    const seen = [
+      view({ t: 'source', i: 0, source: { url: 'https://kept-one.example/r', title: 'A page', listed: true } }),
+      view({ t: 'start', i: 0, at: 1 }),
+      view({ t: 'trail', i: 0, step: { kind: 'open_page', verb: 'open', url: 'https://kept-one.example/r', status: 'completed', listed: true }, searches: 0 }),
+      view({ t: 'done', i: 0, verdict: 'true', confidence: 90, inspector: 'Ada Lovelace', text: 'Name: Ada Lovelace\nConclusion: True.', conclusion: 'True.', reasoning: null, effort: 'xhigh', searches: 1, ms: 5,
+        sources: [{ url: 'https://example.org/a', title: 'A' }, { url: 'https://kept-one.example/r', title: 'A page', listed: true }],
+        trail: [{ kind: 'open_page', verb: 'open', url: 'https://kept-one.example/r', status: 'completed', listed: true }], listed: 2, keptOut: 1 }),
+    ];
+    const seenText = JSON.stringify(seen);
+    const doneSeen = [seen[3]].flat().find((e) => e?.t === 'done');
+    check('Sites: what a reader receives carries no mark and no count of the operator\'s list, from a live source or a finished claim, while its sources and steps stay whole',
+      !/"listed"|"keptOut"/.test(seenText) && seen[0]?.source?.url === 'https://kept-one.example/r' && seen[0]?.source?.title === 'A page'
+        && doneSeen?.sources?.length === 2 && doneSeen.trail?.[0]?.url === 'https://kept-one.example/r', seenText.slice(0, 400));
+
+    await new Promise((r) => site.listen(SITEP, r));
+    const evalMark = process.env.MOCK_EVAL_MARK_FOR_GATE || '';
+    start([path.join(root, 'scripts', 'mock-openai.js')], {
+      MOCK_PORT: String(BMOCK), MOCK_RECORD: rec, MOCK_SPEED: '0.2', MOCK_EVAL_MARK: evalMark, MOCK_SEARCH_ACTIONS: 'search,open_page',
+      MOCK_CITE_URL: 'https://www.kept-one.example/page/tower', MOCK_CONSULT_URL: 'https://news.kept-two.example/page/tower',
+      MOCK_OPEN_URL: 'https://web.archive.org/web/2026/https://kept-one.example/old-page', MOCK_DS_READ_URL: 'https://www.kept-one.example/page/tower',
+      MOCK_GM_READ_URL: 'https://kept-one.example/gm-page', MOCK_GM_REDIRECT_TITLE: 'kept-two.example',
+    });
+    const env = {
+      OPENAI_BASE_URL: `http://localhost:${BMOCK}/v1`, OPENAI_API_KEY: KEY, CIVIC_IMAGE_ENABLED: 'false', DATABASE_URL: '', CIVIC_EVAL_TRIAL_MODELS: '', CIVIC_ERROR_LOG: errlog,
+      DEEPSEEK_API_KEY: DSKEY, CIVIC_DEEPSEEK_BASE_URL: `http://localhost:${BMOCK}/deepseek`, GEMINI_API_KEY: GMKEY, CIVIC_GEMINI_BASE_URL: `http://localhost:${BMOCK}/gemini`,
+      CIVIC_SEARCH_URL: `http://localhost:${SITEP}/search`, CIVIC_SEARCH_KEY: SKEY, CIVIC_ALLOW_PRIVATE_URLS: 'true',
+    };
+    const serve = (port, extra, out) => {
+      const child = start([path.join(root, 'server', 'index.js')], { PORT: String(port), ...env, ...extra });
+      child.stdout.on('data', (d) => out.push(String(d)));
+      child.stderr.on('data', (d) => out.push(String(d)));
+      procs.push(child);
+      return `http://localhost:${port}`;
+    };
+    const base = serve(PB, { CIVIC_BLOCKED_SITES: SITES, CIVIC_LEDGER_FILE: ledger }, output);
+    const baseN = serve(PN, { CIVIC_LEDGER_FILE: ledgerN }, outputN);
+    await wait(`http://localhost:${BMOCK}/v1/responses`, 15000, { anyResponse: true });
+    await wait(`${base}/api/health`, 20000);
+    await wait(`${baseN}/api/health`, 20000);
+
+    const source = 'The Eiffel Tower stands about 330 metres tall. Water boils at 100 degrees Celsius at sea level.';
+    const claim = 'The Eiffel Tower stands about 330 metres tall.';
+    const evaluate = (at, extra, label) => stream(`${at}/api/evaluate`, { claims: [claim], text: source, source: { kind: 'text' }, jobId: `sites-${label}-${stamp}`, ...extra });
+    const responses = () => bodiesAt('/v1/responses').filter((b) => Array.isArray(b.tools));
+
+    // A reader's fact-check, without the list and then with it.
+    const n1 = await evaluate(baseN, {}, 'none');
+    const bodyN = responses().slice(-1)[0];
+    const r1 = await evaluate(base, {}, 'reader');
+    const bodyL = responses().slice(-1)[0];
+    const bare = JSON.parse(JSON.stringify(bodyL || {}));
+    if (bare.tools?.[0]) delete bare.tools[0].filters;
+    delete bare.include;
+    check('Sites: with the list set, a reader\'s fact-check asks OpenAI\'s web search to leave its sites out (filters.blocked_domains, the sites alone, in order) and for every address the search consulted (include), and nothing else; without the list, the request is exactly as before, byte for byte',
+      JSON.stringify(bodyL?.tools?.[0]) === JSON.stringify({ type: 'web_search', filters: { blocked_domains: LISTED } }) && JSON.stringify(bodyL?.include) === '["web_search_call.action.sources"]'
+        && extraKeys(bodyL, [...ALLOWED.evaluate, 'include']).length === 0 && JSON.stringify(bodyN?.tools) === '[{"type":"web_search"}]' && !('include' in (bodyN || {}))
+        && extraKeys(bodyN, ALLOWED.evaluate).length === 0 && JSON.stringify(bare) === JSON.stringify(bodyN) && n1.some((e) => e.t === 'done') && r1.some((e) => e.t === 'done'),
+      JSON.stringify({ listed: bodyL && { tools: bodyL.tools, include: bodyL.include }, none: bodyN && { tools: bodyN.tools, include: bodyN.include } }));
+    const doneR = r1.find((e) => e.t === 'done');
+    const liveListed = r1.filter((e) => e.t === 'source' && e.source?.listed).length;
+    check('Sites: on the operator\'s card, the cited source of a listed site is marked as it streams and when the claim is done, and so is a step that opened one (an archived copy); the others are not; the claim counts 3 from the list (cited, opened, consulted) and none kept out',
+      doneR?.sources?.length === 3 && doneR.sources.filter((x) => x.listed).length === 1 && doneR.sources.find((x) => x.listed)?.url === 'https://www.kept-one.example/page/tower'
+        && (doneR.trail || []).filter((x) => x.listed).length === 1 && doneR.trail.find((x) => x.listed)?.kind === 'open_page' && liveListed === 1
+        && doneR.listed === 3 && doneR.keptOut === 0 && !('listed' in (n1.find((e) => e.t === 'done') || {})),
+      JSON.stringify(doneR && { sources: doneR.sources, trail: doneR.trail, listed: doneR.listed, keptOut: doneR.keptOut }));
+
+    // A trial on OpenAI, and side by side: the same search, the same ask.
+    const t1 = await evaluate(base, { model: 'gpt-6.1-sol', effort: 'xhigh' }, 'sol');
+    const t2 = await evaluate(base, { model: config.evalModels[0] }, 'twin');
+    const [bodyT, bodyS] = responses().slice(-2);
+    check('Sites: a trial on GPT-6.1 Sol and side by side ask OpenAI\'s search exactly as a reader\'s fact-check does: the same sites left out, the same addresses asked for',
+      bodyT?.model === 'gpt-6.1-sol' && bodyS?.model === config.evalModels[0] && [bodyT, bodyS].every((b) => JSON.stringify(b.tools) === JSON.stringify(bodyL.tools) && JSON.stringify(b.include) === JSON.stringify(bodyL.include))
+        && t1.some((e) => e.t === 'done' && e.listed === 3) && t2.some((e) => e.t === 'done' && e.listed === 3),
+      JSON.stringify([bodyT, bodyS].map((b) => b && [b.model, b.tools, b.include])));
+
+    // DeepSeek in the trial, through FactEngine's tools: the search leaves the sites out, the reader refuses one.
+    const d1 = await evaluate(base, { model: 'deepseek-v4-pro', effort: 'high' }, 'ds');
+    const doneD = d1.find((e) => e.t === 'done');
+    const ds = bodiesAt('/deepseek/responses');
+    const answered = ds.flatMap((b) => (b.input || []).filter((x) => x?.type === 'function_call_output').map((x) => String(x.output || '')));
+    check('Sites: DeepSeek\'s search through FactEngine asks the service to leave the sites out (excludeDomains, the list), and a result the service returns from a listed subdomain anyway never reaches the model',
+      searchCalls.length >= 1 && searchCalls.every((b) => JSON.stringify(b.excludeDomains) === JSON.stringify(LISTED)) && answered.some((o) => o.includes('The tower, measured'))
+        && !answered.some((o) => o.includes('desk.kept-two.example') || o.includes('FROM-A-KEPT-SITE')),
+      JSON.stringify({ exclude: searchCalls.map((b) => b.excludeDomains), answers: answered.map((o) => o.slice(0, 120)) }));
+    check('Sites: FactEngine\'s page reader refuses a listed site with "This site is not consulted.", the step marked on the operator\'s card; the claim counts 0 from the list and 1 kept out, and the entry is still written',
+      doneD?.provider === 'deepseek' && (doneD.trail || []).length === 2 && doneD.trail[1].name === 'read_page' && doneD.trail[1].status === 'failed' && doneD.trail[1].listed === true
+        && /This site is not consulted\./.test(doneD.trail[1].error || '') && answered.some((o) => o === 'This site is not consulted.') && doneD.listed === 0 && doneD.keptOut === 1 && (doneD.text || '').length > 0,
+      JSON.stringify(doneD && { trail: doneD.trail, listed: doneD.listed, keptOut: doneD.keptOut }));
+
+    // Gemini: Google's developer API cannot keep a site out, so its request is as before, and what it took is counted.
+    const g1 = await evaluate(base, { model: 'gemini-4-argon', effort: 'high' }, 'gm');
+    const doneG = g1.find((e) => e.t === 'done');
+    const gm = bodiesAt('/gemini/v1beta/interactions').slice(-1)[0];
+    check('Sites: Gemini\'s request is as before (Google\'s search and page reading, no list in it); what it took from the list is marked and counted: the page it read and cited, and a source cited through Google\'s own link, by its title',
+      JSON.stringify(gm?.tools) === '[{"type":"google_search"},{"type":"url_context"}]' && !/verdicts\.example|ratings\.example|blocked_domains|excludeDomains|exclude_domains/.test(JSON.stringify(gm))
+        && doneG?.provider === 'gemini' && doneG.sources.filter((x) => x.listed).length === 2 && doneG.sources.some((x) => !x.listed) && (doneG.trail || []).some((x) => x.kind === 'open_page' && x.listed)
+        && doneG.listed === 2 && doneG.keptOut === 0,
+      JSON.stringify(doneG && { sources: doneG.sources, trail: doneG.trail, listed: doneG.listed }));
+
+    await new Promise((r) => setTimeout(r, 500));   // the ledger is appended after the stream ends
+    const ls = lines();
+    const lineOf = (pred) => ls.find((l) => (l.kind === 'evaluate' || l.kind === 'trial') && l.ok && pred(l));
+    const lr = lineOf((l) => l.kind === 'evaluate');
+    const ld = lineOf((l) => l.provider === 'deepseek');
+    const lg = lineOf((l) => l.provider === 'gemini');
+    const toolRefused = ls.find((l) => l.kind === 'tool' && l.verb === 'read_page' && l.ok === false);
+    const said = output.join('');
+    check('Sites: each fact-check\'s ledger line counts what it took from the list and what it asked for and did not get (the readers\' also how many addresses OpenAI says it consulted), and the refused read is its tool\'s own line; never an address',
+      lr?.listed === 3 && lr.keptOut === 0 && lr.consulted === 3 && ld?.listed === 0 && ld.keptOut === 1 && lg?.listed === 2 && lg.keptOut === 0
+        && toolRefused?.code === 'site_kept_out' && !ls.some((l) => /verdicts\.example|ratings\.example/.test(JSON.stringify(l))),
+      JSON.stringify({ readers: lr && [lr.listed, lr.keptOut, lr.consulted], deepseek: ld && [ld.listed, ld.keptOut], gemini: lg && [lg.listed, lg.keptOut], tool: toolRefused?.code }));
+    check('Sites: the host\'s log says it for every fact-check ("· 3 from the blocked list"; "· 0 from the blocked list, 1 kept out"), and a server with no list says nothing of it',
+      new RegExp(`\\[fact-check\\] ${config.evalModels[0].replace(/[.]/g, '\\.')} at ${config.evalEffort} \\(readers\\): .* · 3 from the blocked list`).test(said) && /\[fact-check\] deepseek-v4-pro at high \(trial\): .* · 0 from the blocked list, 1 kept out/.test(said)
+        && /\[fact-check\] gemini-4-argon at high \(trial\): .* · 2 from the blocked list/.test(said) && /\[fact-check\] /.test(outputN.join('')) && !/from the blocked list/.test(outputN.join('')),
+      said.split('\n').filter((l) => l.includes('[fact-check]')).join(' / ').slice(0, 600));
+
+    const st = await (await fetch(`${base}/api/selftest`)).json();
+    const stN = await (await fetch(`${baseN}/api/selftest`)).json();
+    const row = (st.checks || []).find((c) => c.title === 'Your list of sites is kept out of the research');
+    const rowN = (stN.checks || []).find((c) => c.title === 'No site is kept out of the research');
+    const keptRecord = (st.recentFailures || []).some((f) => f.code === 'site_kept_out');
+    const trialRows = st.economics?.trial || [];
+    const rowOf = (pred) => trialRows.find(pred);
+    check('Sites: /check says the list is set, by its count and fingerprint, where it is blocked and where only counted; the refused read is on no failure list; "The models, measured" counts each model\'s take from the list; a server with no list says none is set',
+      row?.state === 'ok' && row.detail.startsWith(`2 sites (list ${FP})`) && /OpenAI's web search/.test(row.detail) && /Gemini/.test(row.detail) && rowN?.state === 'ok' && !keptRecord
+        && rowOf((x) => x.who === 'readers')?.listed === 3 && rowOf((x) => x.provider === 'deepseek')?.keptOut === 1 && rowOf((x) => x.provider === 'deepseek')?.listedOf === 1 && rowOf((x) => x.provider === 'gemini')?.listed === 2,
+      JSON.stringify({ row, rowN: rowN?.title, keptRecord, trial: trialRows.map((x) => [x.who, x.provider, x.model, x.listed, x.keptOut, x.listedOf]) }));
+    const health = JSON.stringify(await (await fetch(`${base}/api/health`)).json());
+    check('Sites: the boot lines name the list by its count and fingerprint and the request\'s keys, never a site; no site of the list is in the boot lines, /check or the health line',
+      said.includes(`[sites] 2 sites kept out of the research (list ${FP}): blocked in OpenAI's web search and in FactEngine's own search and page reader; on Gemini, counted and marked only`)
+        && said.includes(`web_search with filters.blocked_domains (list ${FP}, 2 sites) · include web_search_call.action.sources`)
+        && outputN.join('').includes('[sites] no site is kept out of the research') && / · web_search · the source as a message/.test(outputN.join(''))
+        && !/verdicts\.example|ratings\.example/i.test(`${said.split('[fact-check]')[0]}${JSON.stringify(st.checks)}${health}`),
+      said.split('\n').filter((l) => /\[sites\]|determination requests/.test(l)).join(' / '));
+
+    // A list that cannot be read stops the start, naming the key.
+    const bad = spawnSync(process.execPath, [path.join(root, 'server', 'index.js')], { cwd: root, timeout: 20000, encoding: 'utf8', env: { ...process.env, ...ACCOUNTS_OFF, PORT: String(PN + 1), OPENAI_API_KEY: KEY, CIVIC_BLOCKED_SITES: 'https://hidden-site.example/pages' } });
+    check('Sites: a list that cannot be read stops the start, naming the key and never the site',
+      bad.status !== 0 && /CIVIC_BLOCKED_SITES: an entry carries a scheme, a path or a port/.test(`${bad.stdout}${bad.stderr}`) && !/hidden-verdicts/.test(`${bad.stdout}${bad.stderr}`),
+      String(bad.stderr || '').slice(0, 300));
+  } catch (err) {
+    check('sites checks ran', false, err.stack || err.message);
+  } finally {
+    for (const p of procs) { try { p.kill('SIGTERM'); } catch {} }
+    site.close();
+  }
+}
+await blockedSiteChecks();
 
 const failed = results.filter((r) => !r.ok);
 for (const r of results) console.log(`${r.ok ? 'PASS' : 'FAIL'}  ${r.name}${r.ok ? '' : `   ← ${r.detail}`}`);

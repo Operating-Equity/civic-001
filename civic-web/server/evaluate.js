@@ -33,7 +33,8 @@ import { record as recordFailure } from './diagnostics.js';
 import { estimateTextCost } from './pricing.js';
 import { record, claimHash, factCheckWords } from './ledger.js';
 import { parseEntry, conclusionExcerpt } from './verdict.js';
-import { requestTools, toolStep, searchCount, verbOf } from './tools/request.js';
+import { requestTools, requestInclude, toolStep, searchCount, verbOf } from './tools/request.js';
+import { listedSite, listedCounts } from './sites.js';
 import { registry } from './tools/index.js';
 export { parseEntry, VERDICTS } from './verdict.js';
 
@@ -75,6 +76,22 @@ async function pause(ms, onWaited) {
   onWaited(Date.now() - at);
 }
 
+/**
+ * The sites the operator keeps out of the research (server/sites.js, 25 October): a cited source or a step of the trail
+ * on the list is marked for the operator's card (server/view.js keeps the mark from a reader's), and what the fact-check
+ * took from the list is counted for its line. With no list set, nothing is marked and the line holds no count.
+ */
+const marked = (item, title = null) => (item?.url && listedSite(item.url, { title }) ? { ...item, listed: true } : item);
+const markSource = (source) => marked(source, source?.title);
+const markStep = (step) => marked(step);
+const counted = (what) => listedCounts(what) || {};
+
+/** The addresses a search through FactEngine's own tools returned to the model (the tool's answer, as the model reads it). */
+function returnedUrls(name, output) {
+  if (name !== 'search_web' || typeof output !== 'string') return [];
+  try { return (JSON.parse(output)?.items || []).map((x) => x?.url).filter(Boolean); } catch { return []; }
+}
+
 /** A finished fact-check's line: kept on the ledger and said in the host's log, counts and times only. */
 function recordDone(line, ctx) {
   record(line, ctx);
@@ -103,6 +120,7 @@ export async function runEvaluation({ apiKey, claims, document = '', send, signa
   send({ t: 'batch-start', total, at: started, model: models[0], effort, mode, ...(trial ? { trial: true, provider: trial.provider } : {}) });
 
   const tools = requestTools(); // web search always (the prompts were tested with it); CIVIC's own tools when the gateway is set
+  const include = requestInclude();   // with the operator's list set: every address the search consulted, to count
 
   // The key's minute figures, once the gate has them from OpenAI: the page is told the limit, what
   // OpenAI counts for one determination, how many start at once and how often one more can. All
@@ -135,6 +153,7 @@ export async function runEvaluation({ apiKey, claims, document = '', send, signa
     let fellBack = null;
     const trail = [];   // every web action the model took, in the attempt that delivered
     const sources = []; // every URL it cited, in that attempt
+    const consulted = []; // every URL its searches consulted, in that attempt (asked for only with the operator's list set)
     const seen = new Set();
     let spentSearches = 0;   // the searches of attempts cut short: OpenAI ran them, so they are paid for
     let waited = 0;          // the gate's holds and every wait, apart from the work (the line's `waitMs`)
@@ -153,6 +172,7 @@ export async function runEvaluation({ apiKey, claims, document = '', send, signa
         input: firstInput(prompt),
         reasoning,
         tools,
+        ...(include ? { include } : {}),
         stream: true,
         store: false, // the prompt must not appear in any dashboard: the operator's key runs every request
       };
@@ -167,6 +187,7 @@ export async function runEvaluation({ apiKey, claims, document = '', send, signa
       spentSearches += searchCount(trail);
       trail.length = 0;
       sources.length = 0;
+      consulted.length = 0;
       seen.clear();
       usage = null;
       incomplete = null;
@@ -214,12 +235,15 @@ export async function runEvaluation({ apiKey, claims, document = '', send, signa
                 const item = event.item;
                 if (item?.type === 'web_search_call') {
                   const a = item.action || {};
-                  const step = { kind: a.type || 'search', verb: verbOf({ kind: a.type || 'search' }), query: a.query || null, url: a.url || null, pattern: a.pattern || null, status: item.status };
+                  const step = markStep({ kind: a.type || 'search', verb: verbOf({ kind: a.type || 'search' }), query: a.query || null, url: a.url || null, pattern: a.pattern || null, status: item.status });
                   trail.push(step);
+                  // What the search consulted, as OpenAI lists it (a feed of its own has a name and no address).
+                  for (const src of Array.isArray(a.sources) ? a.sources : []) if (typeof src?.url === 'string') consulted.push(src.url);
                   send({ t: 'trail', i, step, searches: searchCount(trail) });
                 } else if (item?.type === 'mcp_call') {
                   // One of CIVIC's tools, called and answered inside the response; its answer is the model's to use.
-                  const step = toolStep(item);
+                  const step = markStep(toolStep(item));
+                  if (step.status !== 'failed') consulted.push(...returnedUrls(step.name, item.output));
                   trail.push(step);
                   send({ t: 'trail', i, step, searches: searchCount(trail) });
                 }
@@ -230,7 +254,7 @@ export async function runEvaluation({ apiKey, claims, document = '', send, signa
                 const a = event.annotation;
                 if (a && a.type === 'url_citation' && a.url && !seen.has(a.url)) {
                   seen.add(a.url);
-                  const source = { url: a.url, title: a.title || a.url };
+                  const source = markSource({ url: a.url, title: a.title || a.url });
                   sources.push(source);
                   send({ t: 'source', i, source });
                 }
@@ -326,10 +350,11 @@ export async function runEvaluation({ apiKey, claims, document = '', send, signa
     const searches = searchCount(trail) + spentSearches;
     const cost = estimateTextCost({ model: modelUsed, usage, searches });
     const tokens = estimateTextCost({ model: modelUsed, usage });
+    const fromList = counted({ sources, trail, consulted });
     recordDone({
       kind, ok: true, ...(trial ? { provider: 'openai' } : {}), model: modelUsed, effort, mode: config.evalReasoningMode || null, webSearch: true,
       claim: claimHash(claim), chars: claim.length, fellBack: fellBack?.used || null, verdict: parsed.verdict, verdictSource: parsed.verdictSource,
-      confidence: parsed.confidence, usage, searches, queries: queriesIn(trail), reads: pagesIn(trail), sources: sources.length, incomplete, ms,
+      confidence: parsed.confidence, usage, searches, queries: queriesIn(trail), reads: pagesIn(trail), sources: sources.length, ...(include ? { consulted: new Set(consulted).size } : {}), ...fromList, incomplete, ms,
       ...measured({ ms, waitMs: waited, firstAt, endAt, text }),
       tokenUsd: tokens.priced ? tokens.usd : null, searchUsd: round4(cost.usd - tokens.usd), usd: cost.usd, priced: cost.priced,
     }, lineCtx(i));
@@ -342,7 +367,7 @@ export async function runEvaluation({ apiKey, claims, document = '', send, signa
       reasoning: reasoning.trim() || null,
       trail, sources,
       model: modelUsed, requested: models[0], fellBack, effort, mode: config.evalReasoningMode || null, // no token figures go to the page; the ledger keeps them
-      searches: searchCount(trail), ms, cost, incomplete,
+      searches: searchCount(trail), ms, cost, incomplete, ...fromList,
       ...(trial ? { trial: true, provider: 'openai' } : {}),
     });
     send({ t: 'batch-progress', completed, total });
@@ -441,6 +466,7 @@ export async function runEvaluation({ apiKey, claims, document = '', send, signa
     const startedAt = Date.now();
     const input = firstInput(evaluationPrompt(claim));
     const trail = [];
+    const returned = [];   // every address FactEngine's search returned to the model
     const used = { input: 0, output: 0, reasoning: 0, cached: 0 };   // the tokens of every round
     let tokenUsd = 0;
     let toolUsd = 0;
@@ -472,7 +498,8 @@ export async function runEvaluation({ apiKey, claims, document = '', send, signa
         ? { content: [{ type: 'text', text: `The tool's arguments could not be read: ${unreadable}.` }], isError: true }
         : await registry.call(name, args, { signal, filedUnder: lineCtx(i), onCost: (usd) => { toolUsd += usd; } });
       const output = (result?.content || []).map((c) => (c && typeof c.text === 'string' ? c.text : '')).join('\n');
-      const step = toolStep({ name, arguments: args, status: result?.isError ? 'failed' : 'completed', error: result?.isError ? output.slice(0, 300) : null });
+      const step = markStep(toolStep({ name, arguments: args, status: result?.isError ? 'failed' : 'completed', error: result?.isError ? output.slice(0, 300) : null }));
+      if (!result?.isError) returned.push(...returnedUrls(name, output));
       trail.push(step);
       send({ t: 'trail', i, step, searches: searchesOf(trail) });
       return { type: 'function_call_output', call_id: call?.call_id, output };
@@ -509,11 +536,12 @@ export async function runEvaluation({ apiKey, claims, document = '', send, signa
     if (parsed.verdictSource === 'unread') recordFailure({ where: 'trial:verdict', code: 'verdict_unread', message: conclusionExcerpt(text) });
     const ms = Date.now() - startedAt;
     const cost = { usd: round4(tokenUsd + toolUsd), priced };
+    const fromList = counted({ trail, consulted: returned });
     // No `sources`: DeepSeek gives no citations of its own (its card lists none), so the table says "—", never 0.
     recordDone({
       kind: 'trial', ok: true, provider: 'deepseek', model: trial.model, effort: trial.effort, mode: null,
       claim: claimHash(claim), chars: claim.length, verdict: parsed.verdict, verdictSource: parsed.verdictSource, confidence: parsed.confidence,
-      usage: used, rounds, searches: searchesOf(trail), queries: queriesIn(trail), reads: readsOf(trail), incomplete, ms,
+      usage: used, rounds, searches: searchesOf(trail), queries: queriesIn(trail), reads: readsOf(trail), ...fromList, incomplete, ms,
       ...measured({ ms, waitMs: waited, firstAt, endAt, text }),
       tokenUsd: round4(tokenUsd), toolUsd: round4(toolUsd), usd: cost.usd, priced,
     }, lineCtx(i));
@@ -526,7 +554,7 @@ export async function runEvaluation({ apiKey, claims, document = '', send, signa
       reasoning: null,   // DeepSeek makes no summary, and its chain of thought stays off the page
       trail, sources: [],
       model: trial.model, requested: trial.model, fellBack: null, effort: trial.effort, mode: null,
-      searches: searchesOf(trail), ms, cost, incomplete,
+      searches: searchesOf(trail), ms, cost, incomplete, ...fromList,
       trial: true, provider: 'deepseek',
     });
     send({ t: 'batch-progress', completed, total: claims.length });
@@ -570,7 +598,7 @@ export async function runEvaluation({ apiKey, claims, document = '', send, signa
       for (const a of annotations || []) {
         if (a?.type !== 'url_citation' || !a.url || seen.has(a.url)) continue;
         seen.add(a.url);
-        const source = { url: a.url, title: a.title || a.url };
+        const source = markSource({ url: a.url, title: a.title || a.url });
         sources.push(source);
         send({ t: 'source', i, source });
       }
@@ -649,7 +677,7 @@ export async function runEvaluation({ apiKey, claims, document = '', send, signa
                 }
               } else if (step.type === 'url_context_call') {
                 for (const url of step.urls) {
-                  const t = { kind: 'open_page', verb: 'open', query: null, url, pattern: null, status: null };   // its status comes with Google's report
+                  const t = markStep({ kind: 'open_page', verb: 'open', query: null, url, pattern: null, status: null });   // its status comes with Google's report
                   trail.push(t);
                   pages.set(url, t);
                   send({ t: 'trail', i, step: t, searches: searchesIn(trail) });
@@ -751,10 +779,11 @@ export async function runEvaluation({ apiKey, claims, document = '', send, signa
     const tokens = estimateTextCost({ model: trial.model, usage, at: pricedAt });   // the day's price: Argon's changes on 1 December
     const all = estimateTextCost({ model: trial.model, usage, searches, at: pricedAt });
     const cost = { usd: all.usd, priced: all.priced };
+    const fromList = counted({ sources, trail });   // Google's API cannot keep a site out: counted only
     recordDone({
       kind: 'trial', ok: true, provider: 'gemini', model: trial.model, effort: trial.effort, mode: null,
       claim: claimHash(claim), chars: claim.length, verdict: parsed.verdict, verdictSource: parsed.verdictSource, confidence: parsed.confidence,
-      usage, searches, queries: queriesIn(trail), reads: readsIn(trail), sources: sources.length, incomplete, ms,
+      usage, searches, queries: queriesIn(trail), reads: readsIn(trail), sources: sources.length, ...fromList, incomplete, ms,
       ...measured({ ms, waitMs: waited, firstAt, endAt, text }),
       tokenUsd: tokens.usd, searchUsd: round4(all.usd - tokens.usd), usd: cost.usd, priced: cost.priced,
     }, lineCtx(i));
@@ -767,7 +796,7 @@ export async function runEvaluation({ apiKey, claims, document = '', send, signa
       reasoning: reasoning.trim() || null,   // Gemini's own summary of its thinking, as the readers' model's
       trail, sources,
       model: trial.model, requested: trial.model, fellBack: null, effort: trial.effort, mode: null,
-      searches: searchesIn(trail), ms, cost, incomplete,
+      searches: searchesIn(trail), ms, cost, incomplete, ...fromList,
       trial: true, provider: 'gemini',
     });
     send({ t: 'batch-progress', completed, total: claims.length });
