@@ -52,6 +52,8 @@ services:
         sync: false
       - key: GEMINI_API_KEY        # the operator's trial on Gemini 4 Argon (18 October): their own Google key
         sync: false
+      - key: ANTHROPIC_API_KEY     # the operator's trial on Claude Opus 5.5 and Fable 5.1 (26 October): their own Anthropic key
+        sync: false
       - key: CIVIC_TELL_WORDS      # the operator's tell words (20 October, civic-web/server/tells.js): set in Render, never here
         sync: false
       - key: CIVIC_BLOCKED_SITES   # the sites the operator keeps out of the research (25 October, civic-web/server/sites.js): set in Render, never here

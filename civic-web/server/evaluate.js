@@ -21,12 +21,19 @@
 // claim: the model searches with Google's own search and reads pages itself inside that request, at the level the
 // operator chose (medium or high), and says store: false, so Google keeps nothing. Its own summary of its thinking shows
 // on the card, as the readers' model's does (the operator's answer); its thought signature is neither sent nor kept.
+//
+// On Claude (26 October, server/anthropic.js) the same two texts go to Anthropic's Messages API in one message, in the
+// same order, at the level the operator ticked: the model searches with Anthropic's web search and reads pages with its
+// page reader inside that request, each told to leave out the operator's lists, and its own summary of its thinking
+// shows on the card. A turn Anthropic pauses goes back to it as it stands until it ends. A claim Anthropic declines ends
+// with its decline on the card, and nothing else answers in its place (the operator's answer).
 import { config } from './config.js';
 import { evaluationPrompt } from './prompts.js';
 import { clientFor, withModelFallback, usageOf, isRetryable, isRateLimit, isConnectionDrop, connectionWait, rateLimitWaitMs, sleep, describeError, throughGate, streamFailure, asStreamFailure, spacedWaitMs, cutReply } from './openai.js';
 import { openaiHost } from './providers.js';
 import * as deepseek from './deepseek.js';
 import * as gemini from './gemini.js';
+import * as anthropic from './anthropic.js';
 import { noteFailure, noteReply } from './reach.js';
 import { gateFor, parseRefusal } from './gate.js';
 import { record as recordFailure } from './diagnostics.js';
@@ -34,7 +41,7 @@ import { estimateTextCost } from './pricing.js';
 import { record, claimHash, factCheckWords } from './ledger.js';
 import { parseEntry, conclusionExcerpt } from './verdict.js';
 import { requestTools, requestInclude, toolStep, searchCount, verbOf } from './tools/request.js';
-import { listedSite, listedCounts, NOT_CONSULTED } from './sites.js';
+import { listedSite, listedCounts, anthropicExclusions, NOT_CONSULTED } from './sites.js';
 import { registry } from './tools/index.js';
 export { parseEntry, VERDICTS } from './verdict.js';
 
@@ -102,15 +109,16 @@ function recordDone(line, ctx) {
 
 export async function runEvaluation({ apiKey, claims, document = '', send, signal, ctx = {}, trial = null }) {
   // `trial`: null for the readers' determination; else the operator's choice (server/trial.js): DeepSeek's model and
-  // effort, Gemini's model and level, an OpenAI model at its level (24 October: GPT-6.1 Sol), or the readers' own model
+  // effort, Gemini's model and level, Claude's model and level, an OpenAI model at its level (24 October: GPT-6.1 Sol), or the readers' own model
   // beside them, recorded as a trial.
   const onDeepSeek = trial?.provider === 'deepseek';
   const onGemini = trial?.provider === 'gemini';
+  const onAnthropic = trial?.provider === 'anthropic';
   const onOpenAITrial = trial?.provider === 'openai' && Boolean(trial.effort);   // OpenAI's fact-check, its own model and level
-  const client = onDeepSeek ? deepseek.client(apiKey) : onGemini ? null : clientFor(apiKey);
-  const models = onDeepSeek || onGemini || onOpenAITrial ? [trial.model] : config.evalModels;
-  const effort = onDeepSeek || onGemini || onOpenAITrial ? trial.effort : config.evalEffort;
-  const mode = onDeepSeek || onGemini ? null : config.evalReasoningMode || null;
+  const client = onDeepSeek ? deepseek.client(apiKey) : onGemini || onAnthropic ? null : clientFor(apiKey);
+  const models = onDeepSeek || onGemini || onAnthropic || onOpenAITrial ? [trial.model] : config.evalModels;
+  const effort = onDeepSeek || onGemini || onAnthropic || onOpenAITrial ? trial.effort : config.evalEffort;
+  const mode = onDeepSeek || onGemini || onAnthropic ? null : config.evalReasoningMode || null;
   const kind = trial ? 'trial' : 'evaluate';
   // Whose work each claim's line is: the run, the sign-in, and the determination's own id (server/economics.js).
   const lineCtx = (i) => ({ runId: ctx.runId || null, owner: ctx.owner || null, determinationId: ctx.determinationIds?.[i] || null });
@@ -804,7 +812,300 @@ export async function runEvaluation({ apiKey, claims, document = '', send, signa
     send({ t: 'batch-progress', completed, total: claims.length });
   };
 
-  const run = onDeepSeek ? evaluateOnDeepSeek : onGemini ? evaluateOnGemini : evaluateOne;
+  // ---- the operator's trial on Claude (26 October) ------------------------------------------------------------------
+
+  /** The two texts every determination begins with, as Anthropic's Messages API takes them: the source, then the prompt, in one message. */
+  const anthropicContent = (prompt) => [
+    ...(document ? [{ type: 'text', text: document }] : []),
+    { type: 'text', text: prompt },
+  ];
+  /**
+   * Anthropic's web search and page reader, each told to leave out the operator's lists (server/sites.js): the search
+   * both lists, columns included; the page reader, which matches a site and never a path, every site of them. Nothing
+   * else: no cap on their uses, Anthropic's own settings for the rest.
+   */
+  const anthropicTools = () => {
+    const { search, fetch } = anthropicExclusions();
+    return [
+      { type: 'web_search_20260318', name: 'web_search', ...(search.length ? { blocked_domains: search } : {}) },
+      { type: 'web_fetch_20260318', name: 'web_fetch', ...(fetch.length ? { blocked_domains: fetch } : {}) },
+    ];
+  };
+  const addUsage = (a, b) => (!b ? a : !a ? { ...b } : { input: a.input + b.input, output: a.output + b.output, reasoning: a.reasoning + b.reasoning, cached: a.cached + b.cached });
+
+  /**
+   * One claim on Claude: one request, in which the model searches and reads pages with Anthropic's own tools, streamed;
+   * when Anthropic pauses a long turn (`pause_turn`), the turn goes back to it as it stands, with the same tools, until
+   * it ends, every turn's tokens and searches counted. Its searches and the pages it read become the card's trail, its
+   * citations the card's sources, its summary of its thinking the card's reasoning. A wait is a wait: a 429 or a 529
+   * waits for Anthropic's retry-after or a second from the turn's start, a 5xx is tried again on the operator's count,
+   * a cut connection or a reply without its last event goes again; each goes again from the last finished turn, never
+   * from the start. A decline ends the claim with Anthropic's own words, and nothing else answers in its place (the
+   * operator's answer of 26 October); the balance used up ends it at once.
+   */
+  const evaluateOnAnthropic = async (claim, i) => {
+    const prompt = evaluationPrompt(claim);
+    const startedAt = Date.now();
+    const tools = anthropicTools();
+    let ceiling = null;        // the model's own ceiling for `max_tokens`, from Anthropic's Models API
+    // The entry as it stood at its last finished turn: what a turn cut short goes again from, and what the card is given
+    // again when it does. A paused turn is a finished one.
+    const empty = () => ({ messages: [{ role: 'user', content: anthropicContent(prompt) }], container: null, text: '', reasoning: '', trail: [], sources: [], consulted: [], usage: null, billed: 0, firstAt: null });
+    let kept = empty();
+    let text = '';
+    let reasoning = '';
+    let trail = [];
+    let sources = [];
+    let consulted = [];        // every address Anthropic's searches returned, to count what was taken of the lists
+    let seen = new Set();
+    let firstAt = null;
+    let endAt = null;
+    let incomplete = null;
+    let pricedAt = null;
+    let spentSearches = 0;     // the searches of turns cut short: Anthropic ran them, so they are paid for
+    let waited = 0;            // every wait, apart from the work (the line's `waitMs`)
+    let anew = true;           // whether the next reply starts the card's row again (the first, and one after a failure)
+    let tries = 0;             // the failures of this claim so far
+    let lastSaid = null;       // the wording of Anthropic's last wait kept for this claim, its figures aside
+    const waitedFor = (ms) => { waited += ms; };
+    const addSource = (c) => {
+      if (c?.type !== 'web_search_result_location' || !c.url || seen.has(c.url)) return;
+      seen.add(c.url);
+      const source = markSource({ url: c.url, title: c.title || c.url });
+      sources.push(source);
+      send({ t: 'source', i, source });
+    };
+    const addText = (piece) => { if (piece) { if (firstAt === null) firstAt = Date.now(); text += piece; send({ t: 'delta', i, text: piece }); } };
+    const addThought = (piece) => { if (piece) { reasoning += piece; send({ t: 'reasoning', i, text: piece }); } };
+    // Back to the last finished turn, after a failure; and the card, once the next reply begins, starts its row again
+    // and is given that much again.
+    const rollback = () => {
+      text = kept.text; reasoning = kept.reasoning; trail = [...kept.trail]; sources = [...kept.sources]; consulted = [...kept.consulted];
+      seen = new Set(sources.map((s) => s.url)); firstAt = kept.firstAt; incomplete = null;
+    };
+    const resume = () => {
+      send({ t: 'start', i, model: trial.model, requested: trial.model, at: Date.now() });
+      if (reasoning) send({ t: 'reasoning', i, text: reasoning });
+      for (const step of trail) send({ t: 'trail', i, step, searches: searchesIn(trail) });
+      for (const source of sources) send({ t: 'source', i, source });
+      if (text) send({ t: 'delta', i, text });
+    };
+
+    for (;;) {
+      const attemptAt = Date.now();
+      try {
+        if (ceiling === null) ceiling = await anthropic.ceiling(trial.model, { key: apiKey });
+        // The model, its own ceiling for what it writes, the two texts, the operator's level, Claude's summary of its
+        // thinking, Anthropic's two tools and the stream; a paused turn's own reply and container go back with it.
+        // Nothing else: no sampling setting, no system prompt, no cap on the tools.
+        const body = {
+          model: trial.model,
+          max_tokens: ceiling,
+          messages: kept.messages,
+          output_config: { effort: trial.effort },
+          thinking: { type: 'adaptive', display: 'summarized' },
+          tools,
+          stream: true,
+          ...(kept.container ? { container: kept.container } : {}),
+        };
+        const { events, final } = anthropic.stream(body, { key: apiKey, signal });
+        let ended = false;
+        let stop = null;
+        let details = null;
+        const blocks = new Map();   // index → the block in flight: its type, tool, id and input as it streams
+        const steps = new Map();    // a tool call's id → its trail step, so the result can say how it went
+        for await (const ev of events) {
+          if (signal.aborted) return;
+          switch (ev.type) {
+            case 'message_start':
+              noteReply(anthropic.NAME);
+              if (pricedAt === null) pricedAt = attemptAt;
+              if (anew) { anew = false; resume(); }
+              break;
+            case 'content_block_start': {
+              const b = ev.content_block || {};
+              blocks.set(ev.index, { type: b.type, name: b.name, id: b.id, json: '', input: b.input });
+              if (b.type === 'text') { addText(b.text); for (const c of b.citations || []) addSource(c); }
+              else if (b.type === 'thinking') addThought(b.thinking);
+              else if (b.type === 'server_tool_use' && b.name === 'web_search') send({ t: 'phase', i, phase: 'searching', searches: searchesIn(trail) + 1 });
+              else if (b.type === 'server_tool_use' && b.name === 'web_fetch') send({ t: 'phase', i, phase: 'reading' });
+              else if (b.type === 'web_search_tool_result') {
+                const step = steps.get(b.tool_use_id);
+                const results = Array.isArray(b.content) ? b.content : null;
+                if (step) step.status = results ? 'completed' : b.content?.error_code || 'error';
+                for (const r of results || []) if (r?.url) consulted.push(r.url);
+              } else if (b.type === 'web_fetch_tool_result') {
+                const step = steps.get(b.tool_use_id);
+                if (step) step.status = b.content?.type === 'web_fetch_result' ? 'completed' : b.content?.error_code || 'error';
+              }
+              break;
+            }
+            case 'content_block_delta': {
+              const d = ev.delta || {};
+              const block = blocks.get(ev.index);
+              if (d.type === 'text_delta') addText(d.text);
+              else if (d.type === 'thinking_delta') addThought(d.thinking);
+              else if (d.type === 'citations_delta') addSource(d.citation);
+              else if (d.type === 'input_json_delta' && block) block.json += d.partial_json || '';
+              // signature_delta: Claude's own, sent back only inside a paused turn, as Anthropic returned it.
+              break;
+            }
+            case 'content_block_stop': {
+              const block = blocks.get(ev.index);
+              blocks.delete(ev.index);
+              if (!block) break;
+              if (block.type === 'thinking') { if (reasoning && !reasoning.endsWith('\n\n')) reasoning += '\n\n'; break; }
+              if (block.type !== 'server_tool_use' || (block.name !== 'web_search' && block.name !== 'web_fetch')) break;
+              let input = block.input && typeof block.input === 'object' ? block.input : {};
+              if (block.json) { try { input = JSON.parse(block.json); } catch { /* the call as Anthropic began it */ } }
+              const step = block.name === 'web_search'
+                ? { kind: 'search', verb: 'search', query: typeof input.query === 'string' ? input.query : null, url: null, pattern: null, status: null }
+                : markStep({ kind: 'open_page', verb: 'open', query: null, url: typeof input.url === 'string' ? input.url : null, pattern: null, status: null });
+              trail.push(step);
+              if (block.id) steps.set(block.id, step);
+              send({ t: 'trail', i, step, searches: searchesIn(trail) });
+              break;
+            }
+            case 'message_delta':
+              if (ev.delta?.stop_reason) stop = ev.delta.stop_reason;
+              if (ev.delta?.stop_details) details = ev.delta.stop_details;
+              break;
+            case 'message_stop':
+              ended = true;
+              break;
+            default:
+              break;
+          }
+        }
+        if (signal.aborted) return;
+        // A reply that stops without its last word was cut, however politely: it goes again, as a cut connection does.
+        // An error Anthropic sent in it that the events did not raise is raised here, with its status.
+        if (!ended) {
+          let held = null;
+          try { await final(); } catch (err) { held = err; }
+          throw held?.status ? held : cutReply();
+        }
+        const message = await final();
+        stop = message?.stop_reason || stop;
+        details = message?.stop_details || details;
+        const turnUsage = anthropic.usageOf(message?.usage);
+        const turnSearches = anthropic.searchesBilled(message?.usage) ?? (searchesIn(trail) - searchesIn(kept.trail));
+        // A finished turn is kept: whatever happens next goes again from here.
+        kept = {
+          messages: stop === 'pause_turn' ? [...kept.messages, { role: 'assistant', content: message.content }] : kept.messages,
+          container: message?.container?.id || kept.container,
+          text, reasoning, trail: [...trail], sources: [...sources], consulted: [...consulted],
+          usage: addUsage(kept.usage, turnUsage), billed: kept.billed + turnSearches, firstAt,
+        };
+        if (stop === 'pause_turn') continue;   // Anthropic paused the turn: it goes back as it stands
+        if (stop === 'refusal') {
+          // Anthropic declined the claim: the claim ends with Anthropic's words, and nothing else answers in its place.
+          const said = anthropic.declineWords(details);
+          const searches = kept.billed + spentSearches;
+          const spent = estimateTextCost({ model: trial.model, usage: kept.usage, searches, at: pricedAt });
+          recordFailure({ where: 'trial:anthropic', code: 'declined', message: `${said} (${trial.model} at ${trial.effort}).`, detail: details?.category || null });
+          console.log(`[anthropic] ${said.replace(/\.$/, '')} (${trial.model} at ${trial.effort})`);
+          record({ kind: 'trial', ok: false, provider: 'anthropic', code: 'declined', model: trial.model, effort: trial.effort, claim: claimHash(claim), usage: kept.usage, searches, ms: Date.now() - startedAt, usd: spent.usd, priced: spent.priced }, lineCtx(i));
+          send({ t: 'error', i, code: 'declined', message: said });
+          completed++;
+          send({ t: 'batch-progress', completed, total: claims.length });
+          return;
+        }
+        if (stop && stop !== 'end_turn' && stop !== 'stop_sequence') {
+          incomplete = stop;   // max_tokens, the context window, or anything else that ended the turn early
+          send({ t: 'phase', i, phase: 'incomplete', reason: incomplete });
+        }
+        endAt = Date.now();
+        break;
+      } catch (err) {
+        if (signal.aborted) return;
+        tries++;
+        anew = true;
+        // What the cut turn searched was searched: it is paid for, and the turn goes again from the last finished one.
+        spentSearches += Math.max(0, searchesIn(trail) - searchesIn(kept.trail));
+        rollback();
+        if (!anthropic.balanceGone(err)) {
+          // A rate limit (429) or Anthropic overloaded (529) is a wait: Anthropic's own figure, or a second from this
+          // turn's start, never at once. The card says whose wait it is, until when, and why, in Anthropic's words, and
+          // the words are kept on /check and in the log, once for each new wording on this claim.
+          if (anthropic.isWait(err)) {
+            const waitMs = err.waitMs > 0 ? err.waitMs : spacedWaitMs(attemptAt);
+            const why = anthropic.words(err);
+            const said = why.replace(/\d+(?:\.\d+)?/g, '#');
+            if (said !== lastSaid) {
+              lastSaid = said;
+              const asked = `Anthropic asked ${trial.model} at ${trial.effort} to wait ${Math.round(waitMs / 1000)} s (${err.status})`;
+              recordFailure({ where: 'trial:anthropic', code: err.status === 529 ? 'overloaded' : 'rate_limited', status: err.status, message: `${asked} (refusal ${tries} of this fact-check).`, detail: why || null });
+              console.log(`[anthropic] ${asked} (refusal ${tries} of this fact-check): "${why}"`);
+            }
+            send({ t: 'retry', i, attempt: tries, status: err.status, reason: 'rate_limit', waitMs, who: anthropic.PROVIDER, why, until: Date.now() + waitMs });
+            await pause(waitMs, waitedFor);
+            continue;
+          }
+          if (isConnectionDrop(err)) {
+            const wait = connectionWait(err, attemptAt);
+            const why = String(wait.why || '').split(openaiHost()).join(anthropic.host());
+            const { since } = noteFailure({ code: wait.code, why, who: anthropic.NAME });
+            send({ t: 'retry', i, attempt: tries, status: null, reason: 'connection', code: wait.code, why, since, waitMs: wait.waitMs, at: Date.now() });
+            await pause(wait.waitMs, waitedFor);
+            continue;
+          }
+          if (tries <= config.evalRetries && isRetryable(err)) {
+            const waitMs = err.waitMs > 0 ? err.waitMs : spacedWaitMs(attemptAt);
+            send({ t: 'retry', i, attempt: tries, status: err?.status ?? null, reason: 'error', waitMs });
+            await pause(waitMs, waitedFor);
+            continue;
+          }
+        }
+        // Anything else (a key refused, the balance used up, a request Anthropic will not take): the claim ends with
+        // FactEngine's own sentence, and Anthropic's words go to /check.
+        const failure = anthropic.failure(err);
+        const safe = describeError(failure);
+        recordFailure({ where: 'trial:anthropic', code: safe.code, message: safe.message || safe.code, detail: failure.detail || null });
+        const searches = kept.billed + spentSearches;
+        const spent = estimateTextCost({ model: trial.model, usage: kept.usage, searches, at: pricedAt ?? startedAt });
+        record({ kind: 'trial', ok: false, provider: 'anthropic', code: safe.code, model: trial.model, effort: trial.effort, claim: claimHash(claim), usage: kept.usage, searches, ms: Date.now() - startedAt, usd: spent.usd, priced: Boolean(kept.usage) && spent.priced }, lineCtx(i));
+        send({ t: 'error', i, code: safe.code, message: safe.message });
+        completed++;
+        send({ t: 'batch-progress', completed, total: claims.length });
+        return;
+      }
+    }
+
+    if (signal.aborted) return;
+    const parsed = parseEntry(text);
+    if (parsed.verdictSource === 'unread') recordFailure({ where: 'trial:verdict', code: 'verdict_unread', message: conclusionExcerpt(text) });
+    const ms = Date.now() - startedAt;
+    // Anthropic's own count of the searches it bills, turn by turn; plus those of turns cut short.
+    const searches = kept.billed + spentSearches;
+    const usage = kept.usage;
+    const tokens = estimateTextCost({ model: trial.model, usage, at: pricedAt });
+    const all = estimateTextCost({ model: trial.model, usage, searches, at: pricedAt });
+    const cost = { usd: all.usd, priced: all.priced };
+    const fromList = counted({ sources, trail, consulted });
+    recordDone({
+      kind: 'trial', ok: true, provider: 'anthropic', model: trial.model, effort: trial.effort, mode: null,
+      claim: claimHash(claim), chars: claim.length, verdict: parsed.verdict, verdictSource: parsed.verdictSource, confidence: parsed.confidence,
+      usage, searches, queries: queriesIn(trail), reads: readsIn(trail), sources: sources.length, ...fromList, incomplete, ms,
+      ...measured({ ms, waitMs: waited, firstAt, endAt, text }),
+      tokenUsd: tokens.usd, searchUsd: round4(all.usd - tokens.usd), usd: cost.usd, priced: cost.priced,
+    }, lineCtx(i));
+    completed++;
+    send({
+      t: 'done', i,
+      verdict: parsed.verdict, verdictSource: parsed.verdictSource, confidence: parsed.confidence, inspector: parsed.inspector,
+      conclusion: parsed.conclusion,
+      text: parsed.text,
+      reasoning: reasoning.trim() || null,   // Claude's own summary of its thinking, as the readers' model's
+      trail, sources,
+      model: trial.model, requested: trial.model, fellBack: null, effort: trial.effort, mode: null,
+      searches: searchesIn(trail), ms, cost, incomplete, ...fromList,
+      trial: true, provider: 'anthropic',
+    });
+    send({ t: 'batch-progress', completed, total: claims.length });
+  };
+
+  const run = onDeepSeek ? evaluateOnDeepSeek : onGemini ? evaluateOnGemini : onAnthropic ? evaluateOnAnthropic : evaluateOne;
   const queue = claims.map((c, i) => [c, i]);
   const workers = Array.from({ length: Math.min(config.evalConcurrency, total) }, async () => {
     while (queue.length && !signal.aborted) {

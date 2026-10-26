@@ -7,7 +7,8 @@
 // fact-check, with only its model and effort its own. On 25 October: "multiple options for the top tier models and not a
 // single default selection … compare using different power settings for each of the models … especially … against
 // DeepSeek": every frontier model at every level its maker supports, each model and level an entry of its own, ticked
-// on the page in any number, each ticked entry a card of its own for every claim chosen.
+// on the page in any number, each ticked entry a card of its own for every claim chosen. On 26 October, on their own
+// Anthropic key: "The two high-end models opus and fable at all levels other than the bottom two tiers."
 //
 // Only the operator's runs go there (a reader's choice of model is no choice: it is ignored), so the readers' texts
 // (Privacy, Terms) stay true. A trial fact-check is a row of its own kind, never charged and never in the readers'
@@ -16,12 +17,14 @@
 // DeepSeek's Responses API ignores `web_search` and every other built-in tool, silently, so a fact-check there searches
 // through FactEngine's own tools, offered to the model as functions (server/tools: the search service and the page
 // reader): without the search service DeepSeek's trial cannot run, and says so. Gemini searches with Google's own search
-// and reads pages itself (server/gemini.js), so it needs its key alone. Each model is ready or not on its own: one that
+// and reads pages itself (server/gemini.js), so it needs its key alone, and so does Claude, which searches and reads pages
+// with Anthropic's own tools (server/anthropic.js). Each model is ready or not on its own: one that
 // cannot run is offered with its reason, and the others still run.
 import { config } from './config.js';
 import { registry } from './tools/index.js';
 import { ApiError, operatorKey } from './openai.js';
 import { isGeminiModel } from './gemini.js';
+import { isAnthropicModel } from './anthropic.js';
 
 /**
  * The levels each model's maker supports, from their own pages (read 25 October 2026), in the order the page shows them:
@@ -30,12 +33,17 @@ import { isGeminiModel } from './gemini.js';
  *   - Google (ai.google.dev, "Gemini thinking"): Gemini 4 Argon takes low, medium and high, as `thinking_level`.
  *   - DeepSeek (api-docs.deepseek.com, "Thinking Mode"): none (thinking off), low, high and max, as `reasoning.effort`;
  *     DeepSeek reads medium as high and xhigh as max, so those are not levels of their own there.
+ *   - Anthropic (platform.claude.com, read 26 October): Claude Opus 5.5 and Claude Fable 5.1 take low, medium, high,
+ *     xhigh and max, as `output_config.effort`, with thinking always on. The operator's rule leaves out the bottom two
+ *     (26 October: "all levels other than the bottom two tiers"), so here they take high, xhigh and max.
  * A model of the trial's list that is not here is not offered: its levels are not known, and none is guessed.
  */
 export const LEVELS = {
   'gpt-6-astra': ['low', 'medium', 'high', 'xhigh', 'max'],
   'gpt-6.1-sol': ['low', 'medium', 'high', 'xhigh', 'max'],
   'gpt-5.6-sol': ['none', 'low', 'medium', 'high', 'xhigh', 'max'],
+  'claude-opus-5-5': ['high', 'xhigh', 'max'],
+  'claude-fable-5-1': ['high', 'xhigh', 'max'],
   'gemini-4-argon': ['low', 'medium', 'high'],
   'deepseek-v4-pro': ['none', 'low', 'high', 'max'],
   'deepseek-flash': ['none', 'low', 'high', 'max'],
@@ -47,13 +55,13 @@ export const levelsOf = (id) => LEVELS[id] || [];
 export const isDeepSeekModel = (id) => /^deepseek-/i.test(String(id || ''));
 /** A model is OpenAI's by its name: OpenAI's ids begin so (gpt-6.1-sol). */
 export const isOpenAIModel = (id) => /^gpt-/i.test(String(id || ''));
-export { isGeminiModel };
+export { isGeminiModel, isAnthropicModel };
 
-/** Whose model it is: 'deepseek', 'gemini', 'openai', or null for one the trial cannot run. */
-export const providerOf = (id) => (isDeepSeekModel(id) ? 'deepseek' : isGeminiModel(id) ? 'gemini' : isOpenAIModel(id) ? 'openai' : null);
+/** Whose model it is: 'deepseek', 'gemini', 'anthropic', 'openai', or null for one the trial cannot run. */
+export const providerOf = (id) => (isDeepSeekModel(id) ? 'deepseek' : isGeminiModel(id) ? 'gemini' : isAnthropicModel(id) ? 'anthropic' : isOpenAIModel(id) ? 'openai' : null);
 
 // The names a person reads; an id the table does not know is shown as it is.
-const LABELS = { 'deepseek-v4-pro': 'DeepSeek V4 Pro', 'deepseek-flash': 'DeepSeek V4.1 Flash', 'gpt-5.6-sol': 'GPT-5.6 Sol', 'gpt-6.1-sol': 'GPT-6.1 Sol', 'gpt-6-astra': 'GPT-6 Astra', 'gemini-4-argon': 'Gemini 4 Argon' };
+const LABELS = { 'deepseek-v4-pro': 'DeepSeek V4 Pro', 'deepseek-flash': 'DeepSeek V4.1 Flash', 'gpt-5.6-sol': 'GPT-5.6 Sol', 'gpt-6.1-sol': 'GPT-6.1 Sol', 'gpt-6-astra': 'GPT-6 Astra', 'gemini-4-argon': 'Gemini 4 Argon', 'claude-opus-5-5': 'Claude Opus 5.5', 'claude-fable-5-1': 'Claude Fable 5.1' };
 export const modelLabel = (id) => LABELS[id] || String(id || '');
 /** An entry's name: the model and its level ("GPT-6 Astra · high"). */
 export const entryLabel = (id, level) => `${modelLabel(id)} · ${level}`;
@@ -72,17 +80,21 @@ export function modelReady(id) {
     if (!config.geminiKey) return { ok: false, why: 'GEMINI_API_KEY is not set, so nothing can be sent to Gemini. The operator pastes it in Render: the civic service, Environment.' };
     return { ok: true, why: null };
   }
+  if (provider === 'anthropic') {
+    if (!config.anthropicKey) return { ok: false, why: 'ANTHROPIC_API_KEY is not set, so nothing can be sent to Anthropic. The operator pastes it in Render: the civic service, Environment.' };
+    return { ok: true, why: null };
+  }
   if (provider === 'openai') {
     // The readers' own key, web search and rate gate: what can run a reader's fact-check can run this one.
     if (!operatorKey({ optional: true })) return { ok: false, why: 'OPENAI_API_KEY is not set, so nothing can be sent to OpenAI.' };
     return { ok: true, why: null };
   }
-  return { ok: false, why: `${id} is not DeepSeek's, Gemini's or OpenAI's, and the trial runs those providers' models.` };
+  return { ok: false, why: `${id} is not DeepSeek's, Gemini's, Anthropic's or OpenAI's, and the trial runs those providers' models.` };
 }
 
 /** Whether a model of the trial's list is offered: its maker's and its levels known. */
 function modelOffered(id) {
-  if (!providerOf(id)) return { ok: false, why: `${id} is not DeepSeek's, Gemini's or OpenAI's, and the trial runs those providers' models.` };
+  if (!providerOf(id)) return { ok: false, why: `${id} is not DeepSeek's, Gemini's, Anthropic's or OpenAI's, and the trial runs those providers' models.` };
   if (!levelsOf(id).length) return { ok: false, why: `${id}'s levels are not known to FactEngine (server/trial.js, LEVELS), so it is not offered.` };
   return { ok: true, why: null };
 }

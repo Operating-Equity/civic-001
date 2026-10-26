@@ -46,6 +46,13 @@ app.use('/gemini', (req, res, next) => {
   next();
 });
 
+// And for the Anthropic stand-in (below), whose key travels in x-api-key: the key and the version are recorded, so the
+// guard proves that only the operator's Anthropic key reaches Anthropic, and nothing of anyone else's.
+app.use('/anthropic', (req, res, next) => {
+  if (process.env.MOCK_RECORD) fs.appendFileSync(process.env.MOCK_RECORD, JSON.stringify({ ts: Date.now(), anthropic: true, method: req.method, path: req.originalUrl.split('?')[0], key: req.get('x-api-key') || '', version: req.get('anthropic-version') || '', auth: req.get('authorization') || '', headers: Object.keys(req.headers) }) + '\n');
+  next();
+});
+
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms * SPEED));
 // The calls the stand-in makes to CIVIC's gateway when a request names it (see the Responses route).
 const TOOL_CALLS = (() => { try { return JSON.parse(process.env.MOCK_TOOL_CALLS || '[]'); } catch { return []; } })();
@@ -53,6 +60,7 @@ const recordMcp = (entry) => { if (process.env.MOCK_RECORD) fs.appendFileSync(pr
 
 app.use((req, res, next) => {
   if (req.path.startsWith('/gemini/')) return next();   // Google's key comes in its own header; its routes check it
+  if (req.path.startsWith('/anthropic/')) return next();   // so does Anthropic's
   const auth = req.get('authorization') || '';
   const key = auth.replace(/^Bearer\s+/i, '');
   if (!key) return res.status(401).json({ error: { message: 'Missing API key', type: 'invalid_request_error', code: 'missing_key' } });
@@ -702,6 +710,165 @@ app.post('/gemini/v1beta/interactions', async (req, res) => {
   send({ event_type: 'interaction.completed', interaction: { id, status: 'completed', object: 'interaction', model: body.model, usage } });
   res.write('event: done\ndata: [DONE]\n\n');
   res.end();
+});
+
+// ---- Anthropic ---------------------------------------------------------------------------
+// The operator's trial on Claude (server/anthropic.js) talks to this when CIVIC_ANTHROPIC_BASE_URL points here
+// (http://localhost:<port>/anthropic). It speaks Anthropic's Messages API as its pages of 26 October describe it: the key
+// in x-api-key, the version in anthropic-version; GET /v1/models/{id} naming the model's ceiling for max_tokens; and a
+// streamed reply of Anthropic's own events (message_start; content_block_start, _delta and _stop; message_delta with the
+// stop reason and the whole usage; message_stop): a thinking block with its summary and its signature; a search run
+// from inside code execution, as Anthropic's dynamic filtering runs one, its call arriving whole with its caller; its
+// results; a page read directly, its call's input streamed; and the entry with web_search_result_location citations.
+// Its refusals: 429 with a retry-after of a second (MOCK_AN_429), 529 overloaded with none (MOCK_AN_529), 500
+// (MOCK_AN_500), an overloaded error event mid-stream (MOCK_AN_OVERLOAD_EVENT), the credit balance used up
+// (MOCK_AN_CREDIT), 401 for a key it refuses (one that begins an-bad), a stream closed after its first event
+// (MOCK_AN_CLOSE). MOCK_AN_PAUSE ends a reply with pause_turn after its search, naming a container; the reply that
+// continues it must carry the paused reply back whole, with the same tools and the container, or it is refused.
+// MOCK_AN_REFUSAL ends one with Anthropic's decline (stop_reason refusal, a category and an explanation). A 429's words
+// carry a marker (ANWAIT-4d2a) and the key it was asked with, which must never reach a card, /check or the log. Each
+// knob lists request ordinals (1-based). The guard's keys are its own made-up words, never in the shape of a real one.
+const AN_MODELS = { 'claude-opus-5-5': 'Claude Opus 5.5', 'claude-fable-5-1': 'Claude Fable 5.1' };
+const AN_EFFORTS = new Set(['low', 'medium', 'high', 'xhigh', 'max']);
+const AN_CEILING = 128000;
+const AN_429 = dsSet('MOCK_AN_429'), AN_529 = dsSet('MOCK_AN_529'), AN_500 = dsSet('MOCK_AN_500'), AN_OVERLOAD_EVENT = dsSet('MOCK_AN_OVERLOAD_EVENT'), AN_CREDIT = dsSet('MOCK_AN_CREDIT');
+const AN_CLOSE = dsSet('MOCK_AN_CLOSE'), AN_PAUSE = dsSet('MOCK_AN_PAUSE'), AN_REFUSAL = dsSet('MOCK_AN_REFUSAL');
+const AN_THOUGHT = 'ANSUM-6a1f';   // the thinking summary's marker: shown on the operator's card, as the readers' model's
+const AN_SIG = 'ANSIG-9e3b';       // the thinking signature's marker: sent back only inside a paused turn, never on a page or a line
+const AN_RESULT = 'ANENC-2f7c';    // a search result's encrypted content: sent back only inside a paused turn
+const anStats = { requests: 0, streams: 0, efforts: [], bodies: [], continued: 0, refusedContinuations: 0 };
+let anOrdinal = 0;
+const anRefused = (res, status, type, message, headers = {}) => {
+  for (const [k, v] of Object.entries(headers)) res.setHeader(k, v);
+  return res.status(status).json({ type: 'error', error: { type, message }, request_id: `req_mock_${anOrdinal}` });
+};
+const anKeyRefused = (req) => { const k = req.get('x-api-key') || ''; return !k || k.startsWith('an-bad'); };
+
+app.get('/anthropic/mock/stats', (req, res) => res.json(anStats));
+app.get('/anthropic/v1/models/:id', (req, res) => {
+  if (anKeyRefused(req)) return anRefused(res, 401, 'authentication_error', 'invalid x-api-key');
+  if (!AN_MODELS[req.params.id]) return anRefused(res, 404, 'not_found_error', `model: ${req.params.id}`);
+  res.json({ type: 'model', id: req.params.id, display_name: AN_MODELS[req.params.id], created_at: '2026-09-01T00:00:00Z', max_input_tokens: 1000000, max_tokens: AN_CEILING });
+});
+app.post('/anthropic/v1/messages', async (req, res) => {
+  const body = req.body || {};
+  const ordinal = ++anOrdinal;
+  anStats.requests = ordinal;
+  anStats.bodies.push(body);
+  if (anStats.bodies.length > 40) anStats.bodies.shift();
+  if (anKeyRefused(req)) return anRefused(res, 401, 'authentication_error', 'invalid x-api-key');
+  if (!AN_MODELS[body.model]) return anRefused(res, 404, 'not_found_error', `model: ${body.model}`);
+  const effort = body.output_config?.effort;
+  if (effort !== undefined && !AN_EFFORTS.has(effort)) return anRefused(res, 400, 'invalid_request_error', `output_config.effort: Input should be 'low', 'medium', 'high', 'xhigh' or 'max'`);
+  if (body.thinking?.type !== undefined && body.thinking.type !== 'adaptive') return anRefused(res, 400, 'invalid_request_error', `thinking.type: "${body.thinking.type}" is not supported for this model; use "adaptive".`);
+  if (!(body.max_tokens > 0) || body.max_tokens > AN_CEILING) return anRefused(res, 400, 'invalid_request_error', `max_tokens: ${body.max_tokens} > ${AN_CEILING}, which is the maximum allowed number of output tokens for ${body.model}`);
+  for (const k of ['temperature', 'top_p', 'top_k']) if (k in body) return anRefused(res, 400, 'invalid_request_error', `${k}: sampling parameters are not supported for this model`);
+  const messages = Array.isArray(body.messages) ? body.messages : [];
+  const last = messages[messages.length - 1];
+  const continuing = last?.role === 'assistant';
+  if (continuing) {
+    // A paused turn goes back whole: its thinking with its signature, its search call and results with their encrypted
+    // content, the same tools, and the container Anthropic named.
+    const blocks = Array.isArray(last.content) ? last.content : [];
+    const whole = blocks.some((b) => b?.type === 'thinking' && String(b.signature || '').startsWith(AN_SIG))
+      && blocks.some((b) => b?.type === 'server_tool_use' && b.name === 'web_search')
+      && blocks.some((b) => b?.type === 'web_search_tool_result' && (b.content || []).every((r) => r?.encrypted_content === AN_RESULT))
+      && (body.tools || []).some((t) => t?.name === 'web_search') && body.container === 'container_mock_an';
+    if (!whole) { anStats.refusedContinuations++; return anRefused(res, 400, 'invalid_request_error', 'messages: the paused turn was not sent back as it was returned'); }
+    anStats.continued++;
+  }
+  anStats.efforts.push(effort ?? null);
+  if (AN_CREDIT.has(ordinal)) return anRefused(res, 400, 'invalid_request_error', 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.');
+  if (AN_429.has(ordinal)) return anRefused(res, 429, 'rate_limit_error', `This request would exceed the rate limit for your organization of 30,000 input tokens per minute. ANWAIT-4d2a (asked with ${req.get('x-api-key') || 'no key'}).`, { 'retry-after': '1' });
+  if (AN_529.has(ordinal)) return anRefused(res, 529, 'overloaded_error', 'Overloaded');
+  if (AN_500.has(ordinal)) return anRefused(res, 500, 'api_error', 'Internal server error');
+  anStats.streams++;
+  res.status(200);
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.flushHeaders();
+  const send = (ev) => res.write(`event: ${ev.type}\ndata: ${JSON.stringify(ev)}\n\n`);
+  const first = messages.find((m) => m?.role === 'user');
+  const texts = (Array.isArray(first?.content) ? first.content : [{ text: String(first?.content || '') }]).map((c) => c?.text || '');
+  const promptText = texts[texts.length - 1] || '';
+  const claim = promptText.split('\n')[0].replace(/^\s*Prompt\s*=\s*/, '').trim();
+  const id = `msg_mock_an_${ordinal}`;
+  const inputTokens = Math.round(JSON.stringify(messages).length / 4);
+  send({ type: 'message_start', message: { id, type: 'message', role: 'assistant', model: body.model, content: [], stop_reason: null, stop_sequence: null, stop_details: null, container: null, usage: { input_tokens: inputTokens, output_tokens: 1, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, server_tool_use: null } } });
+  if (AN_CLOSE.has(ordinal)) { res.end(); return; }
+  let index = 0;
+  const finish = (stop, { searches = 0, fetches = 0, output = 0, thinking = 0, details = null, container = null } = {}) => {
+    send({ type: 'message_delta', delta: { stop_reason: stop, stop_sequence: null, ...(details ? { stop_details: details } : {}), ...(container ? { container } : {}) },
+      usage: { input_tokens: inputTokens, output_tokens: output, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, server_tool_use: { web_search_requests: searches, web_fetch_requests: fetches }, output_tokens_details: { thinking_tokens: thinking } } });
+    send({ type: 'message_stop' });
+    res.end();
+  };
+  const thought = effort === 'max' ? 1600 : effort === 'xhigh' ? 1200 : 800;
+  const readUrl = process.env.MOCK_AN_READ_URL || 'https://example.org/tower';
+  const tools = new Set((body.tools || []).map((t) => t?.name));
+  if (!continuing) {
+    // The thinking, its summary streamed and its signature after it.
+    send({ type: 'content_block_start', index, content_block: { type: 'thinking', thinking: '', signature: '' } });
+    send({ type: 'content_block_delta', index, delta: { type: 'thinking_delta', thinking: `${AN_THOUGHT} Weighing what the claim needs, ` } });
+    send({ type: 'content_block_delta', index, delta: { type: 'thinking_delta', thinking: 'and where to look.' } });
+    send({ type: 'content_block_delta', index, delta: { type: 'signature_delta', signature: `${AN_SIG}-${ordinal}` } });
+    send({ type: 'content_block_stop', index: index++ });
+    if (AN_OVERLOAD_EVENT.has(ordinal)) { send({ type: 'error', error: { type: 'overloaded_error', message: 'Overloaded' } }); res.end(); return; }
+    if (AN_REFUSAL.has(ordinal)) {
+      finish('refusal', { output: 40, thinking: 30, details: { type: 'refusal', category: 'general_harms', explanation: 'This request was declined by the safety screen.' } });
+      return;
+    }
+    if (tools.has('web_search')) {
+      // A search from inside code execution, as dynamic filtering runs one: the code's call, the search's call arriving
+      // whole with its caller, its results, and the code's own result.
+      const code = `srvtoolu_mock_code_${ordinal}`;
+      const search = `srvtoolu_mock_search_${ordinal}`;
+      send({ type: 'content_block_start', index, content_block: { type: 'server_tool_use', id: code, name: 'code_execution', input: {}, caller: { type: 'direct' } } });
+      send({ type: 'content_block_delta', index, delta: { type: 'input_json_delta', partial_json: '{"code":"results = web_search(query=\\"evidence\\")"}' } });
+      send({ type: 'content_block_stop', index: index++ });
+      send({ type: 'content_block_start', index, content_block: { type: 'server_tool_use', id: search, name: 'web_search', input: { query: `evidence for ${claim.slice(0, 50)}` }, caller: { type: 'code_execution_20260120', tool_id: code } } });
+      send({ type: 'content_block_stop', index: index++ });
+      const results = [
+        { type: 'web_search_result', url: readUrl, title: 'The tower, measured', page_age: 'October 1, 2026', encrypted_content: AN_RESULT },
+        { type: 'web_search_result', url: 'https://example.org/second-source', title: 'A second source', page_age: null, encrypted_content: AN_RESULT },
+        ...(process.env.MOCK_AN_RESULT_URL ? [{ type: 'web_search_result', url: process.env.MOCK_AN_RESULT_URL, title: 'Another result', page_age: null, encrypted_content: AN_RESULT }] : []),
+      ];
+      send({ type: 'content_block_start', index, content_block: { type: 'web_search_tool_result', tool_use_id: search, content: results, caller: { type: 'code_execution_20260120', tool_id: code } } });
+      send({ type: 'content_block_stop', index: index++ });
+      send({ type: 'content_block_start', index, content_block: { type: 'code_execution_tool_result', tool_use_id: code, content: { type: 'code_execution_result', stdout: '2 results kept', stderr: '', return_code: 0, content: [] } } });
+      send({ type: 'content_block_stop', index: index++ });
+    }
+    if (AN_PAUSE.has(ordinal)) {
+      finish('pause_turn', { searches: tools.has('web_search') ? 1 : 0, output: 60, thinking: thought, container: { id: 'container_mock_an', expires_at: '2026-10-26T23:59:00Z' } });
+      return;
+    }
+  }
+  if (tools.has('web_fetch')) {
+    // A page read directly: its call's input streamed, then the page.
+    const fetch = `srvtoolu_mock_fetch_${ordinal}`;
+    send({ type: 'content_block_start', index, content_block: { type: 'server_tool_use', id: fetch, name: 'web_fetch', input: {}, caller: { type: 'direct' } } });
+    const json = JSON.stringify({ url: readUrl });
+    send({ type: 'content_block_delta', index, delta: { type: 'input_json_delta', partial_json: json.slice(0, 9) } });
+    send({ type: 'content_block_delta', index, delta: { type: 'input_json_delta', partial_json: json.slice(9) } });
+    send({ type: 'content_block_stop', index: index++ });
+    send({ type: 'content_block_start', index, content_block: { type: 'web_fetch_tool_result', tool_use_id: fetch, caller: { type: 'direct' }, content: { type: 'web_fetch_result', url: readUrl, retrieved_at: '2026-10-26T12:00:00Z', content: { type: 'document', source: { type: 'text', media_type: 'text/plain', data: 'The tower is 330 metres tall.' }, title: 'The tower, measured' } } } });
+    send({ type: 'content_block_stop', index: index++ });
+  }
+  const hold = Number(process.env.MOCK_EVAL_HOLD_MS || 0);
+  if (hold) await sleep(hold);
+  const output = mockEntry(claim);
+  const pieces = output.match(/[\s\S]{1,28}/g) || [''];
+  send({ type: 'content_block_start', index, content_block: { type: 'text', text: '', citations: null } });
+  for (const piece of pieces) {
+    if (res.writableEnded || res.destroyed) return;
+    send({ type: 'content_block_delta', index, delta: { type: 'text_delta', text: piece } });
+    await sleep(8);
+  }
+  for (const [url, title] of [[readUrl, 'The tower, measured'], ['https://example.org/second-source', 'A second source'], [readUrl, 'The tower, measured'], ...(process.env.MOCK_AN_CITE_URL ? [[process.env.MOCK_AN_CITE_URL, 'A cited page']] : [])]) {
+    send({ type: 'content_block_delta', index, delta: { type: 'citations_delta', citation: { type: 'web_search_result_location', url, title, cited_text: 'The tower is 330 metres tall.', encrypted_index: 'ANIDX' } } });
+  }
+  send({ type: 'content_block_stop', index: index++ });
+  finish('end_turn', { searches: !continuing && tools.has('web_search') ? 1 : 0, fetches: tools.has('web_fetch') ? 1 : 0, output: Math.round(output.length / 4) + thought, thinking: continuing ? 0 : thought });
 });
 
 // ---- Fireworks ---------------------------------------------------------------------------

@@ -488,18 +488,21 @@ sentence, and DeepSeek's words go to the record on /check, which also reads Deep
 /models`, `GET /user/balance`, no tokens; the figures to the operator alone). The readers' determinations stay on
 OpenAI as below. `CIVIC_EXTRACT_PROVIDER=openai` (or unset) puts the listing back on OpenAI exactly as before.
 
-**The operator's trial on DeepSeek, Gemini and OpenAI** (14 October: "I think the best experiment is to use the new DeepSeek deep
+**The operator's trial on DeepSeek, Gemini, Claude and OpenAI** (14 October: "I think the best experiment is to use the new DeepSeek deep
 reasoning model through the already connected API"; 18 October: Gemini 4 Argon; 24 October: GPT-6.1 Sol; 25 October:
 "multiple options for the top tier models and not a single default selection … compare using different power settings
-for each of the models … especially … against DeepSeek"). On the operator's page alone, above "Test N selected claims",
-a grid: one row per model, a tick box per level its maker supports (`server/trial.js`, `LEVELS`, from the makers' own
-pages of 25 October):
+for each of the models … especially … against DeepSeek"; 26 October, on their own Anthropic key: "The two high-end
+models opus and fable at all levels other than the bottom two tiers"). On the operator's page alone, above "Test N
+selected claims", a grid: one row per model, a tick box per level its maker supports (`server/trial.js`, `LEVELS`, from
+the makers' own pages of 25 and 26 October; for Claude, Anthropic's five levels less the bottom two, the operator's rule):
 
 | Model | Levels |
 |---|---|
 | GPT-6 Astra (`gpt-6-astra`) | low, medium, high, xhigh, max |
 | GPT-6.1 Sol (`gpt-6.1-sol`) | low, medium, high, xhigh, max |
 | GPT-5.6 Sol (`gpt-5.6-sol`, the readers' model) | none, low, medium, high, xhigh, max |
+| Claude Opus 5.5 (`claude-opus-5-5`) | high, xhigh, max |
+| Claude Fable 5.1 (`claude-fable-5-1`) | high, xhigh, max |
 | Gemini 4 Argon (`gemini-4-argon`) | low, medium, high |
 | DeepSeek V4 Pro (`deepseek-v4-pro`) | none (thinking off), low, high, max |
 | DeepSeek V4.1 Flash (`deepseek-flash`) | none (thinking off), low, high, max |
@@ -512,7 +515,7 @@ cannot be ticked, its reason said beneath. An OpenAI entry is a reader's own Ope
 and pacing) with only its model and level its own. The server takes a model and a level from the operator's session only,
 runs an entry at exactly its level, and refuses a level its maker does not support, choosing none for the asker; from
 anyone else the model is ignored and the request is the readers' own. The models are `CIVIC_EVAL_TRIAL_MODELS`
-(`gpt-6-astra,gpt-6.1-sol,gpt-5.6-sol,gemini-4-argon,deepseek-v4-pro,deepseek-flash` unless set; `off` ends the trial); a
+(`gpt-6-astra,gpt-6.1-sol,gpt-5.6-sol,claude-opus-5-5,claude-fable-5-1,gemini-4-argon,deepseek-v4-pro,deepseek-flash` unless set; `off` ends the trial); a
 model whose levels FactEngine does not know is not offered, and /check says so. /check asks OpenAI whether the key may
 use each OpenAI model, without a token.
 
@@ -538,6 +541,28 @@ at the day's price, plus $14 per 1,000 Google searches: an upper bound while the
 Google sends its search suggestions with each grounded answer and its terms set how search-grounded answers are shown to
 people; the trial shows its answers to the operator alone and does not draw the suggestions, so those terms are to be
 read and met before Gemini ever serves readers.
+
+On Claude (`server/anthropic.js`, through Anthropic's own library, `@anthropic-ai/sdk`, its retries off and no time limit
+of FactEngine's) a fact-check is one request to Anthropic's Messages API, with the operator's own key
+(`ANTHROPIC_API_KEY`, sent in `x-api-key` and nowhere else; the library is given its key and address and never reads its
+own from the environment): `model`, `max_tokens` (the model's own ceiling, as Anthropic's Models API names it, asked once
+without a token), `messages` (one message of the user's holding the two texts a reader's determination carries, in the
+same order), `output_config.effort` (the level ticked), `thinking` (`adaptive`, with Claude's summary of it; Claude thinks
+at every level, and the level is the only control), `tools` (Anthropic's web search and page reader, so the model searches
+and reads pages itself inside that one request) and `stream`: nothing else. Its searches and the pages it read are the
+card's trail, its citations the card's sources, and Claude's own summary of its thinking is shown as the readers'
+model's is; its signature and the search results' encrypted content are sent back only inside a paused turn and are
+neither shown nor kept. When Anthropic pauses a long turn (`pause_turn`), the turn goes back to it as it stands, with the
+same tools and the container Anthropic named, until it ends; every turn's tokens and searches are counted. A 429 waits
+for Anthropic's `retry-after`, and a 529 (Anthropic overloaded, in the reply or before it) is a wait too, a second from
+the go's start when no figure is named; the card says "Anthropic asks to wait", with Anthropic's words under the bar, and
+the words go to /check and the log. A 5xx goes again on the operator's count, a cut stream goes again; each goes again
+from the last finished turn, never from the start. A refused key and the credit balance used up end the fact-check at
+once, with Anthropic's words on /check. A claim Anthropic declines (`stop_reason: refusal`) ends with its decline on the
+card, "Anthropic declined this claim (its category): its explanation", and nothing else answers in its place (the
+operator's answer of 26 October); the decline is kept on /check, in the log and on the ledger with the tokens it took.
+Its cost is Anthropic's tokens (thinking included as output) at the model's price, plus $10 per 1,000 searches; the page
+reader is tokens alone.
 
 On DeepSeek: since DeepSeek does not search, a trial fact-check offers the model FactEngine's own tools as
 functions (`search_web` through the search service, `read_page` and `get_transcript` through FactEngine's reader, in the
@@ -705,6 +730,9 @@ read stops the start, naming the key and never an entry; with nothing set every 
   columns included) and drops a result that comes anyway from one of them, or whose address carries one of the words;
   its page reader refuses all of them, a page whose markup is of one of the types included ("This page is not
   consulted."), for DeepSeek in the trial and the tool server alike.
+- **Blocked on Claude:** Anthropic's web search is told to leave out both lists, columns included (it takes a path);
+  its page reader matches a site and never a path, so it is told to leave out every site of both lists, and a column's
+  page it reads is counted and marked. The address words and markup types are counted and marked there.
 - **Counted only:** Google's developer API cannot leave a site out, so on Gemini what a fact-check takes of any of it is
   counted and marked, never kept from it. A source Google cites through its own link is read by the site its title
   names.
@@ -724,7 +752,7 @@ truncation setting. No fallback model. No size limit of ours on the document.
 | Model, both steps | `gpt-5.6-sol` | Operator, tested |
 | The listing's provider | `CIVIC_EXTRACT_PROVIDER`: `openai` (unset), `deepseek` (DeepSeek's own service: `deepseek-flash` on `DEEPSEEK_API_KEY`) or `fireworks` (the same model from the US: `accounts/fireworks/models/deepseek-v4p1-flash` on `FIREWORKS_API_KEY`, searching through FactEngine's tool server, `store: false`). Either runs at effort `high` unless `CIVIC_EXTRACT_EFFORT` says otherwise (the operator's answer of 5 October, `max` before); the service runs it at `low` since 18 October ("DeepSeek thinks at low", after an article took five minutes at `high`); `CIVIC_EXTRACT_MODELS` changes the model. The keys are pasted by the operator in Render; a key is read under its name whatever its capitals (`DEEPSEEK_API_Key` is `DEEPSEEK_API_KEY`), the exact name winning, and two spellings holding different keys are used neither, /check naming both. `CIVIC_DEEPSEEK_BASE_URL` and `CIVIC_FIREWORKS_BASE_URL` are the providers' addresses (only the guard changes them). The readers' determinations stay on OpenAI. | Operator, 4 and 5 October |
 | The second pass | `CIVIC_RANK`: `operator` (unset: the operator's runs are ranked), `on` (everyone's) or `off` (the service since 24 October: one pass); `CIVIC_RANK_KEEP_PERCENT` (25: the part of the ranked claims shown, rounded up, behind an empirical headline); `CIVIC_RANK_EFFORT` (the listing's unless set; `low` on the service since 19 October, after the ranking took 69 s at `high`, `high` from 18 October); the ranking prompt, `rank` (optional; `CIVIC_PROMPT_RANK_FILE`). On the listing's DeepSeek model. See "The second pass" above. | Operator, 16 October |
-| The operator's trial | `CIVIC_EVAL_TRIAL_MODELS`: the models the operator may tick on the page for their own determinations, each at every level its maker supports (`gpt-6-astra,gpt-6.1-sol,gpt-5.6-sol,gemini-4-argon,deepseek-v4-pro,deepseek-flash` unless set; `off` ends it). DeepSeek's models need `DEEPSEEK_API_KEY` and the search service; Gemini 4 Argon needs `GEMINI_API_KEY` (the operator's own Google key, pasted in Render; `CIVIC_GEMINI_BASE_URL` only the guard changes); OpenAI's need only the readers' OpenAI key. Each runs or not on its own. Never charged, never in the readers' figures. | Operator, 14, 18, 24 and 25 October |
+| The operator's trial | `CIVIC_EVAL_TRIAL_MODELS`: the models the operator may tick on the page for their own determinations, each at every level its maker supports (`gpt-6-astra,gpt-6.1-sol,gpt-5.6-sol,claude-opus-5-5,claude-fable-5-1,gemini-4-argon,deepseek-v4-pro,deepseek-flash` unless set; `off` ends it). DeepSeek's models need `DEEPSEEK_API_KEY` and the search service; Gemini 4 Argon needs `GEMINI_API_KEY` (the operator's own Google key, pasted in Render; `CIVIC_GEMINI_BASE_URL` only the guard changes); Claude's need `ANTHROPIC_API_KEY` (the operator's own, pasted in Render; `CIVIC_ANTHROPIC_BASE_URL` only the guard changes); OpenAI's need only the readers' OpenAI key. Each runs or not on its own. Never charged, never in the readers' figures. | Operator, 14, 18, 24, 25 and 26 October |
 | Reasoning effort, both steps on OpenAI | `xhigh` | Operator, 5 October: back to the setting before 21 September, when `max` in `pro` mode had taken a listing to fifteen minutes and $3.81 and a determination to almost seven minutes and $3.71. `max` from 21 September to 5 October. |
 | Reasoning mode, both steps on OpenAI | `standard` (no mode key sent) | Operator, 5 October, as above. `pro` (GPT-5.6's pro mode, OpenAI's "highest-intelligence API option": more model work per answer at the same per-token rates) from 21 September to 5 October; `CIVIC_REASONING_MODE=pro` brings it back. |
 | Web search | on for the determinations, never on the listing; not configurable, save the sites the operator keeps out of the research (`CIVIC_BLOCKED_SITES` and the rest, 25 October; see above) | The determinations' prompt was tested in a UI where search is available. The listing reads the document it is given and nothing else (24 October). |
@@ -742,7 +770,8 @@ Environment variables: `CIVIC_MODEL`, `CIVIC_EFFORT` (both steps), or per step
 `CIVIC_EXTRACT_REASONING_SUMMARY`, `CIVIC_EVAL_REASONING_SUMMARY`; for the listing's provider,
 `CIVIC_EXTRACT_PROVIDER`, `DEEPSEEK_API_KEY`, `CIVIC_DEEPSEEK_BASE_URL`, `FIREWORKS_API_KEY` and
 `CIVIC_FIREWORKS_BASE_URL`; for the second pass, `CIVIC_RANK`, `CIVIC_RANK_KEEP_PERCENT` and `CIVIC_RANK_EFFORT`; for the
-operator's trial, `CIVIC_EVAL_TRIAL_MODELS`, `GEMINI_API_KEY` and `CIVIC_GEMINI_BASE_URL`; for the sites kept out of the
+operator's trial, `CIVIC_EVAL_TRIAL_MODELS`, `GEMINI_API_KEY`, `CIVIC_GEMINI_BASE_URL`, `ANTHROPIC_API_KEY` and
+`CIVIC_ANTHROPIC_BASE_URL`; for the sites kept out of the
 research, `CIVIC_BLOCKED_SITES`, `CIVIC_BLOCKED_MORE` (each with its `_FILE`), `CIVIC_BLOCKED_WORDS` and
 `CIVIC_BLOCKED_MARKUP`. There is no setting that removes web search from the determinations, or that gives the listing a
 tool.
@@ -875,7 +904,7 @@ finding by its file, commits and fingerprint, and removes the namespace.
 |---|---|---|
 | Extraction | `gpt-5.6-sol`, effort `xhigh`, standard mode; with `CIVIC_EXTRACT_PROVIDER=deepseek`, DeepSeek's `deepseek-flash`, effort `high`; with `CIVIC_EXTRACT_PROVIDER=fireworks`, the same model on Fireworks, effort `high`. No tool on any of them (24 October) | The operator's configuration; DeepSeek flash on the operator's word of 4 October ("10 times faster and better"), served from the US by Fireworks on their word of 5 October, and back on DeepSeek's own service the same day for speed (never Fireworks again). Fireworks' price per million tokens (its serverless price from 1 October 2026, per its release note): input $0.30, cached input $0.006, output $1.20, at every hour. DeepSeek's price per million tokens (its page, 4 October): input $0.30, cached input $0.006, output $1.20 at peak hours (01:00-04:00 and 06:00-10:00 UTC, Monday to Friday), half at every other hour; FactEngine prices each listing at the hour it went. A `CIVIC_PRICING_JSON` override of a DeepSeek row replaces the whole row, so it repeats `offPeak` and `peakUtc`. |
 | Determination | `gpt-5.6-sol`, effort `xhigh`, standard mode, web search on | As requested (5 October: back to the setting before 21 September). Web search lets the inspector reach primary sources, and every query and citation is shown. |
-| The operator's trial | `deepseek-v4-pro`, at the effort chosen on the page (opening on `high`), FactEngine's own tools for its searches and pages; or `gemini-4-argon` at `medium` or `high`, Google's own search and page reading, `store: false` | The operator's words of 14 and 18 October: their own runs alone, beside the readers' model. DeepSeek's price per million tokens (its page): V4 Pro $1.32 in, $0.044 cached, $3.96 out at peak hours, half otherwise. Google's (its page of 16 October): Argon $2 in, $0.10 cached, $10 out (thinking included) through 30 November 2026, then $4, $0.20 and $20; Google Search $14 per 1,000 searches after 5,000 free a month. |
+| The operator's trial | `deepseek-v4-pro`, at the effort chosen on the page (opening on `high`), FactEngine's own tools for its searches and pages; or `gemini-4-argon` at `medium` or `high`, Google's own search and page reading, `store: false`; or `claude-opus-5-5` and `claude-fable-5-1` at `high`, `xhigh` or `max`, Anthropic's web search and page reader | The operator's words of 14, 18 and 26 October: their own runs alone, beside the readers' model. DeepSeek's price per million tokens (its page): V4 Pro $1.32 in, $0.044 cached, $3.96 out at peak hours, half otherwise. Google's (its page of 16 October): Argon $2 in, $0.10 cached, $10 out (thinking included) through 30 November 2026, then $4, $0.20 and $20; Google Search $14 per 1,000 searches after 5,000 free a month. Anthropic's (its pages of 26 October): Opus 5.5 $4 in, $0.20 from its cache, $20 out; Fable 5.1 $10, $0.25 and $50 (thinking included); web search $10 per 1,000 searches. |
 | Art direction | `gpt-5.6-luna`, effort `low` | Reads the document and writes a concrete photographic brief for the echo. About two seconds. |
 | Visual echo | `gpt-image-2.5-flare`, quality `high` | OpenAI's fastest image model. Quality is `high`, not `low`: the speed comes from the model, not from starving it. |
 

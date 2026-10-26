@@ -14,6 +14,9 @@
 // through 30 November 2026, then the one in `from` (a row's `from` entries change it at their moment, UTC; a call is
 // priced at the moment it went). Output includes the thinking. `search` is Google Search's own price, $14 per 1,000
 // searches; the 5,000 free a month are not counted, so while they last the estimate is an upper bound.
+// Claude Opus 5.5's and Claude Fable 5.1's rows (the operator's trial, 26 October) are Anthropic's pricing page of 26
+// October: output includes the thinking; `cached` is a read from Anthropic's cache, which FactEngine never asks for;
+// `search` is Anthropic's web search, $10 per 1,000 searches. Its page reader is billed as tokens alone.
 import { config } from './config.js';
 
 const DEFAULT_PRICES = {
@@ -28,6 +31,8 @@ const DEFAULT_PRICES = {
   'deepseek-flash': { input: 0.30, cached: 0.006, output: 1.20, offPeak: { input: 0.15, cached: 0.003, output: 0.60 }, peakUtc: { days: [1, 2, 3, 4, 5], hours: [[1, 4], [6, 10]] } },
   'deepseek-v4-pro': { input: 1.32, cached: 0.044, output: 3.96, offPeak: { input: 0.66, cached: 0.022, output: 1.98 }, peakUtc: { days: [1, 2, 3, 4, 5], hours: [[1, 4], [6, 10]] } },
   'accounts/fireworks/models/deepseek-v4p1-flash': { input: 0.30, cached: 0.006, output: 1.20 },
+  'claude-opus-5-5': { input: 4, cached: 0.20, output: 20, search: 0.01 },
+  'claude-fable-5-1': { input: 10, cached: 0.25, output: 50, search: 0.01 },
   'gemini-4-argon': { input: 2, cached: 0.10, output: 10, search: 0.014, from: [{ at: '2026-12-01T00:00:00Z', input: 4, cached: 0.20, output: 20 }] },
 };
 
