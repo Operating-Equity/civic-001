@@ -24,6 +24,7 @@ import { trialOf, trialState } from './trial.js';
 import { rankFor, rankState } from './rank.js';
 import * as deepseekProvider from './deepseek.js';
 import * as geminiProvider from './gemini.js';
+import * as anthropicProvider from './anthropic.js';
 import { runIllustration } from './illustrate.js';
 import { selftest } from './selftest.js';
 import { whereTheShellSetsIt } from './key.js';
@@ -40,7 +41,7 @@ import { mountGateway } from './tools/gateway.js';
 import * as economics from './economics.js';
 import * as assets from './assets.js';
 import { loadTells, finder, tellReport, setTellReport } from './tells.js';
-import { sitesState, sitesWords } from './sites.js';
+import { sitesState, sitesWords, anthropicWords } from './sites.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const publicDir = path.join(here, '..', 'public');
@@ -447,7 +448,7 @@ app.post('/api/evaluate', wrap(async (req, res) => {
   // The operator's trial (server/trial.js): a model of their choosing, on their own runs alone. Anyone else's choice of
   // model is ignored, and their request is the readers' determination, as always.
   const trial = trialOf(req.body, { operator: seesAll(req) });
-  const apiKey = trial?.provider === 'deepseek' ? deepseekProvider.key() : trial?.provider === 'gemini' ? geminiProvider.key() : operatorKey();
+  const apiKey = trial?.provider === 'deepseek' ? deepseekProvider.key() : trial?.provider === 'gemini' ? geminiProvider.key() : trial?.provider === 'anthropic' ? anthropicProvider.key() : operatorKey();
   if (!hasPrompt('evaluate')) throw new ApiError(503, 'prompt_missing', 'The evaluation prompt is not installed on this server.');
   // The claim alone is tested, whatever the page sends (24 October, night: "I don't want the extraction to affect
   // downstream processing in any way"): a copy of the page from before the claim alone was shown sends each claim's whole
@@ -666,12 +667,13 @@ function banner() {
   const search = !kept ? 'web_search' : `${kept.count ? `web_search with filters.blocked_domains (list ${kept.fingerprint}, ${kept.count} sites)` : 'web_search'} · include web_search_call.action.sources`;
   console.log(`determination requests carry: model ${shape.evaluate.model} · reasoning.effort ${shape.evaluate.effort}${shape.evaluate.mode ? ` · reasoning.mode ${shape.evaluate.mode}` : ''}${shape.evaluate.summary ? ` · reasoning.summary ${shape.evaluate.summary}` : ''} · ${search} · the source as a message ahead of the prompt · the prompt verbatim with the claim in its slot · nothing else${shape.evaluate.fallback ? '  (FALLBACK LIST SET)' : ''}`);
   console.log(kept
-    ? `[sites] kept out of the research: ${sitesWords()}; whatever a model takes of it is counted and marked, and on Gemini that is all`
+    ? `[sites] kept out of the research: ${sitesWords()}${anthropicWords() ? `; ${anthropicWords()}` : ''}; whatever a model takes of it is counted and marked, and on Gemini that is all`
     : '[sites] no site is kept out of the research (CIVIC_BLOCKED_SITES, CIVIC_BLOCKED_MORE, CIVIC_BLOCKED_WORDS, CIVIC_BLOCKED_MARKUP)');
   // The operator's trial (server/trial.js): whether it can run, for the host's log. No key, nothing of anyone's.
   const trial = trialState();
   if (trial) {
     const how = (m) => `at ${m.efforts.join('/')}, ${m.provider === 'gemini' ? 'with Google\'s own search and page reading'
+      : m.provider === 'anthropic' ? 'with Anthropic\'s web search and page reader'
       : m.provider === 'openai' ? 'with OpenAI\'s web search, as a reader\'s fact-check'
         : 'with FactEngine\'s search and page reader as the model\'s tools'}`;
     console.log(`[trial] the operator's own determinations may run, each model and level ticked on their page, any number at once: ${trial.models.map((m) => `${m.id} ${m.ready ? `ready, ${how(m)}` : `not ready: ${String(m.why || '').replace(/\.$/, '')}`}`).join('; ')}`);

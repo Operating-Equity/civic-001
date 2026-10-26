@@ -15,6 +15,9 @@
 //   - FactEngine's own tools (DeepSeek in the operator's trial, and the tool server): the search service is asked to leave
 //     both lists out, a result it returns from them anyway or with one of the words is dropped, and the page reader
 //     refuses them all, a page of one of the markup types included (server/tools/adapters);
+//   - Claude, in the operator's trial (26 October): Anthropic's web search takes sites and columns alike, so it is asked
+//     to leave out both lists whole; its page reader matches a site alone ("an entry that includes a path never
+//     matches"), so it is asked to leave out every site of both lists, and a column's page is counted and marked there;
 //   - Gemini: Google's developer API cannot leave a site out, so what it cites or reads of them is counted and marked.
 // What a fact-check took of them is counted on its ledger line and in the host's log, and marked "zero credibility" on
 // the operator's card, never on a reader's. The reader's own document is never touched: a link to any of them is read
@@ -128,6 +131,24 @@ export const blockedSites = () => (list ? list.sites : []);
 
 /** Everything the search service is asked to leave out: both lists, sites and columns, in order. */
 export const searchExclusions = () => (list ? [...list.sites, ...list.extra] : []);
+
+/**
+ * What Anthropic's two tools are asked to leave out (server/evaluate.js, the trial on Claude): its web search, both
+ * lists, sites and columns, in order; its page reader, the sites of both lists alone, since it matches a site and never
+ * a path. Empty lists when nothing is set.
+ */
+export const anthropicExclusions = () => ({
+  search: searchExclusions(),
+  fetch: searchExclusions().filter((e) => !e.includes('/')),
+});
+
+/** The same in words for /check and the boot line, by counts alone; '' when no site or column is set. */
+export function anthropicWords() {
+  const { search, fetch } = anthropicExclusions();
+  if (!search.length) return '';
+  const columns = search.length - fetch.length;
+  return `on Claude, Anthropic's web search leaves out ${search.length} ${search.length === 1 ? 'entry' : 'entries'} of the lists${columns ? `, the ${columns === 1 ? 'column' : `${columns} columns`} included` : ''}, and its page reader the ${fetch.length === 1 ? 'site' : `${fetch.length} sites`}`;
+}
 
 /** What is in force, in words for /check and the boot line: counts and fingerprints, never an entry; '' when nothing is set. */
 export function sitesWords() {

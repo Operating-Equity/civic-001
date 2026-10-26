@@ -71,6 +71,8 @@ const deepseekKey = resolveKey({ settingsFile: new URL('../.env', import.meta.ur
 const fireworksKey = resolveKey({ settingsFile: new URL('../.env', import.meta.url).pathname, name: 'FIREWORKS_API_KEY' });
 // Google's Gemini API, for the operator's trial alone (18 October, server/gemini.js): their own key, by the same rule.
 const geminiKey = resolveKey({ settingsFile: new URL('../.env', import.meta.url).pathname, name: 'GEMINI_API_KEY' });
+// Anthropic's Messages API, for the operator's trial alone (26 October, server/anthropic.js): their own key, by the same rule.
+const anthropicKey = resolveKey({ settingsFile: new URL('../.env', import.meta.url).pathname, name: 'ANTHROPIC_API_KEY' });
 
 // FactEngine's tool server (server/tools/gateway.js), for a model that reaches it from its provider's servers. Its
 // address: CIVIC_TOOLS_URL, or else the service's own, which Render puts on every web service as RENDER_EXTERNAL_URL
@@ -100,9 +102,10 @@ function keepPercent() {
 }
 
 /** The trial's models (CIVIC_EVAL_TRIAL_MODELS): the frontier models the operator chose on 25 October, each at every
- *  level its maker supports (server/trial.js, LEVELS), unless they name others; `off` or `none`, no trial. */
+ *  level its maker supports, and Anthropic's two they added on 26 October (server/trial.js, LEVELS), unless they name
+ *  others; `off` or `none`, no trial. */
 function trialModels() {
-  const raw = env('CIVIC_EVAL_TRIAL_MODELS', 'gpt-6-astra,gpt-6.1-sol,gpt-5.6-sol,gemini-4-argon,deepseek-v4-pro,deepseek-flash').trim();
+  const raw = env('CIVIC_EVAL_TRIAL_MODELS', 'gpt-6-astra,gpt-6.1-sol,gpt-5.6-sol,claude-opus-5-5,claude-fable-5-1,gemini-4-argon,deepseek-v4-pro,deepseek-flash').trim();
   return /^(off|none)$/i.test(raw) ? [] : raw.split(',').map((m) => m.trim()).filter(Boolean);
 }
 
@@ -134,6 +137,11 @@ export const config = {
   geminiBaseUrl: env('CIVIC_GEMINI_BASE_URL', 'https://generativelanguage.googleapis.com'),
   geminiKey: geminiKey.value,
   geminiKeyInfo: geminiKey,
+  // Anthropic's Messages API (server/anthropic.js), used only by the operator's trial: its address (a setting so the
+  // guard can point it at its stand-in) and the operator's key, by the same two rules.
+  anthropicBaseUrl: env('CIVIC_ANTHROPIC_BASE_URL', 'https://api.anthropic.com'),
+  anthropicKey: anthropicKey.value,
+  anthropicKeyInfo: anthropicKey,
 
   // Step 2 — determination.
   evalModels: list('CIVIC_EVAL_MODELS', MODEL), // one id = no fallback
@@ -333,6 +341,10 @@ export function requestShape() {
     // The operator's trial on Gemini (server/gemini.js, 18 October): Google's Interactions API, the operator's level
     // with Gemini's own summary of its thinking, Google's search and its page reading, and store: false.
     trialGemini: { tools: ['google_search', 'url_context'], thinkingSummaries: 'auto', store: false, source: 'ahead' },
+    // The operator's trial on Claude (server/anthropic.js, 26 October): Anthropic's Messages API, the model's own ceiling
+    // for its output, the operator's level as `output_config.effort`, Claude's summary of its thinking, and Anthropic's
+    // web search and page reader, each told to leave out the operator's lists (server/sites.js).
+    trialAnthropic: { tools: ['web_search_20260318', 'web_fetch_20260318'], thinking: 'adaptive', display: 'summarized', source: 'ahead' },
     // Present in every request; never anything else.
     // The listing carries no `tools` on any provider (24 October); on DeepSeek no `store` either (DeepSeek keeps
     // nothing, so does not take it); on Fireworks it carries `store: false`, as on OpenAI. The operator's trial on
@@ -343,6 +355,8 @@ export function requestShape() {
       evaluate: ['model', 'input', 'reasoning', 'tools', 'stream', 'store'],
       trial: ['model', 'input', 'reasoning', 'tools', 'stream'],
       trialGemini: ['model', 'input', 'generation_config', 'tools', 'stream', 'store'],
+      // A paused turn goes back with Claude's own reply appended, and its container when Anthropic named one.
+      trialAnthropic: ['model', 'max_tokens', 'messages', 'output_config', 'thinking', 'tools', 'stream'],
       rank: ['model', 'input', 'reasoning', 'stream'],
     },
   };

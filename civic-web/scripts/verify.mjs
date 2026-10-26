@@ -87,11 +87,14 @@ const RANK_OFF = { CIVIC_RANK: 'off', CIVIC_PROMPT_RANK: '', CIVIC_PROMPT_RANK_F
 // And Google's Gemini out of reach (the operator's trial of 18 October, server/gemini.js), as DeepSeek is, unless a check
 // points it at the stand-in: no key from the shell, an address on a closed port.
 const GEMINI_OFF = { GEMINI_API_KEY: '', CIVIC_GEMINI_BASE_URL: 'http://127.0.0.1:9/gemini' };
+// And Anthropic out of reach (the operator's trial of 26 October, server/anthropic.js), unless a check points it at the
+// stand-in: no key from the shell, an address on a closed port.
+const ANTHROPIC_OFF = { ANTHROPIC_API_KEY: '', CIVIC_ANTHROPIC_BASE_URL: 'http://127.0.0.1:9/anthropic' };
 // Nothing kept out of the research (server/sites.js) unless a check sets it: a developer's own lists never reach the
 // guard's servers.
 const SITES_OFF = { CIVIC_BLOCKED_SITES: '', CIVIC_BLOCKED_SITES_FILE: '', CIVIC_BLOCKED_MORE: '', CIVIC_BLOCKED_MORE_FILE: '', CIVIC_BLOCKED_WORDS: '', CIVIC_BLOCKED_MARKUP: '' };
 const start = (args, extraEnv) => {
-  const child = spawn(process.execPath, args, { cwd: root, env: { ...process.env, ...DEEPSEEK_OFF, ...FIREWORKS_OFF, ...ACCOUNTS_OFF, ...PRICES_OFF, ...RANK_OFF, ...GEMINI_OFF, ...SITES_OFF, ...extraEnv }, stdio: ['ignore', 'pipe', 'pipe'] });
+  const child = spawn(process.execPath, args, { cwd: root, env: { ...process.env, ...DEEPSEEK_OFF, ...FIREWORKS_OFF, ...ACCOUNTS_OFF, ...PRICES_OFF, ...RANK_OFF, ...GEMINI_OFF, ...ANTHROPIC_OFF, ...SITES_OFF, ...extraEnv }, stdio: ['ignore', 'pipe', 'pipe'] });
   child.stdout.on('data', () => {});
   child.stderr.on('data', (d) => process.stderr.write(`  [${path.basename(args[0])}] ${d}`));
   children.push(child);
@@ -2618,16 +2621,20 @@ async function trialChecks() {
     const tr = health.trial || {};
     // 25 October: "multiple options for the top tier models and not a single default selection … different power settings
     // for each of the models": every model the operator chose at every level its maker supports, each an entry of its own.
-    // Gemini 4 Argon is offered as unable to run here, with no Gemini key (geminiChecks below run it).
+    // 26 October: "The two high-end models opus and fable at all levels other than the bottom two tiers". Gemini 4 Argon and
+    // the two Claude models are offered as unable to run here, with no key of theirs (geminiChecks and anthropicChecks
+    // below run them).
     const WANT_LEVELS = [
       ['gpt-6-astra', 'GPT-6 Astra', ['low', 'medium', 'high', 'xhigh', 'max']], ['gpt-6.1-sol', 'GPT-6.1 Sol', ['low', 'medium', 'high', 'xhigh', 'max']],
-      ['gpt-5.6-sol', 'GPT-5.6 Sol', ['none', 'low', 'medium', 'high', 'xhigh', 'max']], ['gemini-4-argon', 'Gemini 4 Argon', ['low', 'medium', 'high']],
+      ['gpt-5.6-sol', 'GPT-5.6 Sol', ['none', 'low', 'medium', 'high', 'xhigh', 'max']],
+      ['claude-opus-5-5', 'Claude Opus 5.5', ['high', 'xhigh', 'max']], ['claude-fable-5-1', 'Claude Fable 5.1', ['high', 'xhigh', 'max']],
+      ['gemini-4-argon', 'Gemini 4 Argon', ['low', 'medium', 'high']],
       ['deepseek-v4-pro', 'DeepSeek V4 Pro', ['none', 'low', 'high', 'max']], ['deepseek-flash', 'DeepSeek V4.1 Flash', ['none', 'low', 'high', 'max']],
     ];
-    const wantEntries = WANT_LEVELS.flatMap(([id, label, levels]) => levels.map((e) => ({ model: id, label: `${label} · ${e}`, effort: e, ready: id !== 'gemini-4-argon' })));
-    check('Trial: the operator\'s page is offered every model they chose at every level its maker supports, one entry each (27), in order, each named "Model · level", ready where its key is set (Gemini not, here); the readers\' model with its level; DeepSeek\'s request keys as before',
+    const wantEntries = WANT_LEVELS.flatMap(([id, label, levels]) => levels.map((e) => ({ model: id, label: `${label} · ${e}`, effort: e, ready: id !== 'gemini-4-argon' && !id.startsWith('claude-') })));
+    check('Trial: the operator\'s page is offered every model they chose at every level its maker supports, one entry each (33), in order, each named "Model · level", ready where its key is set (Gemini and Claude not, here); the readers\' model with its level; DeepSeek\'s request keys as before',
       JSON.stringify((tr.models || []).map((m) => [m.id, m.efforts])) === JSON.stringify(WANT_LEVELS.map(([id, , levels]) => [id, levels]))
-        && JSON.stringify((tr.entries || []).map((e) => ({ model: e.model, label: e.label, effort: e.effort, ready: e.ready }))) === JSON.stringify(wantEntries) && wantEntries.length === 27
+        && JSON.stringify((tr.entries || []).map((e) => ({ model: e.model, label: e.label, effort: e.effort, ready: e.ready }))) === JSON.stringify(wantEntries) && wantEntries.length === 33
         && tr.readers?.id === config.evalModels[0] && tr.readers?.effort === config.evalEffort && tr.ready === true && JSON.stringify(health.request?.keys?.trial) === JSON.stringify(['model', 'input', 'reasoning', 'tools', 'stream']),
       JSON.stringify({ models: (tr.models || []).map((m) => [m.id, m.efforts, m.ready]), entries: (tr.entries || []).length, readers: tr.readers }));
 
@@ -3300,6 +3307,355 @@ async function geminiChecks() {
   }
 }
 await geminiChecks();
+
+// ---- the operator's trial on Claude (26 October, server/anthropic.js; the /anthropic routes of the stand-in, speaking
+// Anthropic's Messages API) ----
+// The operator: "The two high-end models opus and fable at all levels other than the bottom two tiers"; and, when
+// Anthropic declines a claim, the decline on the card and nothing else in its place. The offer, an entry per level; the
+// request exactly (the model, its ceiling from Anthropic's Models API, the two texts a reader's determination carries,
+// the level, the summary of the thinking, Anthropic's two tools, the stream) with the operator's Anthropic key alone;
+// the card's trail, sources and summary; the signature and the encrypted results on no page or record; the books at
+// Anthropic's price; a paused turn sent back whole and continued; every refusal a wait but the balance used up and a key
+// refused; the decline; the lists kept out; the levels and no other; a reader's choice ignored and the operator's never
+// charged; Claude unable to run without its key; the key shown nowhere.
+async function anthropicChecks() {
+  const AMOCK = MOCK_PORT + 120, LMOCK = MOCK_PORT + 121;
+  const ANKEY = 'an-verify-key-anthropic-0000';   // made-up, and never in the shape of a real Anthropic key
+  const stamp = Date.now();
+  const rec = path.join(os.tmpdir(), `civic-verify-anthropic-${stamp}.jsonl`);
+  const recL = path.join(os.tmpdir(), `civic-verify-anthropic-lists-${stamp}.jsonl`);
+  const ledger = path.join(os.tmpdir(), `civic-verify-anthropic-ledger-${stamp}.jsonl`);
+  const ledgerL = path.join(os.tmpdir(), `civic-verify-anthropic-lists-ledger-${stamp}.jsonl`);
+  const errlog = path.join(os.tmpdir(), `civic-verify-anthropic-errors-${stamp}.log`);
+  fs.writeFileSync(rec, '');
+  fs.writeFileSync(recL, '');
+  const readOf = (f) => fs.readFileSync(f, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l));
+  const read = () => readOf(rec);
+  const anBodies = (f = rec) => readOf(f).filter((r) => r.path === '/anthropic/v1/messages' && r.body);
+  const oaBodies = () => read().filter((r) => r.path === '/v1/responses' && r.body);
+  const anStats = async (port = AMOCK) => (await fetch(`http://localhost:${port}/anthropic/mock/stats`)).json();
+  const linesOf = (f) => (fs.existsSync(f) ? fs.readFileSync(f, 'utf8') : '').split('\n').filter(Boolean).map((l) => JSON.parse(l));
+  const lines = () => linesOf(ledger);
+  const textOf = (f) => (fs.existsSync(f) ? fs.readFileSync(f, 'utf8') : '');
+  const procs = [];
+  const output = [];
+  // The library Anthropic publishes reads a key, a token and an address of its own from the environment when it is not
+  // given them: here each is set to something else, and none may be used.
+  const anEnv = {
+    OPENAI_BASE_URL: `http://localhost:${AMOCK}/v1`, OPENAI_API_KEY: KEY, CIVIC_IMAGE_ENABLED: 'false', CIVIC_LEDGER_FILE: ledger, CIVIC_ERROR_LOG: errlog,
+    ANTHROPIC_API_KEY: ANKEY, CIVIC_ANTHROPIC_BASE_URL: `http://localhost:${AMOCK}/anthropic`,
+    ANTHROPIC_AUTH_TOKEN: 'an-verify-token-never-sent', ANTHROPIC_BASE_URL: 'http://127.0.0.1:9/never',
+  };
+  const serve = (port, env) => {
+    const child = start([path.join(root, 'server', 'index.js')], { PORT: String(port), ...anEnv, ...env });
+    child.stdout.on('data', (d) => output.push(String(d)));
+    child.stderr.on('data', (d) => output.push(String(d)));
+    procs.push(child);
+    return `http://localhost:${port}`;
+  };
+  // Ordinals at the stand-in Anthropic: 1 Opus at high; 2 Fable at xhigh; 3 Fable at max; 4 a turn paused after its
+  // search, then 5 its continuation; 6 a 429 naming a second, then 7; 8 a 529 naming none, then 9; 10 an overloaded
+  // error event mid-stream, then 11; 12 a 500, then 13; 14 a stream closed after its first event, then 15; 16 a turn
+  // paused, 17 its continuation closed after its first event, then 18; 19 the credit balance used up; 20 a decline; 21 the
+  // operator's own, with accounts on.
+  const evalMark = process.env.MOCK_EVAL_MARK_FOR_GATE || '';
+  start([path.join(root, 'scripts', 'mock-openai.js')], {
+    MOCK_PORT: String(AMOCK), MOCK_RECORD: rec, MOCK_SPEED: '0.2', MOCK_EVAL_MARK: evalMark,
+    MOCK_AN_PAUSE: '4,16', MOCK_AN_429: '6', MOCK_AN_529: '8', MOCK_AN_OVERLOAD_EVENT: '10', MOCK_AN_500: '12', MOCK_AN_CLOSE: '14,17', MOCK_AN_CREDIT: '19', MOCK_AN_REFUSAL: '20',
+  });
+  // A second stand-in for the lists kept out: it cites a column's page and returns a listed site among its results.
+  start([path.join(root, 'scripts', 'mock-openai.js')], {
+    MOCK_PORT: String(LMOCK), MOCK_RECORD: recL, MOCK_SPEED: '0.2', MOCK_EVAL_MARK: evalMark,
+    MOCK_AN_CITE_URL: 'https://news.verify-kept.example/checks/claim-123', MOCK_AN_RESULT_URL: 'https://www.verdicts.verify-kept.example/rating',
+  });
+  try {
+    await wait(`http://localhost:${AMOCK}/v1/responses`, 15000, { anyResponse: true });
+    await wait(`http://localhost:${LMOCK}/v1/responses`, 15000, { anyResponse: true });
+    const base = serve(PORT + 120, { OPENAI_ORG_ID: 'org-verify-anthropic', OPENAI_CUSTOM_HEADERS: 'X-Verify-Leak: yes', GEMINI_API_KEY: 'gm-verify-key-anthropic-0000' });
+    await wait(`${base}/api/health`);
+    const health = await (await fetch(`${base}/api/health`)).json();
+    const tr = health.trial || {};
+    const aEntries = (tr.entries || []).filter((e) => /^claude-/.test(e.model));
+    check('Claude: the operator\'s page is offered Claude Opus 5.5 and Claude Fable 5.1 each at high, xhigh and max (Anthropic\'s five levels without the bottom two, the operator\'s rule), each its own entry, ready on the operator\'s Anthropic key; its request keys are the model, max_tokens, the messages, output_config, thinking, the tools and the stream',
+      JSON.stringify(aEntries.map((e) => [e.label, e.effort, e.ready])) === JSON.stringify([['Claude Opus 5.5 · high', 'high', true], ['Claude Opus 5.5 · xhigh', 'xhigh', true], ['Claude Opus 5.5 · max', 'max', true], ['Claude Fable 5.1 · high', 'high', true], ['Claude Fable 5.1 · xhigh', 'xhigh', true], ['Claude Fable 5.1 · max', 'max', true]])
+        && JSON.stringify(health.request?.keys?.trialAnthropic) === JSON.stringify(['model', 'max_tokens', 'messages', 'output_config', 'thinking', 'tools', 'stream']),
+      JSON.stringify({ entries: aEntries, keys: health.request?.keys?.trialAnthropic }));
+
+    const source = 'The Eiffel Tower stands about 330 metres tall. Water boils at 100 degrees Celsius at sea level.';
+    const claim = 'The Eiffel Tower stands about 330 metres tall.';
+    const evaluate = (extra = {}, label = 'x', at = base) => stream(`${at}/api/evaluate`, { claims: [claim], text: source, source: { kind: 'text' }, jobId: `an-${label}-${stamp}`, ...extra });
+    // A reader's determination first, for the two messages the trial must carry.
+    await evaluate({}, 'reader');
+    const readerBody = oaBodies()[0]?.body;
+
+    const jobH = `an-high-${stamp}`;
+    const h1 = await stream(`${base}/api/evaluate`, { claims: [claim], text: source, source: { kind: 'text' }, jobId: jobH, model: 'claude-opus-5-5', effort: 'high' });
+    const d1 = h1.find((e) => e.t === 'done');
+    const b1 = anBodies()[0]?.body;
+    check('Claude: the operator\'s fact-check on Claude Opus 5.5 at high is delivered, its verdict read, its trail a search (run from inside Anthropic\'s code execution) and a page read, its sources the cited pages once each, and Claude\'s summary of its thinking on the card',
+      d1?.provider === 'anthropic' && d1.trial === true && d1.model === 'claude-opus-5-5' && d1.effort === 'high' && d1.verdictSource !== 'unread'
+        && JSON.stringify((d1.trail || []).map((s) => [s.kind, s.status])) === JSON.stringify([['search', 'completed'], ['open_page', 'completed']])
+        && /^evidence for /.test(d1.trail[0].query || '') && d1.trail[1].url === 'https://example.org/tower'
+        && JSON.stringify((d1.sources || []).map((s) => s.url)) === JSON.stringify(['https://example.org/tower', 'https://example.org/second-source'])
+        && /ANSUM-6a1f/.test(d1.reasoning || '') && d1.searches === 1 && !h1.some((e) => e.t === 'error'),
+      JSON.stringify(d1 && { provider: d1.provider, effort: d1.effort, verdictSource: d1.verdictSource, trail: d1.trail, sources: d1.sources, reasoning: (d1.reasoning || '').slice(0, 40) }));
+    check('Claude: its request carries exactly the model, max_tokens at the ceiling Anthropic\'s Models API names (128,000), the messages, output_config {effort: high}, thinking {adaptive, summarized}, Anthropic\'s web search and page reader (none told to leave anything out, with no list set) and the stream: no system prompt, sampling setting, cap on the tools or forced tool',
+      Boolean(b1) && JSON.stringify(Object.keys(b1).sort()) === JSON.stringify(['max_tokens', 'messages', 'model', 'output_config', 'stream', 'thinking', 'tools']) && b1.model === 'claude-opus-5-5' && b1.max_tokens === 128000
+        && JSON.stringify(b1.output_config) === JSON.stringify({ effort: 'high' }) && JSON.stringify(b1.thinking) === JSON.stringify({ type: 'adaptive', display: 'summarized' })
+        && JSON.stringify(b1.tools) === JSON.stringify([{ type: 'web_search_20260318', name: 'web_search' }, { type: 'web_fetch_20260318', name: 'web_fetch' }]) && b1.stream === true,
+      JSON.stringify(b1 && { keys: Object.keys(b1), max: b1.max_tokens, out: b1.output_config, thinking: b1.thinking, tools: b1.tools }));
+    const readerSaid = (readerBody?.input || []).map((m) => (m.content || []).map((c) => c.text).join(''));
+    const anSaid = (b1?.messages?.[0]?.content || []).map((c) => c.text);
+    check('Claude: its messages are one message of the user\'s holding the two texts a reader\'s determination of the same claim carries, in the same order: the source first, then the prompt verbatim',
+      Boolean(b1) && b1.messages.length === 1 && b1.messages[0].role === 'user' && b1.messages[0].content.every((c) => c.type === 'text' && Object.keys(c).length === 2)
+        && readerSaid.length === 2 && JSON.stringify(anSaid) === JSON.stringify(readerSaid),
+      `${JSON.stringify(anSaid).length} vs ${JSON.stringify(readerSaid).length} chars`);
+    const heads = read().filter((r) => r.anthropic && r.path !== '/anthropic/mock/stats');
+    check('Claude: Anthropic got the operator\'s Anthropic key alone, in x-api-key, with its anthropic-version: no Authorization header (not the token set for Anthropic\'s library in the environment), nothing of OpenAI\'s (organisation, custom header), and only at the address FactEngine names',
+      heads.length >= 2 && heads.every((r) => r.key === ANKEY && r.auth === '' && r.version === '2023-06-01' && !r.headers.includes('openai-organization') && !r.headers.includes('x-verify-leak') && !r.headers.includes('x-goog-api-key'))
+        && heads.some((r) => r.method === 'GET' && r.path === '/anthropic/v1/models/claude-opus-5-5'),
+      JSON.stringify([...new Set(heads.map((r) => `${r.method} ${r.path} ${r.key === ANKEY ? 'ANKEY' : r.key ? 'OTHER' : 'none'}|${r.auth ? 'auth' : ''}|${r.version}`))]));
+    const replay = await stream(`${base}/api/evaluate`, { claims: [claim], text: source, jobId: jobH, cursor: 0, model: 'claude-opus-5-5', effort: 'high' });
+    check('Claude: its thinking\'s signature and its search results\' encrypted content reach no page (not the stream, not its replay from the start, not done), while its summary does, as the readers\' model\'s',
+      replay.some((e) => e.t === 'done') && ![...h1, ...replay].some((e) => /ANSIG|ANENC/.test(JSON.stringify(e))) && h1.some((e) => e.t === 'reasoning' && /ANSUM-6a1f/.test(e.text || '')),
+      JSON.stringify([...h1, ...replay].filter((e) => /ANSIG|ANENC/.test(JSON.stringify(e))).slice(0, 2)));
+    const l1 = lines().find((l) => l.kind === 'trial' && l.provider === 'anthropic' && l.ok && l.model === 'claude-opus-5-5' && l.effort === 'high');
+    check('Claude: its ledger line is a trial\'s (Claude Opus 5.5 at high, a search, a page), its thinking counted apart and as output, priced at Anthropic\'s $4 in and $20 out a million plus $10 per 1,000 searches, which done carries too',
+      Boolean(l1) && l1.searches === 1 && l1.queries === 1 && l1.reads === 1 && l1.sources === 2 && l1.usage?.reasoning === 800 && l1.usage.output > 800 && l1.usage.input > 100
+        && l1.searchUsd === 0.01 && Math.abs(l1.tokenUsd - (l1.usage.input * 4 + l1.usage.output * 20) / 1e6) < 0.0002 && Math.abs(l1.usd - (l1.tokenUsd + l1.searchUsd)) < 0.0002
+        && l1.priced === true && d1?.cost?.usd === l1.usd && l1.waitMs === 0,
+      JSON.stringify(l1 && { usage: l1.usage, searches: l1.searches, reads: l1.reads, tokenUsd: l1.tokenUsd, searchUsd: l1.searchUsd, usd: l1.usd, done: d1?.cost }));
+
+    const x1 = await evaluate({ model: 'claude-fable-5-1', effort: 'xhigh' }, 'fable-xhigh');
+    const m1 = await evaluate({ model: 'claude-fable-5-1', effort: 'max' }, 'fable-max');
+    const [bx, bm] = anBodies().slice(1, 3).map((r) => r.body);
+    const lm = lines().find((l) => l.kind === 'trial' && l.provider === 'anthropic' && l.ok && l.model === 'claude-fable-5-1' && l.effort === 'max');
+    check('Claude: Fable 5.1 at xhigh and at max are each delivered at their level, asked as output_config.effort xhigh and max, and Fable is priced at $10 in and $50 out a million',
+      x1.some((e) => e.t === 'done' && e.provider === 'anthropic' && e.model === 'claude-fable-5-1' && e.effort === 'xhigh') && m1.some((e) => e.t === 'done' && e.effort === 'max')
+        && bx?.model === 'claude-fable-5-1' && bx.output_config?.effort === 'xhigh' && bm?.output_config?.effort === 'max'
+        && Boolean(lm) && Math.abs(lm.tokenUsd - (lm.usage.input * 10 + lm.usage.output * 50) / 1e6) < 0.0002,
+      JSON.stringify({ x: bx?.output_config, m: bm?.output_config, fable: lm && { usage: lm.usage, tokenUsd: lm.tokenUsd } }));
+
+    // A turn Anthropic pauses goes back to it whole, with the same tools and its container, and is continued.
+    const anRun = async (label, extra = { model: 'claude-opus-5-5', effort: 'high' }) => { const before = await anStats(); const evs = await evaluate(extra, label); const after = await anStats(); return { evs, sends: after.requests - before.requests, continued: after.continued - before.continued, refused: after.refusedContinuations - before.refusedContinuations }; };
+    const p1 = await anRun('paused', { model: 'claude-opus-5-5', effort: 'max' });
+    const pd = p1.evs.find((e) => e.t === 'done');
+    const [pb1, pb2] = anBodies().slice(3, 5).map((r) => r.body);
+    let pl = null;
+    for (let k = 0; k < 20 && !pl; k++) { pl = lines().find((l) => l.determination === `an-paused-${stamp}` && l.ok) || null; if (!pl) await new Promise((r) => setTimeout(r, 100)); }
+    check('Claude: a turn Anthropic pauses (pause_turn) goes back as it stands: the same request with Claude\'s own reply appended (its thinking with its signature, its search and results with their encrypted content), the same tools and the container Anthropic named; the turn is continued and delivered once, its row never started again, its trail whole',
+      p1.sends === 2 && p1.continued === 1 && p1.refused === 0 && p1.evs.filter((e) => e.t === 'start').length === 1 && !p1.evs.some((e) => e.t === 'retry' || e.t === 'error')
+        && JSON.stringify((pd?.trail || []).map((s) => s.kind)) === JSON.stringify(['search', 'open_page'])
+        && pb2?.messages?.length === 2 && pb2.messages[1].role === 'assistant' && JSON.stringify(pb2.messages[0]) === JSON.stringify(pb1?.messages?.[0])
+        && pb2.container === 'container_mock_an' && JSON.stringify(pb2.tools) === JSON.stringify(pb1?.tools) && pb2.output_config?.effort === 'max' && pb1.container === undefined,
+      JSON.stringify({ sends: p1.sends, continued: p1.continued, refused: p1.refused, starts: p1.evs.filter((e) => e.t === 'start').length, trail: pd?.trail?.map((s) => s.kind), container: pb2?.container, keys: pb2 && Object.keys(pb2) }));
+    check('Claude: both turns of a paused fact-check are counted on its line, their tokens summed and the search Anthropic billed once',
+      Boolean(pl) && pl.searches === 1 && pl.reads === 1 && pl.usage?.reasoning === 1600 && pl.usage.input > (l1?.usage?.input || 0) * 1.5,
+      JSON.stringify(pl && { usage: pl.usage, searches: pl.searches, first: l1?.usage }));
+
+    // Every refusal a wait but the balance used up: one fact-check each, in the order the stand-in was told.
+    const t429 = Date.now();
+    const w1 = await anRun('429');
+    const t429end = Date.now();
+    const rr = w1.evs.find((e) => e.t === 'retry');
+    check('Claude: a 429 is a wait for the retry-after Anthropic names (a second), saying whose it is (Anthropic), until when, and why in Anthropic\'s words on one line with the key taken out; then the fact-check is delivered',
+      rr?.reason === 'rate_limit' && rr.status === 429 && rr.waitMs === 1000 && rr.who === 'Anthropic' && /ANWAIT-4d2a/.test(rr.why || '') && rr.why.includes('<key>') && !rr.why.includes(ANKEY) && rr.why.length <= 300 && !/\n/.test(rr.why)
+        && Number.isFinite(rr.until) && rr.until >= t429 + rr.waitMs && rr.until <= t429end + rr.waitMs && w1.sends === 2 && w1.evs.filter((e) => e.t === 'done').length === 1,
+      JSON.stringify({ retry: rr, sends: w1.sends }));
+    const recentWait = (await (await fetch(`${base}/api/selftest`)).json()).recentFailures || [];
+    const recWait = recentWait.find((x) => x.where === 'trial:anthropic' && x.code === 'rate_limited');
+    const anLog = () => output.join('').split('\n').filter((l) => l.startsWith('[anthropic] '));
+    check('Claude: Anthropic\'s words for a wait are kept on /check (rate_limited, the model, its level and the wait) and in the service\'s log as one line, with no key in either',
+      recWait?.status === 429 && recWait.message === 'Anthropic asked claude-opus-5-5 at high to wait 1 s (429) (refusal 1 of this fact-check).' && /ANWAIT-4d2a/.test(recWait.detail || '') && !JSON.stringify(recWait).includes(ANKEY)
+        && anLog().filter((l) => /to wait 1 s \(429\)/.test(l)).length === 1 && /^\[anthropic\] Anthropic asked claude-opus-5-5 at high to wait 1 s \(429\) \(refusal 1 of this fact-check\): "This request would exceed the rate limit.*ANWAIT-4d2a.*"$/.test(anLog()[0] || '') && !anLog().join('').includes(ANKEY),
+      JSON.stringify({ record: recWait, log: anLog() }));
+    const t529 = Date.now();
+    const w2 = await anRun('529');
+    const r2 = w2.evs.find((e) => e.t === 'retry');
+    const at529 = read().filter((r) => r.anthropic && r.method === 'POST' && r.ts >= t529).map((r) => r.ts);
+    check('Claude: Anthropic overloaded (529), naming no wait, is a wait too, Anthropic\'s, a second from the go\'s start and never at once; then the fact-check is delivered',
+      r2?.reason === 'rate_limit' && r2.status === 529 && r2.who === 'Anthropic' && r2.why === 'Overloaded' && r2.waitMs >= 500 && r2.waitMs <= 1000 && w2.sends === 2 && at529.length >= 2 && at529[1] - at529[0] >= 900
+        && w2.evs.filter((e) => e.t === 'done').length === 1,
+      JSON.stringify({ retry: r2, sends: w2.sends, gap: at529.length >= 2 ? at529[1] - at529[0] : null }));
+    const w3 = await anRun('overload-event');
+    check('Claude: an overloaded error event in the middle of a reply is the same wait; the card starts again from the last finished turn and the fact-check is delivered once',
+      w3.evs.some((e) => e.t === 'retry' && e.reason === 'rate_limit' && e.status === 529 && e.who === 'Anthropic') && w3.sends === 2 && w3.evs.filter((e) => e.t === 'done').length === 1
+        && w3.evs.filter((e) => e.t === 'start').length === 2 && !w3.evs.some((e) => e.t === 'error'),
+      JSON.stringify({ retries: w3.evs.filter((e) => e.t === 'retry'), sends: w3.sends }));
+    const w4 = await anRun('500');
+    check('Claude: a 500 is tried again, on the operator\'s count, and the fact-check is delivered',
+      w4.evs.some((e) => e.t === 'retry' && e.reason === 'error' && e.status === 500) && w4.sends === 2 && w4.evs.filter((e) => e.t === 'done').length === 1,
+      JSON.stringify({ retries: w4.evs.filter((e) => e.t === 'retry'), sends: w4.sends }));
+    const w5 = await anRun('closed');
+    check('Claude: a reply that stops before its last event is a cut connection and goes again; delivered once, whole, with its own trail',
+      w5.evs.some((e) => e.t === 'retry' && e.reason === 'connection') && w5.sends === 2 && w5.evs.filter((e) => e.t === 'done').length === 1 && (w5.evs.find((e) => e.t === 'done')?.trail || []).length === 2,
+      JSON.stringify({ retries: w5.evs.filter((e) => e.t === 'retry'), sends: w5.sends }));
+    const w8 = await anRun('paused-cut');
+    const [cb1, cb2, cb3] = anBodies().slice(-3).map((r) => r.body);
+    const cd = w8.evs.find((e) => e.t === 'done');
+    const secondStart = w8.evs.findIndex((e, k) => e.t === 'start' && k > w8.evs.findIndex((x) => x.t === 'start'));
+    const replayed = secondStart > 0 ? w8.evs.slice(secondStart + 1).filter((e) => e.t === 'trail' && e.step?.kind === 'search') : [];
+    let cl = null;
+    for (let k = 0; k < 20 && !cl; k++) { cl = lines().find((l) => l.determination === `an-paused-cut-${stamp}` && l.ok) || null; if (!cl) await new Promise((r) => setTimeout(r, 100)); }
+    check('Claude: a continuation cut off goes again from the paused turn, never from the start: the paused reply sent back again, the card started again and given the search it already had, delivered once with one search, the search billed once',
+      w8.sends === 3 && w8.continued === 2 && w8.refused === 0 && w8.evs.some((e) => e.t === 'retry' && e.reason === 'connection') && w8.evs.filter((e) => e.t === 'start').length === 2
+        && cb2?.messages?.length === 2 && JSON.stringify(cb3?.messages) === JSON.stringify(cb2?.messages) && cb1?.messages?.length === 1 && replayed.length === 1
+        && JSON.stringify((cd?.trail || []).map((s) => s.kind)) === JSON.stringify(['search', 'open_page']) && cl?.searches === 1,
+      JSON.stringify({ sends: w8.sends, continued: w8.continued, starts: w8.evs.filter((e) => e.t === 'start').length, lengths: [cb1, cb2, cb3].map((b) => b?.messages?.length), replayed: replayed.length, trail: cd?.trail?.map((s) => s.kind), searches: cl?.searches }));
+    const w6 = await anRun('credit');
+    const err6 = w6.evs.find((e) => e.t === 'error');
+    const recent = (await (await fetch(`${base}/api/selftest`)).json()).recentFailures || [];
+    const recCredit = recent.find((x) => x.where === 'trial:anthropic' && x.code === 'balance_exhausted');
+    check('Claude: the credit balance used up ends that fact-check at once, with the code and no words of the provider\'s, and /check records Anthropic\'s own with where to add credits',
+      err6?.code === 'balance_exhausted' && err6.message === '' && /credit balance is too low/.test(recCredit?.detail || '') && /Claude Console, Billing/.test(recCredit?.detail || '') && w6.sends === 1 && !w6.evs.some((e) => e.t === 'retry'),
+      JSON.stringify({ error: err6, record: recCredit, sends: w6.sends }));
+
+    // A decline: the card shows it, and nothing else answers (the operator's answer of 26 October).
+    const w7 = await anRun('declined');
+    const err7 = w7.evs.find((e) => e.t === 'error');
+    const recentD = (await (await fetch(`${base}/api/selftest`)).json()).recentFailures || [];
+    const recD = recentD.find((x) => x.where === 'trial:anthropic' && x.code === 'declined');
+    let lD = null;
+    for (let k = 0; k < 20 && !lD; k++) { lD = lines().find((l) => l.determination === `an-declined-${stamp}`) || null; if (!lD) await new Promise((r) => setTimeout(r, 100)); }
+    check('Claude: a claim Anthropic declines ends with Anthropic\'s decline on the card, its category and explanation, and nothing else answers in its place: one request, no wait, no other model, no entry',
+      err7?.code === 'declined' && err7.message === 'Anthropic declined this claim (general_harms): This request was declined by the safety screen.' && !err7.who
+        && w7.sends === 1 && !w7.evs.some((e) => e.t === 'retry' || e.t === 'done') && oaBodies().length === 1,
+      JSON.stringify({ error: err7, sends: w7.sends, openai: oaBodies().length }));
+    check('Claude: the decline is kept on /check (declined, its category), in the log as one line, and in the ledger as a failed trial with the tokens it took, priced',
+      recD?.detail === 'general_harms' && /^Anthropic declined this claim \(general_harms\)/.test(recD.message || '')
+        && anLog().filter((l) => /declined this claim/.test(l)).length === 1 && lD?.ok === false && lD.code === 'declined' && lD.provider === 'anthropic' && lD.usage?.output === 40 && lD.usd > 0 && lD.priced === true,
+      JSON.stringify({ record: recD, log: anLog().filter((l) => /declined/.test(l)), ledger: lD }));
+
+    // Anthropic's five levels less the bottom two, and no other: none chosen for the asker.
+    const beforeLevels = (await anStats()).requests;
+    const asks = [];
+    for (const x of [{ model: 'claude-opus-5-5', effort: 'low' }, { model: 'claude-opus-5-5', effort: 'medium' }, { model: 'claude-fable-5-1', effort: 'low' }, { model: 'claude-fable-5-1', effort: 'medium' }, { model: 'claude-opus-5-5' }, { model: 'claude-fable-5-1', effort: 'none' }]) {
+      const r = await fetch(`${base}/api/evaluate`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ claims: [claim], text: source, jobId: `an-level-${x.model}-${x.effort || 'none'}-${stamp}`, ...x }) });
+      asks.push({ status: r.status, code: (await r.json().catch(() => ({})))?.error?.code });
+    }
+    check('Claude: only high, xhigh and max run: low and medium (Anthropic\'s bottom two), no level and none are each refused (400 trial_effort), on both models, and nothing reaches Anthropic',
+      asks.length === 6 && asks.every((a) => a.status === 400 && a.code === 'trial_effort') && (await anStats()).requests === beforeLevels,
+      JSON.stringify(asks));
+
+    // /check: the trial's rows and the settings; the boot line.
+    const st = await (await fetch(`${base}/api/selftest`)).json();
+    const row = (re) => (st.checks || []).find((c) => re.test(c.title));
+    check('Claude: /check says the trial on Anthropic can run, and that Anthropic serves claude-opus-5-5 and claude-fable-5-1 to this key (asked without a token, with the ceiling it names); its settings line names their three levels',
+      row(/^Your trial on Anthropic can run$/)?.state === 'ok' && /bottom two of Anthropic's five levels/.test(row(/^Your trial on Anthropic can run$/)?.detail || '')
+        && row(/^Anthropic serves claude-opus-5-5 to this key$/)?.state === 'ok' && /128,000 tokens/.test(row(/^Anthropic serves claude-opus-5-5 to this key$/)?.detail || '') && row(/^Anthropic serves claude-fable-5-1 to this key$/)?.state === 'ok'
+        && /Claude Opus 5\.5 at high, xhigh or max; Claude Fable 5\.1 at high, xhigh or max/.test(st.settings?.trialModels || '') && st.ready === true,
+      JSON.stringify({ rows: (st.checks || []).filter((c) => /Anthropic/.test(c.title)).map((c) => [c.state, c.title]), settings: st.settings?.trialModels }));
+    const boot = output.join('').split('\n').find((l) => l.startsWith('[trial] '));
+    check('Claude: the boot line names each Claude model ready at high/xhigh/max, with Anthropic\'s web search and page reader',
+      /claude-opus-5-5 ready, at high\/xhigh\/max, with Anthropic's web search and page reader; claude-fable-5-1 ready, at high\/xhigh\/max, with Anthropic's web search and page reader;/.test(boot || ''),
+      boot || '(no [trial] line)');
+    const report = st.economics || {};
+    const arow = (report.trial || []).find((x) => x.who === 'trial' && x.provider === 'anthropic' && x.model === 'claude-opus-5-5' && x.effort === 'high');
+    check('Claude: /check\'s trial table has Claude Opus 5.5 at high (delivered and failed counted, a search and a page each), kept out of the readers\' figures',
+      arow?.n >= 6 && arow.failed === 2 && arow.meanSearches >= 1 && arow.meanReads === 1 && arow.meanUsd > 0 && report.durations?.determinations?.n === 1,
+      JSON.stringify({ row: arow, readers: report.durations?.determinations?.n }));
+
+    // The lists kept out: Anthropic's search takes both, columns included; its page reader every site of them.
+    const baseL = serve(PORT + 121, {
+      CIVIC_ANTHROPIC_BASE_URL: `http://localhost:${LMOCK}/anthropic`, OPENAI_BASE_URL: `http://localhost:${LMOCK}/v1`, CIVIC_LEDGER_FILE: ledgerL,
+      CIVIC_BLOCKED_SITES: 'verdicts.verify-kept.example', CIVIC_BLOCKED_MORE: 'ratings.verify-kept.example news.verify-kept.example/checks',
+    });
+    await wait(`${baseL}/api/health`);
+    const kl = await evaluate({ model: 'claude-opus-5-5', effort: 'high' }, 'lists', baseL);
+    const kd = kl.find((e) => e.t === 'done');
+    const kb = anBodies(recL)[0]?.body;
+    let kline = null;
+    for (let k = 0; k < 20 && !kline; k++) { kline = linesOf(ledgerL).find((l) => l.determination === `an-lists-${stamp}` && l.ok) || null; if (!kline) await new Promise((r) => setTimeout(r, 100)); }
+    check('Claude: with the operator\'s lists set, Anthropic\'s web search is told to leave out both, the column included, and its page reader every site of them (it matches a site, never a path), in the lists\' order; nothing else changes in the request',
+      JSON.stringify(kb?.tools) === JSON.stringify([
+        { type: 'web_search_20260318', name: 'web_search', blocked_domains: ['verdicts.verify-kept.example', 'news.verify-kept.example/checks', 'ratings.verify-kept.example'] },
+        { type: 'web_fetch_20260318', name: 'web_fetch', blocked_domains: ['verdicts.verify-kept.example', 'ratings.verify-kept.example'] },
+      ]) && JSON.stringify(Object.keys(kb || {}).sort()) === JSON.stringify(Object.keys(b1 || {}).sort()),
+      JSON.stringify(kb?.tools));
+    check('Claude: a column\'s page it cites anyway is marked "zero credibility" for the operator\'s card, and what its search returned of the lists is counted on its line',
+      (kd?.sources || []).some((s) => s.url === 'https://news.verify-kept.example/checks/claim-123' && s.listed === true) && (kd?.sources || []).filter((s) => s.listed).length === 1
+        && kline?.listed === 2 && kd?.listed === 2,
+      JSON.stringify({ sources: kd?.sources, line: kline && { listed: kline.listed, keptOut: kline.keptOut }, done: kd?.listed }));
+    const bootSites = output.join('').split('\n').filter((l) => l.startsWith('[sites] kept out'));
+    check('Claude: the boot line says what Anthropic\'s two tools leave out, by counts alone and never an entry',
+      bootSites.some((l) => l.includes("on Claude, Anthropic's web search leaves out 3 entries of the lists, the column included, and its page reader the 2 sites")) && !bootSites.join('').includes('verify-kept'),
+      JSON.stringify(bootSites));
+
+    // Without its key Claude cannot run, and says so.
+    const baseB = serve(PORT + 122, { ANTHROPIC_API_KEY: '' });
+    await wait(`${baseB}/api/health`);
+    const hB = await (await fetch(`${baseB}/api/health`)).json();
+    const beforeB = (await anStats()).requests;
+    const rB = await fetch(`${baseB}/api/evaluate`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ claims: [claim], text: source, jobId: `an-nokey-${stamp}`, model: 'claude-opus-5-5', effort: 'high' }) });
+    const bB = await rB.json().catch(() => ({}));
+    const stB = await (await fetch(`${baseB}/api/selftest`)).json();
+    const cB = (hB.trial?.entries || []).filter((e) => /^claude-/.test(e.model));
+    check('Claude: without ANTHROPIC_API_KEY its six entries are offered as unable to run, saying why, while OpenAI\'s run; a request for one is refused (503 trial_unavailable) and nothing reaches Anthropic; /check warns, and is ready for readers',
+      cB.length === 6 && cB.every((e) => e.ready === false && /ANTHROPIC_API_KEY is not set/.test(e.why || '')) && (hB.trial?.entries || []).find((e) => e.model === 'gpt-6.1-sol')?.ready === true
+        && rB.status === 503 && bB?.error?.code === 'trial_unavailable' && (await anStats()).requests === beforeB
+        && stB.ready === true && (stB.checks || []).some((x) => x.state === 'warn' && x.title === 'Your trial on Anthropic cannot run'),
+      JSON.stringify({ entries: cB, status: rB.status, body: bB }));
+
+    // A key Anthropic refuses: the Models API's 401 ends it before any message is sent.
+    const baseC = serve(PORT + 123, { ANTHROPIC_API_KEY: 'an-bad-key-verify-0000' });
+    await wait(`${baseC}/api/health`);
+    const beforeC = (await anStats()).requests;
+    const eC = await stream(`${baseC}/api/evaluate`, { claims: [claim], text: source, jobId: `an-badkey-${stamp}`, model: 'claude-opus-5-5', effort: 'high' });
+    const errC = eC.find((e) => e.t === 'error');
+    const stC = await (await fetch(`${baseC}/api/selftest`)).json();
+    check('Claude: a key Anthropic refuses (401) ends the fact-check with FactEngine\'s own sentence and is not tried again; /check says Anthropic rejected the key, in its words, and shows no key',
+      errC?.code === 'invalid_key' && errC.message === '' && !eC.some((e) => e.t === 'retry') && (await anStats()).requests === beforeC
+        && (stC.recentFailures || []).some((x) => x.where === 'trial:anthropic' && /Anthropic rejected the key in ANTHROPIC_API_KEY \(401: invalid x-api-key/.test(x.detail || ''))
+        && (stC.checks || []).some((x) => x.state === 'warn' && x.title === 'Anthropic could not be asked for claude-opus-5-5') && !JSON.stringify(stC).includes('an-bad-key-verify'),
+      JSON.stringify({ error: errC, rows: (stC.checks || []).filter((c) => /Anthropic/.test(c.title)).map((c) => [c.state, c.title, c.detail]) }));
+
+    // The prices: Opus $4 and $20, Fable $10 and $50 a million, and $10 per 1,000 searches.
+    const { estimateTextCost } = await import(`${pathToFileURL(path.join(root, 'server', 'pricing.js')).href}?an=${stamp}`);
+    const million = { input: 1_000_000, cached: 0, output: 1_000_000 };
+    check('Claude: Opus 5.5 is priced $4 in and $20 out a million, Fable 5.1 $10 and $50, a read from Anthropic\'s cache $0.20 and $0.25, and Anthropic\'s web search $10 per 1,000 searches',
+      estimateTextCost({ model: 'claude-opus-5-5', usage: million }).usd === 24 && estimateTextCost({ model: 'claude-fable-5-1', usage: million }).usd === 60
+        && estimateTextCost({ model: 'claude-opus-5-5', usage: { input: 1_000_000, cached: 1_000_000, output: 0 } }).usd === 0.2 && estimateTextCost({ model: 'claude-fable-5-1', usage: { input: 1_000_000, cached: 1_000_000, output: 0 } }).usd === 0.25
+        && estimateTextCost({ model: 'claude-opus-5-5', usage: { input: 0, cached: 0, output: 0 }, searches: 1000 }).usd === 10,
+      '');
+
+    // With accounts on: a reader's choice of Claude is ignored; the operator's own fact-check there is never charged.
+    const P = PORT + 124;
+    const srv = accountServer(P, AMOCK, { ...anEnv, CIVIC_LEDGER_FILE: path.join(os.tmpdir(), `civic-verify-anthropic-acct-ledger-${stamp}.jsonl`), CIVIC_OPERATOR_EMAILS: 'op@example.com', CIVIC_OPERATOR_CLAIM: claimHash(), CIVIC_LIST_PRICE_CENTS: '125', CIVIC_TIER_ORDER: '1' });
+    procs.push(srv.child);
+    await wait(`http://localhost:${P}/api/health`, 20000);
+    const people = accountClient(`http://localhost:${P}`);
+    const reader = (await people.signup('reader@example.com')).cookie;
+    const op = (await people.json('/api/account/claim', { method: 'POST', body: { token: CLAIM_TOKEN, email: 'op@example.com', password: PASSWORD, agree: true } })).cookie;
+    const listAndTest = async (cookie, who, extra) => {
+      const runId = `an-${who}-run-${stamp}`;
+      await people.stream('/api/extract', { jobId: runId, text: ACCT_TEXT }, cookie);
+      return people.stream('/api/evaluate', { jobId: `an-${who}-c1-${stamp}`, claims: ['The Eiffel Tower stands about 330 metres tall.'], text: ACCT_TEXT, runId, n: 1, ...extra }, cookie);
+    };
+    const rBal0 = await people.balance(reader);
+    const anBefore = (await anStats()).requests;
+    const rt = await listAndTest(reader, 'reader', { model: 'claude-fable-5-1', effort: 'max' });
+    const rDone = rt.events.find((e) => e.t === 'done');
+    check('Claude: a reader who names Claude gets the readers\' determination on OpenAI, charged as always; nothing reaches Anthropic',
+      Boolean(rDone) && !rDone.trial && !rDone.provider && (await anStats()).requests === anBefore && (await people.balance(reader)) === rBal0 - 125,
+      JSON.stringify({ done: Boolean(rDone), trial: rDone?.trial, anthropic: (await anStats()).requests - anBefore, balance: [rBal0, await people.balance(reader)] }));
+    const oBal0 = await people.balance(op);
+    const ot = await listAndTest(op, 'operator', { model: 'claude-opus-5-5', effort: 'xhigh' });
+    const oDone = ot.events.find((e) => e.t === 'done');
+    const quote = ot.events.find((e) => e.t === 'quote');
+    check('Claude: the operator\'s own fact-check on Claude is delivered and never charged (free of price, not one of the document\'s free ones, the balance as it was)',
+      oDone?.provider === 'anthropic' && oDone.trial === true && oDone.effort === 'xhigh' && quote?.free === false && quote?.priceCents === 0 && (await people.balance(op)) === oBal0,
+      JSON.stringify({ done: oDone?.provider, quote, balance: [oBal0, await people.balance(op)] }));
+    check('Claude: the key and the library\'s own token are in no health line, check data, ledger line, failure record or the server\'s output, and the signature and encrypted results in no ledger line or failure record',
+      ![await (await fetch(`${base}/api/health`)).text(), JSON.stringify(st), textOf(ledger), textOf(ledgerL), textOf(errlog), output.join('')].some((t) => t.includes(ANKEY) || t.includes('an-verify-token-never-sent'))
+        && !/ANSIG|ANENC/.test(textOf(ledger) + textOf(ledgerL) + textOf(errlog)),
+      '');
+  } catch (err) {
+    check('Claude checks completed', false, err.stack || err.message);
+  } finally {
+    for (const p of procs) { try { p.kill('SIGTERM'); } catch {} }
+  }
+}
+await anthropicChecks();
 
 // ---- the second pass: the claims a document rests on, the top quarter shown, an empirical headline first (16 October) ----
 // The operator's rules: a claim that is not empirical is set aside; the empirical ones are force-ranked by how far the
@@ -4976,7 +5332,7 @@ async function blockedSiteChecks() {
       JSON.stringify({ row, rowN: rowN?.title, keptRecord, trial: trialRows.map((x) => [x.who, x.provider, x.model, x.listed, x.keptOut, x.listedOf]) }));
     const health = JSON.stringify(await (await fetch(`${base}/api/health`)).json());
     check('Sites: the boot lines name each list, the words and the types by count and fingerprint, and the request\'s keys, never an entry; no entry is in the boot lines, /check or the health line',
-      said.includes(`[sites] kept out of the research: ${words}; whatever a model takes of it is counted and marked, and on Gemini that is all`)
+      said.includes(`[sites] kept out of the research: ${words}; on Claude, Anthropic's web search leaves out 4 entries of the lists, the column included, and its page reader the 3 sites; whatever a model takes of it is counted and marked, and on Gemini that is all`)
         && said.includes(`web_search with filters.blocked_domains (list ${FP}, 2 sites) · include web_search_call.action.sources`)
         && outputN.join('').includes('[sites] no site is kept out of the research') && / · web_search · the source as a message/.test(outputN.join(''))
         && !ENTRIES.test(`${said.split('[fact-check]')[0]}${JSON.stringify(st.checks)}${health}`),

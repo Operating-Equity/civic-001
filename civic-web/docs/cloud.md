@@ -1173,6 +1173,26 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
   - **Proof:** the guard's trial checks rewritten for the entries, levels and refusals in the three prompt shapes; a
     browser check (scratchpad `browser/grid-check.mjs`): the grid, three entries on one claim, the closed cards, the
     count, a listing started over, a phone.
+  - **Live** (26 October, 00:48 UTC): PR #90 deployed, the backgrounds' six sets with it. The boot line names the six
+    models, each ready at its levels; the lists kept out and the prompts are as before. Live check clean, nothing spent.
+- **26 October: Claude Opus 5.5 and Claude Fable 5.1 in the grid.** The operator, on their own Anthropic key: "The two
+  high-end models opus and fable at all levels other than the bottom two tiers … added to the menu of models and the
+  inference power." Their answer: a claim Anthropic declines shows the decline, and nothing else answers in its place.
+  - **The connection** (`server/anthropic.js`, new): Anthropic's own library (`@anthropic-ai/sdk`, an exact version), its
+    retries off and no time limit; the key from `ANTHROPIC_API_KEY`, sent in `x-api-key` alone; the model check and its
+    ceiling for `max_tokens` from Anthropic's Models API, without a token; Anthropic's failures in FactEngine's words,
+    its own kept for /check.
+  - **The fact-check** (`server/evaluate.js`): one request with the two texts a reader's fact-check sends, at the level
+    ticked (`output_config.effort`), Claude's summary of its thinking, and Anthropic's web search and page reader; a turn
+    Anthropic pauses goes back as it stands until it ends. A 429 and a 529 are waits; a cut turn goes again from the last
+    finished one. A decline ends the claim with Anthropic's words.
+  - **The lists kept out:** Anthropic's web search leaves out both lists, columns included; its page reader every site of
+    them. What any model still takes is counted and marked, as before.
+  - **The grid** (`server/trial.js`): both models at high, xhigh and max, 33 entries in all; the default list adds them
+    after OpenAI's. Prices, /check's rows and the boot line name them.
+  - **Proof:** an Anthropic stand-in in the guard (its events, a search from inside code execution, a paused turn, the
+    waits, a decline, a cut stream), the guard's Claude checks in the three prompt shapes, and the grid's browser check
+    with Claude beside DeepSeek.
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 

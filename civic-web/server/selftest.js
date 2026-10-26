@@ -21,15 +21,16 @@ import { readers as readersNow } from './jobs.js';
 import { silentSites } from './fetchurl.js';
 import { names } from './names.js';
 import { tellReport } from './tells.js';
-import { sitesState, sitesWords } from './sites.js';
+import { sitesState, sitesWords, anthropicWords } from './sites.js';
 import { searchOn, readerOn } from './copies.js';
 import { registry } from './tools/index.js';
 import { toolsOn } from './tools/request.js';
 import { doorsOpen } from './tools/doors.js';
 import { listPrice, retiredSettings } from './economics.js';
 import * as deepseek from './deepseek.js';
-import { modelReady, isDeepSeekModel, isGeminiModel, isOpenAIModel, modelLabel, trialState, levelsOf } from './trial.js';
+import { modelReady, isDeepSeekModel, isGeminiModel, isAnthropicModel, isOpenAIModel, modelLabel, trialState, levelsOf } from './trial.js';
 import * as gemini from './gemini.js';
+import * as anthropic from './anthropic.js';
 
 const ok = (title, detail = '') => ({ state: 'ok', title, detail });
 const bad = (title, detail = '', fix = '') => ({ state: 'bad', title, detail, fix });
@@ -178,8 +179,9 @@ async function checkListing({ operator }) {
 }
 
 /**
- * The operator's trial (server/trial.js): whether their determinations on DeepSeek and on Gemini can run, and whether
- * each provider serves the trial's models (DeepSeek's GET /models, Gemini's GET /v1beta/models/{id}: no tokens). Never
+ * The operator's trial (server/trial.js): whether their determinations on DeepSeek, Gemini, Claude and OpenAI can run,
+ * and whether each provider serves the trial's models (DeepSeek's GET /models, Gemini's GET /v1beta/models/{id},
+ * Anthropic's GET /v1/models/{id}: no tokens). Never
  * "bad": the trial is the operator's alone, and readers are unaffected.
  */
 async function checkTrial() {
@@ -194,6 +196,8 @@ async function checkTrial() {
   if (ids.length) await checkTrialDeepSeek(checks, ids, readers);
   const gids = config.evalTrialModels.filter(isGeminiModel);
   if (gids.length) await checkTrialGemini(checks, gids, readers);
+  const aids = config.evalTrialModels.filter(isAnthropicModel);
+  if (aids.length) await checkTrialAnthropic(checks, aids, readers);
   const oids = config.evalTrialModels.filter(isOpenAIModel);
   if (oids.length) checkTrialOpenAI(checks, oids, readers);
   return checks;
@@ -223,6 +227,22 @@ async function checkTrialGemini(checks, ids, readers) {
     } catch (err) {
       const safe = gemini.failure(err);
       checks.push(warn(`Gemini could not be asked for ${id}`, safe.detail || safe.message));
+    }
+  }
+}
+
+async function checkTrialAnthropic(checks, ids, readers) {
+  const ready = modelReady(ids[0]);
+  if (!ready.ok) { checks.push(warn('Your trial on Anthropic cannot run', ready.why, readers)); return; }
+  checks.push(ok('Your trial on Anthropic can run',
+    `${levelWords(ids)}: ${tickWords}, for your account alone (your rule leaves out the bottom two of Anthropic's five levels). Claude thinks at every level, searches with Anthropic's web search and reads pages with its page reader, inside the one request; Anthropic's web search costs $10 per 1,000 searches, and the page reader tokens alone. A claim Anthropic declines ends with its decline on the card, and nothing else answers in its place.`));
+  for (const id of ids) {
+    try {
+      const info = await anthropic.model(id, { key: anthropic.key() });
+      checks.push(ok(`Anthropic serves ${id} to this key`, `No tokens were used.${Number(info?.max_tokens) > 0 ? ` It writes up to ${Number(info.max_tokens).toLocaleString('en-US')} tokens, thinking included, and each request allows that.` : ''}`));
+    } catch (err) {
+      const safe = anthropic.failure(err);
+      checks.push(warn(`Anthropic could not be asked for ${id}`, safe.detail || safe.message));
     }
   }
 }
@@ -274,7 +294,7 @@ export async function selftest({ apiKey, build, operator = true }) {
   // What is kept out of the research (server/sites.js, 25 October): by counts and fingerprints, never an entry.
   const kept = sitesState();
   checks.push(ok(kept ? 'Your lists of sites are kept out of the research' : 'No site is kept out of the research', kept
-    ? `${sitesWords()}. All of it is kept beside the prompts, and a site covers its subdomains. OpenAI's web search takes whole sites alone, so the readers' fact-checks, your trial on OpenAI and side by side are kept from the first list, and what they take of the rest is counted and marked "zero credibility" on your cards. Google's developer API cannot keep a site out, so on Gemini all of it is counted and marked, never kept from it. FactEngine's own search and reader (DeepSeek in your trial) keep all of it out. A reader's own document is never touched; a reader never sees the lists or their marks.`
+    ? `${sitesWords()}. All of it is kept beside the prompts, and a site covers its subdomains. OpenAI's web search takes whole sites alone, so the readers' fact-checks, your trial on OpenAI and side by side are kept from the first list, and what they take of the rest is counted and marked "zero credibility" on your cards. Google's developer API cannot keep a site out, so on Gemini all of it is counted and marked, never kept from it.${anthropicWords() ? ` On Claude, Anthropic's web search leaves out both lists, columns included, and its page reader, which matches a site and never a path, every site of them (${anthropicWords().replace(/^on Claude, /, '')}); a column's page it reads is counted and marked.` : ''} FactEngine's own search and reader (DeepSeek in your trial) keep all of it out. A reader's own document is never touched; a reader never sees the lists or their marks.`
     : 'No list is set (CIVIC_BLOCKED_SITES, CIVIC_BLOCKED_MORE, CIVIC_BLOCKED_WORDS, CIVIC_BLOCKED_MARKUP), so every fact-check may search and read any site. Kept beside the prompts, the first list is blocked in OpenAI\'s web search and in FactEngine\'s own search and page reader, and the rest in FactEngine\'s own.'));
   // The ranking (server/rank.js, 16 October) is the one optional prompt: without it the claims are listed unranked, as
   // they were before, so its absence is said and never stops anything.
