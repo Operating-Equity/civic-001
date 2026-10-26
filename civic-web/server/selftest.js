@@ -28,7 +28,7 @@ import { toolsOn } from './tools/request.js';
 import { doorsOpen } from './tools/doors.js';
 import { listPrice, retiredSettings } from './economics.js';
 import * as deepseek from './deepseek.js';
-import { modelReady, isDeepSeekModel, isGeminiModel, isOpenAIModel, modelLabel, trialState, OPENAI_EFFORTS } from './trial.js';
+import { modelReady, isDeepSeekModel, isGeminiModel, isOpenAIModel, modelLabel, trialState, levelsOf } from './trial.js';
 import * as gemini from './gemini.js';
 
 const ok = (title, detail = '') => ({ state: 'ok', title, detail });
@@ -186,6 +186,10 @@ async function checkTrial() {
   const checks = [];
   if (!config.evalTrialModels.length) return checks;
   const readers = `Readers are unaffected: their fact-checks stay on ${modelLabel(config.evalModels[0])}.`;
+  // A model whose levels FactEngine does not know is not offered (server/trial.js, LEVELS); none is guessed.
+  for (const id of config.evalTrialModels.filter((m) => !levelsOf(m).length)) {
+    checks.push(warn(`${id} is not offered in your trial`, `FactEngine does not know ${id}'s levels (server/trial.js, LEVELS), so it offers none of them rather than guess.`, readers));
+  }
   const ids = config.evalTrialModels.filter(isDeepSeekModel);
   if (ids.length) await checkTrialDeepSeek(checks, ids, readers);
   const gids = config.evalTrialModels.filter(isGeminiModel);
@@ -195,19 +199,23 @@ async function checkTrial() {
   return checks;
 }
 
-/** The trial on OpenAI (24 October): the readers' own fact-check with its model and level; OpenAI's answer for the model is above. */
+/** Each model with its levels, in words ("GPT-6 Astra at low, medium, high, xhigh or max"). */
+const levelWords = (ids) => ids.filter((id) => levelsOf(id).length).map((id) => `${modelLabel(id)} at ${levelsOf(id).join(', ').replace(/, ([^,]+)$/, ' or $1')}`).join('; ');
+const tickWords = 'each model and level its own entry, ticked on the page in any number, each a card of its own for every claim';
+
+/** The trial on OpenAI: the readers' own fact-check with its model and level its own; OpenAI's answer for each model is above. */
 function checkTrialOpenAI(checks, ids, readers) {
   const ready = modelReady(ids[0]);
   if (!ready.ok) { checks.push(warn('Your trial on OpenAI cannot run', ready.why, readers)); return; }
   checks.push(ok('Your trial on OpenAI can run',
-    `${ids.map(modelLabel).join(' and ')} at ${OPENAI_EFFORTS.join(' or ')}, its own entry on the page beside ${modelLabel(config.evalModels[0])}, for your account alone: the same key, web search and pacing as a reader's fact-check, with only the model and its level its own. Whether OpenAI serves it to this key is said above.`));
+    `${levelWords(ids)}: ${tickWords}, for your account alone: the same key, web search and pacing as a reader's fact-check, with only the model and its level its own. Whether OpenAI serves each model to this key is said above.`));
 }
 
 async function checkTrialGemini(checks, ids, readers) {
   const ready = modelReady(ids[0]);
   if (!ready.ok) { checks.push(warn('Your trial on Gemini cannot run', ready.why, readers)); return; }
   checks.push(ok('Your trial on Gemini can run',
-    `${ids.map(modelLabel).join(' and ')} at medium or high, each its own entry on the page beside ${modelLabel(config.evalModels[0])}, for your account alone. Gemini searches with Google's own search and reads pages itself, and each request says store: false, so Google keeps nothing. Google Search costs $14 per 1,000 searches after 5,000 free a month; the cost shown counts every search at that price, so it is an upper bound.`));
+    `${levelWords(ids)}: ${tickWords}, for your account alone. Gemini searches with Google's own search and reads pages itself, and each request says store: false, so Google keeps nothing. Google Search costs $14 per 1,000 searches after 5,000 free a month; the cost shown counts every search at that price, so it is an upper bound.`));
   for (const id of ids) {
     try {
       await gemini.model(id, { key: gemini.key() });
@@ -225,7 +233,7 @@ async function checkTrialDeepSeek(checks, ids, readers) {
     checks.push(warn('Your trial on DeepSeek cannot run', ready.why, readers));
     return;
   }
-  checks.push(ok('Your trial on DeepSeek can run', `${ids.map(modelLabel).join(' and ')}, chosen on the page beside ${modelLabel(config.evalModels[0])}, for your account alone. DeepSeek has no web search of its own, so the model searches and reads through FactEngine's own tools.`));
+  checks.push(ok('Your trial on DeepSeek can run', `${levelWords(ids)}: ${tickWords}, for your account alone. DeepSeek has no web search of its own, so the model searches and reads through FactEngine's own tools.`));
   try {
     const page = await deepseek.client(deepseek.key()).models.list();
     const listed = new Set((page?.data || []).map((m) => m.id));
@@ -349,8 +357,8 @@ export async function selftest({ apiKey, build, operator = true }) {
       listingEffort: config.extractEffort,
       model: config.evalModels[0],
       effort: config.evalEffort,
-      // The trial's entries as the page offers them: DeepSeek V4 Pro at the effort chosen beside it; Gemini at each level.
-      trialModels: (trialState()?.entries || []).map((e) => (e.fixed ? e.label : `${e.label} (at the effort chosen beside it)`)).join('; ') || 'off',
+      // The trial's models with their levels, each model and level an entry the operator may tick.
+      trialModels: trialState() ? levelWords(config.evalTrialModels) || 'none offered' : 'off',
       rank: ranking.ready ? `${ranking.mode === 'on' ? 'every run' : 'your runs alone'}: an empirical headline first, then the top ${ranking.keepPercent}%, rounded up, on ${ranking.model} at ${ranking.effort}` : `unranked: ${ranking.why}`,
       listingWebSearch: requestShape().extract.webSearch,   // false: the listing reads the document it is given and nothing else
       webSearch: true,

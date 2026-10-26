@@ -163,6 +163,10 @@
         <span class="score-internal" id="score-internal" hidden><span class="chip chip-internal">Internal</span> <span>Est. cost</span> <b class="mono" id="score-cost">$0.00</b></span>
 <!--/op-->
       </div>
+<!--op-->
+      <!-- The operator's run on several models and levels (25 October): one line per entry, its verdicts, minutes and cost. -->
+      <div class="score-entries" id="score-entries" hidden></div>
+<!--/op-->
       <div class="scoreboard-actions">
         <button type="button" class="btn btn-outline btn-small" id="btn-reset-top" data-i18n="reset">Start a new test</button>
       </div>
@@ -234,12 +238,12 @@
           </div>
         </div>
 <!--op-->
-        <!-- The operator's trial (14 October): their own fact-checks on another model, beside the readers' one. Shown to
-             the operator's account alone, in English, like /check; the server ignores the choice from anyone else. -->
+        <!-- The operator's trial (25 October): every model at every level its maker supports, ticked in any number, each
+             ticked entry a card of its own for every claim. Shown to the operator's account alone, in English, like
+             /check; the server ignores the choice from anyone else. -->
         <div class="trial-bar" id="trial-bar" hidden>
-          <label class="trial-choice">Determined by <select id="trial-model"></select></label>
-          <label class="trial-choice" id="trial-effort-choice">at effort <select id="trial-effort"></select></label>
-          <label class="trial-choice" id="trial-compare-choice"><input type="checkbox" id="trial-compare"> <span id="trial-compare-words">Side by side</span></label>
+          <span class="trial-title">Determined by each one ticked</span>
+          <div class="trial-grid" id="trial-grid"></div>
           <span class="hint trial-why" id="trial-why" hidden></span>
         </div>
 <!--/op-->
@@ -339,7 +343,9 @@
 <span id="op-words" hidden
   data-gate="The key's minute: {limit} tokens · one determination counts {cost} · {atOnce} at once, one more every {every} s"
   data-avg-cost="About {usd} per claim in this run." data-card-cost="est. {usd}" data-card-cost-unknown="price unknown"
-  data-readers="{label} (readers)" data-side-by-side="Side by side with {label}" data-twin="Side by side · {label}"
+  data-tick-one="Tick at least one model and level above to test the claims you chose."
+  data-step2-models="Testing {total} determinations: the claims chosen ({n}) on each model and level ticked ({m})"
+  data-entry-tally="{t} true · {f} false · {u} unverified · {unread} unread · {failed} failed"
   data-listed="zero credibility" data-from-list="{n} of zero credibility" data-from-list-kept="{n} of zero credibility, {kept} kept out"></span>
 <!--/op-->
 

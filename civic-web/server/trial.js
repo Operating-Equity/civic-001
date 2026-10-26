@@ -4,7 +4,10 @@
 // the second and most important stage." On 18 October: "There is only 1 DeepSeek model for fact checking" (V4 Pro, the
 // deep-reasoning one), and Gemini 4 Argon beside it, "argon medium and argon high", on their own Google key. On 24
 // October: "GPT-6.1 Sol make it also an option for testing side by side", at xhigh, the readers' level: OpenAI's own
-// fact-check, with only its model and effort its own.
+// fact-check, with only its model and effort its own. On 25 October: "multiple options for the top tier models and not a
+// single default selection … compare using different power settings for each of the models … especially … against
+// DeepSeek": every frontier model at every level its maker supports, each model and level an entry of its own, ticked
+// on the page in any number, each ticked entry a card of its own for every claim chosen.
 //
 // Only the operator's runs go there (a reader's choice of model is no choice: it is ignored), so the readers' texts
 // (Privacy, Terms) stay true. A trial fact-check is a row of its own kind, never charged and never in the readers'
@@ -20,13 +23,25 @@ import { registry } from './tools/index.js';
 import { ApiError, operatorKey } from './openai.js';
 import { isGeminiModel } from './gemini.js';
 
-/** DeepSeek's reasoning efforts (its own documentation). The page opens on high, the level DeepSeek gives xhigh. */
-export const DEEPSEEK_EFFORTS = ['none', 'low', 'high', 'max'];
-export const DEFAULT_EFFORT = 'high';
-/** Gemini's levels, the operator's two (18 October), each its own entry on the page; Google's third, low, is not offered. */
-export const GEMINI_EFFORTS = ['medium', 'high'];
-/** An OpenAI model's levels in the trial: the operator's one (24 October), xhigh, the readers' level, its own entry. */
-export const OPENAI_EFFORTS = ['xhigh'];
+/**
+ * The levels each model's maker supports, from their own pages (read 25 October 2026), in the order the page shows them:
+ *   - OpenAI (developers.openai.com, each model's page): GPT-6 Astra and GPT-6.1 Sol take low to max, not none or
+ *     minimal; GPT-5.6 Sol takes none to max. Each is sent as `reasoning.effort`.
+ *   - Google (ai.google.dev, "Gemini thinking"): Gemini 4 Argon takes low, medium and high, as `thinking_level`.
+ *   - DeepSeek (api-docs.deepseek.com, "Thinking Mode"): none (thinking off), low, high and max, as `reasoning.effort`;
+ *     DeepSeek reads medium as high and xhigh as max, so those are not levels of their own there.
+ * A model of the trial's list that is not here is not offered: its levels are not known, and none is guessed.
+ */
+export const LEVELS = {
+  'gpt-6-astra': ['low', 'medium', 'high', 'xhigh', 'max'],
+  'gpt-6.1-sol': ['low', 'medium', 'high', 'xhigh', 'max'],
+  'gpt-5.6-sol': ['none', 'low', 'medium', 'high', 'xhigh', 'max'],
+  'gemini-4-argon': ['low', 'medium', 'high'],
+  'deepseek-v4-pro': ['none', 'low', 'high', 'max'],
+  'deepseek-flash': ['none', 'low', 'high', 'max'],
+};
+/** A model's levels, or none when they are not known. */
+export const levelsOf = (id) => LEVELS[id] || [];
 
 /** A model is DeepSeek's by its name: DeepSeek's ids begin so (deepseek-flash, deepseek-v4-pro). */
 export const isDeepSeekModel = (id) => /^deepseek-/i.test(String(id || ''));
@@ -38,13 +53,10 @@ export { isGeminiModel };
 export const providerOf = (id) => (isDeepSeekModel(id) ? 'deepseek' : isGeminiModel(id) ? 'gemini' : isOpenAIModel(id) ? 'openai' : null);
 
 // The names a person reads; an id the table does not know is shown as it is.
-const LABELS = { 'deepseek-v4-pro': 'DeepSeek V4 Pro', 'deepseek-flash': 'DeepSeek V4.1 Flash', 'gpt-5.6-sol': 'GPT-5.6 Sol', 'gpt-6.1-sol': 'GPT-6.1 Sol', 'gemini-4-argon': 'Gemini 4 Argon' };
+const LABELS = { 'deepseek-v4-pro': 'DeepSeek V4 Pro', 'deepseek-flash': 'DeepSeek V4.1 Flash', 'gpt-5.6-sol': 'GPT-5.6 Sol', 'gpt-6.1-sol': 'GPT-6.1 Sol', 'gpt-6-astra': 'GPT-6 Astra', 'gemini-4-argon': 'Gemini 4 Argon' };
 export const modelLabel = (id) => LABELS[id] || String(id || '');
-
-const EFFORTS = { gemini: GEMINI_EFFORTS, deepseek: DEEPSEEK_EFFORTS, openai: OPENAI_EFFORTS };
-const effortsOf = (id) => EFFORTS[providerOf(id)] || [];
-// An entry per level, the level being the choice itself: Gemini's and OpenAI's. DeepSeek's levels stand beside its entry.
-const fixedLevels = (provider) => provider === 'gemini' || provider === 'openai';
+/** An entry's name: the model and its level ("GPT-6 Astra · high"). */
+export const entryLabel = (id, level) => `${modelLabel(id)} · ${level}`;
 
 /** Whether one of the trial's models can run here, and if not, why (for the page, /check and the startup line). */
 export function modelReady(id) {
@@ -68,34 +80,39 @@ export function modelReady(id) {
   return { ok: false, why: `${id} is not DeepSeek's, Gemini's or OpenAI's, and the trial runs those providers' models.` };
 }
 
+/** Whether a model of the trial's list is offered: its maker's and its levels known. */
+function modelOffered(id) {
+  if (!providerOf(id)) return { ok: false, why: `${id} is not DeepSeek's, Gemini's or OpenAI's, and the trial runs those providers' models.` };
+  if (!levelsOf(id).length) return { ok: false, why: `${id}'s levels are not known to FactEngine (server/trial.js, LEVELS), so it is not offered.` };
+  return { ok: true, why: null };
+}
+
 /** Whether the trial can run here at all (any of its models), and if not, why. */
 export function trialReady() {
   if (!config.evalTrialModels.length) return { ok: false, why: 'The trial is off (CIVIC_EVAL_TRIAL_MODELS=off).' };
-  const states = config.evalTrialModels.map(modelReady);
+  const states = config.evalTrialModels.map((id) => (modelOffered(id).ok ? modelReady(id) : modelOffered(id)));
   if (states.some((s) => s.ok)) return { ok: true, why: null };
   return { ok: false, why: [...new Set(states.map((s) => s.why))].join(' ') };
 }
 
 /**
- * What the operator's page is told of the trial: each model with its efforts and whether it can run, and the entries of
- * the pull-down. A DeepSeek model is one entry with its efforts beside it; Gemini is one entry per level, the level being
- * the choice itself ("argon medium and argon high"). Never a key.
+ * What the operator's page is told of the trial: each model with its levels and whether it can run, and its entries, one
+ * per model and level, in that order. A model whose levels are not known is listed with its reason and no entry. Never a
+ * key.
  */
 export function trialState() {
   if (!config.evalTrialModels.length) return null;
   const models = config.evalTrialModels.map((id) => {
-    const provider = providerOf(id);
-    const ready = modelReady(id);
-    return { id, label: modelLabel(id), provider, efforts: effortsOf(id), effort: provider === 'deepseek' ? DEFAULT_EFFORT : null, ready: ready.ok, why: ready.why };
+    const offered = modelOffered(id);
+    const ready = offered.ok ? modelReady(id) : offered;
+    return { id, label: modelLabel(id), provider: providerOf(id), efforts: levelsOf(id), ready: ready.ok, why: ready.why };
   });
-  const entries = models.flatMap((m) => (fixedLevels(m.provider)
-    ? m.efforts.map((e) => ({ model: m.id, label: `${m.label} · ${e}`, effort: e, fixed: true, ready: m.ready, why: m.why }))
-    : [{ model: m.id, label: m.label, efforts: m.efforts, effort: m.effort, fixed: false, ready: m.ready, why: m.why }]));
+  const entries = models.flatMap((m) => m.efforts.map((e) => ({ model: m.id, label: entryLabel(m.id, e), effort: e, ready: m.ready, why: m.why })));
   const ready = trialReady();
   return {
     models,
     entries,
-    readers: { id: config.evalModels[0], label: modelLabel(config.evalModels[0]) },
+    readers: { id: config.evalModels[0], label: modelLabel(config.evalModels[0]), effort: config.evalEffort },
     ready: ready.ok,
     why: ready.why,
   };
@@ -105,27 +122,21 @@ const refuse = (status, code, message) => Object.assign(new ApiError(status, cod
 
 /**
  * The trial a request asks for, or null for the readers' determination. `operator` is whether the request is the
- * operator's own; anyone else's `model` is ignored. The readers' own model may be asked for too (side by side), and
- * then the request is exactly a reader's, recorded as a trial. Gemini runs only at one of the operator's two levels:
- * there is no default of ours.
+ * operator's own; anyone else's `model` is ignored. An entry is a model and one of its levels, and runs at exactly that
+ * level; a level its maker does not support is refused, and none is chosen for the asker. The readers' own model asked
+ * for with no level (a page from before 25 October) is the readers' request exactly, recorded as a trial.
  */
 export function trialOf(body, { operator }) {
   const asked = typeof body?.model === 'string' ? body.model.trim() : '';
   if (!asked || !operator) return null;
-  if (config.evalModels.includes(asked)) return { provider: 'openai', model: asked };
+  const said = typeof body?.effort === 'string' ? body.effort.trim() : '';
+  if (config.evalModels.includes(asked) && !said) return { provider: 'openai', model: asked };
   if (!config.evalTrialModels.includes(asked)) throw refuse(400, 'trial_model', `${asked} is not one of the trial's models (CIVIC_EVAL_TRIAL_MODELS).`);
-  const provider = providerOf(asked);
-  if (!provider) throw refuse(400, 'trial_model', `${asked} is not DeepSeek's, Gemini's or OpenAI's, and the trial runs those providers' models.`);
+  const offered = modelOffered(asked);
+  if (!offered.ok) throw refuse(400, 'trial_model', offered.why);
+  const levels = levelsOf(asked);
+  if (!levels.includes(said)) throw refuse(400, 'trial_effort', `${modelLabel(asked)} runs at ${levels.join(', ')}; ${said ? `"${said}" was` : 'no level was'} asked for.`);
   const ready = modelReady(asked);
   if (!ready.ok) throw refuse(503, 'trial_unavailable', ready.why);
-  const said = typeof body?.effort === 'string' ? body.effort.trim() : '';
-  if (provider === 'gemini') {
-    if (!GEMINI_EFFORTS.includes(said)) throw refuse(400, 'trial_effort', `Gemini's trial runs at ${GEMINI_EFFORTS.join(' or ')}; ${said ? `"${said}" was` : 'no level was'} asked for.`);
-    return { provider, model: asked, effort: said };
-  }
-  if (provider === 'openai') {
-    if (!OPENAI_EFFORTS.includes(said)) throw refuse(400, 'trial_effort', `${modelLabel(asked)}'s trial runs at ${OPENAI_EFFORTS.join(' or ')}; ${said ? `"${said}" was` : 'no level was'} asked for.`);
-    return { provider, model: asked, effort: said };
-  }
-  return { provider, model: asked, effort: DEEPSEEK_EFFORTS.includes(said) ? said : DEFAULT_EFFORT };
+  return { provider: providerOf(asked), model: asked, effort: said };
 }

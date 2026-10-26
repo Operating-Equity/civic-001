@@ -1147,12 +1147,32 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
     - a Penrose tiling, the Sierpinski triangle, the logistic map's cascade, the Basel sum.
   - **The rotation:** a visit draws one of the six sets from its own random word; nothing is stored, sent or looked up.
     The two first sets are unchanged.
-  - **Held:** on the working branch, out of rotation, until the operator says; then a pull request, merged when no run
-    is in flight.
+  - **Held** on the working branch until the operator said (25 October, night: "Release with this change"); they go live
+    with the trial's grid, below.
   - **Proof:** a browser check (scratchpad `browser/sets-check.mjs`, 10/10): twenty-seven fields, each set one of each
     kind; every new field draws its content in under 0.4 s; the ink stays faint; the fractals drift and stop under
     reduced motion; sixty visits meet all six sets and leave nothing in any storage; the phases show the set's four
     fields; a phone; the plain pages keep the golden rectangle; no page errors.
+- **25 October, night: every frontier model at every level, compared; cards closed until done; one count.** The
+  operator: "multiple options for the top tier models and not a single default selection", "compare using different
+  power settings for each of the models", "especially … against DeepSeek"; "none of the empirical statements being
+  tested opens before it is finished"; the claim counter's "mismatch that is not explained". Their answers: OpenAI's,
+  Google's and DeepSeek's frontier models; tick any entries; every level the maker supports; nothing ticked, nothing runs;
+  one number, what can be tested; the held backgrounds released.
+  - **The trial** (`server/trial.js`): a table of each model's levels from the makers' own pages, one entry per model and
+    level (27), run at exactly that level; a level the maker does not support is refused, none chosen for the asker; the
+    readers' model asked for with no level (an older page) is the readers' request. The default list adds GPT-6 Astra,
+    GPT-5.6 Sol and DeepSeek V4.1 Flash. "Side by side" goes: the readers' model is one entry among the rest.
+  - **The page:** a grid of tick boxes on the operator's page; each chosen claim runs on every ticked entry, a card each,
+    headed with its entry; the scoreboard has a line per entry; step 2's title counts the determinations.
+  - **Cards closed until finished,** for everyone: a card opens once its claim is done or failed; the entry is no longer
+    drawn as it streams; a failed card opens to its error without a half-written entry.
+  - **One count:** step 1 says no number of claims; the list's heading counts the rows shown, the button the rows behind
+    it. A listing that starts over clears its rows first; "Testing the first n" counts the claims that run.
+  - **/check and the log** label every run "(readers)" or "(trial)", each model with its levels.
+  - **Proof:** the guard's trial checks rewritten for the entries, levels and refusals in the three prompt shapes; a
+    browser check (scratchpad `browser/grid-check.mjs`): the grid, three entries on one claim, the closed cards, the
+    count, a listing started over, a phone.
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 
