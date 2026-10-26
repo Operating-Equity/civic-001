@@ -1193,6 +1193,12 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
   - **Proof:** an Anthropic stand-in in the guard (its events, a search from inside code execution, a paused turn, the
     waits, a decline, a cut stream), the guard's Claude checks in the three prompt shapes, and the grid's browser check
     with Claude beside DeepSeek.
+  - **Live** (26 October, 18:08 UTC): PR #91 deployed. The boot line names both Claude models ready at high/xhigh/max,
+    and Anthropic's two tools leaving out the lists, by counts. A probe on Render (one short request on each model at
+    high, with the lists whole) was accepted by Anthropic, searched once each and met no tool error. Live check clean,
+    nothing spent.
+  - **A second operator's account:** a new one-time link (the setting `CIVIC_OPERATOR_CLAIM` holds its hash) went to the
+    operator for their CTO, who sees what the operator sees. The operator's own account is unchanged.
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 
