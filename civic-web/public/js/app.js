@@ -30,7 +30,7 @@ const opWord = (key, params = {}) => {
   const text = document.getElementById('op-words')?.dataset[key];
   return text ? fill(text, params) : '';
 };
-const TRIAL_KEY = 'fe.trial';   // where this browser remembers the operator's trial choice (renderTrialBar)
+const TRIAL_KEY = 'fe.trial';   // where this browser remembers the operator's ticked models and levels (renderTrialBar)
 
 /** A connection failure in the reader's language, from the operating system's code; the server's own words otherwise. */
 function netWords(code, why) {
@@ -73,7 +73,8 @@ const state = {
   runId: '',           // this run's name; every job of the run is named after it
   extractJob: '',      // the extraction's job at the server (server/jobs.js)
   jobs: new Set(),     // every job of this run the server may still hold: cancelled on reset, on leaving
-  trialChoice: loadTrialChoice(),   // the operator's trial: { model, effort, compare }, remembered in this browser
+  trialChoice: loadTrialChoice(),   // the operator's trial: { ticked: ['model|level', …] }, remembered in this browser
+  entryTally: new Map(),            // this run's determinations per ticked entry, for the operator's scoreboard: label → counts
   evalStartedAt: 0,
   gate: null,          // the key's minute figures, from the server, once OpenAI has given them
   pricing: null,       // this run's prices, from the server: { tier, freeFacts, priceCents, currency, note }; null = nothing priced
@@ -104,8 +105,7 @@ function cacheElements() {
     beyond: $('#claims-beyond'), beyondTitle: $('#claims-beyond-title'), beyondList: $('#claims-beyond-list'), beyondHint: $('#claims-beyond-hint'),
     showRest: $('#btn-show-rest'), setAside: $('#claims-set-aside'), summary: $('#summary'), summaryBody: $('#summary-body'),
     selectAll: $('#btn-select-all'), testSelected: $('#btn-test-selected'),
-    trialBar: $('#trial-bar'), trialModel: $('#trial-model'), trialEffort: $('#trial-effort'), trialEffortChoice: $('#trial-effort-choice'),
-    trialCompare: $('#trial-compare'), trialCompareChoice: $('#trial-compare-choice'), trialCompareWords: $('#trial-compare-words'), trialWhy: $('#trial-why'),
+    trialBar: $('#trial-bar'), trialGrid: $('#trial-grid'), trialWhy: $('#trial-why'), scoreEntries: $('#score-entries'),
     claimsRaw: $('#claims-raw'), claimsRawSummary: $('#claims-raw-summary'), claimsRawBody: $('#claims-raw-body'),
     scoreboard: $('#scoreboard'), scoreTrue: $('#score-true'), scoreFalse: $('#score-false'), scoreUnv: $('#score-unverified'),
     scoreUnread: $('#score-unread'), scoreUnreadWrap: $('#score-unread-wrap'),
@@ -191,19 +191,18 @@ async function boot() {
   // press is the operator's setting, and the rest is the reader's). The report button still says
   // reports come later.
   ui.testSelected.addEventListener('click', testSelected);
-  // The operator's trial (server/trial.js): the choice is theirs, remembered in this browser, sent with each claim. Its
-  // bar is on the operator's page alone (server/assets.js).
+  // The operator's trial (server/trial.js): each model and level is an entry they tick, any number at once, remembered in
+  // this browser; each ticked entry is a card of its own for every claim chosen. Its grid is on the operator's page alone
+  // (server/assets.js).
   if (ui.trialBar) {
-    ui.trialModel.addEventListener('change', () => {
-      // An entry is a model, and for Gemini its level too ("argon medium and argon high"): the level is the entry itself.
-      const entry = trialEntries().find((e) => entryKey(e) === ui.trialModel.value) || null;
-      state.trialChoice.model = entry ? entry.model : '';
-      if (entry?.fixed) state.trialChoice.effort = entry.effort;
-      else if (entry && !entry.efforts.includes(state.trialChoice.effort)) state.trialChoice.effort = entry.effort;
-      saveTrialChoice(); renderTrialBar(); renderBeyondTools();
+    ui.trialGrid.addEventListener('change', (e) => {
+      const box = e.target.closest('input[data-entry]');
+      if (!box) return;
+      const ticked = new Set(state.trialChoice.ticked);
+      if (box.checked) ticked.add(box.dataset.entry); else ticked.delete(box.dataset.entry);
+      state.trialChoice.ticked = [...ticked];
+      saveTrialChoice(); renderBeyondTools();
     });
-    ui.trialEffort.addEventListener('change', () => { state.trialChoice.effort = ui.trialEffort.value; saveTrialChoice(); });
-    ui.trialCompare.addEventListener('change', () => { state.trialChoice.compare = ui.trialCompare.checked; saveTrialChoice(); });
   }
   ui.report.addEventListener('click', () => toast(t('report.soon')));
   // Leaving the page is the one way, besides Start a new test, that a run is stopped: the server
@@ -821,7 +820,7 @@ function newResult() {
   return {
     status: 'pending', phase: 'pending', text: '', reasoning: '', chars: 0, startedAt: 0,
     verdict: null, verdictSource: 'none', confidence: null, inspector: null, inspectorMark: null,
-    usage: null, cost: null, ms: null, trail: [], sources: [], incomplete: null, renderAt: 0,
+    usage: null, cost: null, ms: null, trail: [], sources: [], incomplete: null,
     listed: null, keptOut: null,  // the operator's alone: what the fact-check took from their list of sites kept out (server/sites.js)
     jobId: null, cutFrom: null,   // the claim's job at the server, and what the row said before its connection was cut
     free: null, priceCents: null, // what the server said this one costs: one of the document's free ones, or the price
@@ -841,7 +840,7 @@ function resetRunState() {
   state.timers = [];
   Object.assign(state, {
     phase: 'idle', warnings: [], claims: [], claimsRaw: '', beyond: [], cards: [], results: [], extraction: null, echo: null,
-    batch: { start: 0, size: 0, done: 0 }, counts: { true: 0, false: 0, unverified: 0 }, unread: 0,
+    batch: { start: 0, size: 0, done: 0, claims: 0, models: 1 }, counts: { true: 0, false: 0, unverified: 0 }, unread: 0, entryTally: new Map(),
     cost: 0, unpriced: false,
     extractStartedAt: 0, extractChars: 0, found: 0, extractWait: null, extractQueued: null, extractCut: false, runId: '', extractJob: '', evalStartedAt: 0, gate: null, pricing: null, status: { step1: null, step2: null },
     rankRun: false, ranking: null, rankedRun: null, summaryText: '', showRest: false, streamed: 0,
@@ -1029,7 +1028,11 @@ async function runExtraction(text) {
       case 'trail':
         state.extractSearches = ev.searches || (state.extractSearches + 1);
         break;
-      case 'start': state.extractWait = null; state.extractQueued = null; if (ev.rank) state.rankRun = true; break;   // the request went: the model is reading
+      case 'start':   // the request went: the model is reading. A go after a cut one sends its claims again from the first,
+        // so what the cut go listed is cleared, never shown twice.
+        state.extractWait = null; state.extractQueued = null; if (ev.rank) state.rankRun = true;
+        if (state.streamed) clearStreamedClaims();
+        break;
       case 'retry':
         // A connection failure is a wait for the connection, shown as such until the next go begins.
         state.extractWait = ev.reason === 'connection' ? { code: ev.code, why: ev.why, since: ev.since || Date.now() } : null;
@@ -1097,7 +1100,7 @@ function updateExtractBar() {
   if (state.ranking) {
     ui.bar1.classList.add('is-waiting');
     setBar(ui.bar1, 0.9 + easeTime(Date.now() - state.ranking.at, 60000, 0.08));
-    setStatus('step1', 'step1.ranking', { n: state.ranking.claims, time: fmtSeconds(Date.now() - state.ranking.at) });
+    setStatus('step1', 'step1.ranking', { time: fmtSeconds(Date.now() - state.ranking.at) });
     return;
   }
   // At high reasoning effort the model thinks for minutes before it writes anything. A bar tuned to
@@ -1117,7 +1120,8 @@ function updateExtractBar() {
   const byTime = easeTime(elapsed, 45000, 0.45);
   const byClaims = easeChars(state.found, 10, 0.5);
   setBar(ui.bar1, Math.min(0.94, Math.max(byTime, 0.08 + byClaims + byTime * 0.5)));
-  setStatus('step1', 'step1.foundTimed', { n: state.found, time: fmtSeconds(elapsed) });
+  // No count of claims here (25 October): the list itself says how many can be tested, and nothing else counts them.
+  setStatus('step1', 'step1.listing', { time: fmtSeconds(elapsed) });
 }
 
 /** The model's own account of its reading, shown as it arrives. Nothing is summarised by us. */
@@ -1157,6 +1161,16 @@ function addClaim(n, c) {
   }
 }
 
+/** The claims a cut go of the listing had sent: gone from the page before the next go sends them again. */
+function clearStreamedClaims() {
+  state.streamed = 0;
+  state.claims = [];
+  ui.claimsList.replaceChildren();
+  ui.beyondList.replaceChildren();
+  ui.beyond.hidden = true;
+  ui.claimsSub.textContent = '';
+}
+
 function finishExtraction(ev) {
   state.extraction = ev;
   state.claimsRaw = ev.raw || '';
@@ -1180,8 +1194,8 @@ function finishExtraction(ev) {
   setStep(ui.step1, 'done');
   ui.bar1.classList.remove('is-waiting');   // the ranking's waiting stripes, gone with it
   setBar(ui.bar1, 1, { done: true });
-  if (state.rankedRun) setStatus('step1', 'step1.doneRanked', { n: listed.length, time: fmtSeconds(Date.now() - state.extractStartedAt) });
-  else setStatus('step1', all.length ? 'step1.done' : 'step1.none', { n: all.length, time: fmtSeconds(ev.ms || Date.now() - state.extractStartedAt) });
+  if (state.rankedRun) setStatus('step1', 'step1.listedRanked', { time: fmtSeconds(Date.now() - state.extractStartedAt) });
+  else setStatus('step1', all.length ? 'step1.listed' : 'step1.none', { time: fmtSeconds(ev.ms || Date.now() - state.extractStartedAt) });
 
   if (!first.length) {
     // Nothing found, or nothing runs without a press (CIVIC_AUTO_TEST_FIRST=0): the claims wait for the
@@ -1287,7 +1301,8 @@ function renderSummary() {
 
 function renderClaimsHeadings() {
   if (!state.claims.length) return;
-  const first = Math.min(state.claims.length, autoFirst());
+  // The claims that run without a press: those shown first, never one waiting behind "Show the other claims".
+  const first = state.claims.filter((c) => c.top !== false).slice(0, autoFirst()).length;
   ui.claimsSub.textContent = first === 0 ? '' : (state.beyond.length ? t('claims.testing', { n: first }) : t('claims.all', { n: first }));
 }
 
@@ -1348,13 +1363,17 @@ function renderBeyondTools() {
   ui.selectAll.hidden = open.length === 0;
   ui.selectAll.disabled = busy;
   ui.selectAll.textContent = t(allSelected ? 'claims.clearAll' : 'claims.selectAll');
+  // The operator's page runs only what they ticked: with nothing ticked, nothing runs, and the hint says why (25 October:
+  // no hidden default). A reader's page has no trial and runs the readers' model.
+  const untick = Boolean(trialOffer()) && !trialRuns().length;
   ui.testSelected.hidden = open.length === 0;
-  ui.testSelected.disabled = selected === 0 || busy;
+  ui.testSelected.disabled = selected === 0 || busy || untick;
   // The button says how many, never what they cost: the price is said once, above the claims (the operator, 6 October).
   ui.testSelected.textContent = t('claims.testSelected', { n: selected });
   renderBalanceLine(selected);
   let hint = '';
   if (busy) hint = t('claims.afterFirst');
+  else if (untick) hint = opWord('tickOne');
   else if (!pricingNow() && state.accounting && averageCost() !== null) hint = opWord('avgCost', { usd: fmtUsd(averageCost()) });
   ui.beyondHint.textContent = hint;
   renderPriceLine();
@@ -1362,43 +1381,35 @@ function renderBeyondTools() {
   renderRestToggle();
 }
 
-// ---------- the operator's trial (14 October): their own fact-checks on another model, beside the readers' one ----------
+// ---------- the operator's trial: every model at every level, each ticked entry a card of its own (25 October) ----------
 
 function loadTrialChoice() {
-  try { const v = JSON.parse(localStorage.getItem(TRIAL_KEY) || '{}'); return { model: String(v.model || ''), effort: String(v.effort || ''), compare: Boolean(v.compare) }; }
-  catch { return { model: '', effort: '', compare: false }; }
+  // A choice from before 25 October (one model, side by side) is not carried over: nothing is ticked until the operator ticks.
+  try { const v = JSON.parse(localStorage.getItem(TRIAL_KEY) || '{}'); return { ticked: Array.isArray(v.ticked) ? v.ticked.map(String) : [] }; }
+  catch { return { ticked: [] }; }
 }
 function saveTrialChoice() {
-  try { localStorage.setItem(TRIAL_KEY, JSON.stringify(state.trialChoice)); } catch { /* a private window: the choice lasts the page */ }
+  try { localStorage.setItem(TRIAL_KEY, JSON.stringify(state.trialChoice)); } catch { /* a private window: the ticks last the page */ }
 }
 
 /** The trial the server offers this page (the operator's alone), or null. */
-const trialOffer = () => (ui.trialBar ? state.server?.trial || null : null);   // the bar is on the operator's page alone
+const trialOffer = () => (ui.trialBar ? state.server?.trial || null : null);   // the grid is on the operator's page alone
 
-/**
- * The pull-down's entries as the server offers them: DeepSeek V4 Pro once, with its efforts beside it; Gemini once per
- * level, the level being the entry itself (`fixed`). Each says whether it can run here, and if not, why.
- */
+/** The entries as the server offers them, one per model and level, each saying whether it can run here and if not, why. */
 const trialEntries = () => trialOffer()?.entries || [];
-const entryKey = (e) => (e.fixed ? `${e.model}|${e.effort}` : e.model);
-
-/** The entry this browser chose, if the server still offers it (a model it no longer offers falls back to the readers'). */
-function chosenEntry() {
-  const c = state.trialChoice;
-  return trialEntries().find((e) => e.model === c.model && (!e.fixed || e.effort === c.effort)) || null;
-}
+const entryKey = (e) => `${e.model}|${e.effort}`;
 
 /**
- * What the next claims run on: null for the readers' determination, else { model, label, effort, compare }. Only an
- * entry the server offers, and that can run, counts; the readers' own model is no trial unless it runs beside one.
+ * What the next claims run on: null on a reader's page (the readers' determination), else the ticked entries the server
+ * offers and that can run, in the grid's order: [{ model, effort, label }]. An entry no longer offered drops out.
  */
-function trialNow() {
-  const entry = chosenEntry();
-  if (!entry || !entry.ready) return null;
-  const effort = entry.fixed ? entry.effort : entry.efforts.includes(state.trialChoice.effort) ? state.trialChoice.effort : entry.effort;
-  return { model: entry.model, label: entry.label, effort, compare: Boolean(state.trialChoice.compare) };
+function trialRuns() {
+  if (!trialOffer()) return null;
+  const ticked = new Set(state.trialChoice.ticked);
+  return trialEntries().filter((e) => e.ready && ticked.has(entryKey(e))).map((e) => ({ model: e.model, effort: e.effort, label: e.label }));
 }
 
+/** The grid: one row per model, a tick box per level; a model that cannot run is shown, its boxes off, its reason below. */
 function renderTrialBar() {
   if (!ui.trialBar) return;
   const offer = trialOffer();
@@ -1406,36 +1417,33 @@ function renderTrialBar() {
   ui.trialBar.hidden = !offer || !open;
   if (ui.trialBar.hidden) return;
   const busy = state.phase === 'evaluating' || state.phase === 'extracting';
-  const entries = trialEntries();
-  // An entry that cannot run here is shown, and cannot be chosen; its reason is said below.
-  const options = [{ key: '', label: opWord('readers', { label: offer.readers.label }), ready: true }, ...entries.map((e) => ({ key: entryKey(e), label: e.label, ready: e.ready }))];
-  const have = [...ui.trialModel.options].map((o) => `${o.value}:${o.disabled}`).join('|');
-  if (have !== options.map((o) => `${o.key}:${!o.ready}`).join('|')) {
-    ui.trialModel.replaceChildren(...options.map((o) => el('option', { value: o.key, text: o.label, disabled: !o.ready })));
+  const ticked = new Set(state.trialChoice.ticked);
+  const shape = offer.models.map((m) => `${m.id}:${m.ready}:${m.efforts.join(',')}`).join('|');
+  if (ui.trialGrid.dataset.shape !== shape) {
+    ui.trialGrid.dataset.shape = shape;
+    ui.trialGrid.replaceChildren(...offer.models.filter((m) => m.efforts.length).map((m) => el('div', { class: 'trial-row' }, [
+      el('span', { class: 'trial-name', text: m.label }),
+      ...m.efforts.map((e) => el('label', { class: 'trial-tick' }, [el('input', { type: 'checkbox', 'data-entry': `${m.id}|${e}`, disabled: !m.ready }), el('span', { text: e })])),
+    ])));
   }
-  const chosen = chosenEntry();
-  const trial = Boolean(chosen && chosen.ready);
-  ui.trialModel.value = trial ? entryKey(chosen) : '';
-  // DeepSeek's efforts beside its entry; a Gemini entry's level is the entry, so nothing is beside it.
-  const efforts = trial && !chosen.fixed ? chosen.efforts : [];
-  if ([...ui.trialEffort.options].map((o) => o.value).join('|') !== efforts.join('|')) ui.trialEffort.replaceChildren(...efforts.map((e) => el('option', { value: e, text: e })));
-  if (efforts.length) ui.trialEffort.value = efforts.includes(state.trialChoice.effort) ? state.trialChoice.effort : chosen.effort;
-  ui.trialCompare.checked = Boolean(state.trialChoice.compare);
-  ui.trialCompareWords.textContent = opWord('sideBySide', { label: offer.readers.label });
-  ui.trialEffortChoice.hidden = !efforts.length;
-  ui.trialCompareChoice.hidden = !trial;
-  for (const c of [ui.trialModel, ui.trialEffort, ui.trialCompare]) c.disabled = busy;
-  const whys = [...new Set(entries.filter((e) => !e.ready && e.why).map((e) => e.why))];
+  for (const box of ui.trialGrid.querySelectorAll('input[data-entry]')) {
+    const entry = trialEntries().find((e) => entryKey(e) === box.dataset.entry);
+    box.checked = Boolean(entry?.ready) && ticked.has(box.dataset.entry);
+    box.disabled = busy || !entry?.ready;
+  }
+  const whys = [...new Set(offer.models.filter((m) => !m.ready && m.why).map((m) => m.why))];
   ui.trialWhy.hidden = !whys.length;
   ui.trialWhy.textContent = whys.join(' ');
 }
 
-/** A claim's twin, side by side: the same claim on the readers' model, as a card right under the trial's own. */
-function twinCard(b, label) {
-  const card = buildCard(b, b.n);
-  card.classList.add('is-twin');
-  $('.card-claim', card).prepend(el('span', { class: 'card-twin mono', text: opWord('twin', { label }) }), el('br'));
-  b.node.closest('li').after(el('li', { class: 'is-twin' }, [card]));
+/** A claim's card for an entry: the claim's own row card for the first entry, a card of its own under it for each other,
+ *  each headed with its entry ("GPT-6 Astra · high"). */
+function entryCard(b, label, after) {
+  const card = after ? buildCard(b, b.n) : b.node;
+  $('.card-claim', card).prepend(el('span', { class: 'card-entry mono', text: label }), el('br'));
+  if (!after) return card;
+  card.classList.add('is-entry');
+  after.closest('li').after(el('li', { class: 'is-entry' }, [card]));
   return card;
 }
 
@@ -1472,7 +1480,7 @@ function renderBalanceLine(selected) {
     return;
   }
   // The operator's trial is never charged, so the balance holds nothing back.
-  const covers = Number.isFinite(bal) && price && !trialNow() ? freeRemaining() + Math.floor(Math.max(0, bal) / price.priceCents) : null;
+  const covers = Number.isFinite(bal) && price && !trialRuns()?.length ? freeRemaining() + Math.floor(Math.max(0, bal) / price.priceCents) : null;
   if (covers !== null && selected > covers) {
     ui.testSelected.disabled = true;
     ui.balanceLine.hidden = false;
@@ -1521,20 +1529,21 @@ async function testSelected() {
   // The whole selection is one batch, run at the server's pace (one claim per request, `inFlight`
   // of them at once, the next starting as one ends): thirty chosen claims read "Testing 30 claims"
   // and run ten at a time with no pause between tens. Until 3 October they ran in batches of ten.
-  // The operator's trial runs each on the model they chose, and side by side also on the readers' model.
-  const trial = trialNow();
+  // On the operator's page each claim runs on every ticked entry, each a card of its own under the claim (25 October).
+  const entries = trialRuns();
+  if (entries && !entries.length) return;
   const runs = [];
   const nodes = [];
   for (const b of chosen) {
-    runs.push({ ...claimOf(b), ...(trial ? { trial: { model: trial.model, effort: trial.effort } } : {}) });
-    nodes.push(b.node);
-    if (trial?.compare) {
-      const readers = trialOffer().readers;
-      runs.push({ ...claimOf(b), trial: { model: readers.id }, twin: true });
-      nodes.push(twinCard(b, readers.label));
+    if (!entries) { runs.push(claimOf(b)); nodes.push(b.node); continue; }
+    let last = null;
+    for (const e of entries) {
+      runs.push({ ...claimOf(b), trial: { model: e.model, effort: e.effort }, entry: e.label });
+      last = entryCard(b, e.label, last);
+      nodes.push(last);
     }
   }
-  await runBatch(runs, nodes, { claims: chosen.length });
+  await runBatch(runs, nodes, { claims: chosen.length, models: entries ? entries.length : 1 });
 }
 
 function averageCost() {
@@ -1545,17 +1554,17 @@ function averageCost() {
 
 // ---------- step 2: one batch of determinations ---------------------------------------------------
 
-async function runBatch(claims, nodes, { claims: count = claims.length } = {}) {
+async function runBatch(claims, nodes, { claims: count = claims.length, models = 1 } = {}) {
   const start = state.cards.length;
   state.cards.push(...claims);
   for (const _ of claims) state.results.push(newResult());
-  nodes.forEach((node, k) => { node.dataset.index = String(start + k); node.dataset.state = 'pending'; });
-  state.batch = { start, size: claims.length, done: 0 };
+  nodes.forEach((node, k) => { node.dataset.index = String(start + k); node.dataset.state = 'pending'; syncCardHead(node); });
+  state.batch = { start, size: claims.length, done: 0, claims: count, models };
   state.phase = 'evaluating';
   field.setPhase('evaluating');
   state.evalStartedAt = Date.now();
 
-  ui.step2Title.textContent = start === 0 ? t('step2.title', { n: count }) : t('step2.more', { n: count });
+  renderStep2Title();
   setStep(ui.step2, 'running');
   setBar(ui.bar2, 0);
   setStatus('step2', 'step2.progress', { done: 0, total: claims.length });
@@ -1693,9 +1702,9 @@ function handleEvalEvent(ev, mapIndex) {
       if (r.phase !== 'writing') { r.phase = 'reasoning'; renderCardStatus(i); }
       break;
     case 'delta':
+      // The entry is kept, not drawn: it appears whole when the claim is done (finalizeCard). Its length drives the bar.
       r.text += ev.text; r.chars = r.text.length;
       if (r.phase !== 'writing') { r.phase = 'writing'; renderCardStatus(i); }
-      scheduleEntryRender(i);
       break;
     case 'trail': r.trail.push(ev.step); renderCardStatus(i); break;
     case 'quote': r.free = ev.free ?? null; r.priceCents = ev.priceCents ?? null; if (Number.isFinite(ev.balanceCents)) setBalance(ev.balanceCents); renderBeyondTools(); break;   // free, or the price: the server's word, and the balance after its hold
@@ -1711,7 +1720,7 @@ function handleEvalEvent(ev, mapIndex) {
       renderCardStatus(i); updateEvalStatus();
       break;
     case 'done': finalizeCard(i, ev); break;
-    case 'error': r.status = 'error'; r.phase = 'error'; r.error = ev.message; r.errorCode = ev.code || null; r.errorWho = ev.who || null; setCardState(i, 'error'); renderCardStatus(i); renderCardError(i); break;
+    case 'error': r.status = 'error'; r.phase = 'error'; r.error = ev.message; r.errorCode = ev.code || null; r.errorWho = ev.who || null; setCardState(i, 'error'); renderCardStatus(i); renderCardError(i); tallyEntry(i, 'failed'); renderScoreboard(); break;
     default: break;
   }
 }
@@ -1800,12 +1809,11 @@ function buildCard(claim, n) {
     const ok = await copyText(state.results[idx()]?.text || '');
     toast(t(ok ? 'card.copied' : 'card.copyFailed'), { error: !ok });
   });
-  // The row opens and closes in place. Closed, it is the claim, the verdict and the conclusion
+  // The row opens and closes in place, once its claim is finished (25 October, the operator: "none of the empirical
+  // statements being tested opens before it is finished"). Closed, it is the claim, the verdict and the conclusion
   // behind it; open, it is everything the run produced. Controls inside never toggle it.
   const head = $('.card-head', node);
-  head.setAttribute('role', 'button');
-  head.tabIndex = 0;
-  head.setAttribute('aria-expanded', 'false');
+  syncCardHead(node);
   const toggle = (e) => { if (e.target.closest('button, a, input, label, textarea')) return; toggleCard(node); };
   head.addEventListener('click', toggle);
   $('.card-brief', node).addEventListener('click', toggle);
@@ -1827,9 +1835,31 @@ function buildCard(claim, n) {
   return node;
 }
 
+/** Whether a row's claim is finished: done, or failed. Only then can it open. */
+const cardFinished = (node) => node.dataset.state === 'done' || node.dataset.state === 'error';
+
 function toggleCard(node) {
+  if (!cardFinished(node) && !node.classList.contains('is-open')) return;
   const open = node.classList.toggle('is-open');
   $('.card-head', node).setAttribute('aria-expanded', String(open));
+}
+
+/** A row's head is a button only once its claim is finished; until then it is closed, and nothing of the entry is in it. */
+function syncCardHead(node) {
+  const head = $('.card-head', node);
+  if (cardFinished(node)) {
+    head.setAttribute('role', 'button');
+    head.tabIndex = 0;
+    head.setAttribute('aria-expanded', String(node.classList.contains('is-open')));
+    return;
+  }
+  node.classList.remove('is-open');
+  head.removeAttribute('role');
+  head.removeAttribute('aria-expanded');
+  head.removeAttribute('tabindex');
+  const entry = $('.entry', node);
+  entry.replaceChildren();
+  entry.hidden = true;
 }
 
 /** The closed row's line: the Conclusion section behind the verdict, in the model's own words. */
@@ -1844,7 +1874,7 @@ function renderBrief(i) {
 function setCardState(i, stateName) {
   const card = cardOf(i);
   card.dataset.state = stateName;
-  if (stateName === 'running') $('.entry', card).hidden = false;
+  syncCardHead(card);
 }
 
 function renderCardStatus(i) {
@@ -1871,16 +1901,8 @@ function renderCardStatus(i) {
   $('.card-status', card).textContent = text;
 }
 
-function scheduleEntryRender(i) {
-  const r = state.results[i];
-  const now = Date.now();
-  if (now - r.renderAt < 140) { if (!r.renderTimer) r.renderTimer = setTimeout(() => { r.renderTimer = null; renderEntry(i); }, 150); return; }
-  renderEntry(i);
-}
-
 function renderEntry(i) {
   const r = state.results[i];
-  r.renderAt = Date.now();
   const entry = $('.entry', cardOf(i));
   entry.innerHTML = renderMarkdown(r.text); // the complete text, never a slice of it
   renderMath(entry);                          // and its formulas as mathematics, not as broken prose
@@ -1889,7 +1911,6 @@ function renderEntry(i) {
 
 function finalizeCard(i, ev) {
   const r = state.results[i];
-  if (r.renderTimer) { clearTimeout(r.renderTimer); r.renderTimer = null; }
   Object.assign(r, {
     status: 'done', phase: 'done',
     text: ev.text || r.text,
@@ -1906,6 +1927,7 @@ function finalizeCard(i, ev) {
   card.classList.remove('verdict-true', 'verdict-false', 'verdict-unverified', 'verdict-unread');
   card.classList.add(`verdict-${r.verdict || 'unread'}`);
   card.dataset.state = 'done';
+  syncCardHead(card);
   renderEntry(i);
   renderBrief(i);
   renderBadge(i);
@@ -1913,13 +1935,12 @@ function finalizeCard(i, ev) {
   renderCardNote(i);
   renderCardFoot(i);
 
-  // A twin (the same claim on the readers' model, side by side) is a comparison, not a second verdict on the claim.
-  if (!state.cards[i]?.twin) {
-    if (r.verdict) state.counts[r.verdict] = (state.counts[r.verdict] || 0) + 1;
-    else state.unread++;
-  }
+  // Every determination counts, one per card; on the operator's page each is also counted under its entry.
+  if (r.verdict) state.counts[r.verdict] = (state.counts[r.verdict] || 0) + 1;
+  else state.unread++;
+  tallyEntry(i, r.verdict || 'unread');
   addCost(r.cost);
-  renderScoreboard(state.cards[i]?.twin ? undefined : r.verdict);
+  renderScoreboard(r.verdict);
 }
 
 function renderBadge(i) {
@@ -2082,6 +2103,9 @@ async function retryClaim(i) {
   $('.card-brief', card).hidden = true;
   $('.btn-retry', card).hidden = true;
   $('.card-foot', card).hidden = true;
+  // The failure counted under its entry gives way to the new attempt's outcome.
+  const tallied = state.cards[i]?.entry && state.entryTally.get(state.cards[i].entry);
+  if (tallied && r.status === 'error' && tallied.failed > 0) tallied.failed--;
   Object.assign(r, { status: 'running', phase: 'starting', startedAt: Date.now(), text: '', reasoning: '', chars: 0, error: null, trail: [], sources: [], listed: null, keptOut: null, jobId: null, cutFrom: null });
   setCardState(i, 'running');
   renderCardStatus(i);
@@ -2113,7 +2137,43 @@ function renderScoreboard(bumped) {
     ui.scoreInternal.hidden = !state.accounting;
     ui.scoreCost.textContent = fmtUsd(state.cost) + (state.unpriced ? '+' : '');
   }
+  renderEntryTally();
   if (bumped) bump({ true: ui.scoreTrue, false: ui.scoreFalse, unverified: ui.scoreUnv }[bumped]);
+}
+
+/** A finished determination under its entry, on the operator's page: its verdict (or "failed"), its minutes and cost. */
+function tallyEntry(i, outcome) {
+  const label = state.cards[i]?.entry;
+  if (!label || !ui.scoreEntries) return;
+  const r = state.results[i];
+  const t0 = state.entryTally.get(label) || { true: 0, false: 0, unverified: 0, unread: 0, failed: 0, ms: 0, timed: 0, usd: 0, unpriced: false };
+  t0[outcome] = (t0[outcome] || 0) + 1;
+  if (Number.isFinite(r.ms)) { t0.ms += r.ms; t0.timed++; }
+  if (r.cost?.priced) t0.usd += r.cost.usd || 0; else if (outcome !== 'failed') t0.unpriced = true;
+  state.entryTally.set(label, t0);
+}
+
+/** The operator's scoreboard, with more than one entry in the run: one line per entry, so the models compare at a glance. */
+function renderEntryTally() {
+  if (!ui.scoreEntries) return;
+  // In the grid's order, every entry of the run from its start, its figures filling as its cards finish.
+  const order = [...new Set(state.cards.map((c) => c.entry).filter(Boolean))];
+  const none = { true: 0, false: 0, unverified: 0, unread: 0, failed: 0, ms: 0, timed: 0, usd: 0, unpriced: false };
+  const rows = order.map((label) => [label, state.entryTally.get(label) || none]);
+  ui.scoreEntries.hidden = rows.length < 2;
+  if (ui.scoreEntries.hidden) return;
+  ui.scoreEntries.replaceChildren(...rows.map(([label, x]) => el('div', { class: 'score-entry' }, [
+    el('span', { class: 'score-entry-name mono', text: label }),
+    el('span', { text: opWord('entryTally', { t: x.true, f: x.false, u: x.unverified, unread: x.unread, failed: x.failed }) }),
+    el('span', { class: 'mono', text: `${x.timed ? fmtSeconds(x.ms / x.timed) : '—'} · ${fmtUsd(x.usd)}${x.unpriced ? '+' : ''}` }),
+  ])));
+}
+
+/** Step 2's title: the claims chosen and, on the operator's page with several entries, the models and the cards it makes. */
+function renderStep2Title() {
+  const { start, claims, models, size } = state.batch;
+  ui.step2Title.textContent = models > 1 ? opWord('step2Models', { n: claims, m: models, total: size })
+    : start > 0 ? t('step2.more', { n: claims || size }) : t('step2.title', { n: claims || size });
 }
 
 // ---------- visual echo -----------------------------------------------------------------------
@@ -2190,7 +2250,7 @@ function refreshDynamicText() {
   updateSourceMeta();
   for (const which of ['step1', 'step2']) { const s = state.status[which]; if (s) setStatus(which, s.key, s.params); }
   renderGateLine();
-  if (state.batch.size) ui.step2Title.textContent = state.batch.start > 0 ? t('step2.more', { n: state.batch.size }) : t('step2.title', { n: state.batch.size });
+  if (state.batch.size) renderStep2Title();
   renderWarnings();
   renderClaimsHeadings();
   renderBeyondTitle();

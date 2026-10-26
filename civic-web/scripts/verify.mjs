@@ -2616,14 +2616,20 @@ async function trialChecks() {
     await wait(`${base}/api/health`);
     const health = await (await fetch(`${base}/api/health`)).json();
     const tr = health.trial || {};
-    // 18 October: "There is only 1 DeepSeek model for fact checking" (V4 Pro), and Gemini 4 Argon beside it, which this
-    // server, with no Gemini key, offers as unable to run (geminiChecks below run it).
-    const dsEntry = (tr.entries || []).find((e) => e.model === 'deepseek-v4-pro');
-    check('Trial: the operator\'s page is offered DeepSeek V4 Pro alone of DeepSeek\'s models, its four efforts opening on high, beside the readers\' model, and ready; V4.1 Flash is not offered for fact-checking',
-      JSON.stringify((tr.models || []).map((m) => m.id)) === JSON.stringify(['deepseek-v4-pro', 'gemini-4-argon', 'gpt-6.1-sol']) && !(tr.entries || []).some((e) => e.model === 'deepseek-flash')
-        && dsEntry?.fixed === false && JSON.stringify(dsEntry.efforts) === JSON.stringify(['none', 'low', 'high', 'max']) && dsEntry.effort === 'high' && dsEntry.ready === true
-        && tr.readers?.id === config.evalModels[0] && tr.ready === true && JSON.stringify(health.request?.keys?.trial) === JSON.stringify(['model', 'input', 'reasoning', 'tools', 'stream']),
-      JSON.stringify({ trial: tr, keys: health.request?.keys?.trial }));
+    // 25 October: "multiple options for the top tier models and not a single default selection … different power settings
+    // for each of the models": every model the operator chose at every level its maker supports, each an entry of its own.
+    // Gemini 4 Argon is offered as unable to run here, with no Gemini key (geminiChecks below run it).
+    const WANT_LEVELS = [
+      ['gpt-6-astra', 'GPT-6 Astra', ['low', 'medium', 'high', 'xhigh', 'max']], ['gpt-6.1-sol', 'GPT-6.1 Sol', ['low', 'medium', 'high', 'xhigh', 'max']],
+      ['gpt-5.6-sol', 'GPT-5.6 Sol', ['none', 'low', 'medium', 'high', 'xhigh', 'max']], ['gemini-4-argon', 'Gemini 4 Argon', ['low', 'medium', 'high']],
+      ['deepseek-v4-pro', 'DeepSeek V4 Pro', ['none', 'low', 'high', 'max']], ['deepseek-flash', 'DeepSeek V4.1 Flash', ['none', 'low', 'high', 'max']],
+    ];
+    const wantEntries = WANT_LEVELS.flatMap(([id, label, levels]) => levels.map((e) => ({ model: id, label: `${label} · ${e}`, effort: e, ready: id !== 'gemini-4-argon' })));
+    check('Trial: the operator\'s page is offered every model they chose at every level its maker supports, one entry each (27), in order, each named "Model · level", ready where its key is set (Gemini not, here); the readers\' model with its level; DeepSeek\'s request keys as before',
+      JSON.stringify((tr.models || []).map((m) => [m.id, m.efforts])) === JSON.stringify(WANT_LEVELS.map(([id, , levels]) => [id, levels]))
+        && JSON.stringify((tr.entries || []).map((e) => ({ model: e.model, label: e.label, effort: e.effort, ready: e.ready }))) === JSON.stringify(wantEntries) && wantEntries.length === 27
+        && tr.readers?.id === config.evalModels[0] && tr.readers?.effort === config.evalEffort && tr.ready === true && JSON.stringify(health.request?.keys?.trial) === JSON.stringify(['model', 'input', 'reasoning', 'tools', 'stream']),
+      JSON.stringify({ models: (tr.models || []).map((m) => [m.id, m.efforts, m.ready]), entries: (tr.entries || []).length, readers: tr.readers }));
 
     const source = 'The Eiffel Tower stands about 330 metres tall. Water boils at 100 degrees Celsius at sea level.';
     const claim = 'The Eiffel Tower stands about 330 metres tall.';
@@ -2697,27 +2703,31 @@ async function trialChecks() {
       err5?.code === 'balance_exhausted' && err5.message === '' && /DeepSeek answered 402 \(Insufficient Balance\)/.test(rec402?.detail || '') && w5.sends === 1,
       JSON.stringify({ error: err5, record: rec402, sends: w5.sends }));
 
-    // The effort the page opens on, when none is sent; and models outside the trial.
-    const f1 = await evaluate({ model: 'deepseek-v4-pro' }, 'no-effort');
+    // No level is chosen for the asker (25 October: no hidden default), and a level the maker does not have is refused.
+    const asking = async (body, label) => { const before = (await dsStats()).requests; const r = await fetch(`${base}/api/evaluate`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ claims: [claim], text: source, jobId: `tr-${label}-${stamp}`, ...body }) }); return { status: r.status, body: await r.json().catch(() => ({})), sent: (await dsStats()).requests - before }; };
+    const noLevel = await asking({ model: 'deepseek-v4-pro' }, 'no-effort');
+    const medium = await asking({ model: 'deepseek-v4-pro', effort: 'medium' }, 'ds-medium');
+    check('Trial: DeepSeek V4 Pro with no level, or at medium (a level DeepSeek reads as high, so not one of its own), is refused (400 trial_effort, naming the levels) and nothing reaches DeepSeek',
+      noLevel.status === 400 && noLevel.body?.error?.code === 'trial_effort' && /none, low, high, max; no level was asked for/.test(noLevel.body?.error?.message || '') && noLevel.sent === 0
+        && medium.status === 400 && medium.body?.error?.code === 'trial_effort' && /"medium" was asked for/.test(medium.body?.error?.message || '') && medium.sent === 0,
+      JSON.stringify({ noLevel, medium }));
+    // DeepSeek V4.1 Flash, offered for fact-checking since 25 October ("DeepSeek: V4 Pro and V4 Flash"), at high.
+    const f1 = await evaluate({ model: 'deepseek-flash', effort: 'high' }, 'flash');
     const fb = dsBodies().slice(-1)[0]?.body;
-    check('Trial: DeepSeek V4 Pro with no effort sent runs at high, the level the page opens on',
-      f1.some((e) => e.t === 'done' && e.model === 'deepseek-v4-pro' && e.effort === 'high') && JSON.stringify(fb?.reasoning) === JSON.stringify({ effort: 'high' }) && fb?.model === 'deepseek-v4-pro',
-      JSON.stringify({ done: f1.find((e) => e.t === 'done')?.effort, body: fb?.reasoning }));
-    const beforeFlash = (await dsStats()).requests;
-    const flash = await fetch(`${base}/api/evaluate`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ claims: [claim], text: source, jobId: `tr-flash-${stamp}`, model: 'deepseek-flash' }) });
-    const flashBody = await flash.json().catch(() => ({}));
-    check('Trial: DeepSeek V4.1 Flash is not a fact-checker (the operator\'s word of 18 October): asked for one, it is refused (400 trial_model) and nothing reaches DeepSeek',
-      flash.status === 400 && flashBody?.error?.code === 'trial_model' && (await dsStats()).requests === beforeFlash, JSON.stringify({ status: flash.status, body: flashBody }));
+    check('Trial: DeepSeek V4.1 Flash at high runs as V4 Pro does, through FactEngine\'s tools, its request carrying its own model and reasoning {effort: high}',
+      f1.some((e) => e.t === 'done' && e.model === 'deepseek-flash' && e.effort === 'high' && e.provider === 'deepseek') && JSON.stringify(fb?.reasoning) === JSON.stringify({ effort: 'high' }) && fb?.model === 'deepseek-flash'
+        && JSON.stringify(Object.keys(fb || {}).sort()) === JSON.stringify(['input', 'model', 'reasoning', 'stream', 'tools']),
+      JSON.stringify({ done: f1.find((e) => e.t === 'done') && [f1.find((e) => e.t === 'done').model, f1.find((e) => e.t === 'done').effort], body: fb && [fb.model, fb.reasoning] }));
     const beforeOdd = (await dsStats()).requests;
     const odd = await fetch(`${base}/api/evaluate`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ claims: [claim], text: source, jobId: `tr-odd-${stamp}`, model: 'deepseek-unknown' }) });
     const oddBody = await odd.json().catch(() => ({}));
     check('Trial: a model that is not one of the trial\'s is refused (400 trial_model) and nothing reaches DeepSeek',
       odd.status === 400 && oddBody?.error?.code === 'trial_model' && (await dsStats()).requests === beforeOdd, JSON.stringify({ status: odd.status, body: oddBody }));
 
-    // Side by side: the readers' own model, asked for by the operator, is the readers' request, recorded as a trial.
+    // A page from before 25 October asks for the readers' own model with no level: the readers' request, recorded as a trial.
     const s1 = await evaluate({ model: config.evalModels[0] }, 'twin');
     const twinBody = oaBodies()[1]?.body;
-    check('Trial: side by side, the readers\' model runs the readers\' request exactly, and is delivered and recorded as a trial',
+    check('Trial: the readers\' model asked for with no level (a page from before 25 October) runs the readers\' request exactly, and is delivered and recorded as a trial',
       s1.some((e) => e.t === 'done' && e.trial === true && e.provider === 'openai') && JSON.stringify(twinBody) === JSON.stringify(readerBody)
         && lines().some((l) => l.kind === 'trial' && l.provider === 'openai' && l.ok),
       JSON.stringify({ done: s1.find((e) => e.t === 'done')?.provider, same: JSON.stringify(twinBody) === JSON.stringify(readerBody) }));
@@ -2743,9 +2753,9 @@ async function trialChecks() {
     const report = (await (await fetch(`${base}/api/selftest`)).json()).economics || {};
     const trow = (report.trial || []).find((x) => x.who === 'trial' && x.provider === 'deepseek' && x.model === 'deepseek-v4-pro' && x.effort === 'max');
     const rrow = (report.trial || []).find((x) => x.who === 'readers');
-    check('Trial: the readers\' durations count the readers\' four determinations and none of the trial\'s; /check\'s trial table has V4 Pro at max (five delivered, one failed, one search and one page each) beside the readers\'',
+    check('Trial: the readers\' durations count the readers\' four determinations and none of the trial\'s; /check\'s trial table has V4 Pro at max (five delivered, one failed, one search and one page each) and V4.1 Flash at high beside the readers\'',
       report.durations?.determinations?.n === 4 && trow?.n === 5 && trow.failed === 1 && trow.meanSearches === 1 && trow.meanReads === 1 && trow.meanUsd > 0 && rrow?.n === 4
-        && (report.trial || []).some((x) => x.who === 'trial' && x.provider === 'openai') && (report.trial || []).some((x) => x.model === 'deepseek-v4-pro' && x.effort === 'high'),
+        && (report.trial || []).some((x) => x.who === 'trial' && x.provider === 'openai') && (report.trial || []).some((x) => x.model === 'deepseek-flash' && x.effort === 'high'),
       JSON.stringify({ durations: report.durations?.determinations?.n, trial: report.trial }));
     // The models, measured (23 October, the operator's "Are you measuring the attributes of the different models"): each
     // delivered fact-check's line holds its waits apart from its work, the work before its entry's first word apart from
@@ -2773,7 +2783,7 @@ async function trialChecks() {
     const entryBits = [done1?.text, r1done?.text].filter(Boolean).map((t) => t.slice(0, 40));
     check('Models: the host\'s log has one line for each delivered fact-check, in its own form (the model and whose, the time split, the length, searches and pages, tokens, cost, verdict), and none carries the claim, the source or a word of an entry',
       said.length === facts.length && said.every((l) => FORM.test(l)) && said.some((l) => /^\[fact-check\] deepseek-v4-pro at max \(trial\): .*; 1 search, 1 page read; tokens/.test(l))
-        && said.some((l) => / \(readers\): /.test(l)) && said.some((l) => / \(side by side\): /.test(l))
+        && said.some((l) => / \(readers\): /.test(l)) && said.some((l) => new RegExp(`^\\[fact-check\\] ${config.evalModels[0].replace(/\./g, '\\.')} at \\S+ \\(trial\\): `).test(l))
         && !said.some((l) => l.includes('Eiffel') || l.includes('Celsius') || entryBits.some((b) => l.includes(b)) || l.includes(COT)),
       said.filter((l) => !FORM.test(l)).slice(0, 2).join(' | ') || `${said.length} lines, ${facts.length} fact-checks`);
     const keyOf = (l) => [l.kind, l.provider || 'openai', l.model || '', l.effort || ''].join('|');
@@ -2818,7 +2828,7 @@ async function trialChecks() {
     }
     const agreed = new Map((report.agreement || []).map((p) => [`${rowKey(p.a)}~${rowKey(p.b)}`, p]));
     const pairMismatch = [...pairsByHand].filter(([k, p]) => { const q = agreed.get(k); return !q || q.claims !== p.claims || q.same !== p.same || q.different !== p.different; }).map(([k]) => k);
-    check('Models: whether the models agree is counted from the same claim tested by two models (side by side, DeepSeek, the readers\' own) and by one model twice, by their latest verdicts read, as worked out here by hand',
+    check('Models: whether the models agree is counted from the same claim tested by two models (the readers\' model as a trial, DeepSeek at two levels and two models, the readers\' own) and by one model twice, by their latest verdicts read, as worked out here by hand',
       pairsByHand.size >= 4 && agreed.size === pairsByHand.size && pairMismatch.length === 0 && [...pairsByHand.keys()].some((k) => k.split('~')[0] === k.split('~')[1]),
       JSON.stringify({ byHand: [...pairsByHand], report: report.agreement }).slice(0, 700));
     check('Trial: the chain of thought is in no ledger line and no failure record, and neither key is in the health line, the check data or the server\'s output',
@@ -2830,7 +2840,7 @@ async function trialChecks() {
     await wait(`${baseC}/api/health`);
     const hC = await (await fetch(`${baseC}/api/health`)).json();
     const beforeC = (await dsStats()).requests;
-    const rC = await fetch(`${baseC}/api/evaluate`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ claims: [claim], text: source, jobId: `tr-nosearch-${stamp}`, model: 'deepseek-v4-pro' }) });
+    const rC = await fetch(`${baseC}/api/evaluate`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ claims: [claim], text: source, jobId: `tr-nosearch-${stamp}`, model: 'deepseek-v4-pro', effort: 'high' }) });
     const bC = await rC.json().catch(() => ({}));
     const stC = await (await fetch(`${baseC}/api/selftest`)).json();
     const dsC = (hC.trial?.entries || []).find((e) => e.model === 'deepseek-v4-pro');
@@ -2883,9 +2893,9 @@ async function trialChecks() {
 }
 await trialChecks();
 
-// ---- GPT-6.1 Sol in the operator's trial (24 October): "GPT-6.1 Sol make it also an option for testing side by side" ----
-// At xhigh, the readers' level, one entry. It is a reader's own OpenAI fact-check (the same messages, web search, pacing
-// and key) with only its model and level its own; side by side runs the readers' model beside it.
+// ---- OpenAI's models in the operator's trial: GPT-6.1 Sol (24 October), then GPT-6 Astra and GPT-5.6 Sol at every level
+// (25 October). Each is a reader's own OpenAI fact-check (the same messages, web search, pacing and key) with only its
+// model and level its own; the readers' model asked for with no level (an older page) is the readers' request.
 async function openaiTrialChecks() {
   const OMOCK = MOCK_PORT + 113;
   const stamp = Date.now();
@@ -2903,11 +2913,12 @@ async function openaiTrialChecks() {
     await wait(`http://localhost:${OMOCK}/v1/responses`, 15000, { anyResponse: true });
     await wait(`${base}/api/health`);
     const health = await (await fetch(`${base}/api/health`)).json();
-    const entry = (health.trial?.entries || []).find((e) => e.model === 'gpt-6.1-sol');
-    check('OpenAI trial: the operator\'s page is offered "GPT-6.1 Sol · xhigh", one entry, its level fixed, ready on the readers\' key',
-      entry?.label === 'GPT-6.1 Sol · xhigh' && entry.effort === 'xhigh' && entry.fixed === true && entry.ready === true
-        && (health.trial?.entries || []).filter((e) => e.model === 'gpt-6.1-sol').length === 1,
-      JSON.stringify(health.trial?.entries));
+    const openaiEntries = (health.trial?.entries || []).filter((e) => e.model.startsWith('gpt-'));
+    check('OpenAI trial: the operator\'s page is offered GPT-6 Astra and GPT-6.1 Sol at low, medium, high, xhigh and max, and GPT-5.6 Sol at none to max, an entry each, ready on the readers\' key',
+      JSON.stringify(openaiEntries.map((e) => e.label)) === JSON.stringify([
+        ...['low', 'medium', 'high', 'xhigh', 'max'].map((e) => `GPT-6 Astra · ${e}`), ...['low', 'medium', 'high', 'xhigh', 'max'].map((e) => `GPT-6.1 Sol · ${e}`),
+        ...['none', 'low', 'medium', 'high', 'xhigh', 'max'].map((e) => `GPT-5.6 Sol · ${e}`)]) && openaiEntries.every((e) => e.ready === true),
+      JSON.stringify(openaiEntries));
     const source = 'The Eiffel Tower stands about 330 metres tall. Water boils at 100 degrees Celsius at sea level.';
     const claim = 'The Eiffel Tower stands about 330 metres tall.';
     const evaluate = (extra, label) => stream(`${base}/api/evaluate`, { claims: [claim], text: source, source: { kind: 'text' }, jobId: `otr-${label}-${stamp}`, ...extra });
@@ -2924,25 +2935,39 @@ async function openaiTrialChecks() {
       JSON.stringify({ sent: readersBody && [readersBody.model, readersBody.reasoning], warnings: c.filter((e) => e.t === 'warning') }));
     const [s61, twin] = [sent.find((x) => x.model === 'gpt-6.1-sol'), sent.find((x) => x.model === config.evalModels[0])];
     const doneA = a.find((e) => e.t === 'done');
-    check('OpenAI trial: GPT-6.1 Sol is asked exactly as a reader\'s fact-check is, with its own model and reasoning.effort xhigh, web search and store false; side by side asks the readers\' model at the readers\' level; both are delivered',
+    check('OpenAI trial: GPT-6.1 Sol is asked exactly as a reader\'s fact-check is, with its own model and reasoning.effort xhigh, web search and store false; the readers\' model with no level asks at the readers\' level; both are delivered',
       sent.length === 2 && JSON.stringify(Object.keys(s61 || {}).sort()) === JSON.stringify(Object.keys(twin || {}).sort()) && s61?.reasoning?.effort === 'xhigh'
         && twin?.reasoning?.effort === config.evalEffort && (s61.tools || []).some((x) => x.type === 'web_search') && s61.store === false
         && JSON.stringify(s61.input) === JSON.stringify(twin.input) && doneA?.model === 'gpt-6.1-sol' && doneA?.effort === 'xhigh' && b.some((e) => e.t === 'done'),
       JSON.stringify({ sent: sent.map((x) => [x.model, x.reasoning]), done: doneA && [doneA.model, doneA.effort] }));
     const lines = fs.readFileSync(ledger, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)).filter((l) => l.kind === 'trial');
-    check('OpenAI trial: its ledger line is a trial on OpenAI, gpt-6.1-sol at xhigh, priced at its own rates; the side-by-side line is the readers\' model at the readers\' level',
+    check('OpenAI trial: its ledger line is a trial on OpenAI, gpt-6.1-sol at xhigh, priced at its own rates; the readers\' model with no level is the readers\' model at the readers\' level',
       lines.some((l) => l.provider === 'openai' && l.model === 'gpt-6.1-sol' && l.effort === 'xhigh' && l.ok === true && l.priced === true && l.usd > 0)
         && lines.some((l) => l.provider === 'openai' && l.model === config.evalModels[0] && l.effort === config.evalEffort),
       JSON.stringify(lines.map((l) => [l.provider, l.model, l.effort, l.priced])));
-    const refused = await fetch(`${base}/api/evaluate`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ claims: [claim], text: source, model: 'gpt-6.1-sol', effort: 'max', jobId: `otr-max-${stamp}` }) });
-    const refusedBody = await refused.json().catch(() => ({}));
-    check('OpenAI trial: GPT-6.1 Sol at another level is refused (400 trial_effort) and nothing reaches OpenAI',
-      refused.status === 400 && refusedBody.error?.code === 'trial_effort' && bodies().length === 3, JSON.stringify({ status: refused.status, body: refusedBody, sent: bodies().length }));
+    const refuseOf = async (model, effort, label) => { const r = await fetch(`${base}/api/evaluate`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ claims: [claim], text: source, model, effort, jobId: `otr-${label}-${stamp}` }) }); return { status: r.status, code: (await r.json().catch(() => ({}))).error?.code }; };
+    const refusals = [await refuseOf('gpt-6.1-sol', 'none', 'sol-none'), await refuseOf('gpt-6-astra', 'minimal', 'astra-minimal'), await refuseOf('gpt-5.6-sol', 'ultra', 'sol56-ultra')];
+    check('OpenAI trial: a level the model\'s maker does not support (GPT-6.1 Sol at none, GPT-6 Astra at minimal, GPT-5.6 Sol at ultra) is refused (400 trial_effort) and nothing reaches OpenAI',
+      refusals.every((x) => x.status === 400 && x.code === 'trial_effort') && bodies().length === 3, JSON.stringify({ refusals, sent: bodies().length }));
+    // Every level is sent as asked: GPT-6 Astra at max, and the readers' own model at a level of the operator's choosing.
+    const astra = await evaluate({ model: 'gpt-6-astra', effort: 'max' }, 'astra-max');
+    const own = await evaluate({ model: config.evalModels[0], effort: 'high' }, 'readers-high');
+    const [astraBody, ownBody] = bodies().slice(3);
+    await new Promise((r) => setTimeout(r, 300));   // the ledger is appended after the stream ends
+    const later = fs.readFileSync(ledger, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)).filter((l) => l.kind === 'trial');
+    check('OpenAI trial: GPT-6 Astra at max and GPT-5.6 Sol at high are each asked as a reader\'s fact-check is, with their own model and reasoning.effort, delivered and recorded as trials at those levels',
+      astraBody?.model === 'gpt-6-astra' && astraBody?.reasoning?.effort === 'max' && ownBody?.model === config.evalModels[0] && ownBody?.reasoning?.effort === 'high'
+        && JSON.stringify(Object.keys(astraBody).sort()) === JSON.stringify(Object.keys(twin || {}).sort()) && JSON.stringify(ownBody.input) === JSON.stringify(twin?.input)
+        && astra.find((e) => e.t === 'done')?.effort === 'max' && own.find((e) => e.t === 'done')?.effort === 'high'
+        && later.some((l) => l.model === 'gpt-6-astra' && l.effort === 'max' && l.priced === true) && later.some((l) => l.model === config.evalModels[0] && l.effort === 'high'),
+      JSON.stringify({ astra: astraBody && [astraBody.model, astraBody.reasoning], own: ownBody && [ownBody.model, ownBody.reasoning], lines: later.map((l) => [l.model, l.effort]) }));
     const st = await (await fetch(`${base}/api/selftest`)).json();
     const said = output.join('');
-    check('OpenAI trial: /check says the trial on OpenAI can run and that OpenAI accepts the key for gpt-6.1-sol; the boot line names it at xhigh; the fact-check\'s log line names it',
-      (st.checks || []).some((c) => c.title === 'Your trial on OpenAI can run' && c.state === 'ok') && (st.checks || []).some((c) => c.title === 'OpenAI accepts this key for gpt-6.1-sol' && c.state === 'ok')
-        && /gpt-6\.1-sol ready, at xhigh, with OpenAI's web search/.test(said) && /\[fact-check\] gpt-6\.1-sol at xhigh \(trial\)/.test(said),
+    check('OpenAI trial: /check says the trial on OpenAI can run, with each model\'s levels, and that OpenAI accepts the key for each model; the boot line names each with its levels; the fact-check\'s log line names it',
+      (st.checks || []).some((c) => c.title === 'Your trial on OpenAI can run' && c.state === 'ok' && /GPT-6 Astra at low, medium, high, xhigh or max; GPT-6\.1 Sol at low, medium, high, xhigh or max; GPT-5\.6 Sol at none, low, medium, high, xhigh or max/.test(c.detail))
+        && ['gpt-6-astra', 'gpt-6.1-sol', 'gpt-5.6-sol'].every((m) => (st.checks || []).some((c) => c.title === `OpenAI accepts this key for ${m}` && c.state === 'ok'))
+        && /gpt-6-astra ready, at low\/medium\/high\/xhigh\/max, with OpenAI's web search/.test(said) && /gpt-6\.1-sol ready, at low\/medium\/high\/xhigh\/max, with OpenAI's web search/.test(said)
+        && /\[fact-check\] gpt-6\.1-sol at xhigh \(trial\)/.test(said) && /\[fact-check\] gpt-6-astra at max \(trial\)/.test(said),
       JSON.stringify((st.checks || []).filter((c) => /OpenAI/.test(c.title)).map((c) => `${c.state}:${c.title}`)));
 
     // The claim alone is tested, whatever the page sends (24 October, night): a copy of the page from before the claim
@@ -3030,8 +3055,8 @@ async function geminiChecks() {
     const health = await (await fetch(`${base}/api/health`)).json();
     const tr = health.trial || {};
     const gEntries = (tr.entries || []).filter((e) => e.model === 'gemini-4-argon');
-    check('Gemini: the operator\'s page is offered Gemini 4 Argon twice, "· medium" and "· high", each level its own entry, ready on the operator\'s Google key; its request keys are the model, the input, generation_config, the tools, the stream and store, and store is false',
-      JSON.stringify(gEntries.map((e) => [e.label, e.effort, e.fixed, e.ready])) === JSON.stringify([['Gemini 4 Argon · medium', 'medium', true, true], ['Gemini 4 Argon · high', 'high', true, true]])
+    check('Gemini: the operator\'s page is offered Gemini 4 Argon at Google\'s three levels, "· low", "· medium" and "· high", each its own entry, ready on the operator\'s Google key; its request keys are the model, the input, generation_config, the tools, the stream and store, and store is false',
+      JSON.stringify(gEntries.map((e) => [e.label, e.effort, e.ready])) === JSON.stringify([['Gemini 4 Argon · low', 'low', true], ['Gemini 4 Argon · medium', 'medium', true], ['Gemini 4 Argon · high', 'high', true]])
         && JSON.stringify(health.request?.keys?.trialGemini) === JSON.stringify(['model', 'input', 'generation_config', 'tools', 'stream', 'store']) && health.request?.trialGemini?.store === false,
       JSON.stringify({ entries: tr.entries, keys: health.request?.keys?.trialGemini }));
 
@@ -3174,22 +3199,26 @@ async function geminiChecks() {
         && zeroLine?.effort === 'medium' && zeroLine.model === 'gemini-4-argon',
       JSON.stringify({ record: recZero, log: zeroLog, ledger: zeroLine }));
 
-    // The operator's two levels, and no other.
+    // Google's three levels, and no other: none chosen for the asker.
     const beforeLevels = (await gmStats()).requests;
     const asks = [];
-    for (const x of [{ effort: 'low' }, {}, { effort: 'max' }]) {
+    for (const x of [{ effort: 'minimal' }, {}, { effort: 'max' }]) {
       const r = await fetch(`${base}/api/evaluate`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ claims: [claim], text: source, jobId: `gm-level-${x.effort || 'none'}-${stamp}`, model: 'gemini-4-argon', ...x }) });
       asks.push({ status: r.status, code: (await r.json().catch(() => ({})))?.error?.code });
     }
-    check('Gemini: only the operator\'s two levels run: low, none and max are each refused (400 trial_effort), and nothing reaches Gemini',
-      asks.every((a) => a.status === 400 && a.code === 'trial_effort') && (await gmStats()).requests === beforeLevels, JSON.stringify(asks));
+    const lowRun = await evaluate({ model: 'gemini-4-argon', effort: 'low' }, 'low');
+    const lowBody = gmBodies().slice(-1)[0]?.body;
+    check('Gemini: only Google\'s levels run: minimal, no level and max are each refused (400 trial_effort) and nothing reaches Gemini; low runs, asked as thinking_level low',
+      asks.every((a) => a.status === 400 && a.code === 'trial_effort') && (await gmStats()).requests === beforeLevels + 1
+        && lowRun.some((e) => e.t === 'done' && e.effort === 'low') && lowBody?.generation_config?.thinking_level === 'low',
+      JSON.stringify({ asks, low: lowBody?.generation_config, done: Boolean(lowRun.find((e) => e.t === 'done')) }));
 
     // /check: the trial's rows, the settings, and the trial table.
     const st = await (await fetch(`${base}/api/selftest`)).json();
     const row = (re) => (st.checks || []).find((c) => re.test(c.title));
-    check('Gemini: /check says the trial on Gemini can run and that Google serves gemini-4-argon to this key (asked without a token); its settings line names both levels',
+    check('Gemini: /check says the trial on Gemini can run and that Google serves gemini-4-argon to this key (asked without a token); its settings line names its three levels',
       row(/^Your trial on Gemini can run$/)?.state === 'ok' && row(/^Gemini serves gemini-4-argon to this key$/)?.state === 'ok'
-        && /Gemini 4 Argon · medium; Gemini 4 Argon · high/.test(st.settings?.trialModels || '') && st.ready === true,
+        && /Gemini 4 Argon at low, medium or high/.test(st.settings?.trialModels || '') && st.ready === true,
       JSON.stringify({ rows: (st.checks || []).filter((c) => /Gemini/.test(c.title)).map((c) => [c.state, c.title]), settings: st.settings?.trialModels }));
     const report = st.economics || {};
     const grow = (report.trial || []).find((x) => x.who === 'trial' && x.provider === 'gemini' && x.model === 'gemini-4-argon' && x.effort === 'high');
@@ -3218,8 +3247,8 @@ async function geminiChecks() {
     const rB = await fetch(`${baseB}/api/evaluate`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ claims: [claim], text: source, jobId: `gm-nokey-${stamp}`, model: 'gemini-4-argon', effort: 'high' }) });
     const bB = await rB.json().catch(() => ({}));
     const stB = await (await fetch(`${baseB}/api/selftest`)).json();
-    check('Gemini: without GEMINI_API_KEY its two entries are offered as unable to run, saying why, while DeepSeek V4 Pro runs; a request for it is refused (503 trial_unavailable) and nothing reaches Gemini; /check warns, and is ready for readers',
-      (hB.trial?.entries || []).filter((e) => e.model === 'gemini-4-argon').length === 2 && (hB.trial?.entries || []).filter((e) => e.model === 'gemini-4-argon').every((e) => e.ready === false && /GEMINI_API_KEY is not set/.test(e.why || ''))
+    check('Gemini: without GEMINI_API_KEY its three entries are offered as unable to run, saying why, while DeepSeek V4 Pro runs; a request for it is refused (503 trial_unavailable) and nothing reaches Gemini; /check warns, and is ready for readers',
+      (hB.trial?.entries || []).filter((e) => e.model === 'gemini-4-argon').length === 3 && (hB.trial?.entries || []).filter((e) => e.model === 'gemini-4-argon').every((e) => e.ready === false && /GEMINI_API_KEY is not set/.test(e.why || ''))
         && (hB.trial?.entries || []).find((e) => e.model === 'deepseek-v4-pro')?.ready === true && hB.trial?.ready === true
         && rB.status === 503 && bB?.error?.code === 'trial_unavailable' && (await gmStats()).requests === beforeB
         && stB.ready === true && (stB.checks || []).some((x) => x.state === 'warn' && x.title === 'Your trial on Gemini cannot run'),
@@ -4462,14 +4491,14 @@ async function downloadChecks() {
       styleFaults.length === 0 && pageFaults.length === 0, JSON.stringify({ styleFaults, pageFaults }));
 
     // (b) The page in the asker's form: a reader's without the operator's parts, the operator's with them.
-    const OPERATOR_IDS = ['score-internal', 'score-cost', 'step2-gate', 'trial-bar', 'trial-model', 'trial-effort-choice', 'trial-effort', 'trial-compare-choice', 'trial-compare', 'trial-compare-words', 'trial-why', 'op-words'];
+    const OPERATOR_IDS = ['score-internal', 'score-cost', 'score-entries', 'step2-gate', 'trial-bar', 'trial-grid', 'trial-why', 'op-words'];
     const idsOf = (html) => new Set([...html.matchAll(/\bid="([^"]+)"/g)].map((m) => m[1]));
     const readerHome = (await raw(PA, '/', { cookie: reader })).text;
     const visitorHome = (await raw(PA, '/')).text;
     const opHome = (await raw(PA, '/', { cookie: op })).text;
     const onlyOp = [...idsOf(opHome)].filter((id) => !idsOf(readerHome).has(id)).sort();
     const src = fs.readFileSync(path.join(publicDir, 'index.html'), 'utf8');
-    check('a reader and a visitor receive the page without the operator\'s parts and without a comment; the operator receives it with every part; the parts are exactly the operator\'s twelve',
+    check('a reader and a visitor receive the page without the operator\'s parts and without a comment; the operator receives it with every part; the parts are exactly the operator\'s eight',
       readerHome === visitorHome && readerHome === assets.stampAddresses(assets.stripPage(assets.withoutOperatorParts(src)), build)
         && OPERATOR_IDS.every((id) => !readerHome.includes(`id="${id}"`) && opHome.includes(`id="${id}"`)) && JSON.stringify(onlyOp) === JSON.stringify([...OPERATOR_IDS].sort())
         && !/chip-internal|class="card-cost|class="card-why"|<!--/.test(readerHome) && /class="card-cost/.test(opHome) && /class="card-why"/.test(opHome) && !opHome.includes('<!--')
@@ -4560,7 +4589,7 @@ async function downloadChecks() {
     for (const code of ['en', 'es', 'fr', 'de']) for (const k of flat((await import(pathToFileURL(path.join(publicDir, 'locales', `${code}.js`)).href)).default)) keys.add(`${code}:${k}`);
     const sentEveryone = (await Promise.all(['/js/app.js', '/locales/en.js', '/locales/es.js', '/locales/fr.js', '/locales/de.js'].map(async (a) => (await raw(PA, a, { cookie: reader })).text))).join('\n');
     check('the operator\'s words (the key\'s minute, the costs, the trial\'s labels) are on the operator\'s page alone: no locale carries them, nothing everyone downloads says them, and the operator\'s page does',
-      MOVED.every((k) => ['en', 'es', 'fr', 'de'].every((c) => !keys.has(`${c}:${k}`))) && !/[Tt]okens|jetons|Est\. cost|price unknown|\(readers\)|Side by side/.test(sentEveryone)
+      MOVED.every((k) => ['en', 'es', 'fr', 'de'].every((c) => !keys.has(`${c}:${k}`))) && !/[Tt]okens|jetons|Est\. cost|price unknown|\(readers\)|Side by side|Tick at least one|models and levels/.test(sentEveryone)
         && opHome.includes('data-gate="The key\'s minute:') && opHome.includes('<span class="chip chip-internal">Internal</span> <span>Est. cost</span>') && !readerHome.includes('data-gate'),
       MOVED.filter((k) => ['en', 'es', 'fr', 'de'].some((c) => keys.has(`${c}:${k}`))).join(', '));
   } catch (err) {

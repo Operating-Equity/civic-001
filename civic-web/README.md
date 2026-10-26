@@ -32,7 +32,7 @@ civic-web/
 ├── public/            The page. No build step. Plain ES modules.
 │   ├── index.html · css/civic.css
 │   ├── js/app.js      State machine and UI. js/api.js streaming client. js/render.js markdown, toasts.
-│   ├── js/field.js    The mathematics behind the glass: ten drawn fields that change with the run (field-worker.js draws the fractals).
+│   ├── js/field.js    The mathematics behind the glass: twenty-seven drawn fields in six sets, changing with the run (field-worker.js draws the rasters).
 │   ├── js/i18n.js     Translation layer. locales/en.js es.js fr.js de.js (add more here).
 │   └── assets/        Logos, the favicon, the fonts, and the style-reference photograph for the echo.
 └── scripts/           verify.mjs (the guard), mock-openai.js (dev stand-in), trial-run.mjs, ledger-summary.mjs.
@@ -44,15 +44,22 @@ The page is one light theme, by the operator's rule of 2 October: light and neve
 clears darkness and reveals truth; glass, because truth has two factors, light and transparency. Every
 panel is clear glass (`css/civic.css`: `--glass`, `--glass-strong`, `--glass-blur`, `--glass-shine`), and
 behind the glass sits a drawn field of mathematics rather than a photograph (`js/field.js`; no picture
-file is loaded). Ten fields of four kinds, each built from its own definition when it is shown: four
-proofs typeset by KaTeX (Euclid's infinitude of primes, the irrationality of √2, Euclid I.47 as the
-windmill figure, Euler's identity); the golden rectangle and its spiral; the fractals (the Mandelbrot set
-and a Julia set, drawn by `js/field-worker.js` off the page's thread, and the Koch snowflake); chaos and
-primes (the Lorenz attractor, a double pendulum's trace, the Ulam spiral). The field is fixed to the
-window, so every panel has it behind it at any scroll depth, and it changes with the run: a visit opens
-on one field, extraction shifts to a second, testing to a third and done settles on a fourth, by one of
-two decks drawn at random once per visit. The three fractal fields drift in slowly; `prefers-reduced-motion`
-stops that and makes every change instant. The field is decoration only: hidden from screen readers,
+file is loaded). Twenty-seven fields of four kinds, each built from its own definition when it is shown: proofs
+typeset by KaTeX (Euclid's infinitude of primes, the irrationality of √2, Euclid I.47 as the windmill
+figure, Euler's identity, Gauss's sum with its count of squares, the Basel sum, Cantor's diagonal over the
+true digits of known numbers, Bayes's rule with its square of chances); designs known in mathematics (the
+golden rectangle and its spiral, the sunflower's golden angle, a Penrose tiling, the caustic light makes in
+a round mirror, the regular 17-gon with its every diagonal and Gauss's cosine for it); the fractals (the
+Mandelbrot set, a Julia set and the Barnsley fern, drawn by `js/field-worker.js` off the page's thread, and
+the Koch snowflake, the Sierpinski triangle, four Heighway dragons and the Hilbert curve); chaos, chance and
+number (the Lorenz attractor, a double pendulum's trace, the Clifford attractor, the logistic map's cascade,
+Buffon's needles, the Ulam spiral, the Ford circles). The field is fixed to the window, so every panel has it
+behind it at any scroll depth, and it changes with the run: a visit opens on one field, extraction shifts to
+a second, testing to a third and done settles on a fourth. The fields come in six sets, each one field of
+every kind (the operator, 25 October: "at least 4 different sets", rotating, "user independent", with "no
+memory of prior visitors' experiences"); a visit draws one at random, from a random word of its own, so the
+same reader seldom meets the same page twice and no one's visits are kept. The fractal fields drift in
+slowly; `prefers-reduced-motion` stops that and makes every change instant. The field is decoration only: hidden from screen readers,
 inert, never reading matter, and nothing about it is stored or sent. Its ink stays faint (large forms at
 or under .2 alpha over the ground, thin strokes to .3), so body text on the strong glass keeps a contrast
 of 14 : 1 and hints 4.7 : 1. The check page holds the golden rectangle still. The verdicts keep their own
@@ -482,25 +489,37 @@ sentence, and DeepSeek's words go to the record on /check, which also reads Deep
 OpenAI as below. `CIVIC_EXTRACT_PROVIDER=openai` (or unset) puts the listing back on OpenAI exactly as before.
 
 **The operator's trial on DeepSeek, Gemini and OpenAI** (14 October: "I think the best experiment is to use the new DeepSeek deep
-reasoning model through the already connected API"; 18 October: "There is only 1 DeepSeek model for fact checking", and
-"I want to test the new Gemini model using argon medium and argon high"). On the operator's page alone, above "Test N
-selected claims", the operator chooses what determines the claims in one pull-down: the readers' model; DeepSeek V4 Pro
-(`deepseek-v4-pro`, the deep-reasoning one) at one of DeepSeek's efforts beside it (`none`, `low`, `high`, `max`; the page
-opens on `high`, the level DeepSeek gives `xhigh`); "Gemini 4 Argon · medium" or "Gemini 4 Argon · high", each level
-its own entry; or "GPT-6.1 Sol · xhigh" (24 October: "GPT-6.1 Sol make it also an option for testing side by side"; at
-the readers' level), which is a reader's own OpenAI fact-check (the same key, web search and pacing) with only its model
-and level its own. And whether each claim also runs on the readers' model, side by side (its card right under the trial's,
-labelled, not counted on the scoreboard). The choice is remembered in that browser; an entry that cannot run here is
-shown and cannot be chosen, its reason said beneath. The server takes a model and an effort from the operator's session
-only; from anyone else they are ignored and the request is the readers' own. The models are `CIVIC_EVAL_TRIAL_MODELS`
-(`deepseek-v4-pro,gemini-4-argon,gpt-6.1-sol` unless set; `off` ends the trial); an OpenAI model there (an id beginning
-`gpt-`) runs at `xhigh` alone, and /check asks OpenAI whether the key may use it, without a token. V4.1 Flash listed the
-claims until 24 October and is not a fact-checker.
+reasoning model through the already connected API"; 18 October: Gemini 4 Argon; 24 October: GPT-6.1 Sol; 25 October:
+"multiple options for the top tier models and not a single default selection … compare using different power settings
+for each of the models … especially … against DeepSeek"). On the operator's page alone, above "Test N selected claims",
+a grid: one row per model, a tick box per level its maker supports (`server/trial.js`, `LEVELS`, from the makers' own
+pages of 25 October):
+
+| Model | Levels |
+|---|---|
+| GPT-6 Astra (`gpt-6-astra`) | low, medium, high, xhigh, max |
+| GPT-6.1 Sol (`gpt-6.1-sol`) | low, medium, high, xhigh, max |
+| GPT-5.6 Sol (`gpt-5.6-sol`, the readers' model) | none, low, medium, high, xhigh, max |
+| Gemini 4 Argon (`gemini-4-argon`) | low, medium, high |
+| DeepSeek V4 Pro (`deepseek-v4-pro`) | none (thinking off), low, high, max |
+| DeepSeek V4.1 Flash (`deepseek-flash`) | none (thinking off), low, high, max |
+
+The operator ticks any number of entries; each chosen claim then runs once on every ticked entry, each a card of its own
+under the claim, headed with its entry ("GPT-6 Astra · high"), and with more than one entry the scoreboard has a line per
+entry (its verdicts, minutes and cost). With nothing ticked nothing runs, and the page says to tick one: there is no
+default on the operator's page. The ticks are remembered in that browser; an entry that cannot run here is shown and
+cannot be ticked, its reason said beneath. An OpenAI entry is a reader's own OpenAI fact-check (the same key, web search
+and pacing) with only its model and level its own. The server takes a model and a level from the operator's session only,
+runs an entry at exactly its level, and refuses a level its maker does not support, choosing none for the asker; from
+anyone else the model is ignored and the request is the readers' own. The models are `CIVIC_EVAL_TRIAL_MODELS`
+(`gpt-6-astra,gpt-6.1-sol,gpt-5.6-sol,gemini-4-argon,deepseek-v4-pro,deepseek-flash` unless set; `off` ends the trial); a
+model whose levels FactEngine does not know is not offered, and /check says so. /check asks OpenAI whether the key may
+use each OpenAI model, without a token.
 
 On Gemini (`server/gemini.js`) a fact-check is one request to Google's Interactions API, with the operator's own key
 (`GEMINI_API_KEY`, sent in `x-goog-api-key` and nowhere else): `model`, `input` (the two messages a reader's
-determination carries, as `user_input` steps), `generation_config` (`thinking_level` medium or high, the operator's
-two levels and no other, and `thinking_summaries: auto`), `tools` (Google Search and URL context, so the model searches
+determination carries, as `user_input` steps), `generation_config` (`thinking_level` low, medium or high, Google's three
+levels and no other, and `thinking_summaries: auto`), `tools` (Google Search and URL context, so the model searches
 Google and reads pages itself inside that one request), `stream`, and `store: false` (without it Google keeps each
 interaction for 55 days): nothing else. Its searches and the pages it read are the card's trail, its citations the
 card's sources, and Gemini's own summary of its thinking is shown as the readers' model's is; its thought signature is
@@ -546,7 +565,7 @@ fact-check's ledger line, on all three models, holds:
 - on GPT-5.6 Sol, the cost's tokens' and searches' parts, as the trial's lines already had.
 
 DeepSeek gives no citations of its own, so its lines carry no `sources` and the table says "—". Each finished
-fact-check also writes one line in the host's log, `[fact-check] <model> at <effort> (readers|side by side|trial): …`,
+fact-check also writes one line in the host's log, `[fact-check] <model> at <effort> (readers|trial): …`,
 with the same counts and times, its tokens, cost and verdict. It never carries the claim or a word of the entry.
 
 /check's **The models, measured** covers every fact-check kept since the start of the trial's first day (the operator's
@@ -681,7 +700,7 @@ separated by commas, spaces or lines:
 An address that carries another inside it (an archived copy, a redirect) counts as that address. A list that cannot be
 read stops the start, naming the key and never an entry; with nothing set every request is as before.
 - **Blocked:** OpenAI's web search leaves the first list's sites out on every fact-check that runs on OpenAI (the
-  readers', a trial on OpenAI, side by side); it takes whole sites alone, so what it takes of the rest is counted and
+  readers', and every OpenAI entry of the trial); it takes whole sites alone, so what it takes of the rest is counted and
   marked, never kept from it. FactEngine's own search asks the search service to leave both lists out (`excludeDomains`,
   columns included) and drops a result that comes anyway from one of them, or whose address carries one of the words;
   its page reader refuses all of them, a page whose markup is of one of the types included ("This page is not
@@ -705,7 +724,7 @@ truncation setting. No fallback model. No size limit of ours on the document.
 | Model, both steps | `gpt-5.6-sol` | Operator, tested |
 | The listing's provider | `CIVIC_EXTRACT_PROVIDER`: `openai` (unset), `deepseek` (DeepSeek's own service: `deepseek-flash` on `DEEPSEEK_API_KEY`) or `fireworks` (the same model from the US: `accounts/fireworks/models/deepseek-v4p1-flash` on `FIREWORKS_API_KEY`, searching through FactEngine's tool server, `store: false`). Either runs at effort `high` unless `CIVIC_EXTRACT_EFFORT` says otherwise (the operator's answer of 5 October, `max` before); the service runs it at `low` since 18 October ("DeepSeek thinks at low", after an article took five minutes at `high`); `CIVIC_EXTRACT_MODELS` changes the model. The keys are pasted by the operator in Render; a key is read under its name whatever its capitals (`DEEPSEEK_API_Key` is `DEEPSEEK_API_KEY`), the exact name winning, and two spellings holding different keys are used neither, /check naming both. `CIVIC_DEEPSEEK_BASE_URL` and `CIVIC_FIREWORKS_BASE_URL` are the providers' addresses (only the guard changes them). The readers' determinations stay on OpenAI. | Operator, 4 and 5 October |
 | The second pass | `CIVIC_RANK`: `operator` (unset: the operator's runs are ranked), `on` (everyone's) or `off` (the service since 24 October: one pass); `CIVIC_RANK_KEEP_PERCENT` (25: the part of the ranked claims shown, rounded up, behind an empirical headline); `CIVIC_RANK_EFFORT` (the listing's unless set; `low` on the service since 19 October, after the ranking took 69 s at `high`, `high` from 18 October); the ranking prompt, `rank` (optional; `CIVIC_PROMPT_RANK_FILE`). On the listing's DeepSeek model. See "The second pass" above. | Operator, 16 October |
-| The operator's trial | `CIVIC_EVAL_TRIAL_MODELS`: the models the operator may choose on the page for their own determinations (`deepseek-v4-pro,gemini-4-argon,gpt-6.1-sol` unless set; `off` ends it). DeepSeek V4 Pro needs `DEEPSEEK_API_KEY` and the search service; Gemini 4 Argon, at medium or high, needs `GEMINI_API_KEY` (the operator's own Google key, pasted in Render; `CIVIC_GEMINI_BASE_URL` only the guard changes); GPT-6.1 Sol, at xhigh, needs only the readers' OpenAI key. Each runs or not on its own. Never charged, never in the readers' figures. | Operator, 14, 18 and 24 October |
+| The operator's trial | `CIVIC_EVAL_TRIAL_MODELS`: the models the operator may tick on the page for their own determinations, each at every level its maker supports (`gpt-6-astra,gpt-6.1-sol,gpt-5.6-sol,gemini-4-argon,deepseek-v4-pro,deepseek-flash` unless set; `off` ends it). DeepSeek's models need `DEEPSEEK_API_KEY` and the search service; Gemini 4 Argon needs `GEMINI_API_KEY` (the operator's own Google key, pasted in Render; `CIVIC_GEMINI_BASE_URL` only the guard changes); OpenAI's need only the readers' OpenAI key. Each runs or not on its own. Never charged, never in the readers' figures. | Operator, 14, 18, 24 and 25 October |
 | Reasoning effort, both steps on OpenAI | `xhigh` | Operator, 5 October: back to the setting before 21 September, when `max` in `pro` mode had taken a listing to fifteen minutes and $3.81 and a determination to almost seven minutes and $3.71. `max` from 21 September to 5 October. |
 | Reasoning mode, both steps on OpenAI | `standard` (no mode key sent) | Operator, 5 October, as above. `pro` (GPT-5.6's pro mode, OpenAI's "highest-intelligence API option": more model work per answer at the same per-token rates) from 21 September to 5 October; `CIVIC_REASONING_MODE=pro` brings it back. |
 | Web search | on for the determinations, never on the listing; not configurable, save the sites the operator keeps out of the research (`CIVIC_BLOCKED_SITES` and the rest, 25 October; see above) | The determinations' prompt was tested in a UI where search is available. The listing reads the document it is given and nothing else (24 October). |

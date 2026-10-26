@@ -331,9 +331,11 @@ body {
 .claims-list.is-beyond > li { color: var(--ink-3); }
 .claims-list.is-beyond > li::before { color: var(--ink-3); }
 .claims-list > li .card { padding: 12px 16px 12px 14px; }
-.card-head { cursor: pointer; }
+/* A row opens only once its claim is finished (25 October): until then its head is no button, and its chevron is not shown. */
+.card[data-state="done"] .card-head, .card[data-state="error"] .card-head { cursor: pointer; }
 .card-head:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; border-radius: var(--radius-sm); }
-.card-head::after { content: "▸"; color: var(--ink-3); font-size: 12px; align-self: start; padding-block-start: 7px; transition: transform .15s ease; }
+.card-head::after { content: "▸"; color: var(--ink-3); font-size: 12px; align-self: start; padding-block-start: 7px; transition: transform .15s ease; visibility: hidden; }
+.card[data-state="done"] .card-head::after, .card[data-state="error"] .card-head::after { visibility: visible; }
 .card.is-open .card-head::after { transform: rotate(90deg); }
 .card.has-check .card-head { grid-template-columns: auto auto 1fr auto auto; }
 .card-check { width: 16px; height: 16px; margin: 5px 0 0; accent-color: var(--blue); }
@@ -346,17 +348,25 @@ body {
 .claims-beyond-title { margin: 0; font-size: 13px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--ink-2); }
 .claims-beyond-tools { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .claims-beyond-hint { margin: 4px 0 6px; }
-/* The operator's trial (14 October): their account alone sees it. A line of small choices above the claims. */
-.trial-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px; margin: 6px 0 4px; padding: 8px 12px; border: 1px dashed var(--line-soft); border-radius: 10px; font-size: 13.5px; color: var(--ink-2); }
-.trial-choice { display: inline-flex; align-items: center; gap: 6px; }
-.trial-choice select { font: inherit; color: var(--ink); background: rgba(255,255,255,.66); border: 1px solid var(--line-soft); border-radius: 8px; padding: 3px 8px; max-width: 100%; }
-.trial-choice select:focus-visible, .trial-choice input:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
-.trial-choice input[type="checkbox"] { width: 15px; height: 15px; margin: 0; accent-color: var(--blue); }
-.trial-why { flex-basis: 100%; margin: 0; }
-/* A claim's twin, side by side: the same claim on the readers' model, right under the trial's card. */
-.claims-list > li.is-twin { margin-block-start: -2px; }
-.card.is-twin { border-inline-start: 3px solid var(--line-soft); }
-.card-twin { font-size: 12px; color: var(--ink-3); letter-spacing: .02em; }
+/* The operator's trial (25 October): their account alone sees it. A grid above the claims, a row per model, a tick box per
+   level; each ticked entry is a card of its own under each claim chosen. */
+.trial-bar { display: flex; flex-direction: column; gap: 6px; margin: 6px 0 4px; padding: 8px 12px; border: 1px dashed var(--line-soft); border-radius: 10px; font-size: 13.5px; color: var(--ink-2); }
+.trial-title { font-weight: 600; color: var(--ink); }
+.trial-grid { display: flex; flex-direction: column; gap: 4px; }
+.trial-row { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 14px; }
+.trial-name { min-width: 10em; white-space: nowrap; color: var(--ink); }
+.trial-tick { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+.trial-tick input[type="checkbox"] { width: 15px; height: 15px; margin: 0; accent-color: var(--blue); }
+.trial-tick input:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+.trial-why { margin: 0; }
+/* A claim's card for each ticked entry, under the claim's own, each headed with its entry. */
+.claims-list > li.is-entry { margin-block-start: -2px; }
+.card.is-entry { border-inline-start: 3px solid var(--line-soft); }
+.card-entry { font-size: 12px; color: var(--ink-3); letter-spacing: .02em; }
+/* The operator's scoreboard with several entries: one line per entry. */
+.score-entries { grid-column: 1 / -1; display: grid; grid-template-columns: max-content 1fr max-content; gap: 2px 14px; font-size: 13px; color: var(--ink-2); padding-block-start: 6px; border-block-start: 1px solid var(--line-soft); }
+.score-entry { display: contents; }
+.score-entry-name { color: var(--ink); }
 .claims-list.is-beyond > li.selectable { grid-template-columns: 34px 22px 1fr auto; color: var(--ink); }
 .claims-list.is-beyond > li.selectable::before { color: var(--ink-3); }
 .claims-list.is-beyond > li.selectable input { width: 16px; height: 16px; margin: 3px 0 0; accent-color: var(--blue); }
@@ -465,7 +475,6 @@ body {
 .prose th, .prose td { border: 1px solid var(--line); padding: 6px 8px; text-align: start; vertical-align: top; }
 .prose a { color: var(--blue-deep); }
 .prose hr { border: 0; border-block-start: 1px solid var(--line); margin: 14px 0; }
-.card[data-state="running"] .prose::after { content: "▍"; color: var(--blue); animation: pulse 1s steps(2) infinite; }
 
 .run-end { display: flex; justify-content: center; gap: 12px; flex-wrap: wrap; padding: 12px 0 8px; }
 
