@@ -1173,6 +1173,8 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
   - **Proof:** the guard's trial checks rewritten for the entries, levels and refusals in the three prompt shapes; a
     browser check (scratchpad `browser/grid-check.mjs`): the grid, three entries on one claim, the closed cards, the
     count, a listing started over, a phone.
+  - **Live** (26 October, 00:48 UTC): PR #90 deployed, the backgrounds' six sets with it. The boot line names the six
+    models, each ready at its levels; the lists kept out and the prompts are as before. Live check clean, nothing spent.
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 
