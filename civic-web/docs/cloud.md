@@ -1214,6 +1214,18 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
     a third entry, "Select all", Try again during a test, a reader's page, a phone; the earlier browser checks; the
     guard in the three prompt shapes.
   - **Live** (27 October, 00:46 UTC): PR #92 deployed. Live check clean, nothing spent; the boot lines as before.
+- **27 October: a model is never run twice on a claim.** The operator tested one true claim on eight entries and got 22
+  determinations: the same eight started three times, from three presses of Test (a tested claim's tick box came back
+  empty, which looked unsent). Their answer: a re-test runs only the models not yet run on that claim.
+  - **The page** (`public/js/app.js`, the operator's page): each claim keeps the entries run on it, running, done or
+    failed (a failed card is tried again on its own card). "Test N selected claims" runs each chosen claim only on the
+    ticked entries it has not run on; a claim with none left is skipped.
+  - **When a press would start nothing,** the button waits and the hint says every entry ticked has already run on the
+    claims chosen; otherwise the hint counts the new determinations. Presses in quick succession run nothing twice.
+  - **Readers' pages are unchanged:** each claim is tested once.
+  - **Proof:** the browser check (scratchpad `browser/queue-check.mjs`), extended: a claim ticked again with the
+    entries it ran on starts nothing; beside a new claim, only the new one runs; with a third entry, only that runs;
+    three presses in a row run it once. The earlier browser checks; the guard in the three prompt shapes.
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 
