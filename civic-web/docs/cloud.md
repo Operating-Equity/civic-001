@@ -1199,6 +1199,20 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
     nothing spent.
   - **A second operator's account:** a new one-time link (the setting `CIVIC_OPERATOR_CLAIM` holds its hash) went to the
     operator for their CTO, who sees what the operator sees. The operator's own account is unchanged.
+- **26 October, night: the next claim while the last is still being tested.** The operator: "once I have done a fact
+  check, even if there are twenty more facts to check, I cannot click on the remaining facts … I like to do it one at a
+  time." The page held every other claim until the slowest card of a test ended (that night, GPT-6 Astra at max, 7½
+  minutes). Their answer: on their page a tested claim can be ticked again, for more models.
+  - **The page** (`public/js/app.js`): the claims, "Select all", "Test N selected claims", the grid and "Try again" stay
+    usable while cards run, for everyone; only the listing holds them. Claims chosen meanwhile join the test under way,
+    at the server's pace, and the test ends when its last card does. Step 2's title counts the cards, claims and entries
+    when the claims ran on different entries.
+  - **On the operator's page** a tested claim keeps its tick box; testing it again adds cards under its last one. A
+    reader's claim is tested once, each test being charged.
+  - **"Select all"** ticks the claims not yet tested, never a tested one again.
+  - **Proof:** a browser check (scratchpad `browser/queue-check.mjs`): a second claim joining a test, the same claim on
+    a third entry, "Select all", Try again during a test, a reader's page, a phone; the earlier browser checks; the
+    guard in the three prompt shapes.
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 

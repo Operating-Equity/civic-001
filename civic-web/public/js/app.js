@@ -840,7 +840,7 @@ function resetRunState() {
   state.timers = [];
   Object.assign(state, {
     phase: 'idle', warnings: [], claims: [], claimsRaw: '', beyond: [], cards: [], results: [], extraction: null, echo: null,
-    batch: { start: 0, size: 0, done: 0, claims: 0, models: 1 }, counts: { true: 0, false: 0, unverified: 0 }, unread: 0, entryTally: new Map(),
+    batch: { start: 0, size: 0, done: 0 }, counts: { true: 0, false: 0, unverified: 0 }, unread: 0, entryTally: new Map(),
     cost: 0, unpriced: false,
     extractStartedAt: 0, extractChars: 0, found: 0, extractWait: null, extractQueued: null, extractCut: false, runId: '', extractJob: '', evalStartedAt: 0, gate: null, pricing: null, status: { step1: null, step2: null },
     rankRun: false, ranking: null, rankedRun: null, summaryText: '', showRest: false, streamed: 0,
@@ -1342,25 +1342,34 @@ function buildBeyondRows() {
   syncBeyondRows();
 }
 
+/**
+ * A claim that can be chosen now. Claims are chosen while others are being tested (26 October, the operator: "once I
+ * have done a fact check … I cannot click on the remaining facts … I like to do it one at a time"); only the listing
+ * holds them. On the operator's page a claim tested already can be chosen again, to run on more models (their answer);
+ * on a reader's page each test is charged, so a claim is tested once.
+ */
+const choosable = (b) => !b.tested || Boolean(trialOffer());
+const listing = () => state.phase === 'extracting';
+
 /** The checkboxes follow the state; a tested row is a row like any other. */
 function syncBeyondRows() {
-  const busy = state.phase === 'evaluating' || state.phase === 'extracting';
   for (const item of state.beyond) {
     if (!item.box) continue;
     item.box.checked = item.selected;
-    item.box.disabled = item.tested || busy;
-    item.box.hidden = item.tested;
-    item.node.classList.toggle('has-check', !item.tested);
+    item.box.disabled = !choosable(item) || listing();
+    item.box.hidden = !choosable(item);
+    item.node.classList.toggle('has-check', choosable(item));
   }
   renderBeyondTools();
 }
 
 function renderBeyondTools() {
-  const open = state.beyond.filter((b) => !b.tested && shownNow(b));
+  const open = state.beyond.filter((b) => choosable(b) && shownNow(b));
   const selected = open.filter((b) => b.selected).length;
-  const allSelected = open.length > 0 && selected === open.length;
-  const busy = state.phase === 'evaluating' || state.phase === 'extracting';
-  ui.selectAll.hidden = open.length === 0;
+  const fresh = open.filter((b) => !b.tested);   // "Select all" chooses the claims not yet tested, never one again
+  const allSelected = fresh.length > 0 && fresh.every((b) => b.selected);
+  const busy = listing();
+  ui.selectAll.hidden = fresh.length === 0;
   ui.selectAll.disabled = busy;
   ui.selectAll.textContent = t(allSelected ? 'claims.clearAll' : 'claims.selectAll');
   // The operator's page runs only what they ticked: with nothing ticked, nothing runs, and the hint says why (25 October:
@@ -1372,8 +1381,7 @@ function renderBeyondTools() {
   ui.testSelected.textContent = t('claims.testSelected', { n: selected });
   renderBalanceLine(selected);
   let hint = '';
-  if (busy) hint = t('claims.afterFirst');
-  else if (untick) hint = opWord('tickOne');
+  if (untick) hint = opWord('tickOne');
   else if (!pricingNow() && state.accounting && averageCost() !== null) hint = opWord('avgCost', { usd: fmtUsd(averageCost()) });
   ui.beyondHint.textContent = hint;
   renderPriceLine();
@@ -1413,10 +1421,10 @@ function trialRuns() {
 function renderTrialBar() {
   if (!ui.trialBar) return;
   const offer = trialOffer();
-  const open = state.beyond.some((b) => !b.tested);
+  const open = state.beyond.some((b) => choosable(b));
   ui.trialBar.hidden = !offer || !open;
   if (ui.trialBar.hidden) return;
-  const busy = state.phase === 'evaluating' || state.phase === 'extracting';
+  const busy = listing();   // the ticks change while cards run: the next claim runs on what is ticked then
   const ticked = new Set(state.trialChoice.ticked);
   const shape = offer.models.map((m) => `${m.id}:${m.ready}:${m.efforts.join(',')}`).join('|');
   if (ui.trialGrid.dataset.shape !== shape) {
@@ -1513,37 +1521,40 @@ function fmtMoney(cents, currency) {
 }
 
 function toggleSelectAll() {
-  const open = state.beyond.filter((b) => !b.tested && shownNow(b));   // what the reader sees; never a hidden claim
+  // What the reader sees, never a hidden claim, and not yet tested: a claim is tested again only by its own tick.
+  const open = state.beyond.filter((b) => !b.tested && shownNow(b));
   const allSelected = open.length > 0 && open.every((b) => b.selected);
   for (const b of open) b.selected = !allSelected;
   syncBeyondRows();
 }
 
 async function testSelected() {
-  if (state.phase === 'evaluating' || state.phase === 'extracting') return;
-  const chosen = state.beyond.filter((b) => !b.tested && b.selected);
+  if (listing()) return;
+  const chosen = state.beyond.filter((b) => choosable(b) && b.selected);
   if (!chosen.length) return;
-  state.creditStop = null;   // a new choice, perhaps after credit was added: tried again from the start
-  for (const b of chosen) { b.tested = true; b.selected = false; }
-  syncBeyondRows();
-  // The whole selection is one batch, run at the server's pace (one claim per request, `inFlight`
-  // of them at once, the next starting as one ends): thirty chosen claims read "Testing 30 claims"
-  // and run ten at a time with no pause between tens. Until 3 October they ran in batches of ten.
   // On the operator's page each claim runs on every ticked entry, each a card of its own under the claim (25 October).
   const entries = trialRuns();
   if (entries && !entries.length) return;
+  state.creditStop = null;   // a new choice, perhaps after credit was added: tried again from the start
+  // The selection runs at the server's pace (one claim per request, `inFlight` of them at once, the next starting as
+  // one ends): thirty chosen claims run ten at a time with no pause between tens. Until 3 October they ran in batches of
+  // ten. Chosen while others run (26 October), they join the test under way and start as places free up.
   const runs = [];
   const nodes = [];
   for (const b of chosen) {
     if (!entries) { runs.push(claimOf(b)); nodes.push(b.node); continue; }
-    let last = null;
+    // A claim tested before (the operator's page) gets new cards under its last one; its earlier cards stay.
+    let last = b.tested ? b.lastCard : null;
     for (const e of entries) {
       runs.push({ ...claimOf(b), trial: { model: e.model, effort: e.effort }, entry: e.label });
       last = entryCard(b, e.label, last);
       nodes.push(last);
     }
+    b.lastCard = last;
   }
-  await runBatch(runs, nodes, { claims: chosen.length, models: entries ? entries.length : 1 });
+  for (const b of chosen) { b.tested = true; b.selected = false; }
+  syncBeyondRows();
+  await runBatch(runs, nodes, { claims: chosen.map((b) => b.n), entries: entries ? entries.map((e) => e.label) : [] });
 }
 
 function averageCost() {
@@ -1554,31 +1565,46 @@ function averageCost() {
 
 // ---------- step 2: one batch of determinations ---------------------------------------------------
 
-async function runBatch(claims, nodes, { claims: count = claims.length, models = 1 } = {}) {
-  const start = state.cards.length;
+/**
+ * Claims to test: a test of their own, or, while one is under way, more for it (26 October). The test's cards are one
+ * run of indexes from `start`; its queue is shared, and its workers, never more than the server's pace, take from it
+ * until it is empty. The last worker to stop closes the test. `claims` names the claims chosen and `entries` the
+ * operator's ticked entries, for step 2's title.
+ */
+async function runBatch(claims, nodes, { claims: chosen = null, entries = [] } = {}) {
+  const from = state.cards.length;
   state.cards.push(...claims);
   for (const _ of claims) state.results.push(newResult());
-  nodes.forEach((node, k) => { node.dataset.index = String(start + k); node.dataset.state = 'pending'; syncCardHead(node); });
-  state.batch = { start, size: claims.length, done: 0, claims: count, models };
-  state.phase = 'evaluating';
-  field.setPhase('evaluating');
-  state.evalStartedAt = Date.now();
+  nodes.forEach((node, k) => { node.dataset.index = String(from + k); node.dataset.state = 'pending'; syncCardHead(node); });
+  const adding = state.phase === 'evaluating' && Boolean(state.batch?.queue);
+  if (!adding) {
+    state.batch = { start: from, size: 0, done: 0, claims: new Set(), entries: new Set(), queue: [], workers: 0, tick: null };
+    state.phase = 'evaluating';
+    field.setPhase('evaluating');
+    state.evalStartedAt = Date.now();
+    setStep(ui.step2, 'running');
+    setBar(ui.bar2, 0);
+    const evalTick = setInterval(updateEvalStatus, 500);
+    state.timers.push(evalTick);
+    state.batch.tick = setInterval(updateEvalBars, 250);
+    state.timers.push(state.batch.tick);
+    ui.scoreboard.hidden = false;
+    ui.scorePhase.hidden = true;
+    ui.run.disabled = true;
+  }
+  const batch = state.batch;
+  const indexes = claims.map((_, k) => from + k);
+  batch.size += claims.length;
+  for (const id of chosen || indexes) batch.claims.add(id);
+  for (const e of entries) batch.entries.add(e);
+  batch.queue.push(...indexes);
 
   renderStep2Title();
-  setStep(ui.step2, 'running');
-  setBar(ui.bar2, 0);
-  setStatus('step2', 'step2.progress', { done: 0, total: claims.length });
-  const evalTick = setInterval(updateEvalStatus, 500);
-  state.timers.push(evalTick);
-  ui.scoreboard.hidden = false;
-  ui.scorePhase.hidden = true;
-  ui.run.disabled = true;
+  setStatus('step2', 'step2.progress', { done: batch.done, total: batch.size });
+  updateEvalStatus();
   renderScoreboard();
   syncBeyondRows();
-  for (let k = 0; k < claims.length; k++) renderCardStatus(start + k);
-
-  const tick = setInterval(updateEvalBars, 250);
-  state.timers.push(tick);
+  for (const i of indexes) renderCardStatus(i);
   // One request per claim, and as many at once as the server says (the operator's rule; the server's
   // gate goes on pacing OpenAI across requests). A response then lasts one claim, never a batch, well
   // inside what a host allows, and a cut costs one claim's attempt, which is requested again.
@@ -1588,21 +1614,25 @@ async function runBatch(claims, nodes, { claims: count = claims.length, models =
   // twenty means twenty.
   const inFlight = paceNow();
   const signal = state.abort.signal;
-  const queue = claims.map((_, k) => start + k);
-  const settled = () => { state.batch.done++; updateEvalStatus(); renderScoreboard(); };
+  const settled = () => { batch.done++; updateEvalStatus(); renderScoreboard(); };
   const worker = async () => {
-    while (queue.length && !signal.aborted && state.phase === 'evaluating' && !state.creditStop) {
-      await runClaim(queue.shift(), signal, { keepGoing: () => state.phase === 'evaluating', onSettled: settled });
+    batch.workers++;
+    try {
+      while (batch.queue.length && !signal.aborted && state.phase === 'evaluating' && !state.creditStop) {
+        await runClaim(batch.queue.shift(), signal, { keepGoing: () => state.phase === 'evaluating', onSettled: settled });
+      }
+    } finally {
+      batch.workers--;
     }
-  };
-  try {
-    await Promise.all(Array.from({ length: Math.min(inFlight, claims.length) }, worker));
-    // The credit or the monthly limit stopped the batch: the claims it never started are not run, and not charged.
-    while (state.creditStop && queue.length) { const k = queue.shift(); markNotRun(k, state.creditStop); settled(); }
+    if (batch.workers > 0 || state.batch !== batch) return;
+    // The last worker closes the test. The credit or the monthly limit stopped it: the claims it never started are not
+    // run, and not charged.
+    while (state.creditStop && batch.queue.length) { markNotRun(batch.queue.shift(), state.creditStop); settled(); }
+    clearInterval(batch.tick);
     if (state.phase === 'evaluating') finishBatch({ ms: Date.now() - state.evalStartedAt });
-  } finally {
-    clearInterval(tick);
-  }
+  };
+  const more = Math.max(0, Math.min(inFlight - batch.workers, batch.queue.length));
+  await Promise.all(Array.from({ length: more }, worker));
 }
 
 /**
@@ -2096,7 +2126,7 @@ function renderCardError(i) {
 
 async function retryClaim(i) {
   const r = state.results[i];
-  if (!r || r.status === 'running' || state.phase === 'evaluating') return;
+  if (!r || r.status === 'running') return;   // while others run too (26 October)
   state.creditStop = null;
   const card = cardOf(i);
   $('.card-error', card)?.remove();
@@ -2169,11 +2199,17 @@ function renderEntryTally() {
   ])));
 }
 
-/** Step 2's title: the claims chosen and, on the operator's page with several entries, the models and the cards it makes. */
+/**
+ * Step 2's title: the claims chosen and, on the operator's page with several entries, the models and the cards it makes;
+ * when the claims did not all run on the same entries (some chosen while others ran), the cards, claims and entries.
+ */
 function renderStep2Title() {
-  const { start, claims, models, size } = state.batch;
-  ui.step2Title.textContent = models > 1 ? opWord('step2Models', { n: claims, m: models, total: size })
-    : start > 0 ? t('step2.more', { n: claims || size }) : t('step2.title', { n: claims || size });
+  const { start, size } = state.batch;
+  const claims = state.batch.claims?.size || size;
+  const models = state.batch.entries?.size || 1;
+  ui.step2Title.textContent = models > 1
+    ? opWord(size === claims * models ? 'step2Models' : 'step2Mixed', { n: claims, m: models, total: size })
+    : start > 0 ? t('step2.more', { n: claims }) : t('step2.title', { n: claims });
 }
 
 // ---------- visual echo -----------------------------------------------------------------------

@@ -146,7 +146,7 @@ ledger's own lines (the times run from the request to its end, so a wait at the 
 figures to decide the extraction's effort by, which the operator kept at `max` in `pro` on 3 October pending them.
 
 How many claims run without a press is `CIVIC_AUTO_TEST_FIRST` (10 unless set). The rest are listed with checkboxes, and the reader
-chooses which to test; **Test N selected claims** runs the whole selection as one batch, ten at a time (`CIVIC_EVAL_CONCURRENCY`), the next claim starting as one ends. With the setting at 0 nothing
+chooses which to test; **Test N selected claims** runs the whole selection as one batch, ten at a time (`CIVIC_EVAL_CONCURRENCY`), the next claim starting as one ends. The claims stay open to choose while others are being tested (26 October): more chosen then join the test under way and start as places free up. With the setting at 0 nothing
 runs by itself: every claim found is shown with its checkbox, numbered from one, and the page's own sentences say so.
 
 ## Facts have a price; every user is measured
@@ -510,7 +510,10 @@ the makers' own pages of 25 and 26 October; for Claude, Anthropic's five levels 
 The operator ticks any number of entries; each chosen claim then runs once on every ticked entry, each a card of its own
 under the claim, headed with its entry ("GPT-6 Astra · high"), and with more than one entry the scoreboard has a line per
 entry (its verdicts, minutes and cost). With nothing ticked nothing runs, and the page says to tick one: there is no
-default on the operator's page. The ticks are remembered in that browser; an entry that cannot run here is shown and
+default on the operator's page. The grid can be changed while cards run, so the next claim runs on other entries; and
+on the operator's page a claim tested already can be ticked again, to run on the entries ticked then, its new cards
+under its earlier ones (26 October: "I like to do it one at a time … it's much easier to understand and compare
+models"). The ticks are remembered in that browser; an entry that cannot run here is shown and
 cannot be ticked, its reason said beneath. An OpenAI entry is a reader's own OpenAI fact-check (the same key, web search
 and pacing) with only its model and level its own. The server takes a model and a level from the operator's session only,
 runs an entry at exactly its level, and refuses a level its maker does not support, choosing none for the asker; from
