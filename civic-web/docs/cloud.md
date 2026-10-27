@@ -1231,6 +1231,8 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
   - **Claude out of the grid** (the operator, 27 October: the Anthropic credit is used up, "you can pull them from the
     options"): `CIVIC_EVAL_TRIAL_MODELS` is set on Render to the default list without the two Claude models, so the
     grid has 27 entries. The code and the key are unchanged; unsetting the setting brings them back.
+  - **Live** (27 October, 22:07 UTC): PR #93 deployed. The boot line names the six models at their levels and no Claude
+    model; the lists kept out as before. Live check clean, nothing spent.
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 
