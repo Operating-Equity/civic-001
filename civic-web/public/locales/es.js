@@ -64,7 +64,6 @@ export default {
     clearAll: 'Quitar selección',
     testSelected_one: 'Probar {n} afirmación seleccionada',
     testSelected_other: 'Probar {n} afirmaciones seleccionadas',
-    afterFirst: 'Disponible cuando terminen las afirmaciones en curso.',
     tested: 'probada',
     raw: 'Salida de la extracción, literal',
     confirm_one: 'Probar esta afirmación',

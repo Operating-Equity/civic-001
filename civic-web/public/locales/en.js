@@ -65,7 +65,6 @@ export default {
     clearAll: 'Clear selection',
     testSelected_one: 'Test {n} selected claim',
     testSelected_other: 'Test {n} selected claims',
-    afterFirst: 'Available once the claims now testing finish.',
     tested: 'tested',
     raw: 'Extraction output, verbatim',
     confirm_one: 'Test this claim',

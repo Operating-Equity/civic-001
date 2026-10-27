@@ -64,7 +64,6 @@ export default {
     clearAll: 'Auswahl aufheben',
     testSelected_one: '{n} ausgewählte Behauptung prüfen',
     testSelected_other: '{n} ausgewählte Behauptungen prüfen',
-    afterFirst: 'Verfügbar, sobald die laufende Prüfung abgeschlossen ist.',
     tested: 'geprüft',
     raw: 'Ausgabe der Extraktion, wortwörtlich',
     confirm_one: 'Diese Behauptung prüfen',

@@ -64,7 +64,6 @@ export default {
     clearAll: 'Effacer la sélection',
     testSelected_one: 'Tester {n} affirmation sélectionnée',
     testSelected_other: 'Tester {n} affirmations sélectionnées',
-    afterFirst: 'Disponible une fois les tests en cours terminés.',
     tested: 'testée',
     raw: 'Sortie de l\'extraction, mot pour mot',
     confirm_one: 'Tester cette affirmation',
