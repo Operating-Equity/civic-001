@@ -1350,6 +1350,12 @@ function buildBeyondRows() {
  */
 const choosable = (b) => !b.tested || Boolean(trialOffer());
 const listing = () => state.phase === 'extracting';
+/**
+ * The ticked entries a claim has not run on yet (27 October): a claim tested again runs only on the models and levels it
+ * has not run on, so a second press never repeats a model on a claim (the operator's answer, after one claim ran three
+ * times on each of eight entries). A card running, done or failed counts; a failed one is tried again on its own card.
+ */
+const newRuns = (b, entries) => entries.filter((e) => !b.ran?.has(entryKey(e)));
 
 /** The checkboxes follow the state; a tested row is a row like any other. */
 function syncBeyondRows() {
@@ -1375,15 +1381,22 @@ function renderBeyondTools() {
   // The operator's page runs only what they ticked: with nothing ticked, nothing runs, and the hint says why (25 October:
   // no hidden default). A reader's page has no trial and runs the readers' model.
   const untick = Boolean(trialOffer()) && !trialRuns().length;
+  // On the operator's page, the determinations a press would start: none when every ticked entry has run on the claims.
+  const starts = trialOffer() && !untick ? open.filter((b) => b.selected).reduce((n, b) => n + newRuns(b, trialRuns()).length, 0) : null;
+  const allRan = selected > 0 && starts === 0;
   ui.testSelected.hidden = open.length === 0;
-  ui.testSelected.disabled = selected === 0 || busy || untick;
+  ui.testSelected.disabled = selected === 0 || busy || untick || allRan;
   // The button says how many, never what they cost: the price is said once, above the claims (the operator, 6 October).
   ui.testSelected.textContent = t('claims.testSelected', { n: selected });
   renderBalanceLine(selected);
-  let hint = '';
-  if (untick) hint = opWord('tickOne');
-  else if (!pricingNow() && state.accounting && averageCost() !== null) hint = opWord('avgCost', { usd: fmtUsd(averageCost()) });
-  ui.beyondHint.textContent = hint;
+  const hint = [];
+  if (untick) hint.push(opWord('tickOne'));
+  else if (allRan) hint.push(opWord('allRan'));
+  else {
+    if (starts) hint.push(opWord('newRuns', { n: starts }));
+    if (!pricingNow() && state.accounting && averageCost() !== null) hint.push(opWord('avgCost', { usd: fmtUsd(averageCost()) }));
+  }
+  ui.beyondHint.textContent = hint.join(' ');
   renderPriceLine();
   renderTrialBar();
   renderRestToggle();
@@ -1541,20 +1554,31 @@ async function testSelected() {
   // ten. Chosen while others run (26 October), they join the test under way and start as places free up.
   const runs = [];
   const nodes = [];
+  const ran = [];
+  const labels = new Set();
   for (const b of chosen) {
-    if (!entries) { runs.push(claimOf(b)); nodes.push(b.node); continue; }
-    // A claim tested before (the operator's page) gets new cards under its last one; its earlier cards stay.
+    b.selected = false;
+    if (!entries) { runs.push(claimOf(b)); nodes.push(b.node); ran.push(b); continue; }
+    // A claim tested before (the operator's page) runs only on what it has not run on, its new cards under its last one;
+    // its earlier cards stay. A claim with nothing new to run on is left as it is.
+    const todo = newRuns(b, entries);
+    if (!todo.length) continue;
+    b.ran = b.ran || new Set();
     let last = b.tested ? b.lastCard : null;
-    for (const e of entries) {
+    for (const e of todo) {
+      b.ran.add(entryKey(e));
+      labels.add(e.label);
       runs.push({ ...claimOf(b), trial: { model: e.model, effort: e.effort }, entry: e.label });
       last = entryCard(b, e.label, last);
       nodes.push(last);
     }
     b.lastCard = last;
+    ran.push(b);
   }
-  for (const b of chosen) { b.tested = true; b.selected = false; }
+  for (const b of ran) b.tested = true;
   syncBeyondRows();
-  await runBatch(runs, nodes, { claims: chosen.map((b) => b.n), entries: entries ? entries.map((e) => e.label) : [] });
+  if (!runs.length) return;
+  await runBatch(runs, nodes, { claims: ran.map((b) => b.n), entries: [...labels] });
 }
 
 function averageCost() {
