@@ -1226,6 +1226,11 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
   - **Proof:** the browser check (scratchpad `browser/queue-check.mjs`), extended: a claim ticked again with the
     entries it ran on starts nothing; beside a new claim, only the new one runs; with a third entry, only that runs;
     three presses in a row run it once. The earlier browser checks; the guard in the three prompt shapes.
+  - **The guard:** its two checks of Claude's ledger line now wait for the line, as its other ledger checks do (the
+    ledger's file is appended just after the card's done; one run of the three read it first).
+  - **Claude out of the grid** (the operator, 27 October: the Anthropic credit is used up, "you can pull them from the
+    options"): `CIVIC_EVAL_TRIAL_MODELS` is set on Render to the default list without the two Claude models, so the
+    grid has 27 entries. The code and the key are unchanged; unsetting the setting brings them back.
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 

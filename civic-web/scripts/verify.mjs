@@ -3419,7 +3419,9 @@ async function anthropicChecks() {
     check('Claude: its thinking\'s signature and its search results\' encrypted content reach no page (not the stream, not its replay from the start, not done), while its summary does, as the readers\' model\'s',
       replay.some((e) => e.t === 'done') && ![...h1, ...replay].some((e) => /ANSIG|ANENC/.test(JSON.stringify(e))) && h1.some((e) => e.t === 'reasoning' && /ANSUM-6a1f/.test(e.text || '')),
       JSON.stringify([...h1, ...replay].filter((e) => /ANSIG|ANENC/.test(JSON.stringify(e))).slice(0, 2)));
-    const l1 = lines().find((l) => l.kind === 'trial' && l.provider === 'anthropic' && l.ok && l.model === 'claude-opus-5-5' && l.effort === 'high');
+    // The ledger's file is written just after done (an append of its own), so the line is waited for, as the others are.
+    let l1 = null;
+    for (let k = 0; k < 20 && !l1; k++) { l1 = lines().find((l) => l.kind === 'trial' && l.provider === 'anthropic' && l.ok && l.model === 'claude-opus-5-5' && l.effort === 'high') || null; if (!l1) await new Promise((r) => setTimeout(r, 100)); }
     check('Claude: its ledger line is a trial\'s (Claude Opus 5.5 at high, a search, a page), its thinking counted apart and as output, priced at Anthropic\'s $4 in and $20 out a million plus $10 per 1,000 searches, which done carries too',
       Boolean(l1) && l1.searches === 1 && l1.queries === 1 && l1.reads === 1 && l1.sources === 2 && l1.usage?.reasoning === 800 && l1.usage.output > 800 && l1.usage.input > 100
         && l1.searchUsd === 0.01 && Math.abs(l1.tokenUsd - (l1.usage.input * 4 + l1.usage.output * 20) / 1e6) < 0.0002 && Math.abs(l1.usd - (l1.tokenUsd + l1.searchUsd)) < 0.0002
@@ -3429,7 +3431,8 @@ async function anthropicChecks() {
     const x1 = await evaluate({ model: 'claude-fable-5-1', effort: 'xhigh' }, 'fable-xhigh');
     const m1 = await evaluate({ model: 'claude-fable-5-1', effort: 'max' }, 'fable-max');
     const [bx, bm] = anBodies().slice(1, 3).map((r) => r.body);
-    const lm = lines().find((l) => l.kind === 'trial' && l.provider === 'anthropic' && l.ok && l.model === 'claude-fable-5-1' && l.effort === 'max');
+    let lm = null;
+    for (let k = 0; k < 20 && !lm; k++) { lm = lines().find((l) => l.kind === 'trial' && l.provider === 'anthropic' && l.ok && l.model === 'claude-fable-5-1' && l.effort === 'max') || null; if (!lm) await new Promise((r) => setTimeout(r, 100)); }
     check('Claude: Fable 5.1 at xhigh and at max are each delivered at their level, asked as output_config.effort xhigh and max, and Fable is priced at $10 in and $50 out a million',
       x1.some((e) => e.t === 'done' && e.provider === 'anthropic' && e.model === 'claude-fable-5-1' && e.effort === 'xhigh') && m1.some((e) => e.t === 'done' && e.effort === 'max')
         && bx?.model === 'claude-fable-5-1' && bx.output_config?.effort === 'xhigh' && bm?.output_config?.effort === 'max'
