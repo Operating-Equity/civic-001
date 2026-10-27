@@ -1213,6 +1213,7 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
   - **Proof:** a browser check (scratchpad `browser/queue-check.mjs`): a second claim joining a test, the same claim on
     a third entry, "Select all", Try again during a test, a reader's page, a phone; the earlier browser checks; the
     guard in the three prompt shapes.
+  - **Live** (27 October, 00:46 UTC): PR #92 deployed. Live check clean, nothing spent; the boot lines as before.
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 
