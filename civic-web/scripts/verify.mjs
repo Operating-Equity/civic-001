@@ -4418,8 +4418,9 @@ await fingerprintChecks();
 // ---- what a reader receives (19 October) ---------------------------------------------------------------------------
 // The operator's decision of 19 October: a reader's run carries the work and its results and nothing of how it is
 // done (server/view.js): no thinking, no model, effort or provider, no tool's name, no provider's own words; the
-// inspector as its mark ("Inspector E" for an entry naming Sir Edwin Cardale), on the card and on the entry's own line as
-// it streams; the research as a work log of plain words. The operator sees everything as before. The headings an entry
+// inspector as its mark ("Inspector F" for an entry naming Sir Edwin Cardale: the letter after the name's first, 31
+// October) wherever it stands for the inspector; the entry whole with the finished claim, its length alone as it is
+// written; the research as a work log of plain words. The operator sees everything as before. The headings an entry
 // is read by come from the operator's list when one is set (server/names.js), and a list that cannot be read stops the
 // start without printing a word of it. Every name here is invented.
 async function readerViewChecks() {
@@ -4428,7 +4429,7 @@ async function readerViewChecks() {
   const stamp = Date.now();
   const counted = (events) => events.filter((e) => e.t !== 'ping' && e.t !== 'attached');
   try {
-    const { NameMasker, maskEntry, inspectorMark, parseEntry: parse } = await import('../server/verdict.js');
+    const { NameMasker, maskEntry, maskName, inspectorMark, keptWords, parseEntry: parse } = await import('../server/verdict.js');
     // The mask, alone: however the entry is cut as it streams, the same text, and no piece sent carries part of the name.
     const entry = '0. **Name:** Sir Edwin Cardale (geologist)\n\n1. **Claim**: The tower is 330 m tall.\n\n**Conclusion**: True.\n**Confidence**: 90%\nName: Orin Vale\nend';
     const whole = maskEntry(entry);
@@ -4447,15 +4448,41 @@ async function readerViewChecks() {
       same = out + m.flush() === whole;
     }
     check('the inspector\'s name is made its mark however the entry is cut as it streams: 200 random cuts give the same text, every other line unchanged, and no piece sent carries part of the name',
-      same && !early && whole === '0. **Name:** Inspector E\n\n1. **Claim**: The tower is 330 m tall.\n\n**Conclusion**: True.\n**Confidence**: 90%\nName: Inspector O\nend', JSON.stringify(whole));
-    check('the mark is the first letter of the name\'s first word that is not a title, and a mark stays as it is',
-      inspectorMark('Sir Isaac Newton') === 'Inspector I' && inspectorMark('Dr. Ada Lovelace') === 'Inspector A' && inspectorMark('Albert Einstein (physicist)') === 'Inspector A'
-        && inspectorMark('Ibn al-Qarrad') === 'Inspector I' && inspectorMark('Inspector A') === 'Inspector A' && inspectorMark('') === null,
-      JSON.stringify(['Sir Isaac Newton', 'Dr. Ada Lovelace', 'Inspector A'].map(inspectorMark)));
+      same && !early && whole === '0. **Name:** Inspector F\n\n1. **Claim**: The tower is 330 m tall.\n\n**Conclusion**: True.\n**Confidence**: 90%\nName: Inspector P\nend', JSON.stringify(whole));
+    // The operator, 31 October: "the 1st letter of their 1st name plus one letter and if the letter is Z, it goes to a".
+    const marks = ['Sir Isaac Newton', 'Dr. Ada Lovelace', 'Albert Einstein (physicist)', 'Ibn al-Qarrad', 'Zeno of Elea', 'Émile Borel', 'Yara Quist', '李白', 'Inspector A', ''].map(inspectorMark);
+    check('the mark is the letter after the first letter of the name\'s first word that is not a title, Z going to A, an accented letter as its plain one, and no letter for a name with none; a mark stays as it is',
+      JSON.stringify(marks) === JSON.stringify(['Inspector J', 'Inspector B', 'Inspector B', 'Inspector J', 'Inspector A', 'Inspector F', 'Inspector Z', 'Inspector', 'Inspector A', null]),
+      JSON.stringify(marks));
+    // The name, gone wherever it stands for the inspector: in full, without its titles, with a title before the first
+    // name or the surname, the first name alone; a surname alone stays (the operator's answer: it names laws and units),
+    // and so does any form the claim or the document itself writes.
+    const body = 'As Sir Edwin Cardale, I weigh it. Edwin Cardale reads the record; Sir Edwin agrees, as does Professor Cardale. Edwin checks twice. The Cardale point is cited.';
+    const masked = maskName(body, 'Sir Edwin Cardale (geologist)');
+    const keptBody = maskName('Edwin Cardale was born in 1901, and Edwin Cardale says so.', 'Edwin Cardale', 'Was Edwin Cardale born in 1901?');
+    const labels = ['Reviewer: Orin Vale\nOrin Vale weighs it.', '**Inspector:** Orin Vale\nOrin checks.', '### Name: Orin Vale\nAs Orin Vale, I find.'].map((e) => maskEntry(e));
+    const oneWord = maskEntry('Name: Plato\nPlato says so; Platonic forms.');
+    check('a reader sees no name of the inspector\'s where it stands for the inspector: in full, without its titles, with a title, the first name alone, under any of the labels "Name", "Inspector" and "Reviewer"; a surname alone and the claim\'s or the document\'s own words stay as written',
+      masked === 'As Inspector F, I weigh it. Inspector F reads the record; Inspector F agrees, as does Inspector F. Inspector F checks twice. The Cardale point is cited.'
+        && keptBody === 'Edwin Cardale was born in 1901, and Edwin Cardale says so.'
+        && JSON.stringify(labels) === JSON.stringify(['Reviewer: Inspector P\nInspector P weighs it.', '**Inspector:** Inspector P\nInspector P checks.', '### Name: Inspector P\nAs Inspector P, I find.'])
+        && oneWord === 'Name: Inspector Q\nInspector Q says so; Platonic forms.',
+      JSON.stringify({ masked, keptBody, labels, oneWord }));
+    // The claim and the document are read once for a run (a view reads them when a claim finishes) and give the same text
+    // as read anew for each one.
+    const [noName, withName] = ['The tower is 330 m tall.', 'Was Edwin Cardale born in 1901?\nThe tower is 330 m tall.'];
+    const [readNo, readWith] = [keptWords(noName), keptWords(withName)];
+    const texts = [body, 'Edwin Cardale was born in 1901, and Edwin Cardale says so.', 'Sir Edwin agrees; Edwin checks.'];
+    check('the claim and the document, read once for a run, keep and mask exactly what they do when read anew for each text',
+      keptWords(readNo) === readNo
+        && texts.every((x) => maskName(x, 'Sir Edwin Cardale', readNo) === maskName(x, 'Sir Edwin Cardale', noName) && maskName(x, 'Sir Edwin Cardale', readWith) === maskName(x, 'Sir Edwin Cardale', withName))
+        && maskName(texts[2], 'Sir Edwin Cardale', readNo) === 'Inspector F agrees; Inspector F checks.' && maskName(texts[2], 'Sir Edwin Cardale', readWith) === texts[2]
+        && maskName(texts[1], 'Edwin Cardale', readWith) === texts[1],
+      JSON.stringify(texts.map((x) => [maskName(x, 'Sir Edwin Cardale', readNo), maskName(x, 'Sir Edwin Cardale', readWith)])));
 
     // A reader and the operator, each with a listing and a determination, on a server whose first model is missing (so a
     // fallback happens), against a stand-in naming one inspector and searching, opening a page and finding in it.
-    const mock = start([path.join(root, 'scripts', 'mock-openai.js')], { MOCK_PORT: String(MOCKR), MOCK_SPEED: '0.2', MOCK_INSPECTOR: 'Sir Edwin Cardale (geologist)', MOCK_SEARCH_ACTIONS: 'search,open_page,find_in_page,search', MOCK_EVAL_FAIL_TEXT: 'Refuse this claim', MOCK_EVAL_MARK: process.env.MOCK_EVAL_MARK_FOR_GATE || '',
+    const mock = start([path.join(root, 'scripts', 'mock-openai.js')], { MOCK_PORT: String(MOCKR), MOCK_SPEED: '0.2', MOCK_INSPECTOR: 'Sir Edwin Cardale (geologist)', MOCK_INSPECTOR_BODY: '1', MOCK_SEARCH_ACTIONS: 'search,open_page,find_in_page,search', MOCK_EVAL_FAIL_TEXT: 'Refuse this claim', MOCK_EVAL_MARK: process.env.MOCK_EVAL_MARK_FOR_GATE || '',
       MOCK_EVAL_FAIL_MESSAGE: `The request to ${config.evalModels[0]} was refused by OpenAI (api.openai.com) in organization org-mock0000000000000000000: the stand-in refuses this claim on purpose.` });
     procs.push(mock);
     await wait(`http://localhost:${MOCKR}/v1/mock/stats`, 15000, { anyResponse: true });
@@ -4497,12 +4524,14 @@ async function readerViewChecks() {
         && /Restating the proposition/.test(rDone.reasoning || '') && rDone.trail?.length === 4 && rDone.sources?.length === 2
         && Boolean(rDone.verdict) && Number.isFinite(rDone.confidence),
       JSON.stringify(Object.keys(rDone || {})));
-    const joined = rDet.filter((e) => e.t === 'delta').map((e) => e.text).join('');
+    const pieces = rDet.filter((e) => e.t === 'delta');
     const rSerial = JSON.stringify(r.listing) + JSON.stringify(rDet);
-    check('the inspector is a mark for a reader wherever its name is written in full: on the card, on the entry\'s own line as it streamed and as it ended, in the reasoning summary and in the searches; "Edwin", "Cardale" and "geologist" appear nowhere',
-      rDone?.inspectorMark === 'Inspector E' && /^\*\*Name\*\*: Inspector E$/m.test(rDone?.text || '') && joined === rDone?.text
-        && /Working as Inspector E through the record\./.test(rDone?.reasoning || '') && /^Inspector E /.test(rDone?.trail?.[0]?.query || '') && !/Edwin|Cardale|geologist/.test(rSerial),
-      JSON.stringify({ mark: rDone?.inspectorMark, line: (rDone?.text || '').split('\n')[0], same: joined === rDone?.text, query: rDone?.trail?.[0]?.query, reasoning: (rDone?.reasoning || '').slice(0, 60) }));
+    check('the inspector is a mark for a reader wherever its name stands for the inspector: on the card, on the entry\'s own line and in its body (in full, by the first name, with a title), in the reasoning summary and in the searches; as the entry is written, a reader receives only its length, and the entry whole with the finished claim; "Edwin", "Cardale" and "geologist" appear nowhere',
+      rDone?.inspectorMark === 'Inspector F' && /^\*\*Name\*\*: Inspector F$/m.test(rDone?.text || '')
+        && /As Inspector F, I weighed the record; Inspector F read it twice, and Inspector F agrees\./.test(rDone?.text || '')
+        && pieces.length > 0 && pieces.every((e) => !('text' in e) && Number.isInteger(e.n) && e.n > 0)
+        && /Working as Inspector F through the record\./.test(rDone?.reasoning || '') && /^Inspector F /.test(rDone?.trail?.[0]?.query || '') && !/Edwin|Cardale|geologist/.test(rSerial),
+      JSON.stringify({ mark: rDone?.inspectorMark, line: (rDone?.text || '').split('\n')[0], pieces: pieces.length, piece: pieces[0], query: rDone?.trail?.[0]?.query, reasoning: (rDone?.reasoning || '').slice(0, 60) }));
     const pr = parse(rDone?.text || '');
     check('a reader\'s verdict and confidence are the entry\'s own, read from the very text they received',
       pr.verdict === rDone?.verdict && pr.confidence === rDone?.confidence, JSON.stringify({ parsed: [pr.verdict, pr.confidence], sent: [rDone?.verdict, rDone?.confidence] }));
@@ -4555,11 +4584,12 @@ async function readerViewChecks() {
     const again = counted((await people.stream('/api/evaluate', { ...cutBody, cursor: 0 }, reader)).events);
     const both = [...first, ...second];
     const cDone = both.find((e) => e.t === 'done');
-    const cText = both.filter((e) => e.t === 'delta').map((e) => e.text).join('');
-    check('a reader whose connection is cut mid-claim and who attaches again receives the same entry, with one inspector line and nothing twice; read again from the start, the same events',
-      Boolean(cDone) && cText === cDone.text && (cText.match(/^\*\*Name\*\*:/gm) || []).length === 1 && /Inspector E/.test(cText) && !/Edwin|Cardale/.test(JSON.stringify(both))
+    const cText = cDone?.text || '';
+    check('a reader whose connection is cut mid-claim and who attaches again receives the entry once, whole, with one inspector line, and nothing twice; read again from the start, the same events',
+      Boolean(cDone) && both.filter((e) => e.t === 'done').length === 1 && both.filter((e) => e.t === 'delta').every((e) => !('text' in e))
+        && (cText.match(/^\*\*Name\*\*:/gm) || []).length === 1 && /Inspector F/.test(cText) && !/Edwin|Cardale/.test(JSON.stringify(both))
         && JSON.stringify(again) === JSON.stringify(both),
-      JSON.stringify({ first: first.length, second: second.length, again: again.length, same: cText === cDone?.text }));
+      JSON.stringify({ first: first.length, second: second.length, again: again.length, dones: both.filter((e) => e.t === 'done').length }));
 
     // A failure: the provider's own words reach the operator whole, and a reader with the services' names replaced.
     const rErr = (await people.stream('/api/evaluate', { jobId: `rv-reader-err-${stamp}`, claims: ['Refuse this claim, as the stand-in is told to.'], text: ACCT_TEXT, runId: r.runId, n: 2 }, reader)).events.find((e) => e.t === 'error');
@@ -4584,7 +4614,7 @@ async function readerViewChecks() {
       ill.status === 403 && ill.body?.error?.code === 'operator_only', JSON.stringify({ status: ill.status, body: ill.body }));
     const st = (await people.json('/api/selftest', { cookie: op })).body;
     check('/check says the entries are read by FactEngine\'s own words when no list is set, and how a reader sees an inspector',
-      (st?.checks || []).some((c) => c.title === 'The entries are read by their headings' && /FactEngine's own words/.test(c.detail) && /Inspector A/.test(c.detail)), '');
+      (st?.checks || []).some((c) => c.title === 'The entries are read by their headings' && /FactEngine's own words/.test(c.detail) && /Inspector B for an Albert/.test(c.detail)), '');
 
     // The operator's own headings, from the vault: a stand-in writing them, a server reading by them.
     const NAMES = { conclusion: ['Did the dog chase the cat?'], confidence: ['LLR confidence'], name: ['Inspector'], verdicts: { true: ['holds'], false: ['fails'], unverified: ['open'] } };

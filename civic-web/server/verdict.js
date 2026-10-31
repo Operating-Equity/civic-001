@@ -149,38 +149,96 @@ export function inspectorOf(text) {
   return LOOKS_LIKE_A_NAME.test(after.replace(/[*_]/g, '').trim()) ? cleanName(after) : null;
 }
 
-// Words that come before a name and are not it, so "Sir Isaac Newton" is Inspector I and "Dr. Ada Lovelace" Inspector A.
+// Words that come before a name and are not it, so "Sir Isaac Newton" is Inspector J and "Dr. Ada Lovelace" Inspector B.
 const TITLES = new Set(['dr', 'doctor', 'prof', 'professor', 'sir', 'dame', 'lord', 'lady', 'mr', 'mrs', 'ms', 'mx', 'miss',
   'rev', 'reverend', 'fr', 'father', 'st', 'saint', 'hon', 'judge', 'justice', 'capt', 'captain', 'gen', 'general', 'col',
   'colonel', 'president', 'king', 'queen', 'prince', 'princess', 'inspector', ...names.titles.map((w) => w.toLowerCase())]);
 const MARK = new RegExp(`^${esc(names.inspector).replace('\\{initial\\}', '\\p{L}')}$`, 'u');
 
-/** The inspector as a reader sees it: the first letter of the name's first word that is not a title, in the operator's form. */
+/**
+ * The letter a reader sees for an inspector (31 October: "the 1st letter of their 1st name plus one letter and if the
+ * letter is Z, it goes to a"), so the letter never matches the name it stands for: Albert Einstein is Inspector B. An
+ * accented letter counts as its plain letter (É is E, so F); a name with no Latin letter has none.
+ */
+export function markLetter(initial) {
+  const plain = String(initial || '').normalize('NFD').replace(/\p{M}/gu, '').toUpperCase();
+  if (!/^[A-Z]$/.test(plain)) return '';
+  return plain === 'Z' ? 'A' : String.fromCharCode(plain.charCodeAt(0) + 1);
+}
+
+/**
+ * The inspector as a reader sees it, in the operator's form: the letter after the first letter of the name's first word
+ * that is not a title (markLetter); the form's word alone when that letter is not a Latin one.
+ */
 export function inspectorMark(raw) {
   const name = cleanName(raw);
   if (!name) return null;
   if (MARK.test(name)) return name;   // the entry already gives the mark
   const words = name.split(' ').map((w) => w.replace(/[.,]+$/, '')).filter(Boolean);
   const first = words.find((w) => !TITLES.has(w.toLowerCase())) || words[0] || '';
-  const initial = (first.match(/\p{L}/u) || [''])[0].toLocaleUpperCase();
-  return initial ? names.inspector.replace('{initial}', initial) : null;
+  const initial = (first.match(/\p{L}/u) || [''])[0];
+  if (!initial) return null;
+  const letter = markLetter(initial);
+  return letter ? names.inspector.replace('{initial}', letter) : names.inspector.replace('{initial}', '').replace(/\s+/g, ' ').trim();
+}
+
+// A surname written alone: the same word often names a law, a unit or a theory ("Newton's second law", "the Curie
+// point"), where it is not the inspector, and a mark there would read as broken and say who the inspector is. The
+// operator's answer (31 October): left as written. The full name, the first name and a title with either are not.
+const MASK_SURNAME_ALONE = false;
+
+/**
+ * The words of a text a reader already has (the claim, the document), read once: a name's word or phrase there stays as
+ * written. A view passes the result to each maskName of its run, so a long document is read once and not for every text.
+ */
+export function keptWords(keep) {
+  if (keep && typeof keep === 'object' && keep.words instanceof Set) return keep;
+  const text = String(keep ?? '').toLowerCase();
+  const words = new Set(text.match(/[\p{L}\p{N}'’-]+/gu) || []);
+  const phrases = new Map();
+  const hasPhrase = (p) => { const q = p.toLowerCase(); if (!phrases.has(q)) phrases.set(q, text.includes(q)); return phrases.get(q); };
+  return { words, hasPhrase };
 }
 
 /**
- * Text a reader receives beside the entry (the thinking's summary, a search's question), with the inspector's name made
- * the mark wherever it is written in full: as the entry gives it, and without its titles ("Sir Edwin Cardale", "Edwin
- * Cardale"). A surname alone is left as written, since it may be the subject of the claim.
+ * Text a reader receives (the entry, the thinking's summary, a search's question, the conclusion), with the inspector's
+ * name made the mark wherever it stands for the inspector (31 October: "eliminating the name everywhere the reviewer or
+ * inspector appears"): in full as the entry gives it, without its titles ("Sir Edwin Cardale", "Edwin Cardale"), with a
+ * title before the first name or the surname ("Sir Edwin", "Dr. Cardale"), and the first name alone; a surname alone as
+ * MASK_SURNAME_ALONE says. A form that is in the claim or the document itself (`keep`) stays as written, so a claim about
+ * a person reads with that person's name. A word alone is matched in its own capitals, so a name that is also a common
+ * word ("Grace", "Hope") is not made the mark where it is a word.
  */
-export function maskName(text, name) {
-  const s = String(text ?? '');
+export function maskName(text, name, keep = '') {
+  let s = String(text ?? '');
   const full = cleanName(name);
   const mark = inspectorMark(name);
   if (!s || !full || !mark || MARK.test(full)) return s;
+  const bare = (w) => w.replace(/[.,]+$/, '');
   const words = full.split(' ');
   let k = 0;
-  while (k < words.length - 1 && TITLES.has(words[k].replace(/[.,]+$/, '').toLowerCase())) k++;
-  const forms = [...new Set([full, words.slice(k).join(' ')])].filter((f) => f.length > 1);
-  return s.replace(new RegExp(`${EDGE0}(?:${any(forms)})${EDGE1}`, 'giu'), mark);
+  while (k < words.length - 1 && TITLES.has(bare(words[k]).toLowerCase())) k++;
+  const own = words.slice(k).map(bare).filter((w) => w && !SUFFIX.test(w));
+  const kept = keptWords(keep);
+  const keptWord = (w) => kept.words.has(w.toLowerCase());
+  const longest = (a, b) => b.length - a.length;
+  const swap = (pattern, flags) => { s = s.replace(new RegExp(`${EDGE0}(?:${pattern})${EDGE1}`, flags), mark); };
+  // The name in full, and without its titles: in any capitals.
+  const many = [...new Set([full, words.slice(k).join(' ')])].filter((f) => f.includes(' ') && !kept.hasPhrase(f)).sort(longest);
+  if (many.length) swap(any(many), 'giu');
+  if (own.length === 1) {   // a one-word name is its full form
+    if (own[0].length > 1 && !keptWord(own[0])) swap(esc(own[0]), 'giu');
+    return s;
+  }
+  // A title before the first name or the surname ("Sir Edwin", "Dr. Cardale", "Professor Cardale").
+  const titles = [...TITLES].sort(longest).map(esc).join('|');
+  for (const w of [own[0], own[own.length - 1]]) {
+    if (w.length > 1 && !keptWord(w)) swap(`(?:${titles})\\.?[ \\t]+${esc(w)}`, 'giu');
+  }
+  // The first name alone, and the surname alone as MASK_SURNAME_ALONE says: in the name's own capitals.
+  const alone = [own[0], ...(MASK_SURNAME_ALONE ? [own[own.length - 1]] : [])].filter((w) => w.length > 1 && !keptWord(w));
+  if (alone.length) swap([...new Set(alone)].sort(longest).map(esc).join('|'), 'gu');
+  return s;
 }
 
 /** The value of an inspector line with its name made the mark; its Markdown around the name is kept. */
@@ -258,10 +316,16 @@ export class NameMasker {
   }
 }
 
-/** A whole entry for a reader: the same as its pieces through a NameMasker. */
-export function maskEntry(text) {
+/**
+ * A whole entry for a reader: every inspector line's name made the mark (as its pieces through a NameMasker), then the
+ * name made the mark wherever else the entry writes it (maskName), but in the words of the claim or the document
+ * (`keep`). The name is the one given (`name`), or the one the entry's own inspector line names.
+ */
+export function maskEntry(text, { name = null, keep = '' } = {}) {
   const m = new NameMasker();
-  return m.push(text) + m.flush();
+  const lines = m.push(text) + m.flush();
+  const who = name || inspectorOf(text);
+  return who ? maskName(lines, who, keep) : lines;
 }
 
 /** The entry around its last verdict heading, for the record of a verdict that could not be read. */

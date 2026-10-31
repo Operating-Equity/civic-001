@@ -167,7 +167,7 @@ const ownerOf = (req) => (req.account?.user ? `u:${req.account.user.id}` : null)
 // Who sees the whole of the work: the operator, and anyone on an open door. Everyone else sees their run through the
 // reader's view (server/view.js): every output, under the operator's names, and never what it costs FactEngine.
 const seesAll = (req) => !signinRequired() || isOperator(req.account);
-const viewFor = (req) => (seesAll(req) ? null : readerView());
+const viewFor = (req, opts) => (seesAll(req) ? null : readerView(opts));
 // With accounts on, the books must be readable for anything to be held or run: a wait, never a free test.
 const booksWait = () => Object.assign(new ApiError(503, 'books_wait', 'FactEngine is waiting for its records. It will go on by itself.'), { expected: true });
 // Requests for one determination's id that arrive together: the second waits for the first's opening, then joins its job.
@@ -532,7 +532,7 @@ app.post('/api/evaluate', wrap(async (req, res) => {
       // A claim the request ended without a result for (the page stopped the run, the request failed): failed, nothing booked, its hold released.
       await economics.closeOpen(attempts, signal.aborted ? 'cancelled' : 'ended');
     }
-  }, { owner, view: viewFor(req) }).attach(openStream(req, res), 0);
+  }, { owner, view: viewFor(req, { keep: [...claims, document] }) }).attach(openStream(req, res), 0);
 }));
 
 // The page says stop (Start a new test, leaving the page): the jobs' model calls are aborted and the

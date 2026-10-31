@@ -1129,10 +1129,19 @@ function mockClaims(source) {
 
 const INSPECTORS = ['Orin Vale', 'Tessa Marlowe', 'Edwin Cardale', 'Lena Sorvik', 'Halvard Brecke', 'Mira Okafor-Hale', 'Jonas Wren', 'Ilse Varga', 'Tomas Ferrand', 'Ruth Abernathy-Cole'];   // invented: the stand-in names no real person
 // MOCK_INSPECTOR: one inspector for every entry (the guard's reader checks look for its name where it must not be).
+// MOCK_INSPECTOR_BODY: the entry's notes name that inspector too, in full, by the first name and with a title before the
+// surname, as a real entry may.
 // MOCK_OUTPUT_NAMES: the headings the entry is written under, as the operator's list sets them (server/names.js).
 const MOCK_NAMES = (() => { try { return JSON.parse(process.env.MOCK_OUTPUT_NAMES || '{}'); } catch { return {}; } })();
 const label = (key, fallback) => (Array.isArray(MOCK_NAMES[key]) ? MOCK_NAMES[key][0] : MOCK_NAMES[key]) || fallback;
 const said = (verdict) => (MOCK_NAMES.verdicts?.[verdict]?.[0] ? MOCK_NAMES.verdicts[verdict][0].replace(/^./, (c) => c.toUpperCase()) : null);
+
+const bodyNames = (who) => {
+  if (!process.env.MOCK_INSPECTOR_BODY) return '';
+  const full = String(who).replace(/\s*\(.*\)\s*$/, '');
+  const own = full.replace(/^(?:Sir|Dame|Dr\.?|Professor)\s+/, '').split(' ');
+  return ` As ${full}, I weighed the record; ${own[0]} read it twice, and Professor ${own[own.length - 1]} agrees.`;
+};
 
 function mockEntry(claim) {
   const roll = Math.random();
@@ -1148,7 +1157,7 @@ function mockEntry(claim) {
 
 **Claim**: "${claim}"
 
-**Notes**: The proposition was split into its measurable parts, and each part was looked up in a record.
+**Notes**: The proposition was split into its measurable parts, and each part was looked up in a record.${bodyNames(who)}
 
 1. **First point:** the figure was taken from the record and read twice.
 2. **Second point:** the period might mean:
