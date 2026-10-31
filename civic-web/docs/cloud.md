@@ -1343,6 +1343,9 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
     operator's words, on their page alone.
   - **The page's code for the picture**, unused since the echo was turned off, is gone from the page and in the
     history; the account link's call names no operator.
+  - **Live** (31 October, 23:18 UTC): PR #98 deployed. A stranger's page and the scripts it downloads name none of the
+    operator's tools, and the tools are "Not found" to a stranger however the address is spelt; the boot line says
+    none of the tell words is in what a reader receives. Live check clean, nothing spent.
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 
