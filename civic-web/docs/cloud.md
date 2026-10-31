@@ -1270,6 +1270,7 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
     - guard checks of the mark, the labels, every form, the claim's own words and the stream;
     - the stand-in can name its inspector in the entry's body (`MOCK_INSPECTOR_BODY`);
     - the browser checks of a reader's card.
+  - **Live** (31 October, 18:31 UTC): PR #95 deployed. Live check clean, nothing spent.
 - **31 October, evening: the inspector's name as a class of the entry.** The operator: "outputs can be a class that are
   designated as such and different from the textual content."
   - **The class:** the entry writes the inspector's name, in any form, as `<span class="…">…</span>`. The class's word
