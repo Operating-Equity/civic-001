@@ -1324,6 +1324,25 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
   - **Live** (31 October, 21:00 UTC): PR #97 deployed, with the check key's hash and the tell words set on Render;
     the boot line says the tell words are set and none is in what a reader receives. Live check clean, nothing spent.
   - **Next:** the page's part, the operator's tools out of the script readers download (`op.js`, `op.css`).
+- **31 October, night: the operator's tools out of the script everyone downloads (the page's part).** The operator: "I
+  don't plan on giving away any information."
+  - **A script and a style sheet of their own** (`public/js/op.js`, `public/css/op.css`):
+    - what they hold: the grid of models and levels, the costs and the average cost, the key's minute, the per-entry
+      scoreboard, the marks of the operator's list, the model's name and level on a card, a provider's wait, the
+      inspector's name and the class's highlight, and the operator's words for all of them;
+    - named in the operator's part of the page alone, and sent to the operator alone at the build's address, never kept.
+      Anyone else is told "Not found", however the address is spelt, as for `/check`;
+    - `public/js/app.js` loads the script before the page starts, so nothing of it waits on the order the files arrive
+      in, and keeps hooks for it (`ext`) that do nothing on anyone else's page. The script everyone downloads names
+      none of the tools;
+    - should the script fail to load, the operator's page works as a reader's does, and says so in the console.
+  - **A standby model's answer** is one word, `standby`, said by the server for every page. A reader's card marks it in
+    the reader's words; the operator's names which model answered and which was asked, as before.
+  - **Six sentences** that were in the four locales for the operator alone (a provider's wait on the step line and on a
+    card, the inspector's label, the model's line, the standby model's names, the check page's link) are in the
+    operator's words, on their page alone.
+  - **The page's code for the picture**, unused since the echo was turned off, is gone from the page and in the
+    history; the account link's call names no operator.
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 

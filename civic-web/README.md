@@ -32,6 +32,7 @@ civic-web/
 ├── public/            The page. No build step. Plain ES modules.
 │   ├── index.html · css/civic.css
 │   ├── js/app.js      State machine and UI. js/api.js streaming client. js/render.js markdown, toasts.
+│   ├── js/op.js       The operator's tools on their page, with css/op.css: sent to the operator alone.
 │   ├── js/field.js    The mathematics behind the glass: twenty-seven drawn fields in six sets, changing with the run (field-worker.js draws the rasters).
 │   ├── js/i18n.js     Translation layer. locales/en.js es.js fr.js de.js (add more here).
 │   └── assets/        Logos, the favicon, the fonts, and the style-reference photograph for the echo.
@@ -874,13 +875,19 @@ class of the operator's (the list's `nameClass`), a reader's copy has each of it
 full wherever the entry left it outside the class; `/check` counts both. The leak check reports what it finds by
 fingerprint, never by its text.
 
-**What anyone can download** (`server/assets.js`, 20 October). Every script, style sheet and page of FactEngine's own
-is sent without its comments, every other character as written (a licence notice stays); each is read at start-up, and
-one that cannot be read stops the start, naming it. The page comes in two forms: the operator's, and everyone else's
-without the operator's parts (the cost, the key's minute, the trial bar), which sit between `op` marks in
-`public/index.html`; their words are in those parts, not in the four locales. A sign-in or sign-out that changes the
-form loads the page again once nothing is running. `/check` and its script are the operator's, however the address is
-spelt. Of the vendor packages, only the files the pages load are sent, as shipped; their source maps are not.
+**What anyone can download** (`server/assets.js`, 20 October). Every script, style sheet and page of FactEngine's own is
+sent without its comments, every other character as written (a licence notice stays); each is read at start-up, and one
+that cannot be read stops the start, naming it. The page comes in two forms: the operator's, and everyone else's without
+the operator's parts (the cost, the key's minute, the trial bar), which sit between `op` marks in `public/index.html`;
+their words are in those parts, not in the four locales. The operator's tools on the page (the grid of models and
+levels, the costs, the key's minute, the per-entry scoreboard, the marks of their list, the model's name and level on a
+card, a provider's wait, the inspector's name and the class's highlight) are a script and a style sheet of their own,
+`public/js/op.js` and `public/css/op.css` (31 October, night): named in the operator's parts alone and sent to the
+operator alone, at the build's address. `public/js/app.js` loads the script before the page starts and keeps hooks for
+it (`ext`) that do nothing on anyone else's page, so the script everyone downloads names none of the tools; should the
+script fail to load, the operator's page works as a reader's does. A sign-in or sign-out that changes the form loads the
+page again once nothing is running. `/check` and its script, and the operator's tools, are the operator's, however the
+address is spelt. Of the vendor packages, only the files the pages load are sent, as shipped; their source maps are not.
 
 **A page follows a new version by itself** (`public/js/app.js`, 24 October, night: the operator's answer "By itself").
 A page left open across a release kept its old code and what the server offered when it loaded. Now the page knows the
@@ -930,11 +937,12 @@ No token figure appears anywhere on the page or in what the page receives (the o
 ### Why the echo looks the way it does
 
 The echo is off since 19 October, on the operator's word after its box appeared and vanished with no picture: "Just
-comment it out for now until I decide whether and when to ask for it back." Its checkbox (`public/index.html`) and the
-call that starts it (`startRun` in `public/js/app.js`) are commented out, and uncommenting both brings it back as it
-was. The server's route and the rest of the code are unchanged. The echo's picture comes as a `data:` address, so the
-security policy names no image service's host while the echo is off; if it ever comes back by the service's own
-address, that host goes back into `img-src`.
+comment it out for now until I decide whether and when to ask for it back." Its checkbox (`public/index.html`) is
+commented out; the page's code that asked for the picture (`startEcho` in `public/js/app.js`, `illustrate` in
+`public/js/api.js`) left the page on 31 October, night, so the script everyone downloads does not name it, and it is in
+the history to bring back with the checkbox. The server's route is unchanged, and the operator's alone. The echo's
+picture comes as a `data:` address, so the security policy names no image service's host while the echo is off; if it
+ever comes back by the service's own address, that host goes back into `img-src`.
 
 An image model handed raw document text returns something generic. Stage one therefore reads the
 document and writes a specific brief — subject, setting, foreground, light, palette, lens — and

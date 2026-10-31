@@ -157,7 +157,7 @@ function wire() {
     $('#acct-reset-submit').disabled = true;
     try {
       if (state.link.kind === 'claim') {
-        await api.claimOperator({ token: state.link.token, email: $('#acct-claim-email').value.trim(), password, agree: $('#acct-claim-agree').checked });
+        await api.claimAccount({ token: state.link.token, email: $('#acct-claim-email').value.trim(), password, agree: $('#acct-claim-agree').checked });
       } else {
         await api.resetPassword({ token: state.link.token, password });
       }
