@@ -1294,6 +1294,8 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
       `/check` and the log line;
     - the stand-in writes the class (`MOCK_NAME_CLASS`);
     - browser checks of both cards.
+  - **Live** (31 October, 19:07 UTC): PR #96 deployed. Live check clean, nothing spent. The class does nothing until
+    the operator sets its word in their list; until then every entry is read by the name's forms, as before.
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 
