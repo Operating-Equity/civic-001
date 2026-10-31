@@ -1361,7 +1361,7 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
     connection words, left the four locales.
   - **The readers' standby** (`server/standby.js`, `CIVIC_EVAL_STANDBY`, `model|level`, set on Render and never named
     here). A reader's claim the readers' model still fails after its own tries goes once more, by itself, to the
-    standby on Anthropic's path:
+    standby on its provider's path (Google's or Anthropic's, the ones the grid uses):
     - its answer is the reader's determination, booked, measured and charged as one;
     - only the standby's own failure reaches the reader, as the one plain sentence, never charged;
     - the ledger keeps both lines, and `/check` and the log keep why the readers' model did not answer;

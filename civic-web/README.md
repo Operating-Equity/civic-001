@@ -936,15 +936,14 @@ says nothing of it.
 
 **The readers' standby** (`server/standby.js`, 31 October, night). The operator: "it does not help you or the service to
 show that it is struggling. But it also shouldn't fail." A reader's claim that the readers' model still fails after its
-own tries goes once more, by itself, to the standby, on Anthropic's path and the operator's Anthropic key; only if that
-fails too does the reader see the one plain sentence, and it is never charged. The reader is not told a standby
-answered: the operator's card and the run's warning name both models, and `/check` and the log keep why the readers'
-model did not. The standby's answer is the reader's determination, booked, measured and charged as one. The setting is
-`CIVIC_EVAL_STANDBY`, written `model|level`, set on Render and never named here; unset, there is none; written wrong,
-the start stops, naming it; the start-up line says whether it is ready.
-The scoreboard shows the three counts and, with internal accounting on, the run's estimated cost.
-No token figure appears anywhere on the page or in what the page receives (the operator's rule of
-18 September); the ledger keeps OpenAI's usage per request.
+own tries goes once more, by itself, to the standby, on its provider's path (Google's or Anthropic's) and the operator's
+key there; only if that fails too does the reader see the one plain sentence, and it is never charged. The reader is not
+told a standby answered: the operator's card and the run's warning name both models, and `/check` and the log keep why
+the readers' model did not. The standby's answer is the reader's determination, booked, measured and charged as one. The
+setting is `CIVIC_EVAL_STANDBY`, written `model|level`, set on Render and never named here; unset, there is none;
+written wrong, the start stops, naming it; the start-up line says whether it is ready. The scoreboard shows the three
+counts and, with internal accounting on, the run's estimated cost. No token figure appears anywhere on the page or in
+what the page receives (the operator's rule of 18 September); the ledger keeps OpenAI's usage per request.
 
 ### Why the echo looks the way it does
 

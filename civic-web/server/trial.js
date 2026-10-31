@@ -45,6 +45,7 @@ export const LEVELS = {
   'claude-opus-5-5': ['high', 'xhigh', 'max'],
   'claude-fable-5-1': ['high', 'xhigh', 'max'],
   'gemini-4-argon': ['low', 'medium', 'high'],
+  'gemini-3.1-pro-preview': ['low', 'medium', 'high'],   // Google's model page: thinking at low, medium or high
   'deepseek-v4-pro': ['none', 'low', 'high', 'max'],
   'deepseek-flash': ['none', 'low', 'high', 'max'],
 };
@@ -61,7 +62,7 @@ export { isGeminiModel, isAnthropicModel };
 export const providerOf = (id) => (isDeepSeekModel(id) ? 'deepseek' : isGeminiModel(id) ? 'gemini' : isAnthropicModel(id) ? 'anthropic' : isOpenAIModel(id) ? 'openai' : null);
 
 // The names a person reads; an id the table does not know is shown as it is.
-const LABELS = { 'deepseek-v4-pro': 'DeepSeek V4 Pro', 'deepseek-flash': 'DeepSeek V4.1 Flash', 'gpt-5.6-sol': 'GPT-5.6 Sol', 'gpt-6.1-sol': 'GPT-6.1 Sol', 'gpt-6-astra': 'GPT-6 Astra', 'gemini-4-argon': 'Gemini 4 Argon', 'claude-opus-5-5': 'Claude Opus 5.5', 'claude-fable-5-1': 'Claude Fable 5.1' };
+const LABELS = { 'deepseek-v4-pro': 'DeepSeek V4 Pro', 'deepseek-flash': 'DeepSeek V4.1 Flash', 'gpt-5.6-sol': 'GPT-5.6 Sol', 'gpt-6.1-sol': 'GPT-6.1 Sol', 'gpt-6-astra': 'GPT-6 Astra', 'gemini-4-argon': 'Gemini 4 Argon', 'gemini-3.1-pro-preview': 'Gemini 3.1 Pro', 'claude-opus-5-5': 'Claude Opus 5.5', 'claude-fable-5-1': 'Claude Fable 5.1' };
 export const modelLabel = (id) => LABELS[id] || String(id || '');
 /** An entry's name: the model and its level ("GPT-6 Astra · high"). */
 export const entryLabel = (id, level) => `${modelLabel(id)} · ${level}`;

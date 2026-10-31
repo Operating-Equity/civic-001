@@ -4683,30 +4683,30 @@ await readerViewChecks();
 
 // ---- the readers' standby (31 October, night; server/standby.js) ----------------------------------------------------
 // The operator: "it does not help you or the service to show that it is struggling. But it also shouldn't fail." A
-// reader's claim the readers' model still fails goes once more, by itself, to the standby on Anthropic's path, and the
+// reader's claim the readers' model still fails goes once more, by itself, to the standby on its provider's path, and the
 // reader is not told; only the standby's own failure reaches them, as the plain sentence, and that is never charged.
 // The standby is a setting (CIVIC_EVAL_STANDBY, model|level): written wrong, the start stops, naming it.
 async function standbyChecks() {
   const SMOCK = MOCK_PORT + 140, FMOCK = MOCK_PORT + 141, P = PORT + 140, PF = PORT + 141;
-  const ANKEY = 'an-verify-key-standby-0000';   // made-up, and never in the shape of a real Anthropic key
-  const STANDBY = 'claude-fable-5-1|max';   // the guard's own choice, never the one set on Render
+  const GMKEY = 'gm-verify-key-standby-0000';   // made-up, and never in the shape of a real Google key
+  const STANDBY = 'gemini-4-argon|high';   // the guard's own choice, never the one set on Render
   const stamp = Date.now();
   const procs = [];
   try {
     const stopsOn = (value) => spawnSync(process.execPath, [path.join(root, 'server', 'index.js')], { cwd: root, timeout: 20000, encoding: 'utf8', env: { ...process.env, ...ACCOUNTS_OFF, PORT: String(PORT + 142), OPENAI_API_KEY: KEY, CIVIC_EVAL_STANDBY: value } });
-    const wrong = ['gpt-6-astra|high', 'claude-fable-5-1|low', 'claude-fable-5-1', 'claude-fable-5-1|high|max'].map(stopsOn);
-    check('a standby written wrong stops the start, naming the setting: a model not Anthropic\'s, a level the model has not, no level, two',
+    const wrong = ['gpt-6-astra|high', 'gemini-4-argon|max', 'gemini-4-argon', 'gemini-4-argon|high|low'].map(stopsOn);
+    check('a standby written wrong stops the start, naming the setting: a model neither Google\'s nor Anthropic\'s, a level the model has not, no level, two',
       wrong.every((r) => r.status !== 0 && /STOPPED: CIVIC_EVAL_STANDBY/.test(`${r.stdout}${r.stderr}`)),
       wrong.map((r) => `${r.status}: ${`${r.stdout}${r.stderr}`.split('\n').find((l) => /STOPPED/.test(l)) || ''}`).join(' | '));
 
-    // Two servers with the standby set: on one, Claude answers; on the other, Claude fails too (its credit used up).
+    // Two servers with the standby set: on one, Gemini answers; on the other, Gemini fails too (its balance used up).
     const mock = start([path.join(root, 'scripts', 'mock-openai.js')], { MOCK_PORT: String(SMOCK), MOCK_SPEED: '0.2', MOCK_EVAL_FAIL_TEXT: 'Refuse this claim', MOCK_INSPECTOR: 'Sir Edwin Cardale (geologist)', MOCK_EVAL_MARK: process.env.MOCK_EVAL_MARK_FOR_GATE || '' });
-    const mockF = start([path.join(root, 'scripts', 'mock-openai.js')], { MOCK_PORT: String(FMOCK), MOCK_SPEED: '0.2', MOCK_EVAL_FAIL_TEXT: 'Refuse this claim', MOCK_AN_CREDIT: '1,2,3,4,5,6,7,8,9,10', MOCK_EVAL_MARK: process.env.MOCK_EVAL_MARK_FOR_GATE || '' });
+    const mockF = start([path.join(root, 'scripts', 'mock-openai.js')], { MOCK_PORT: String(FMOCK), MOCK_SPEED: '0.2', MOCK_EVAL_FAIL_TEXT: 'Refuse this claim', MOCK_GM_402: '1,2,3,4,5,6,7,8,9,10', MOCK_EVAL_MARK: process.env.MOCK_EVAL_MARK_FOR_GATE || '' });
     procs.push(mock, mockF);
     await wait(`http://localhost:${SMOCK}/v1/mock/stats`, 15000, { anyResponse: true });
     await wait(`http://localhost:${FMOCK}/v1/mock/stats`, 15000, { anyResponse: true });
     const ledger = path.join(os.tmpdir(), `civic-verify-standby-ledger-${stamp}.jsonl`);
-    const envOf = (mockPort, file) => ({ ANTHROPIC_API_KEY: ANKEY, CIVIC_ANTHROPIC_BASE_URL: `http://localhost:${mockPort}/anthropic`, CIVIC_EVAL_STANDBY: STANDBY,
+    const envOf = (mockPort, file) => ({ GEMINI_API_KEY: GMKEY, CIVIC_GEMINI_BASE_URL: `http://localhost:${mockPort}/gemini`, CIVIC_EVAL_STANDBY: STANDBY,
       CIVIC_OPERATOR_EMAILS: 'op@example.com', CIVIC_OPERATOR_CLAIM: claimHash(), CIVIC_LIST_PRICE_CENTS: '125', CIVIC_TIER_ORDER: '1', CIVIC_LEDGER_FILE: file });
     const srv = accountServer(P, SMOCK, envOf(SMOCK, ledger));
     const srvF = accountServer(PF, FMOCK, envOf(FMOCK, path.join(os.tmpdir(), `civic-verify-standby-ledger-f-${stamp}.jsonl`)));
@@ -4715,10 +4715,10 @@ async function standbyChecks() {
     await wait(`http://localhost:${PF}/api/health`, 20000);
     const boot = srv.output();
     check('the start-up line says the standby is ready, by its model and level, and that the reader is not told',
-      /\[standby\] a reader's claim the readers' model still fails goes once more, by itself, to claude-fable-5-1 at max, on Anthropic's path; the reader is not told/.test(boot),
+      /\[standby\] a reader's claim the readers' model still fails goes once more, by itself, to gemini-4-argon at high, on Google's path; the reader is not told/.test(boot),
       (boot.split('\n').find((l) => /\[standby\]/.test(l)) || '').slice(0, 300));
 
-    const anStats = async (port) => (await fetch(`http://localhost:${port}/anthropic/mock/stats`)).json();
+    const gmStats = async (port) => (await fetch(`http://localhost:${port}/gemini/mock/stats`)).json();
     const testOn = async (base, who) => {
       const people = accountClient(base);
       const reader = (await people.signup(`standby-${who}@example.com`)).cookie;
@@ -4733,39 +4733,39 @@ async function standbyChecks() {
       return { people, reader, op, claimOn };
     };
 
-    // Claude answers.
+    // Gemini answers.
     const A = await testOn(`http://localhost:${P}`, 'a');
-    const before = (await anStats(SMOCK)).requests;
+    const before = (await gmStats(SMOCK)).requests;
     const rd = await A.claimOn(A.reader, 'reader', 'Refuse this claim, as the stand-in is told to.');
     const rDone = rd.ev.find((e) => e.t === 'done');
     check('a reader\'s claim the readers\' model fails goes once more to the standby, by itself: delivered whole, charged once, as any claim; the reader is told nothing of it (no error, warning, retry, standby or model)',
       Boolean(rDone?.verdict) && (rDone.text || '').length > 100 && !rd.ev.some((e) => e.t === 'error' || e.t === 'warning' || e.t === 'retry')
-        && !['standby', 'fellBack', 'model', 'requested', 'provider', 'effort'].some((k) => k in rDone) && rd.charged === 125 && (await anStats(SMOCK)).requests > before
-        && !/claude|anthropic|standby/i.test(JSON.stringify(rd.ev)),
+        && !['standby', 'fellBack', 'model', 'requested', 'provider', 'effort'].some((k) => k in rDone) && rd.charged === 125 && (await gmStats(SMOCK)).requests > before
+        && !/gemini|argon|standby|asks to wait/i.test(JSON.stringify(rd.ev)),
       JSON.stringify({ types: rd.ev.map((e) => e.t), charged: rd.charged, keys: Object.keys(rDone || {}) }));
     const od = await A.claimOn(A.op, 'operator', 'Refuse this claim, as the stand-in is told to.');
     const oDone = od.ev.find((e) => e.t === 'done');
     check('the operator is told which model answered and which was asked: the warning and the finished claim name the standby',
-      od.ev.some((e) => e.t === 'warning' && e.code === 'model_fallback' && e.used === 'claude-fable-5-1') && oDone?.standby === true && oDone.model === 'claude-fable-5-1' && oDone.effort === 'max'
-        && oDone.fellBack?.used === 'claude-fable-5-1' && !od.ev.some((e) => e.t === 'error'),
+      od.ev.some((e) => e.t === 'warning' && e.code === 'model_fallback' && e.used === 'gemini-4-argon') && oDone?.standby === true && oDone.model === 'gemini-4-argon' && oDone.effort === 'high'
+        && oDone.fellBack?.used === 'gemini-4-argon' && !od.ev.some((e) => e.t === 'error'),
       JSON.stringify({ warning: od.ev.find((e) => e.t === 'warning'), model: oDone?.model, fellBack: oDone?.fellBack }));
     const lines = (fs.existsSync(ledger) ? fs.readFileSync(ledger, 'utf8') : '').split('\n').filter(Boolean).map((l) => JSON.parse(l));
     const sbLines = lines.filter((l) => l.kind === 'evaluate' && l.standby === true);
-    check('the ledger keeps both: the readers\' model\'s failure, and the standby\'s determination as a reader\'s (kind evaluate, Anthropic\'s, its model and level)',
-      lines.some((l) => l.kind === 'evaluate' && l.ok === false) && sbLines.length >= 2 && sbLines.every((l) => l.ok === true && l.provider === 'anthropic' && l.model === 'claude-fable-5-1' && l.effort === 'max'),
+    check('the ledger keeps both: the readers\' model\'s failure, and the standby\'s determination as a reader\'s (kind evaluate, Google\'s, its model and level)',
+      lines.some((l) => l.kind === 'evaluate' && l.ok === false) && sbLines.length >= 2 && sbLines.every((l) => l.ok === true && l.provider === 'gemini' && l.model === 'gemini-4-argon' && l.effort === 'high'),
       JSON.stringify(lines.map((l) => [l.kind, l.ok, l.provider, l.model, l.standby])));
     const plain = await A.claimOn(A.reader, 'plain', 'The Eiffel Tower stands about 330 metres tall.');
     check('a claim the readers\' model answers never goes to the standby',
       Boolean(plain.ev.find((e) => e.t === 'done')) && sbLines.length === (fs.readFileSync(ledger, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)).filter((l) => l.standby === true).length),
       '');
 
-    // Claude fails too: the one plain sentence, and nothing charged.
+    // Gemini fails too: the one plain sentence, and nothing charged.
     const F = await testOn(`http://localhost:${PF}`, 'f');
     const fr = await F.claimOn(F.reader, 'reader', 'Refuse this claim, as the stand-in is told to.');
     const fErr = fr.ev.filter((e) => e.t === 'error');
     check('when the standby fails too, the reader is told the one plain sentence, once, and is not charged; nothing else of either failure reaches them',
       fErr.length === 1 && JSON.stringify(fErr[0]) === JSON.stringify({ t: 'error', i: 0, code: 'unavailable', message: 'This claim could not be tested just now. Try again shortly.' })
-        && fr.charged === 0 && !fr.ev.some((e) => e.t === 'done' || e.t === 'warning' || e.t === 'retry') && !/claude|anthropic|credit|standby/i.test(JSON.stringify(fr.ev)),
+        && fr.charged === 0 && !fr.ev.some((e) => e.t === 'done' || e.t === 'warning' || e.t === 'retry') && !/gemini|argon|balance|standby/i.test(JSON.stringify(fr.ev)),
       JSON.stringify({ events: fr.ev.map((e) => e.t), error: fErr[0], charged: fr.charged }));
   } catch (err) {
     check('standby checks ran', false, err.stack || err.message);

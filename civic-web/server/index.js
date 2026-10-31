@@ -704,7 +704,7 @@ function banner() {
   // The readers' standby (server/standby.js): what a reader's claim the readers' model still fails goes to, once.
   const standing = standbyState();
   console.log(!standing ? '[standby] none is set (CIVIC_EVAL_STANDBY): a claim the readers\' model still fails is a failure'
-    : standing.ready ? `[standby] a reader's claim the readers' model still fails goes once more, by itself, to ${standing.model} at ${standing.effort}, on Anthropic's path; the reader is not told`
+    : standing.ready ? `[standby] a reader's claim the readers' model still fails goes once more, by itself, to ${standing.model} at ${standing.effort}, on ${standing.provider === 'gemini' ? 'Google' : 'Anthropic'}'s path; the reader is not told`
       : `[standby] ${standing.model} at ${standing.effort} is set but not ready: ${String(standing.why || '').replace(/\.$/, '')}; a claim the readers' model still fails is a failure`);
   // The operator's trial (server/trial.js): whether it can run, for the host's log. No key, nothing of anyone's.
   const trial = trialState();

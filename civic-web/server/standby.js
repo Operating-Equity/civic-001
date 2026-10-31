@@ -4,13 +4,14 @@
 // failure; the reader is never told a standby answered.
 //
 // The standby is set on Render (CIVIC_EVAL_STANDBY, written `model|level`) and never named in this repository. It runs on
-// Anthropic's path (the one the operator's trial uses for Claude), on the operator's Anthropic key. Unset, there is none,
-// and a claim the readers' model fails is a failure, as before. A setting that cannot be read stops the start, naming
-// the setting.
+// its provider's path, Google's or Anthropic's (the ones the operator's trial uses for Gemini and Claude), on the
+// operator's key there. Unset, there is none, and a claim the readers' model fails is a failure, as before. A setting
+// that cannot be read stops the start, naming the setting.
 import { config } from './config.js';
 import { providerOf, levelsOf, modelReady } from './trial.js';
 
-let standing = null;   // what the setting reads as, once loaded: { model, effort } or null
+let standing = null;   // what the setting reads as, once loaded: { provider, model, effort } or null
+const PATHS = new Set(['gemini', 'anthropic']);   // the providers whose own path a reader's claim can go once more on
 
 /** The setting read: `model|level`, or nothing. Throws, naming the setting, when it cannot be read. */
 export function readStandby(raw = config.evalStandby) {
@@ -19,10 +20,11 @@ export function readStandby(raw = config.evalStandby) {
   const parts = s.split('|').map((x) => x.trim());
   if (parts.length !== 2 || !parts[0] || !parts[1]) throw new Error('CIVIC_EVAL_STANDBY is written model|level (one model, one of its levels)');
   const [model, effort] = parts;
-  if (providerOf(model) !== 'anthropic') throw new Error('CIVIC_EVAL_STANDBY names a model that is not Anthropic\'s; the standby runs on Anthropic\'s path');
+  const provider = providerOf(model);
+  if (!PATHS.has(provider)) throw new Error('CIVIC_EVAL_STANDBY names a model that is neither Google\'s nor Anthropic\'s; the standby runs on one of their paths');
   if (!levelsOf(model).length) throw new Error('CIVIC_EVAL_STANDBY names a model whose levels FactEngine does not know (server/trial.js, LEVELS)');
   if (!levelsOf(model).includes(effort)) throw new Error(`CIVIC_EVAL_STANDBY names a level the model does not have (it has ${levelsOf(model).join(', ')})`);
-  return { model, effort };
+  return { provider, model, effort };
 }
 
 /** Reads the setting at the start; a setting that cannot be read throws, and the start stops. */
@@ -41,5 +43,5 @@ export function standbyState() {
 /** The standby a reader's claim may go to now, or null: none set, or its key missing. */
 export function readersStandby() {
   const s = standbyState();
-  return s?.ready ? { model: s.model, effort: s.effort } : null;
+  return s?.ready ? { provider: s.provider, model: s.model, effort: s.effort } : null;
 }
