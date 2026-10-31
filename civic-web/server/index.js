@@ -10,7 +10,7 @@ import multer from 'multer';
 import { config, publicConfig, requestShape } from './config.js';
 import { promptStatus, hasPrompt, promptVersions } from './prompts.js';
 import { ApiError, operatorKey, describeError } from './openai.js';
-import { readerView, readerError } from './view.js';
+import { readerView, readerError, readerCode } from './view.js';
 import { names } from './names.js';
 import { listingKey, onOwnProvider, onDeepSeek, listingHost, listingProviderName } from './listing.js';
 import { openStream } from './stream.js';
@@ -32,7 +32,7 @@ import { whereTheShellSetsIt } from './key.js';
 import { record as recordFailure } from './diagnostics.js';
 import { buildStamp } from './build.js';
 import { takeOverPort } from './port.js';
-import { gate, required as signinRequired, isOperator, sessionOf } from './access.js';
+import { gate, required as signinRequired, isOperator, sessionOf, apiNotFound } from './access.js';
 import * as accounts from './accounts.js';
 import * as credit from './credit.js';
 import { mountAccountRoutes } from './account-routes.js';
@@ -160,7 +160,8 @@ const fingerprintOf = (claim) => crypto.createHash('sha256').update(String(claim
 // FactEngine's tools for the model (server/tools): the gateway answers a provider's servers, OpenAI's with the pass
 // (CIVIC_TOOLS_PASS) and Fireworks' through a listing's own door (tools/doors.js), so it sits outside the sign-in
 // gate; with neither a pass set nor a door open, it answers no one.
-mountGateway(app, { registry, pass: config.toolsPass, version: BUILD });
+// With no pass set, it is not there at all (31 October, night): /mcp is then an address like any other that has nothing.
+if (config.toolsPass) mountGateway(app, { registry, pass: config.toolsPass, version: BUILD });
 
 // Whose work a job is: the account that started it, or nobody's on an open door (CIVIC_ACCOUNTS=off). A page attaches
 // to, stops and lets go of its own jobs and no others.
@@ -178,6 +179,15 @@ const opening = new Map();
 
 const pick = (o, keys) => Object.fromEntries(keys.filter((k) => o[k] !== undefined).map((k) => [k, o[k]]));
 
+/** Whether a request carries the private check key (config.checkKeySha256): compared by its hash, in constant time. */
+function checkKeyGiven(req) {
+  const given = String(req.get('x-check-key') || '');
+  if (!config.checkKeySha256 || !given) return false;
+  const a = crypto.createHash('sha256').update(given).digest();
+  const b = Buffer.from(config.checkKeySha256, 'hex');
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+
 app.get('/api/health', wrap(async (req, res) => {
   const session = signinRequired() ? req.account || null : null;
   const balanceCents = session ? await credit.balanceOf(session.user.id).catch(() => null) : null;
@@ -191,17 +201,21 @@ app.get('/api/health', wrap(async (req, res) => {
     grantCents: config.signupGrantCents, minChars: config.passwordMinChars, currency: config.currency,
   };
   const active = jobs.active();   // runs in flight right now, whatever their connections are doing; an update waits for zero
-  // Anyone but the operator is told what the page needs and nothing of how the work is done (server/view.js).
+  // Anyone but the operator is told what the page reads and nothing else (31 October, night): its build, its pace, whether
+  // it is ready, and their own account; not the parts it is made of, nor how busy it is. The runs in flight go to the
+  // operator, or to a request carrying the private check key (config.checkKeySha256), so a release can wait for none.
   if (!all) {
     const p = promptStatus();
     res.json({
-      ok: true, build: BUILD, active, ...pick(publicConfig(p), ['maxClaims', 'autoTestFirst', 'inFlight', 'heartbeatMs', 'findCopies']), readUrl: true,
-      prompts: { extract: Boolean(p.extract), evaluate: Boolean(p.evaluate) }, access, accounting: false, pricing, trial: null,
+      build: BUILD, ...pick(publicConfig(p), ['autoTestFirst', 'inFlight', 'heartbeatMs', 'findCopies']), ready: Boolean(p.extract && p.evaluate),
+      access: { ...access, session: session ? { balanceCents } : null },
+      ...(checkKeyGiven(req) ? { active } : {}),
     });
     return;
   }
+  const p = promptStatus();
   res.json({
-    ok: true, build: BUILD, ...publicConfig(promptStatus()), readUrl: true, acceptedSourceExt: ACCEPTED_SOURCE_EXT,
+    ok: true, build: BUILD, ...publicConfig(p), ready: Boolean(p.extract && p.evaluate), readUrl: true, acceptedSourceExt: ACCEPTED_SOURCE_EXT,
     active, access,
     accounting: config.accounting,   // FactEngine's own costs: the operator's alone
     pricing,
@@ -224,7 +238,7 @@ app.get('/api/selftest', wrap(async (req, res) => {
   // The check page is the operator's (5 October: once anyone can make an account, the key's source, the minute budget
   // and FactEngine's costs are nobody else's business). On an open door (CIVIC_ACCOUNTS=off) it is everyone's, as before.
   const operator = !signinRequired() || isOperator(req.account);
-  if (!operator) throw Object.assign(new ApiError(403, 'operator_only', 'That is for the operator\'s account.'), { expected: true });
+  if (!operator) return apiNotFound(res);   // as an address that does not exist (31 October, night)
   // The measurement (server/economics.js) is the operator's alone: the price and what it came from, the
   // tier clock, the guard, and the money per tier, per user and per window.
   const economy = operator && economics.enabled() ? await economics.report().catch((err) => ({ error: err.message })) : null;
@@ -285,7 +299,9 @@ app.post('/api/read-url', wrap(async (req, res) => {
     const out = await readUrl(url, { signal: ac.signal });
     if (!out.text || out.text.length < 20) { address = out.url || null; throw new ApiError(422, 'url_no_text', 'That address has almost no readable text.'); }
     readLine(url, [`FactEngine's reader read it (${out.text.length} characters${out.wall ? ', marked' : ''})`]);
-    res.json({ ...out, chars: out.text.length });
+    // Whether the page is of a kind the operator keeps out of the research is theirs alone (server/sites.js): never a tell.
+    const { kept, ...read } = out;
+    res.json({ ...(seesAll(req) ? out : read), chars: out.text.length });
   } catch (err) {
     if (ac.signal.aborted) return; // the page has gone (reloaded, or stopped): nothing failed
     const steps = [`FactEngine's reader: ${err?.code || 'failed'}${err?.detail ? ` (${err.detail})` : ''}`];
@@ -397,10 +413,12 @@ app.post('/api/extract', wrap(async (req, res) => {
   // A document that does not fit is refused outright. Reading part of it and saying nothing would
   // drop claims the reader believes were tested.
   if (source.truncated && !config.allowSourceTruncation) {
-    throw new ApiError(413, 'source_too_long',
-      `This document is ${source.originalChars.toLocaleString()} characters; the limit for one run is ${config.maxSourceChars.toLocaleString()}. ` +
-      `${source.omitted.toLocaleString()} characters would go unread, and any claim in them would never be tested. ` +
-      'Split the document and run the parts, raise CIVIC_MAX_SOURCE_CHARS, or set CIVIC_ALLOW_SOURCE_TRUNCATION=true to accept the loss.');
+    const sizes = `This document is ${source.originalChars.toLocaleString()} characters; the limit for one run is ${config.maxSourceChars.toLocaleString()}. `;
+    // A reader is told what they can do; the operator, also the settings that would change it (31 October, night).
+    throw Object.assign(new ApiError(413, 'source_too_long',
+      `${sizes}${source.omitted.toLocaleString()} characters would go unread, and any claim in them would never be tested. ` +
+      'Split the document and run the parts, raise CIVIC_MAX_SOURCE_CHARS, or set CIVIC_ALLOW_SOURCE_TRUNCATION=true to accept the loss.'),
+    { readerMessage: `${sizes}Split the document and run the parts.` });
   }
   const sourceWarning = source.truncated
     ? { code: 'source_truncated', omitted: source.omitted, read: source.chars, original: source.originalChars }
@@ -440,7 +458,7 @@ app.post('/api/extract', wrap(async (req, res) => {
       recordFailure({ where: 'server:listing', code: safe.code, message: safe.message, status: safe.status, detail: safe.detail || null });
       send({ t: 'error', code: safe.code, message: safe.message, status: safe.status });
     }
-  }, { owner, view: viewFor(req) }).attach(openStream(req, res), 0);
+  }, { owner, view: viewFor(req, { what: 'listing' }) }).attach(openStream(req, res), 0);
 }));
 
 app.post('/api/evaluate', wrap(async (req, res) => {
@@ -536,7 +554,7 @@ app.post('/api/evaluate', wrap(async (req, res) => {
       // A claim the request ended without a result for (the page stopped the run, the request failed): failed, nothing booked, its hold released.
       await economics.closeOpen(attempts, signal.aborted ? 'cancelled' : 'ended');
     }
-  }, { owner, view: viewFor(req, { keep: [...claims, document] }) }).attach(openStream(req, res), 0);
+  }, { owner, view: viewFor(req, { keep: [...claims, document], what: 'claim' }) }).attach(openStream(req, res), 0);
 }));
 
 // The page says stop (Start a new test, leaving the page): the jobs' model calls are aborted and the
@@ -547,7 +565,7 @@ app.post('/api/release', (req, res) => { res.json({ released: jobs.release(jobs.
 
 // The visual echo is off (19 October); while it is, the picture route is the operator's, so nobody else can spend on it.
 app.post('/api/illustrate', wrap(async (req, res) => {
-  if (!seesAll(req)) throw Object.assign(new ApiError(403, 'operator_only', 'That is for the operator\'s account.'), { expected: true });
+  if (!seesAll(req)) return apiNotFound(res);   // as an address that does not exist (31 October, night)
   const apiKey = operatorKey();
   if (!config.illustrateEnabled) return res.json({ skipped: true });
   const text = String(req.body?.text || '').trim();
@@ -610,6 +628,10 @@ app.use(`/b/${BUILD}/assets`, express.static(assetsDir, { index: false, redirect
 app.use('/assets', express.static(assetsDir, { index: false, redirect: false, immutable: true, maxAge: '7d' }));
 // An address from an older stamp is not this build's; send the reader to the current page.
 app.get(/^\/b\/[0-9a-f]{6,}\//, (req, res) => { res.setHeader('Cache-Control', 'no-store'); res.redirect(302, '/'); });
+// Any address of the API's that it does not have, and the operator's to anyone else: one answer for all (31 October,
+// night), so the operator's tools cannot be told from an address that does not exist.
+app.use('/api', (req, res) => apiNotFound(res));
+
 // The page for any address that is not the API's, in any spelling of "api": /API/anything is
 // nobody's route (routes match their case) and must not be the page either, so it is a 404.
 app.get(/^\/(?![aA][pP][iI]\/).*/, sendIndex);
@@ -628,10 +650,14 @@ app.use((err, req, res, next) => {
   // list is kept for faults. Its figures travel with it, so the page can say them in the reader's language.
   if (!err?.expected) recordFailure({ where: `server:${req.method} ${req.path}`, code: safe.code, message: safe.message, status: safe.status, detail: safe.detail || null });
   if (!(err instanceof ApiError)) console.error('[civic]', safe.status, safe.code);
-  // A failure that is not FactEngine's own refusal reaches anyone but the operator as its code alone (server/view.js).
   const body = { code: safe.code, message: safe.message, ...(safe.site ? { site: safe.site } : {}), ...(err?.extra && typeof err.extra === 'object' ? err.extra : {}) };
-  const own = err instanceof ApiError && !err.provider;
-  res.status(safe.status || 500).json({ error: own || seesAll(req) ? body : { ...readerError({ ...body, status: safe.status }), t: undefined } });
+  if (seesAll(req)) return res.status(safe.status || 500).json({ error: body });
+  // Anyone else (31 October, night): a refusal they can act on, as it is (in the reader's words where it has them); any
+  // other failure as one plain sentence for what was asked (server/view.js), its status kept.
+  const own = err instanceof ApiError && !err.provider && readerCode(safe.code);
+  const what = req.path === '/api/evaluate' ? 'claim' : req.path === '/api/extract' ? 'listing' : 'other';
+  const told = own ? { ...body, ...(err.readerMessage ? { message: err.readerMessage } : {}) } : { ...readerError({ ...body, status: safe.status }, { what }), t: undefined };
+  res.status(safe.status || 500).json({ error: told });
 });
 
 const server = http.createServer(app);

@@ -73,7 +73,7 @@ const refuse = {
   wrong: () => new ApiError(401, 'wrong_password', 'That email and password do not match.'),
   closed: () => new ApiError(403, 'account_closed', 'This account is closed. Write to support@operatingequity.ai.'),
   resetInvalid: () => new ApiError(400, 'reset_invalid', 'This link has been used or has run out. Write to support@operatingequity.ai for a new one.'),
-  claimInvalid: () => new ApiError(400, 'claim_invalid', 'This link has been used or is not the operator\'s.'),
+  claimInvalid: () => new ApiError(400, 'claim_invalid', 'This link has been used or is not valid.'),
   wait: (seconds, code = 'tries_wait') => Object.assign(new ApiError(429, code, `Too many tries. Try again in ${Math.max(1, Math.ceil(seconds / 60))} minutes.`), { extra: { waitSeconds: Math.ceil(seconds) } }),
 };
 
@@ -328,7 +328,8 @@ export async function view(user) {
   const { end } = credit.monthOf(at);
   const [balanceCents, monthSpentCents] = await Promise.all([credit.balanceOf(user.id), credit.monthSpent(user.id, at)]);
   return {
-    email: user.email, createdAt: new Date(user.createdAt).toISOString(), operator: Boolean(user.operator),
+    // The operator's flag only on the operator's own account: nobody else's says there is one (31 October, night).
+    email: user.email, createdAt: new Date(user.createdAt).toISOString(), ...(user.operator ? { operator: true } : {}),
     balanceCents, monthlyLimitCents: user.monthlyLimitCents, monthSpentCents, monthEndsAt: new Date(end).toISOString(),
     currency: config.currency, grantCents: config.signupGrantCents,
   };

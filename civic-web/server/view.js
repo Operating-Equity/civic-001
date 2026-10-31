@@ -8,9 +8,11 @@
 // - each research step's tool is a plain word (search, open, find, read, transcript), with its question and address;
 // - the model is "LLR" on the page, with no name and no level (31 October: "The users do not care what level the model
 //   is run at. They care about the answers.");
-// - a provider's own words for a failure or a wait keep their sense, with model ids, companies, hosts and accounts named
-//   no more.
-// Fields no page shows are not sent: where a verdict was read, the request's own settings, the key's minute figures.
+// - a provider's own words for a wait keep their sense, with model ids, companies, hosts and accounts named no more; a
+//   failure is told as it is only when a reader can act on it (the document, the credit, a link), and any other as one
+//   plain sentence (31 October, night).
+// Fields no page shows are not sent: where a verdict was read, the request's own settings, the key's minute figures, the
+// price's tier.
 // Nor is what is the operator's alone: which sources and steps are of a site the operator keeps out of the research, and
 // how many a fact-check took from that list (server/sites.js), so the list is never a tell.
 //
@@ -38,12 +40,38 @@ export function maskProviders(text) {
     .replace(COMPANIES, 'the model service').replace(/[ \t]{2,}/g, ' ').trim();
 }
 
-/** A failure as a reader receives it: its code and its words, with the services' names replaced. */
-export function readerError(ev) {
+// The refusals a reader can act on (31 October, night: "Faults a reader can act on stay specific, in plain words"):
+// a sign-in, the document, the credit, a link or a file, the account's own. Any other failure is FactEngine's own (a key,
+// a model, a prompt, a provider, a fault) and a reader receives one plain sentence for it, whatever it was; the
+// operator receives the true one, on their page and on /check.
+const READER_CODES = new Set([
+  'signin_required', 'cross_site', 'json_only', 'bad_body', 'too_large', 'LIMIT_FILE_SIZE', 'not_found',
+  'too_short', 'no_claims', 'too_many_claims', 'source_too_long', 'no_file', 'empty_document', 'unsupported_file',
+  'credit_short', 'month_limit', 'already_tested', 'not_your_job', 'books_wait',
+  'email_invalid', 'email_taken', 'password_short', 'password_long', 'terms_required', 'wrong_password', 'account_closed',
+  'reset_invalid', 'claim_invalid', 'tries_wait', 'signups_wait', 'no_account', 'limit_invalid', 'accounts_off',
+]);
+/** Whether a reader is told this refusal as it is: one they can act on, or a link's (every url_… code). */
+export const readerCode = (code) => READER_CODES.has(String(code)) || /^url_/.test(String(code));
+
+// The plain sentence for any other failure, by what was asked: a claim's test (the operator's words of 31 October),
+// the listing, or anything else.
+export const UNAVAILABLE = {
+  claim: 'This claim could not be tested just now. Try again shortly.',
+  listing: 'The claims could not be listed just now. Try again shortly.',
+  other: 'This could not be done just now. Try again shortly.',
+};
+
+/**
+ * A failure as a reader receives it: a refusal they can act on keeps its code and its words, with the services' names
+ * replaced; any other is `unavailable`, with the plain sentence for what was asked (`what`: claim, listing or other).
+ */
+export function readerError(ev, { what = 'other' } = {}) {
   const raw = String(ev?.code || 'failed');
+  const at = ev?.i !== undefined ? { i: ev.i } : {};
+  if (!readerCode(raw)) return { t: 'error', ...at, code: 'unavailable', message: UNAVAILABLE[what] || UNAVAILABLE.other };
   return {
-    t: 'error', ...(ev?.i !== undefined ? { i: ev.i } : {}),
-    code: /openai|deepseek|gemini|google|fireworks|exa|supadata/i.test(raw) ? 'failed' : raw,
+    t: 'error', ...at, code: raw,
     message: maskProviders(ev?.message || ''),
     ...(Number.isInteger(ev?.status) ? { status: ev.status } : {}),
     ...(ev?.extra && typeof ev.extra === 'object' ? ev.extra : {}),
@@ -86,7 +114,7 @@ function readerRanking(r) {
  * bar); the entry itself, its thinking and its steps' details arrive with the finished claim, the inspector's name made
  * the mark wherever it stands for the inspector, but in the words the reader gave (`keep`: the claims and the document).
  */
-export function readerView({ keep = [] } = {}) {
+export function readerView({ keep = [], what = 'other' } = {}) {
   // Read when a claim finishes, once for the run, so a long document is read once and not for every text masked.
   let read = null;
   const keptOf = () => (read ??= keptWords((Array.isArray(keep) ? keep : [keep]).filter(Boolean).join('\n')));
@@ -95,7 +123,12 @@ export function readerView({ keep = [] } = {}) {
   return (ev) => {
     if (!ev || typeof ev !== 'object') return null;
     switch (ev.t) {
-      case 'pricing': case 'quote': case 'claim': case 'progress': case 'summary': case 'batch-progress': case 'complete':
+      case 'pricing': {
+        // The price as the page shows it; not the tier it was read from (31 October, night).
+        const { tier, ...price } = ev;
+        return price;
+      }
+      case 'quote': case 'claim': case 'progress': case 'summary': case 'batch-progress': case 'complete':
         return ev;
       case 'source':
         return { ...ev, source: readerSource(ev.source) };
@@ -160,7 +193,8 @@ export function readerView({ keep = [] } = {}) {
           };
         }
       case 'error':
-        return readerError(ev);
+        // A claim's failure is said as the claim's; the run's, as what the run was (the listing, or the claims' tests).
+        return readerError(ev, { what: ev.i !== undefined ? 'claim' : what });
       default:
         return null;   // the key's minute figures, and anything new: the operator's until it is listed here
     }

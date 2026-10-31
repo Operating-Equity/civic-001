@@ -440,9 +440,10 @@ with one entry in the existing `tools` list beside web search when `CIVIC_TOOLS_
 both set (neither is on the service), and nothing else changes: the prompts go byte for byte, and whether the
 model calls a tool is the model's decision. The listing names no tool on any provider (24 October): it reads the
 document it is given and nothing else. Until then a listing on Fireworks named the tool server as its only tool,
-through a door of its own in the address, `/mcp/t/<door>` (`server/tools/doors.js`), since Fireworks' servers forward
-no header of the entry's; the doors remain, and no listing opens one. No pass goes to Fireworks, and nothing new is pasted. At `/mcp` itself the gateway answers OpenAI's pass and
-no other; neither the pass nor a door appears in any record, page or line of output.
+through a door of its own in the address, since Fireworks' servers forward no header of the entry's; that door is
+gone (31 October), as no listing opened one. At `/mcp` the gateway answers OpenAI's pass and no other, and with no pass
+set it is not there at all: `/mcp` is then an address like any other that has nothing. The pass appears in no record,
+page or line of output.
 
 The tools are **verbs**, few and stable (`server/tools/verbs.js`): `read_page`, `get_transcript` and
 `search_web` today; `search_law`, `get_case`, `search_filings`, `get_financials`,
@@ -859,7 +860,13 @@ event of a run as it is made. Anyone else receives every output of their run, un
 view applied where the job records each event, so a page that reconnects or reads a finished run again receives the
 same: the entry, the verdict, the confidence, the sources cited, the reasoning summary, the research log with each
 step's question and address, the listing as written, and a work log counted in plain words ("4 searches · 2 pages read
-· 2 sources cited"). `/api/health` tells anyone but the operator only what the page needs. The names, and the headings
+· 2 sources cited"). `/api/health` tells anyone but the operator only what the page reads: its build, its pace, whether
+it is ready, and their own balance; the runs in flight go to the operator, or to a request carrying a private check key
+whose SHA-256 is `CIVIC_CHECK_KEY_SHA256`. A failure a reader can act on (the document, the credit, a link, a file, the
+account) is told as it is; any other is one plain sentence, "This claim could not be tested just now. Try again
+shortly.", or its like for the listing, and the true one stays on the operator's page and `/check`. The operator's
+addresses (`/api/selftest`, `/api/illustrate`, `/api/operator/…`) answer anyone else as an address that does not exist.
+The names, and the headings
 an entry is read by, are kept with the prompts (`CIVIC_OUTPUT_NAMES`, or `CIVIC_OUTPUT_NAMES_FILE`;
 `server/names.js`), FactEngine's own words unless set; a list that cannot be read stops the start, naming the key and
 never a word of it, and `/check` names the list by its fingerprint. When the entry writes the inspector's name in a

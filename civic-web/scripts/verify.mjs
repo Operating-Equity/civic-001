@@ -710,6 +710,7 @@ const PASSWORD = 'correct horse battery';
 const ACCT_TEXT = 'The Eiffel Tower stands about 330 metres tall. Water boils at 100 degrees Celsius at sea level. Mount Everest is 8,849 metres above sea level. The Pacific is the largest ocean on Earth. Light from the Sun takes about eight minutes to reach the Earth.';
 const CLAIM_TOKEN = 'verify-operator-claim-token-0123456789abcdef';
 const claimHash = () => crypto.createHash('sha256').update(CLAIM_TOKEN).digest('hex');
+const CHECK_KEY = 'verify-check-key-0123456789abcdef';   // the private check key, invented (server/index.js checkKeyGiven)
 
 function accountClient(base) {
   const json = async (pathname, { method = 'GET', body, cookie, headers = {} } = {}) => {
@@ -776,8 +777,8 @@ async function accountChecks(label, dbUrl) {
       JSON.stringify({ status: up.status, flags, cookies: up.setCookies, session: up.body?.session }));
     const reader = up.cookie;
     const h1 = await c.json('/api/health', { cookie: reader });
-    check(`accounts (${label}): the health line then names the reader, their balance and that they are not the operator, and shows a reader no costs`,
-      h1.body?.access?.session?.email === 'Reader@Example.com' && h1.body.access.session.balanceCents === 1000 && h1.body.access.session.operator === false && h1.body.accounting === false, JSON.stringify(h1.body?.access));
+    check(`accounts (${label}): the health line then gives the reader their balance, and nothing else of the account: no operator's flag, no costs (31 October, night)`,
+      JSON.stringify(h1.body?.access?.session) === '{"balanceCents":1000}' && !('accounting' in (h1.body || {})), JSON.stringify(h1.body?.access));
 
     const taken = await c.signup('reader@EXAMPLE.com', 'another long one');
     const short = await c.signup('b@example.com', 'short');
@@ -793,8 +794,8 @@ async function accountChecks(label, dbUrl) {
     const claim = await c.json('/api/account/claim', { method: 'POST', body: { token: CLAIM_TOKEN, email: 'op@example.com', password: PASSWORD, agree: true } });
     const again = await c.json('/api/account/claim', { method: 'POST', body: { token: CLAIM_TOKEN, email: 'op2@example.com', password: PASSWORD, agree: true } });
     const op = claim.cookie;
-    check(`accounts (${label}): the operator's one-time link makes the operator's account once: a wrong link and a second use are refused (400 claim_invalid)`,
-      wrongClaim.status === 400 && wrongClaim.body?.error?.code === 'claim_invalid' && claim.status === 200 && claim.body?.session?.operator === true && again.status === 400 && again.body?.error?.code === 'claim_invalid',
+    check(`accounts (${label}): the operator's one-time link makes the operator's account once: a wrong link and a second use are refused (400 claim_invalid), in words that name no operator`,
+      wrongClaim.status === 400 && wrongClaim.body?.error?.code === 'claim_invalid' && wrongClaim.body.error.message === 'This link has been used or is not valid.' && claim.status === 200 && claim.body?.session?.operator === true && again.status === 400 && again.body?.error?.code === 'claim_invalid',
       JSON.stringify([wrongClaim.body, claim.body, again.body]));
     const opSelf = await c.json('/api/selftest', { cookie: op });
     const rdSelf = await c.json('/api/selftest', { cookie: reader });
@@ -802,9 +803,16 @@ async function accountChecks(label, dbUrl) {
     const rdList = await c.json('/api/operator/accounts', { cookie: reader });
     const opHealth = await c.json('/api/health', { cookie: op });
     const rdTry = await c.json('/api/operator/try-link', { method: 'POST', body: { url: 'https://example.com/' }, cookie: reader });
-    check(`accounts (${label}): /check and the operator's tools are the operator's: 200 with the accounts for them, 403 operator_only for a reader (Try a link too); the costs are shown to the operator alone`,
-      opSelf.status === 200 && Boolean(opSelf.body?.checks) && rdSelf.status === 403 && rdSelf.body?.error?.code === 'operator_only' && opList.status === 200 && opList.body?.accounts?.length === 2 && rdList.status === 403 && rdTry.status === 403 && opHealth.body?.accounting === true,
-      JSON.stringify({ opSelf: opSelf.status, rdSelf: rdSelf.status, opList: opList.body?.accounts?.length, rdList: rdList.status, rdTry: rdTry.status, acc: opHealth.body?.accounting }));
+    const rdNone = await c.json('/api/operator/no-such-tool', { cookie: reader });
+    const rdNowhere = await c.json('/api/no-such-address', { cookie: reader });
+    // Not even a request that is not JSON tells a reader the operator's address is there: it is Not found before it is read.
+    const rdForm = await fetch(`${base}/api/operator/try-link`, { method: 'POST', headers: { 'content-type': 'text/plain', cookie: reader }, body: 'x' });
+    const rdFormBody = await rdForm.json().catch(() => null);
+    const notFound = (r) => r.status === 404 && JSON.stringify(r.body) === '{"error":{"code":"not_found","message":"Not found."}}';
+    check(`accounts (${label}): /check and the operator's tools are the operator's: 200 with the accounts for them; to a reader they are "Not found", as an address that does not exist (31 October, night), Try a link too; the costs are shown to the operator alone`,
+      opSelf.status === 200 && Boolean(opSelf.body?.checks) && notFound(rdSelf) && opList.status === 200 && opList.body?.accounts?.length === 2 && notFound(rdList) && notFound(rdTry) && notFound(rdNone) && notFound(rdNowhere) && opHealth.body?.accounting === true
+        && notFound({ status: rdForm.status, body: rdFormBody }),
+      JSON.stringify({ opSelf: opSelf.status, rdSelf: rdSelf.body, opList: opList.body?.accounts?.length, rdList: rdList.body, rdTry: rdTry.body, rdNone: rdNone.body, rdNowhere: rdNowhere.body, rdForm: [rdForm.status, rdFormBody], acc: opHealth.body?.accounting }));
 
     const wrong = await c.signin('reader@example.com', 'not the password');
     const unknown = await c.signin('nobody@example.com', 'not the password');
@@ -2471,8 +2479,8 @@ async function deepseekChecks() {
     const operatorCookie = (await people.json('/api/account/claim', { method: 'POST', body: { token: CLAIM_TOKEN, email: 'op@example.com', password: PASSWORD, agree: true } })).cookie;
     const asReader = await people.json('/api/selftest', { cookie: readerCookie });
     const asOperator = ((await people.json('/api/selftest', { cookie: operatorCookie })).body?.checks || []).find((x) => /DeepSeek account can pay/.test(x.title));
-    check('DeepSeek: a reader cannot open /check at all (403 operator_only); the operator\'s shows the balance',
-      asReader.status === 403 && asReader.body?.error?.code === 'operator_only' && /Balance 12\.34 USD/.test(asOperator?.detail || ''), JSON.stringify({ reader: asReader.status, operator: asOperator }));
+    check('DeepSeek: a reader cannot open /check at all (Not found, as an address that does not exist); the operator\'s shows the balance',
+      asReader.status === 404 && asReader.body?.error?.code === 'not_found' && /Balance 12\.34 USD/.test(asOperator?.detail || ''), JSON.stringify({ reader: asReader.status, operator: asOperator }));
 
     // No key, no request: provider DeepSeek with DEEPSEEK_API_KEY unset refuses the listing before anything is sent.
     const before = dsEntries().length;
@@ -2867,8 +2875,8 @@ async function trialChecks() {
     const op = (await people.json('/api/account/claim', { method: 'POST', body: { token: CLAIM_TOKEN, email: 'op@example.com', password: PASSWORD, agree: true } })).cookie;
     const hReader = (await people.json('/api/health', { cookie: reader })).body;
     const hOp = (await people.json('/api/health', { cookie: op })).body;
-    check('Trial: a reader\'s health line offers no trial; the operator\'s does',
-      hReader?.trial === null && hOp?.trial?.ready === true, JSON.stringify({ reader: hReader?.trial, operator: hOp?.trial?.ready }));
+    check('Trial: a reader\'s health line offers no trial, nor names one; the operator\'s does',
+      Boolean(hReader) && !('trial' in hReader) && hOp?.trial?.ready === true, JSON.stringify({ reader: hReader?.trial, operator: hOp?.trial?.ready }));
     const listAndTest = async (cookie, who, extra) => {
       const runId = `tr-${who}-run-${stamp}`;
       await people.stream('/api/extract', { jobId: runId, text: ACCT_TEXT }, cookie);
@@ -4204,9 +4212,9 @@ async function fireworksChecks() {
     // The stand-in, ready to call a tool server as Fireworks' servers do, was named none; no door was opened.
     const knock = async (url) => (await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} }) })).status;
     const callsA = records().filter((r) => r.path === '/mcp-client' && r.style === 'fireworks');
-    const afterA = { never: await knock(`${base}/mcp/t/${'0'.repeat(48)}`), bare: await knock(`${base}/mcp`) };
-    check('Fireworks: the stand-in Fireworks never reached FactEngine\'s tool server, since the listing named none; a door never opened and /mcp itself are refused (401, no pass is set)',
-      callsA.length === 0 && afterA.never === 401 && afterA.bare === 401,
+    const afterA = { never: await knock(`${base}/mcp/t/${'0'.repeat(48)}`), bare: await knock(`${base}/mcp`), nowhere: await knock(`${base}/no-such-place`) };
+    check('Fireworks: the stand-in Fireworks never reached FactEngine\'s tool server, since the listing named none; with no pass set there is no tool server at all: /mcp and a door are answered as an address that does not exist (31 October, night)',
+      callsA.length === 0 && afterA.never === 404 && afterA.bare === 404 && afterA.nowhere === 404,
       JSON.stringify({ calls: callsA.length, afterA }));
     const textA = bodyA?.input?.[0]?.content?.[0]?.text;
     if (slot) {
@@ -4486,7 +4494,7 @@ async function readerViewChecks() {
       MOCK_EVAL_FAIL_MESSAGE: `The request to ${config.evalModels[0]} was refused by OpenAI (api.openai.com) in organization org-mock0000000000000000000: the stand-in refuses this claim on purpose.` });
     procs.push(mock);
     await wait(`http://localhost:${MOCKR}/v1/mock/stats`, 15000, { anyResponse: true });
-    const srv = accountServer(P, MOCKR, { CIVIC_OPERATOR_EMAILS: 'op@example.com', CIVIC_OPERATOR_CLAIM: claimHash(), CIVIC_LIST_PRICE_CENTS: '125', CIVIC_TIER_ORDER: '1', CIVIC_EVAL_MODELS: `gpt-missing-x,${config.evalModels[0]}` });
+    const srv = accountServer(P, MOCKR, { CIVIC_OPERATOR_EMAILS: 'op@example.com', CIVIC_OPERATOR_CLAIM: claimHash(), CIVIC_LIST_PRICE_CENTS: '125', CIVIC_TIER_ORDER: '1', CIVIC_EVAL_MODELS: `gpt-missing-x,${config.evalModels[0]}`, CIVIC_CHECK_KEY_SHA256: crypto.createHash('sha256').update(CHECK_KEY).digest('hex') });
     procs.push(srv.child);
     await wait(`http://localhost:${P}/api/health`, 20000);
     const base = `http://localhost:${P}`;
@@ -4603,15 +4611,23 @@ async function readerViewChecks() {
     const hAnon = (await people.json('/api/health')).body;
     const hReader = (await people.json('/api/health', { cookie: reader })).body;
     const hOp = (await people.json('/api/health', { cookie: op })).body;
-    const READER_HEALTH = ['ok', 'build', 'active', 'maxClaims', 'autoTestFirst', 'inFlight', 'heartbeatMs', 'findCopies', 'readUrl', 'prompts', 'access', 'accounting', 'pricing', 'trial'];
-    check('/api/health tells anyone but the operator what the page needs and nothing of how the work is done: no models, efforts, request keys or prompt shapes; the operator\'s, all of it',
-      [hAnon, hReader].every((h) => Object.keys(h || {}).every((k) => READER_HEALTH.includes(k)) && JSON.stringify(Object.keys(h.prompts || {})) === '["extract","evaluate"]'
-        && !JSON.stringify(h).includes(config.evalModels[0]) && !JSON.stringify(h).includes('gpt-missing-x') && h.trial === null && h.accounting === false)
-        && hOp?.models?.evaluate === 'gpt-missing-x' && Boolean(hOp?.request),
-      JSON.stringify({ anon: Object.keys(hAnon || {}), reader: Object.keys(hReader || {}), operator: hOp?.models?.evaluate }));
+    // 31 October, night: only what the page reads. Not the runs in flight, the price's tier, the parts it is made of.
+    const READER_HEALTH = ['build', 'autoTestFirst', 'inFlight', 'heartbeatMs', 'findCopies', 'ready', 'access'];
+    check('/api/health tells anyone but the operator what the page reads and nothing else: its build, pace and readiness and their own balance; no runs in flight, no prices\' tier, no models, efforts, request keys or prompt shapes; the operator\'s, all of it',
+      [hAnon, hReader].every((h) => JSON.stringify(Object.keys(h || {}).sort()) === JSON.stringify([...READER_HEALTH].sort()) && h.ready === true
+        && !JSON.stringify(h).includes(config.evalModels[0]) && !JSON.stringify(h).includes('gpt-missing-x'))
+        && hAnon.access.session === null && JSON.stringify(Object.keys(hReader.access.session || {})) === '["balanceCents"]'
+        && hOp?.models?.evaluate === 'gpt-missing-x' && Boolean(hOp?.request) && typeof hOp?.active === 'number' && hOp?.ready === true,
+      JSON.stringify({ anon: Object.keys(hAnon || {}), reader: Object.keys(hReader || {}), session: hReader?.access?.session, operator: hOp?.models?.evaluate }));
+    // The private check key: its hash set, a request carrying the key is told the runs in flight; a wrong one, nothing.
+    const keyed = async (key) => (await fetch(`http://localhost:${P}/api/health`, { headers: key ? { 'x-check-key': key } : {} })).json();
+    const [withKey, wrongKey] = [await keyed(CHECK_KEY), await keyed(`${CHECK_KEY}x`)];
+    check('the private check key: a request carrying it is told the runs in flight on the health line, as the operator is; a wrong key is told nothing more than anyone',
+      typeof withKey.active === 'number' && !('active' in wrongKey) && JSON.stringify(Object.keys(wrongKey).sort()) === JSON.stringify([...READER_HEALTH].sort()),
+      JSON.stringify({ withKey: Object.keys(withKey), wrongKey: Object.keys(wrongKey) }));
     const ill = await people.json('/api/illustrate', { method: 'POST', body: { text: ACCT_TEXT }, cookie: reader });
-    check('the picture route is the operator\'s while the echo is off: a reader is refused (403) before anything is asked',
-      ill.status === 403 && ill.body?.error?.code === 'operator_only', JSON.stringify({ status: ill.status, body: ill.body }));
+    check('the picture route is the operator\'s while the echo is off: to a reader it is Not found, as an address that does not exist, before anything is asked',
+      ill.status === 404 && ill.body?.error?.code === 'not_found', JSON.stringify({ status: ill.status, body: ill.body }));
     const st = (await people.json('/api/selftest', { cookie: op })).body;
     check('/check says the entries are read by FactEngine\'s own words when no list is set, and how a reader sees an inspector',
       (st?.checks || []).some((c) => c.title === 'The entries are read by their headings' && /FactEngine's own words/.test(c.detail) && /Inspector B for an Albert/.test(c.detail)), '');
@@ -4803,10 +4819,16 @@ async function pagesChecks() {
     // operator's wording of 4 October, unchanged; no vendor named.
     const privacy = await page('/privacy');
     const terms = await page('/terms');
-    check('/privacy and /terms: the listing\'s provider processes data in China and may use a small de-identified part of the inputs unless we opt out; the search provider may receive the model\'s searches and the address of a link our reader cannot read; the transfer to those countries',
-      privacy.text.includes('A model provider that lists the claims in what you submit: it processes the documents you submit and may search the web while doing so. It processes data in China, and its terms allow it to use a small part of the inputs it receives, de-identified, to improve its models unless we opt out.')
-        && privacy.text.includes('A model provider that produces the determinations') && privacy.text.includes('A search provider, which may receive the searches a model makes while listing claims and, when our own reader cannot read a link&#39;s page, the link&#39;s address, to read that page through the provider&#39;s own reader or to find a licensed copy elsewhere.')
-        && privacy.text.includes('Our servers are in the United States, and the model provider that lists claims processes data in China; by using the Service you understand your information is transferred to those countries')
+    // The operator's minimum (31 October, night): who receives information, by kind, and nothing that is not required;
+    // no provider's country, so switching models needs no edit.
+    check('/privacy and /terms: the service providers by kind, each for its part (artificial-intelligence providers, a search provider for a link\'s page, a transcript provider, the video platform, hosting, payment); no country but the servers\', no training clause, no two-step description; the transfer in the operator\'s words',
+      privacy.text.includes('We share information only with service providers that help us run the Service, each for its part and under its own terms:')
+        && privacy.text.includes('<li>artificial-intelligence providers, which process the documents and claims you submit to produce your results;</li>')
+        && privacy.text.includes('<li>a search provider, which may receive the address of a link you submit, to read that page or find a copy of it elsewhere;</li>')
+        && privacy.text.includes('<li>a hosting provider, which runs the Service and its database;</li>')
+        && privacy.text.includes('<li>a payment processor, which handles payment when payment is enabled; it holds your card details, which we never see.</li>')
+        && privacy.text.includes('Our servers are in the United States, and our service providers may process information in other countries; by using the Service you understand your information is transferred there, and we rely on the standard contractual clauses or another lawful mechanism for those transfers where required.')
+        && !/China|lists the claims|improve its models|opt out/.test(privacy.text)
         && terms.text.includes('search the web while doing so, themselves or through our search provider; a search provider performs the searches a model asks for and may be asked to read a page our reader cannot read, or to find a licensed copy of it elsewhere;'),
       '');
     const home = await page('/');

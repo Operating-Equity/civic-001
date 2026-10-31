@@ -229,6 +229,10 @@ export const config = {
   // Every source's own key is that source's setting, named in its adapter, never here.
   toolsUrl: env('CIVIC_TOOLS_URL', ''),
   toolsPass: env('CIVIC_TOOLS_PASS', ''),
+  // The SHA-256 (hex) of a private check key (31 October, night): a request carrying the key (header x-check-key) is
+  // told the runs in progress on the health line, as the operator is, so a release can wait for none without a
+  // sign-in. Only its hash is set here; the key itself is kept by whoever runs the release, never in this repository.
+  checkKeySha256: /^[0-9a-f]{64}$/i.test(env('CIVIC_CHECK_KEY_SHA256', '').trim()) ? env('CIVIC_CHECK_KEY_SHA256', '').trim().toLowerCase() : '',
   // The tool server's address as a listing on Fireworks names it (see PUBLIC_URL above), before the listing's door is
   // added to it: CIVIC_TOOLS_URL when set, else the service's own address.
   gatewayUrl: (env('CIVIC_TOOLS_URL', '') || (PUBLIC_URL ? `${PUBLIC_URL}/mcp` : '')).replace(/\/+$/, ''),
