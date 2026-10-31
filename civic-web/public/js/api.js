@@ -74,7 +74,7 @@ export const signin = ({ email, password }) => post('api/account/signin', { emai
 export const signout = () => post('api/account/signout', {});
 export const signoutAll = () => post('api/account/signout-all', {});
 export const resetPassword = ({ token, password }) => post('api/account/reset', { token, password });
-export const claimOperator = ({ token, email, password, agree }) => post('api/account/claim', { token, email, password, agree });
+export const claimAccount = ({ token, email, password, agree }) => post('api/account/claim', { token, email, password, agree });
 export const account = () => get('api/account');
 export const activity = (before) => get(`api/account/activity${before ? `?before=${encodeURIComponent(before)}` : ''}`);
 export const setLimit = (cents) => post('api/account/limit', { cents });
@@ -269,20 +269,10 @@ export function extract({ jobId, text, source, signal, onEvent, onCut, onAttache
   return streamNdjson('api/extract', { jobId, text, source }, { signal, onEvent, onCut, onAttached, isEnd: (ev) => ev.t === 'done' || ev.t === 'error' });
 }
 
-export function evaluate({ jobId, claims, text, source, runId, n, model, effort, signal, onEvent, onCut, onAttached }) {
+export function evaluate({ jobId, claims, text, source, runId, n, extra = {}, signal, onEvent, onCut, onAttached }) {
   // A determination's story ends when the server closes the batch, or with an error for the run itself.
   // The run's name and the claim's number go with it, so the server can say whether this one is free.
-  // `model` and `effort` are the operator's trial (server/trial.js); the server ignores them from anyone else.
-  return streamNdjson('api/evaluate', { jobId, claims, text, source, runId: runId || undefined, n: Number.isInteger(n) ? n : undefined, model: model || undefined, effort: effort || undefined }, { signal, onEvent, onCut, onAttached, isEnd: (ev) => ev.t === 'complete' || (ev.t === 'error' && ev.i === undefined) });
-}
-
-export async function illustrate({ text, signal }) {
-  const res = await call('api/illustrate', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ text }),
-    signal,
-  });
-  if (!res.ok) await throwFromResponse(res);
-  return res.json();
+  // `extra`: what the page's additions ask of the run (on the operator's page, server/trial.js); the server reads it from
+  // no one else. It never takes the place of the request's own fields.
+  return streamNdjson('api/evaluate', { ...extra, jobId, claims, text, source, runId: runId || undefined, n: Number.isInteger(n) ? n : undefined }, { signal, onEvent, onCut, onAttached, isEnd: (ev) => ev.t === 'complete' || (ev.t === 'error' && ev.i === undefined) });
 }

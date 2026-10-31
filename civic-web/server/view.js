@@ -188,7 +188,7 @@ export function readerView({ keep = [], what = 'other' } = {}) {
             text: maskEntry(ev.text || '', { name, keep: kept }),
             reasoning: ev.reasoning ? told(ev.reasoning, name, kept) : null,
             trail: (ev.trail || []).map((s) => readerStep(s, name, kept)),
-            fellBack: ev.fellBack ? { standby: true } : null,
+            standby: Boolean(ev.standby),   // a standby model answered: said, never which
             incomplete: ev.incomplete || null,
           };
         }

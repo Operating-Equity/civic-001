@@ -15,8 +15,9 @@ const NOTICE = /^\s*!|@license|@preserve|copyright|licen[cs]e/i;
 // The classic scripts among the page's files: the worker js/field.js starts without type: 'module'. Every other script
 // is a module.
 export const CLASSIC = new Set(['js/field-worker.js']);
-// The operator's files: the check page and its script, by their names under public/, in any spelling.
-export const OPERATOR_ONLY = new Set(['check.html', 'js/check.js']);
+// The operator's files: the check page and its script, and their tools on the main page (31 October, night), by their
+// names under public/, in any spelling.
+export const OPERATOR_ONLY = new Set(['check.html', 'js/check.js', 'js/op.js', 'css/op.css']);
 
 const KINDS = { '.js': 'js', '.mjs': 'js', '.css': 'css', '.html': 'html' };
 /** What a file is by its name: js, css or html; null for anything else (a font, a picture). */
@@ -200,7 +201,10 @@ export function withoutOperatorParts(src, { where = 'a page' } = {}) {
 export function stampAddresses(html, build) {
   return html
     .replace(/(href=")(css\/[^"]+\.css")/g, `$1/b/${build}/$2`)
-    .replace(/(src=")(js\/app\.js")/g, `$1/b/${build}/$2`);
+    .replace(/(src=")(js\/app\.js")/g, `$1/b/${build}/$2`)
+    // A script named by an address (the operator's tools, loaded by the page script): at the same build's address, so it
+    // and the page script are of one build.
+    .replace(/(href=")(js\/[a-z]+\.js")/g, `$1/b/${build}/$2`);
 }
 
 /**

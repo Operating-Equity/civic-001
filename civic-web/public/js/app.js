@@ -23,13 +23,14 @@ const workOf = (trail) => {
 };
 const searchCount = (trail) => workOf(trail).searches;
 const GLYPH = { true: '✓', false: '✕', unverified: '?', unread: '–' };
-// The operator's words (the key's minute, the costs, the trial's labels): on the operator's page alone (index.html,
-// #op-words), in English, filled in as the locales' are. Anywhere else, nothing.
-const opWord = (key, params = {}) => {
-  const text = document.getElementById('op-words')?.dataset[key];
-  return text ? fill(text, params) : '';
+// Additions to this page, put here before it starts when the page names them (see the end of this file). Without them
+// each does nothing, which is all there is on most pages.
+const ext = {
+  start() {}, reset() {}, again: () => false, choices: () => null, runsFor: () => [], paint() {}, tools: () => ({ block: false, hint: [] }),
+  title: () => '', ask: () => ({}), event: () => false, waitLine: () => '', stepLine: () => '', listingDone() {}, cardDone() {},
+  retrying() {}, logParts() {}, foot() {}, named: () => [], mark: () => [], warning: () => '', failureLink: () => '', score() {},
+  shown() {}, signOut() {},
 };
-const TRIAL_KEY = 'fe.trial';   // where this browser remembers the operator's ticked models and levels (renderTrialBar)
 
 /** A connection failure in the reader's language, from the operating system's code; the server's own words otherwise. */
 function netWords(code, why) {
@@ -42,7 +43,6 @@ const state = {
   phase: 'idle',
   server: null,        // /api/health payload, or null when no server answers
   session: null,       // { email } once a code has been accepted, when a sign-in is required
-  accounting: false,   // operator view: the estimated cost per claim, once the health line says so
   source: '',
   warnings: [],   // anything that could have cost a claim, shown at the top of the run
   claims: [],
@@ -59,8 +59,6 @@ const state = {
   batch: { start: 0, size: 0, done: 0 },
   counts: { true: 0, false: 0, unverified: 0 },
   unread: 0,
-  cost: 0,
-  unpriced: false,
   abort: null,
   timers: [],
   extractStartedAt: 0,
@@ -72,10 +70,7 @@ const state = {
   runId: '',           // this run's name; every job of the run is named after it
   extractJob: '',      // the extraction's job at the server (server/jobs.js)
   jobs: new Set(),     // every job of this run the server may still hold: cancelled on reset, on leaving
-  trialChoice: loadTrialChoice(),   // the operator's trial: { ticked: ['model|level', …] }, remembered in this browser
-  entryTally: new Map(),            // this run's determinations per ticked entry, for the operator's scoreboard: label → counts
   evalStartedAt: 0,
-  gate: null,          // the key's minute figures, from the server, once OpenAI has given them
   pricing: null,       // this run's prices, from the server: { tier, freeFacts, priceCents, currency, note }; null = nothing priced
   creditStop: null,    // a claim the reader's credit or monthly limit could not cover: { code, balanceCents, priceCents, limitCents }; no more start
   status: { step1: null, step2: null },
@@ -95,7 +90,7 @@ function cacheElements() {
     runSection: $('#run'), runWarnings: $('#run-warnings'),
     step1: $('#step-extract'), step1Status: $('#step1-status'), bar1: $('#bar-extract'),
     step1Thinking: $('#step1-thinking'), step1ThinkingSummary: $('#step1-thinking-summary'), step1ThinkingBody: $('#step1-thinking-body'),
-    step2: $('#step-eval'), step2Title: $('#step2-title'), step2Status: $('#step2-status'), step2Gate: $('#step2-gate'), bar2: $('#bar-eval'),
+    step2: $('#step-eval'), step2Title: $('#step2-title'), step2Status: $('#step2-status'), bar2: $('#bar-eval'),
     echo: $('#echo'), echoImg: $('#echo-img'), echoShimmer: $('#echo-shimmer'), echoFrame: $('#echo .echo-frame'), rail: $('.rail'),
     intakeLede: $('.intake-lede'), intakeSlow: $('.intake-slow'),
     intake: $('#intake'), intakeSummary: $('#intake-summary'), intakeSummaryText: $('#intake-summary-text'), showText: $('#btn-show-text'),
@@ -104,11 +99,10 @@ function cacheElements() {
     beyond: $('#claims-beyond'), beyondTitle: $('#claims-beyond-title'), beyondList: $('#claims-beyond-list'), beyondHint: $('#claims-beyond-hint'),
     showRest: $('#btn-show-rest'), setAside: $('#claims-set-aside'), summary: $('#summary'), summaryBody: $('#summary-body'),
     selectAll: $('#btn-select-all'), testSelected: $('#btn-test-selected'),
-    trialBar: $('#trial-bar'), trialGrid: $('#trial-grid'), trialWhy: $('#trial-why'), scoreEntries: $('#score-entries'),
     claimsRaw: $('#claims-raw'), claimsRawSummary: $('#claims-raw-summary'), claimsRawBody: $('#claims-raw-body'),
     scoreboard: $('#scoreboard'), scoreTrue: $('#score-true'), scoreFalse: $('#score-false'), scoreUnv: $('#score-unverified'),
     scoreUnread: $('#score-unread'), scoreUnreadWrap: $('#score-unread-wrap'),
-    scoreInternal: $('#score-internal'), scoreCost: $('#score-cost'), report: $('#btn-report'),
+    report: $('#btn-report'),
     buildStamp: $('#build-stamp'),
     results: $('#results'), resetTop: $('#btn-reset-top'), reset: $('#btn-reset'),
     langSelect: $('#lang-select'), signin: $('#btn-signin'), signup: $('#btn-signup'), signout: $('#btn-signout'),
@@ -190,19 +184,7 @@ async function boot() {
   // press is the operator's setting, and the rest is the reader's). The report button still says
   // reports come later.
   ui.testSelected.addEventListener('click', testSelected);
-  // The operator's trial (server/trial.js): each model and level is an entry they tick, any number at once, remembered in
-  // this browser; each ticked entry is a card of its own for every claim chosen. Its grid is on the operator's page alone
-  // (server/assets.js).
-  if (ui.trialBar) {
-    ui.trialGrid.addEventListener('change', (e) => {
-      const box = e.target.closest('input[data-entry]');
-      if (!box) return;
-      const ticked = new Set(state.trialChoice.ticked);
-      if (box.checked) ticked.add(box.dataset.entry); else ticked.delete(box.dataset.entry);
-      state.trialChoice.ticked = [...ticked];
-      saveTrialChoice(); renderBeyondTools();
-    });
-  }
+  ext.start();
   ui.report.addEventListener('click', () => toast(t('report.soon')));
   // Leaving the page is the one way, besides Start a new test, that a run is stopped: the server
   // keeps working through a cut connection, so it has to be told when nobody will come back.
@@ -221,7 +203,6 @@ async function boot() {
   try {
     state.server = await api.health();
     if (ui.buildStamp && state.server?.build) ui.buildStamp.textContent = `build ${state.server.build}`;
-    state.accounting = Boolean(state.server.accounting);
     state.session = state.server.access?.session || null;
     pageBuild = OWN_BUILD || state.server?.build || null;
     if (noteBuild(state.server, { atLoad: true })) return;
@@ -407,7 +388,6 @@ async function signedIn(session) {
     const h = await api.health();
     state.server = h;
     state.session = h.access?.session || state.session;
-    state.accounting = Boolean(h.accounting);
   } catch { /* the session stands; the line is read again later */ }
   renderNav();
   renderBeyondTools();
@@ -421,8 +401,7 @@ async function signedIn(session) {
 async function signOut() {
   try { await api.signout(); } catch { /* the cookie is gone either way */ }
   state.session = null;
-  state.accounting = false;
-  if (state.server) state.server.trial = null;
+  ext.signOut();
   if (followAccount({ now: true })) return;
   renderNav();
   renderBeyondTools();
@@ -482,8 +461,8 @@ function followBuild() {
   return looking;
 }
 function followAccount({ now }) {
-  const operatorPage = Boolean(document.getElementById('op-words'));
-  pageStale = (!required() || Boolean(state.session?.operator)) !== operatorPage;
+  const fuller = Boolean(document.getElementById('ext-script'));   // the page of the operator's account, its additions named
+  pageStale = (!required() || Boolean(state.session?.operator)) !== fuller;
   if (!pageStale || !now || !quiet()) return false;
   reloadPage({ keepText: true });
   return true;
@@ -824,7 +803,6 @@ async function startRun() {
   if (!state.server.ready) { toast(t('errors.prompt'), { error: true }); return; }
 
   resetRunState();
-  state.accounting = Boolean(state.server?.accounting);
   state.source = text;
   state.phase = 'extracting';
   field.setPhase('extracting');
@@ -847,8 +825,7 @@ async function startRun() {
   // A video source takes the picture's place with its player; otherwise the picture, when asked for.
   if (state.video) showVideo(state.video);
   // The visual echo is off on the operator's word of 19 October: "Just comment it out for now until I decide whether
-  // and when to ask for it back." To bring it back, uncomment this line and the checkbox in index.html.
-  // else if (ui.optEcho.checked) startEcho(text);
+  // and when to ask for it back." Its code left this file on 31 October (night); it is in the history to bring back.
   await runExtraction(text);
 }
 
@@ -856,8 +833,7 @@ function newResult() {
   return {
     status: 'pending', phase: 'pending', text: '', reasoning: '', chars: 0, startedAt: 0,
     verdict: null, verdictSource: 'none', confidence: null, inspector: null, inspectorMark: null,
-    usage: null, cost: null, ms: null, trail: [], sources: [], incomplete: null,
-    listed: null, keptOut: null,  // the operator's alone: what the fact-check took from their list of sites kept out (server/sites.js)
+    ms: null, trail: [], sources: [], incomplete: null, standby: false,
     jobId: null, cutFrom: null,   // the claim's job at the server, and what the row said before its connection was cut
     free: null, priceCents: null, // what the server said this one costs: one of the document's free ones, or the price
   };
@@ -876,9 +852,8 @@ function resetRunState() {
   state.timers = [];
   Object.assign(state, {
     phase: 'idle', warnings: [], claims: [], claimsRaw: '', beyond: [], cards: [], results: [], extraction: null, echo: null,
-    batch: { start: 0, size: 0, done: 0 }, counts: { true: 0, false: 0, unverified: 0 }, unread: 0, entryTally: new Map(),
-    cost: 0, unpriced: false,
-    extractStartedAt: 0, extractChars: 0, found: 0, extractWait: null, extractQueued: null, extractCut: false, runId: '', extractJob: '', evalStartedAt: 0, gate: null, pricing: null, status: { step1: null, step2: null },
+    batch: { start: 0, size: 0, done: 0 }, counts: { true: 0, false: 0, unverified: 0 }, unread: 0,
+    extractStartedAt: 0, extractChars: 0, found: 0, extractWait: null, extractQueued: null, extractCut: false, runId: '', extractJob: '', evalStartedAt: 0, pricing: null, status: { step1: null, step2: null },
     rankRun: false, ranking: null, rankedRun: null, summaryText: '', showRest: false, streamed: 0,
   });
   hideSummary();
@@ -903,7 +878,7 @@ function resetRunState() {
   setStep(ui.step1, 'idle'); setBar(ui.bar1, 0);
   setStep(ui.step2, 'idle'); setBar(ui.bar2, 0);
   setStatus('step1', null); setStatus('step2', null);
-  renderGateLine();
+  ext.reset();
   ui.step2Title.textContent = autoFirst() > 0 ? t('step2.title', { n: autoFirst() }) : t('step2.choose');
   renderScoreboard();
 }
@@ -960,19 +935,19 @@ function updateEvalStatus() {
   const running = state.results.filter((r) => r.status === 'running').length;
   // A claim waiting to go again (whether or not it had started: a refusal at the door comes before the start).
   const retrying = (r) => r.phase === 'retry' && r.status !== 'done' && r.status !== 'error';
-  // A claim waiting for the connection to OpenAI is neither working nor held by the key's minute.
+  // A claim waiting for the connection to the model service is neither working nor held by its turn.
   const unreachable = state.results.filter((r) => retrying(r) && r.retryReason === 'connection');
-  // A claim a provider has asked to wait (Gemini, on the operator's trial) is waiting for that provider, not its turn.
-  const provider = state.results.filter((r) => retrying(r) && r.retryReason === 'rate_limit' && r.retryWho);
-  // A claim held at the gate has not started; one waiting to go again has, but is not working.
-  const throttled = state.results.filter((r) => r.phase === 'queued' || (retrying(r) && r.retryReason !== 'connection' && !r.retryWho)).length;
   const working = state.results.filter((r) => r.status === 'running' && r.phase !== 'queued' && r.phase !== 'retry').length;
   const elapsed = fmtSeconds(Date.now() - state.evalStartedAt);
+  // A wait the service named itself in (`who`), said by the hooks' line when they have one; else a turn like any other.
+  const said = ext.stepLine({ working, retrying, elapsed });
+  // A claim held for its turn has not started; one waiting to go again has, but is not working.
+  const throttled = state.results.filter((r) => r.phase === 'queued' || (retrying(r) && r.retryReason !== 'connection' && !(said && r.who))).length;
   if (unreachable.length) {
     const w = unreachable[0];
     setStatus('step2', 'step2.unreachable', { running: working, n: unreachable.length, why: netWords(w.retryCode, w.retryWhy), done: state.batch.done, total: state.batch.size, time: elapsed });
-  } else if (provider.length) {
-    setStatus('step2', 'step2.waitingProvider', { running: working, n: provider.length, who: provider[0].retryWho, done: state.batch.done, total: state.batch.size, time: elapsed });
+  } else if (said) {
+    ui.step2Status.textContent = said;
   } else if (throttled) {
     setStatus('step2', 'step2.throttled', { running: working, n: throttled, done: state.batch.done, total: state.batch.size, time: elapsed });
   } else if (running) {
@@ -980,16 +955,6 @@ function updateEvalStatus() {
   } else {
     setStatus('step2', 'step2.progress', { done: state.batch.done, total: state.batch.size });
   }
-}
-
-/** The key's minute figures, in OpenAI's own numbers, once the gate has them: how many
-    determinations start at once and how often one more can. */
-function renderGateLine() {
-  const g = state.gate;
-  if (!ui.step2Gate) return;
-  if (!g) { ui.step2Gate.hidden = true; ui.step2Gate.textContent = ''; return; }
-  ui.step2Gate.hidden = false;
-  ui.step2Gate.textContent = opWord('gate', { limit: fmtNumber(g.limit), cost: fmtNumber(g.cost), atOnce: g.atOnce, every: Math.max(1, Math.round(g.everyMs / 1000)) });
 }
 
 function renderWarnings() {
@@ -1001,8 +966,9 @@ function renderWarnings() {
     if (state.failure.detail && state.failure.detail !== state.failure.message) {
       li.append(el('span', { class: 'run-failure-detail', text: ` ${state.failure.detail}` }));
     }
-    if (!required() || state.session?.operator) {
-      const link = el('a', { text: t('errors.checkLink'), class: 'run-failure-link' });
+    const words = ext.failureLink();
+    if (words) {
+      const link = el('a', { text: words, class: 'run-failure-link' });
       link.href = 'check';
       li.append(document.createTextNode(' '), link);
     }
@@ -1011,18 +977,11 @@ function renderWarnings() {
   rows.push(...state.warnings.map((w) => {
     let text;
     if (w.code === 'source_truncated') text = t('warn.sourceTruncated', { n: fmtNumber(w.omitted), read: fmtNumber(w.read) });
-    else if (w.code === 'model_fallback') text = t('warn.modelFallback', { used: w.used, requested: w.requested });
     else if (w.code === 'fallback') text = t('warn.fallback');
-    else text = w.code;
+    else text = ext.warning(w) || w.code;
     return el('li', { text });
   }));
   ui.runWarnings.replaceChildren(...rows);
-}
-
-function addCost(cost) {
-  if (!cost) return;
-  state.cost += cost.usd || 0;
-  if (cost.priced === false) state.unpriced = true;
 }
 
 // ---------- the run's jobs at the server ------------------------------------------------------
@@ -1225,7 +1184,7 @@ function finishExtraction(ev) {
   renderClaimsHeadings();
   buildBeyondRows();
   renderClaimsRaw();
-  addCost(ev.cost);
+  ext.listingDone(ev);
 
   setStep(ui.step1, 'done');
   ui.bar1.classList.remove('is-waiting');   // the ranking's waiting stripes, gone with it
@@ -1381,18 +1340,10 @@ function buildBeyondRows() {
 /**
  * A claim that can be chosen now. Claims are chosen while others are being tested (26 October, the operator: "once I
  * have done a fact check … I cannot click on the remaining facts … I like to do it one at a time"); only the listing
- * holds them. On the operator's page a claim tested already can be chosen again, to run on more models (their answer);
- * on a reader's page each test is charged, so a claim is tested once.
+ * holds them. A claim is tested once, unless the hooks say it can run again (`ext.again`).
  */
-const choosable = (b) => !b.tested || Boolean(trialOffer());
+const choosable = (b) => !b.tested || ext.again();
 const listing = () => state.phase === 'extracting';
-/**
- * The ticked entries a claim has not run on yet (27 October): a claim tested again runs only on the models and levels it
- * has not run on, so a second press never repeats a model on a claim (the operator's answer, after one claim ran three
- * times on each of eight entries). A card running, done or failed counts; a failed one is tried again on its own card.
- */
-const newRuns = (b, entries) => entries.filter((e) => !b.ran?.has(entryKey(e)));
-
 /** The checkboxes follow the state; a tested row is a row like any other. */
 function syncBeyondRows() {
   for (const item of state.beyond) {
@@ -1414,94 +1365,17 @@ function renderBeyondTools() {
   ui.selectAll.hidden = fresh.length === 0;
   ui.selectAll.disabled = busy;
   ui.selectAll.textContent = t(allSelected ? 'claims.clearAll' : 'claims.selectAll');
-  // The operator's page runs only what they ticked: with nothing ticked, nothing runs, and the hint says why (25 October:
-  // no hidden default). A reader's page has no trial and runs the readers' model.
-  const untick = Boolean(trialOffer()) && !trialRuns().length;
-  // On the operator's page, the determinations a press would start: none when every ticked entry has run on the claims.
-  const starts = trialOffer() && !untick ? open.filter((b) => b.selected).reduce((n, b) => n + newRuns(b, trialRuns()).length, 0) : null;
-  const allRan = selected > 0 && starts === 0;
+  // The hooks may hold the button back, and say why under it.
+  const { block, hint } = ext.tools(open);
   ui.testSelected.hidden = open.length === 0;
-  ui.testSelected.disabled = selected === 0 || busy || untick || allRan;
+  ui.testSelected.disabled = selected === 0 || busy || block;
   // The button says how many, never what they cost: the price is said once, above the claims (the operator, 6 October).
   ui.testSelected.textContent = t('claims.testSelected', { n: selected });
   renderBalanceLine(selected);
-  const hint = [];
-  if (untick) hint.push(opWord('tickOne'));
-  else if (allRan) hint.push(opWord('allRan'));
-  else {
-    if (starts) hint.push(opWord('newRuns', { n: starts }));
-    if (!pricingNow() && state.accounting && averageCost() !== null) hint.push(opWord('avgCost', { usd: fmtUsd(averageCost()) }));
-  }
   ui.beyondHint.textContent = hint.join(' ');
   renderPriceLine();
-  renderTrialBar();
+  ext.paint();
   renderRestToggle();
-}
-
-// ---------- the operator's trial: every model at every level, each ticked entry a card of its own (25 October) ----------
-
-function loadTrialChoice() {
-  // A choice from before 25 October (one model, side by side) is not carried over: nothing is ticked until the operator ticks.
-  try { const v = JSON.parse(localStorage.getItem(TRIAL_KEY) || '{}'); return { ticked: Array.isArray(v.ticked) ? v.ticked.map(String) : [] }; }
-  catch { return { ticked: [] }; }
-}
-function saveTrialChoice() {
-  try { localStorage.setItem(TRIAL_KEY, JSON.stringify(state.trialChoice)); } catch { /* a private window: the ticks last the page */ }
-}
-
-/** The trial the server offers this page (the operator's alone), or null. */
-const trialOffer = () => (ui.trialBar ? state.server?.trial || null : null);   // the grid is on the operator's page alone
-
-/** The entries as the server offers them, one per model and level, each saying whether it can run here and if not, why. */
-const trialEntries = () => trialOffer()?.entries || [];
-const entryKey = (e) => `${e.model}|${e.effort}`;
-
-/**
- * What the next claims run on: null on a reader's page (the readers' determination), else the ticked entries the server
- * offers and that can run, in the grid's order: [{ model, effort, label }]. An entry no longer offered drops out.
- */
-function trialRuns() {
-  if (!trialOffer()) return null;
-  const ticked = new Set(state.trialChoice.ticked);
-  return trialEntries().filter((e) => e.ready && ticked.has(entryKey(e))).map((e) => ({ model: e.model, effort: e.effort, label: e.label }));
-}
-
-/** The grid: one row per model, a tick box per level; a model that cannot run is shown, its boxes off, its reason below. */
-function renderTrialBar() {
-  if (!ui.trialBar) return;
-  const offer = trialOffer();
-  const open = state.beyond.some((b) => choosable(b));
-  ui.trialBar.hidden = !offer || !open;
-  if (ui.trialBar.hidden) return;
-  const busy = listing();   // the ticks change while cards run: the next claim runs on what is ticked then
-  const ticked = new Set(state.trialChoice.ticked);
-  const shape = offer.models.map((m) => `${m.id}:${m.ready}:${m.efforts.join(',')}`).join('|');
-  if (ui.trialGrid.dataset.shape !== shape) {
-    ui.trialGrid.dataset.shape = shape;
-    ui.trialGrid.replaceChildren(...offer.models.filter((m) => m.efforts.length).map((m) => el('div', { class: 'trial-row' }, [
-      el('span', { class: 'trial-name', text: m.label }),
-      ...m.efforts.map((e) => el('label', { class: 'trial-tick' }, [el('input', { type: 'checkbox', 'data-entry': `${m.id}|${e}`, disabled: !m.ready }), el('span', { text: e })])),
-    ])));
-  }
-  for (const box of ui.trialGrid.querySelectorAll('input[data-entry]')) {
-    const entry = trialEntries().find((e) => entryKey(e) === box.dataset.entry);
-    box.checked = Boolean(entry?.ready) && ticked.has(box.dataset.entry);
-    box.disabled = busy || !entry?.ready;
-  }
-  const whys = [...new Set(offer.models.filter((m) => !m.ready && m.why).map((m) => m.why))];
-  ui.trialWhy.hidden = !whys.length;
-  ui.trialWhy.textContent = whys.join(' ');
-}
-
-/** A claim's card for an entry: the claim's own row card for the first entry, a card of its own under it for each other,
- *  each headed with its entry ("GPT-6 Astra · high"). */
-function entryCard(b, label, after) {
-  const card = after ? buildCard(b, b.n) : b.node;
-  $('.card-claim', card).prepend(el('span', { class: 'card-entry mono', text: label }), el('br'));
-  if (!after) return card;
-  card.classList.add('is-entry');
-  after.closest('li').after(el('li', { class: 'is-entry' }, [card]));
-  return card;
 }
 
 /** The price, said once above the claims: "Each fact-check is $1.25.", the document's free ones when it has any, and the operator's note. */
@@ -1536,8 +1410,8 @@ function renderBalanceLine(selected) {
       : t('credit.stopped', { balance: fmtMoney(s.balanceCents), price: fmtMoney(s.priceCents) });
     return;
   }
-  // The operator's trial is never charged, so the balance holds nothing back.
-  const covers = Number.isFinite(bal) && price && !trialRuns()?.length ? freeRemaining() + Math.floor(Math.max(0, bal) / price.priceCents) : null;
+  // Runs the hooks choose are never charged, so the balance holds nothing back.
+  const covers = Number.isFinite(bal) && price && !ext.choices()?.length ? freeRemaining() + Math.floor(Math.max(0, bal) / price.priceCents) : null;
   if (covers !== null && selected > covers) {
     ui.testSelected.disabled = true;
     ui.balanceLine.hidden = false;
@@ -1581,9 +1455,9 @@ async function testSelected() {
   if (listing()) return;
   const chosen = state.beyond.filter((b) => choosable(b) && b.selected);
   if (!chosen.length) return;
-  // On the operator's page each claim runs on every ticked entry, each a card of its own under the claim (25 October).
-  const entries = trialRuns();
-  if (entries && !entries.length) return;
+  // The hooks may choose what the claims run on (`ext.choices`); none chosen of a choice offered runs nothing.
+  const chosenRuns = ext.choices();
+  if (chosenRuns && !chosenRuns.length) return;
   state.creditStop = null;   // a new choice, perhaps after credit was added: tried again from the start
   // The selection runs at the server's pace (one claim per request, `inFlight` of them at once, the next starting as
   // one ends): thirty chosen claims run ten at a time with no pause between tens. Until 3 October they ran in batches of
@@ -1591,36 +1465,24 @@ async function testSelected() {
   const runs = [];
   const nodes = [];
   const ran = [];
-  const labels = new Set();
+  const tags = new Set();
   for (const b of chosen) {
     b.selected = false;
-    if (!entries) { runs.push(claimOf(b)); nodes.push(b.node); ran.push(b); continue; }
-    // A claim tested before (the operator's page) runs only on what it has not run on, its new cards under its last one;
-    // its earlier cards stay. A claim with nothing new to run on is left as it is.
-    const todo = newRuns(b, entries);
-    if (!todo.length) continue;
-    b.ran = b.ran || new Set();
-    let last = b.tested ? b.lastCard : null;
-    for (const e of todo) {
-      b.ran.add(entryKey(e));
-      labels.add(e.label);
-      runs.push({ ...claimOf(b), trial: { model: e.model, effort: e.effort }, entry: e.label });
-      last = entryCard(b, e.label, last);
-      nodes.push(last);
+    if (!chosenRuns) { runs.push(claimOf(b)); nodes.push(b.node); ran.push(b); continue; }
+    // Each run the hooks make of a claim comes with its card; a claim with nothing new to run is left as it is.
+    const made = ext.runsFor(b, chosenRuns);
+    if (!made.length) continue;
+    for (const { run, node } of made) {
+      if (run.tag) tags.add(run.tag);
+      runs.push(run);
+      nodes.push(node);
     }
-    b.lastCard = last;
     ran.push(b);
   }
   for (const b of ran) b.tested = true;
   syncBeyondRows();
   if (!runs.length) return;
-  await runBatch(runs, nodes, { claims: ran.map((b) => b.n), entries: [...labels] });
-}
-
-function averageCost() {
-  const done = state.results.filter((r) => r.status === 'done' && r.cost?.priced);
-  if (!done.length) return null;
-  return done.reduce((s, r) => s + (r.cost.usd || 0), 0) / done.length;
+  await runBatch(runs, nodes, { claims: ran.map((b) => b.n), tags: [...tags] });
 }
 
 // ---------- step 2: one batch of determinations ---------------------------------------------------
@@ -1628,17 +1490,17 @@ function averageCost() {
 /**
  * Claims to test: a test of their own, or, while one is under way, more for it (26 October). The test's cards are one
  * run of indexes from `start`; its queue is shared, and its workers, never more than the server's pace, take from it
- * until it is empty. The last worker to stop closes the test. `claims` names the claims chosen and `entries` the
- * operator's ticked entries, for step 2's title.
+ * until it is empty. The last worker to stop closes the test. `claims` names the claims chosen and `tags` what the
+ * hooks named their runs, for step 2's title.
  */
-async function runBatch(claims, nodes, { claims: chosen = null, entries = [] } = {}) {
+async function runBatch(claims, nodes, { claims: chosen = null, tags = [] } = {}) {
   const from = state.cards.length;
   state.cards.push(...claims);
   for (const _ of claims) state.results.push(newResult());
   nodes.forEach((node, k) => { node.dataset.index = String(from + k); node.dataset.state = 'pending'; syncCardHead(node); });
   const adding = state.phase === 'evaluating' && Boolean(state.batch?.queue);
   if (!adding) {
-    state.batch = { start: from, size: 0, done: 0, claims: new Set(), entries: new Set(), queue: [], workers: 0, tick: null };
+    state.batch = { start: from, size: 0, done: 0, claims: new Set(), tags: new Set(), queue: [], workers: 0, tick: null };
     state.phase = 'evaluating';
     field.setPhase('evaluating');
     state.evalStartedAt = Date.now();
@@ -1656,7 +1518,7 @@ async function runBatch(claims, nodes, { claims: chosen = null, entries = [] } =
   const indexes = claims.map((_, k) => from + k);
   batch.size += claims.length;
   for (const id of chosen || indexes) batch.claims.add(id);
-  for (const e of entries) batch.entries.add(e);
+  for (const tag of tags) batch.tags.add(tag);
   batch.queue.push(...indexes);
 
   renderStep2Title();
@@ -1722,7 +1584,7 @@ async function runClaim(i, signal, { keepGoing = () => true, onSettled = () => {
     try {
       await api.evaluate({
         jobId: job, claims: [claim.text], text: state.source, source: state.sourceMeta, signal, onEvent,
-        model: claim.trial?.model, effort: claim.trial?.effort,   // the operator's trial; the server ignores them from anyone else
+        extra: ext.ask(claim),   // what the hooks ask of the run; the server reads it from no one else
         runId: state.extractJob, n: Number.isInteger(claim.n) ? claim.n : i + 1,   // the run is its extraction's job at the server, which is what the row is filed under; so the server can say whether this one is free
         // Whatever the row was saying (queued at the gate, inspecting, writing), it says the connection
         // was cut until a new one is open, then goes back to what it was saying.
@@ -1764,7 +1626,7 @@ async function runClaim(i, signal, { keepGoing = () => true, onSettled = () => {
 function handleEvalEvent(ev, mapIndex) {
   if (ev.t === 'error' && ev.i === undefined) { failRun(ev); return; }
   if (ev.t === 'warning') { addWarning(ev); return; }
-  if (ev.t === 'gate') { state.gate = ev; renderGateLine(); return; }
+  if (ext.event(null, ev, null)) return;   // an event the hooks take whole
   if (ev.t === 'batch-start') return;
   if (ev.t === 'batch-progress') {
     state.batch.done = Math.max(state.batch.done, ev.completed);
@@ -1776,6 +1638,7 @@ function handleEvalEvent(ev, mapIndex) {
   const i = mapIndex(ev.i);
   const r = state.results[i];
   if (!r) return;
+  ext.event(i, ev, r);
   switch (ev.t) {
     case 'start':
       r.status = 'running'; r.phase = 'starting'; r.startedAt = Date.now(); r.text = ''; r.reasoning = ''; r.chars = 0;
@@ -1803,15 +1666,13 @@ function handleEvalEvent(ev, mapIndex) {
     case 'note': if (ev.code === 'no_reasoning_summary') r.noSummary = true; break;
     case 'retry':
       r.phase = 'retry'; r.retryAttempt = ev.attempt; r.retryStatus = ev.status ?? null;
-      // A provider's own wait (Gemini, on the operator's trial) names who asks it and when it ends, so a wait that
-      // arrives late, after a cut, still ends when the provider said.
+      // A wait says when it ends, so a wait that arrives late, after a cut, still ends when it was said to.
       r.retryReason = ev.reason || null; r.retryUntil = Number.isFinite(ev.until) ? ev.until : Date.now() + (ev.waitMs || 0);
       r.retryCode = ev.code || null; r.retryWhy = ev.why || null; r.retrySince = ev.since || Date.now();
-      r.retryWho = ev.who || null;
       renderCardStatus(i); updateEvalStatus();
       break;
     case 'done': finalizeCard(i, ev); break;
-    case 'error': r.status = 'error'; r.phase = 'error'; r.error = ev.message; r.errorCode = ev.code || null; r.errorWho = ev.who || null; setCardState(i, 'error'); renderCardStatus(i); renderCardError(i); tallyEntry(i, 'failed'); renderScoreboard(); break;
+    case 'error': r.status = 'error'; r.phase = 'error'; r.error = ev.message; r.errorCode = ev.code || null; setCardState(i, 'error'); renderCardStatus(i); renderCardError(i); renderScoreboard(); break;
     default: break;
   }
 }
@@ -1978,17 +1839,18 @@ function renderCardStatus(i) {
   const card = cardOf(i);
   const map = { pending: 'card.pending', starting: 'card.starting', reasoning: 'card.reasoning', inspecting: 'card.reasoning', searching: 'card.searching', reading: 'card.reading', writing: 'card.writing', reconnecting: 'card.reconnecting', error: 'card.error' };
   let text;
-  // The provider's own words for its wait, on a line of their own under the bar: a long reason never squeezes the status.
-  const providerWait = r.phase === 'retry' && r.retryReason === 'rate_limit' && r.retryWho;
+  // A wait the service named itself in, said by the hooks' line when they have one, its own words on a line of their
+  // own under the bar (where the card has one): a long reason never squeezes the status.
+  const waitLine = r.phase === 'retry' && r.retryReason === 'rate_limit' && r.who ? ext.waitLine(r) : '';
   const why = $('.card-why', card);
   if (why) {
-    why.textContent = providerWait ? r.retryWhy || '' : '';
-    why.hidden = !(providerWait && r.retryWhy);
+    why.textContent = waitLine ? r.retryWhy || '' : '';
+    why.hidden = !(waitLine && r.retryWhy);
   }
   if (r.phase === 'queued') {
     const s = r.queuedUntil ? Math.max(0, Math.ceil((r.queuedUntil - Date.now()) / 1000)) : 0;
     text = t('card.queued') + (s > 0 ? ` · ${s} s` : '');
-  } else if (providerWait) text = t('card.waitingProvider', { who: r.retryWho, time: fmtSeconds(Math.max(0, (r.retryUntil || 0) - Date.now())), clock: fmtClock(r.retryUntil || Date.now()) });
+  } else if (waitLine) text = waitLine;
   else if (r.phase === 'retry' && r.retryReason === 'rate_limit') text = t('card.waitingLimit', { s: Math.max(0, Math.ceil(((r.retryUntil || 0) - Date.now()) / 1000)) });
   else if (r.phase === 'retry' && r.retryReason === 'connection') text = t('card.waitingConnection', { why: netWords(r.retryCode, r.retryWhy), time: fmtSeconds(Date.now() - (r.retrySince || Date.now())) });
   else if (r.phase === 'retry') text = t('card.retry', { n: r.retryAttempt || 1 });
@@ -2002,10 +1864,7 @@ function renderEntry(i) {
   const entry = $('.entry', cardOf(i));
   entry.innerHTML = renderMarkdown(r.text); // the complete text, never a slice of it
   renderMath(entry);                          // and its formulas as mathematics, not as broken prose
-  // The operator's class for the inspector's name (server/names.js), highlighted on their page (31 October, evening). A
-  // reader's entry has no class: the server gives it the mark.
-  const hl = String(state.server?.hl || '').toLowerCase();
-  if (hl) for (const node of entry.querySelectorAll('span[class]')) if (node.className.toLowerCase().split(/\s+/).includes(hl)) node.classList.add('hl');
+  ext.shown(entry);
   entry.hidden = false;
 }
 
@@ -2017,12 +1876,12 @@ function finalizeCard(i, ev) {
     reasoning: ev.reasoning || r.reasoning || '',
     verdict: ev.verdict || null, verdictSource: ev.verdictSource || 'none',
     confidence: ev.confidence ?? null, inspector: ev.inspector || null, inspectorMark: ev.inspectorMark || null, conclusion: ev.conclusion || null,
-    cost: ev.cost || null, ms: ev.ms ?? null,
-    model: ev.model || null, requested: ev.requested || null, fellBack: ev.fellBack || null, effort: ev.effort || null, mode: ev.mode || null,
+    ms: ev.ms ?? null,
     trail: ev.trail?.length ? ev.trail : r.trail, sources: ev.sources?.length ? ev.sources : r.sources,
     incomplete: ev.incomplete || r.incomplete || null,
-    listed: ev.listed ?? null, keptOut: ev.keptOut ?? null,
+    standby: Boolean(ev.standby),   // tested on a standby model
   });
+  ext.cardDone(i, ev, r);   // what the hooks keep of the finished claim, before its card is drawn
   const card = cardOf(i);
   card.classList.remove('verdict-true', 'verdict-false', 'verdict-unverified', 'verdict-unread');
   card.classList.add(`verdict-${r.verdict || 'unread'}`);
@@ -2035,11 +1894,9 @@ function finalizeCard(i, ev) {
   renderCardNote(i);
   renderCardFoot(i);
 
-  // Every determination counts, one per card; on the operator's page each is also counted under its entry.
+  // Every determination counts, one per card.
   if (r.verdict) state.counts[r.verdict] = (state.counts[r.verdict] || 0) + 1;
   else state.unread++;
-  tallyEntry(i, r.verdict || 'unread');
-  addCost(r.cost);
   renderScoreboard(r.verdict);
 }
 
@@ -2056,13 +1913,6 @@ function renderBadge(i) {
     if (!conf) { conf = el('span', { class: 'hint conf' }); $('.card-verdict', card).prepend(conf); }
     conf.textContent = t('card.confidence', { n: r.confidence });
   } else if (conf) conf.remove();
-}
-
-/** The operator's mark on a source or a step of a site on their list (server/sites.js): "zero credibility", their word of
- *  25 October. A reader's page has neither the mark nor the word for it. */
-function markOf(item) {
-  const word = item?.listed ? opWord('listed') : '';
-  return word ? [el('span', { class: 'card-mark mono', text: word })] : [];
 }
 
 /** Anything the run produced that is not the entry itself: reasoning, searches, sources, raw text. */
@@ -2089,7 +1939,7 @@ function renderCardDetail(i) {
       // A search shows its query; one of CIVIC's tools shows its verb and what it was asked, and the source's answer if it kept the page.
       const what = (s.query ? `“${s.query}”` : s.url || s.pattern || s.kind || '') + (s.kind === 'tool' && s.error ? ` · ${s.error}` : '');
       const kind = s.kind ? (s.kind === 'tool' ? s.name || 'tool' : s.kind) : t(`trail.${s.verb || 'search'}`);
-      return el('li', {}, [el('span', { class: 'trail-kind mono', text: kind }), el('span', { text: what }), ...markOf(s)]);
+      return el('li', {}, [el('span', { class: 'trail-kind mono', text: kind }), el('span', { text: what }), ...ext.mark(s)]);
     }));
   } else trail.hidden = true;
 
@@ -2098,7 +1948,7 @@ function renderCardDetail(i) {
     sources.hidden = false;
     $('.raw-summary', sources).textContent = t('card.details.sources', { n: r.sources.length });
     $('.sources-list', sources).replaceChildren(...r.sources.map((s) =>
-      el('li', {}, [el('a', { href: s.url, target: '_blank', rel: 'noopener', text: s.title || s.url }), ...markOf(s)])));
+      el('li', {}, [el('a', { href: s.url, target: '_blank', rel: 'noopener', text: s.title || s.url }), ...ext.mark(s)])));
   } else sources.hidden = true;
 
   const raw = $('.card-raw', card);
@@ -2125,9 +1975,9 @@ function renderCardFoot(i) {
   foot.hidden = false;
   const insp = $('.card-inspector', card);
   insp.replaceChildren();
-  // A reader sees the inspector's mark ("Inspector A", server/view.js); the operator, the name the entry gives.
+  // The inspector's mark ("Inspector A", server/view.js), or the hooks' words for the name the entry gives.
   if (r.inspectorMark) insp.append(el('b', { text: r.inspectorMark }));
-  else if (r.inspector) insp.append(`${t('card.inspector')}: `, el('b', { text: r.inspector }));
+  else if (r.inspector) insp.append(...ext.named(r.inspector));
   // The work log: what the research did, counted, and how long it took.
   const log = $('.card-log', card);
   if (log) {
@@ -2136,26 +1986,18 @@ function renderCardFoot(i) {
     if (work.searches) parts.push(t('card.log.searches', { n: work.searches }));
     if (work.pages) parts.push(t('card.log.pages', { n: work.pages }));
     if (r.sources?.length) parts.push(t('card.log.sources', { n: r.sources.length }));
-    // The operator's alone: what it took from their list of sites kept out of the research, and what it asked for and did not get.
-    const fromList = r.status === 'done' && Number.isFinite(r.listed) ? opWord(r.keptOut ? 'fromListKept' : 'fromList', { n: r.listed, kept: r.keptOut || 0 }) : '';
-    if (fromList) parts.push(fromList);
+    ext.logParts(r, parts);
     if (r.status === 'done' && r.ms) parts.push(fmtSeconds(r.ms));
     log.textContent = parts.join(' · ');
     log.hidden = parts.length === 0;
   }
-  // Which model actually answered: the operator, by the model's name and level; a reader, by the operator's mark alone,
-  // with no level (31 October), and a standby model's answer marked as such, so a downgrade never passes unnoticed.
+  // The model that answered, by the operator's mark alone (31 October), and a standby model's answer marked as such, so a
+  // downgrade never passes unnoticed; then whatever the hooks add to the footer.
   const modelNode = $('.card-model', card);
-  if (r.model) modelNode.textContent = t('card.modelLine', { model: r.model, effort: [r.effort, r.mode].filter(Boolean).join(' / ') });
-  else if (r.status === 'done') modelNode.textContent = t('card.engineLine');
-  else modelNode.textContent = '';
-  modelNode.classList.toggle('is-fallback', Boolean(r.fellBack));
-  modelNode.title = r.fellBack?.used ? t('warn.modelFallback', { used: r.fellBack.used, requested: r.fellBack.requested }) : r.fellBack ? t('warn.fallback') : '';
-  const costNode = $('.card-cost', card);   // the operator's page alone
-  if (costNode && state.accounting && r.status === 'done' && r.cost) {
-    costNode.textContent = r.cost.priced ? opWord('cardCost', { usd: fmtUsd(r.cost.usd) }) : opWord('cardCostUnknown');
-    costNode.hidden = false;
-  } else if (costNode) costNode.hidden = true;
+  modelNode.textContent = r.status === 'done' ? t('card.engineLine') : '';
+  modelNode.classList.toggle('is-fallback', Boolean(r.standby));
+  modelNode.title = r.standby ? t('warn.fallback') : '';
+  ext.foot(r, card);
   $('.btn-copy', card).textContent = t('card.copy');
   $('.btn-copy', card).hidden = r.status !== 'done';
   $('.btn-retry', card).hidden = r.status !== 'error';
@@ -2182,10 +2024,10 @@ function renderCardError(i) {
   // Said in words first; the technical reason follows, so it can be reported. A claim the credit could not cover says
   // so in its own sentence, which is not a fault.
   const own = r.errorCode === 'credit_short' || r.errorCode === 'month_limit' || r.errorCode === 'already_tested' || r.errorCode === 'unavailable';
-  // A provider that refuses outright (Gemini at a limit of 0, on the operator's trial) is named, with its own sentence.
-  // FactEngine's own fault reaches a reader as one plain sentence (server/view.js, 31 October, night).
+  // A failure that names who refused (`who`) is said with the name. FactEngine's own fault reaches a reader as one plain
+  // sentence (server/view.js, 31 October, night).
   const why = r.errorCode === 'unavailable' ? t('card.unavailable')
-    : r.errorCode === 'quota_exhausted' ? (r.error ? `${t('card.quota')} (${r.error})` : t('card.quota')) : r.errorWho && r.error ? `${r.errorWho}: ${r.error}` : (r.error || '');
+    : r.errorCode === 'quota_exhausted' ? (r.error ? `${t('card.quota')} (${r.error})` : t('card.quota')) : !own && r.who && r.error ? `${r.who}: ${r.error}` : (r.error || '');
   msg.replaceChildren(document.createTextNode(own ? why : `${t('card.error')} ${why}`.trim()),
     el('button', { type: 'button', class: 'btn btn-small btn-text', text: t('card.retryBtn'), onclick: () => retryClaim(i) }));
   $('.card-brief', card).hidden = true;
@@ -2205,10 +2047,8 @@ async function retryClaim(i) {
   $('.card-brief', card).hidden = true;
   $('.btn-retry', card).hidden = true;
   $('.card-foot', card).hidden = true;
-  // The failure counted under its entry gives way to the new attempt's outcome.
-  const tallied = state.cards[i]?.entry && state.entryTally.get(state.cards[i].entry);
-  if (tallied && r.status === 'error' && tallied.failed > 0) tallied.failed--;
-  Object.assign(r, { status: 'running', phase: 'starting', startedAt: Date.now(), text: '', reasoning: '', chars: 0, error: null, trail: [], sources: [], listed: null, keptOut: null, jobId: null, cutFrom: null });
+  ext.retrying(i, r);   // before the card is a running one again: what the hooks counted of its failure
+  Object.assign(r, { status: 'running', phase: 'starting', startedAt: Date.now(), text: '', reasoning: '', chars: 0, error: null, trail: [], sources: [], jobId: null, cutFrom: null });
   setCardState(i, 'running');
   renderCardStatus(i);
   const tick = setInterval(() => {
@@ -2235,53 +2075,16 @@ function renderScoreboard(bumped) {
   ui.scoreUnv.textContent = fmtNumber(state.counts.unverified);
   ui.scoreUnreadWrap.hidden = state.unread === 0;
   ui.scoreUnread.textContent = fmtNumber(state.unread);
-  if (ui.scoreInternal) {   // the operator's page alone
-    ui.scoreInternal.hidden = !state.accounting;
-    ui.scoreCost.textContent = fmtUsd(state.cost) + (state.unpriced ? '+' : '');
-  }
-  renderEntryTally();
+  ext.score();
   if (bumped) bump({ true: ui.scoreTrue, false: ui.scoreFalse, unverified: ui.scoreUnv }[bumped]);
 }
 
-/** A finished determination under its entry, on the operator's page: its verdict (or "failed"), its minutes and cost. */
-function tallyEntry(i, outcome) {
-  const label = state.cards[i]?.entry;
-  if (!label || !ui.scoreEntries) return;
-  const r = state.results[i];
-  const t0 = state.entryTally.get(label) || { true: 0, false: 0, unverified: 0, unread: 0, failed: 0, ms: 0, timed: 0, usd: 0, unpriced: false };
-  t0[outcome] = (t0[outcome] || 0) + 1;
-  if (Number.isFinite(r.ms)) { t0.ms += r.ms; t0.timed++; }
-  if (r.cost?.priced) t0.usd += r.cost.usd || 0; else if (outcome !== 'failed') t0.unpriced = true;
-  state.entryTally.set(label, t0);
-}
-
-/** The operator's scoreboard, with more than one entry in the run: one line per entry, so the models compare at a glance. */
-function renderEntryTally() {
-  if (!ui.scoreEntries) return;
-  // In the grid's order, every entry of the run from its start, its figures filling as its cards finish.
-  const order = [...new Set(state.cards.map((c) => c.entry).filter(Boolean))];
-  const none = { true: 0, false: 0, unverified: 0, unread: 0, failed: 0, ms: 0, timed: 0, usd: 0, unpriced: false };
-  const rows = order.map((label) => [label, state.entryTally.get(label) || none]);
-  ui.scoreEntries.hidden = rows.length < 2;
-  if (ui.scoreEntries.hidden) return;
-  ui.scoreEntries.replaceChildren(...rows.map(([label, x]) => el('div', { class: 'score-entry' }, [
-    el('span', { class: 'score-entry-name mono', text: label }),
-    el('span', { text: opWord('entryTally', { t: x.true, f: x.false, u: x.unverified, unread: x.unread, failed: x.failed }) }),
-    el('span', { class: 'mono', text: `${x.timed ? fmtSeconds(x.ms / x.timed) : '—'} · ${fmtUsd(x.usd)}${x.unpriced ? '+' : ''}` }),
-  ])));
-}
-
-/**
- * Step 2's title: the claims chosen and, on the operator's page with several entries, the models and the cards it makes;
- * when the claims did not all run on the same entries (some chosen while others ran), the cards, claims and entries.
- */
+/** Step 2's title: the claims chosen, or the hooks' own title for the run when they have one. */
 function renderStep2Title() {
   const { start, size } = state.batch;
   const claims = state.batch.claims?.size || size;
-  const models = state.batch.entries?.size || 1;
-  ui.step2Title.textContent = models > 1
-    ? opWord(size === claims * models ? 'step2Models' : 'step2Mixed', { n: claims, m: models, total: size })
-    : start > 0 ? t('step2.more', { n: claims }) : t('step2.title', { n: claims });
+  ui.step2Title.textContent = ext.title({ start, size, claims })
+    || (start > 0 ? t('step2.more', { n: claims }) : t('step2.title', { n: claims }));
 }
 
 // ---------- visual echo -----------------------------------------------------------------------
@@ -2325,29 +2128,6 @@ function thumbnailFor(video) {
   return fit?.url || `https://i.ytimg.com/vi/${encodeURIComponent(video.id)}/mqdefault.jpg`;
 }
 
-async function startEcho(text) {
-  ui.echo.hidden = false;
-  ui.echoShimmer.hidden = false;
-  ui.echoImg.hidden = true;
-  const signal = state.abort.signal;
-  try {
-    const r = await api.illustrate({ text, signal });
-    if (signal.aborted) return;
-    const src = r?.dataUrl || r?.url;
-    if (!src) { ui.echo.hidden = true; return; }
-    state.echo = r;
-    addCost(r.cost);
-    renderScoreboard();
-    ui.echoImg.onload = () => {
-      ui.echoShimmer.hidden = true;
-      ui.echoImg.hidden = false;
-    };
-    ui.echoImg.src = src;
-  } catch {
-    if (!signal.aborted) ui.echo.hidden = true;
-  }
-}
-
 // ---------- locale changes: re-render everything that carries state ---------------------------
 
 function refreshDynamicText() {
@@ -2357,7 +2137,6 @@ function refreshDynamicText() {
   renderNav();
   updateSourceMeta();
   for (const which of ['step1', 'step2']) { const s = state.status[which]; if (s) setStatus(which, s.key, s.params); }
-  renderGateLine();
   if (state.batch.size) renderStep2Title();
   renderWarnings();
   renderClaimsHeadings();
@@ -2374,4 +2153,14 @@ function refreshDynamicText() {
   });
 }
 
+// The page's additions (on the operator's page, public/js/op.js): their address is named only on the page that has them
+// (index.html, the operator's part), and they are in place before the page starts, so nothing of them waits on the order
+// the files arrive in. Without them the hooks do nothing.
+const more = document.getElementById('ext-script')?.getAttribute('href');
+if (more) {
+  try {
+    const added = await import(new URL(more, document.baseURI).href);
+    Object.assign(ext, added.install({ state, fill, el, $, fmtNumber, fmtSeconds, fmtUsd, fmtClock, buildCard, listing, pricingNow, renderBeyondTools, claimOf }));
+  } catch (err) { console.error(`An addition to this page did not load: ${err?.message || err}`); }
+}
 boot();

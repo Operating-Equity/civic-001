@@ -4551,7 +4551,7 @@ async function readerViewChecks() {
       JSON.stringify(rDone?.trail));
     check('a reader is told a standby model answered, in a neutral warning naming no model',
       rDet.some((e) => e.t === 'warning' && e.code === 'fallback' && !('used' in e) && !('requested' in e)) && !rDet.some((e) => e.t === 'warning' && e.code === 'model_fallback')
-        && JSON.stringify(rDone?.fellBack) === '{"standby":true}',
+        && rDone?.standby === true && !('fellBack' in (rDone || {})),
       JSON.stringify(rDet.filter((e) => e.t === 'warning')));
     const TELLS = [...new Set([...config.evalModels, 'gpt-missing-x', `"${config.evalEffort}"`, 'open_page', 'find_in_page', 'web_search', 'search_web', 'read_page', 'get_transcript', 'verdictSource'])];
     check('no name that gives the method away reaches a reader\'s stream: no model id, effort, tool name or verdict source',
@@ -4562,8 +4562,8 @@ async function readerViewChecks() {
       oDone?.inspector === 'Sir Edwin Cardale' && !oDone.inspectorMark && oDone.model === config.evalModels[0] && oDone.effort === config.evalEffort && Boolean(oDone.verdictSource)
         && o.det.some((e) => e.t === 'reasoning') && /Sir Edwin Cardale/.test(oDone.text)
         && JSON.stringify((oDone.trail || []).map((x) => [x.kind, x.verb])) === JSON.stringify([['search', 'search'], ['open_page', 'open'], ['find_in_page', 'find'], ['search', 'search']])
-        && o.det.some((e) => e.t === 'warning' && e.code === 'model_fallback' && e.used === config.evalModels[0]),
-      JSON.stringify({ inspector: oDone?.inspector, model: oDone?.model, trail: (oDone?.trail || []).map((x) => x.kind) }));
+        && o.det.some((e) => e.t === 'warning' && e.code === 'model_fallback' && e.used === config.evalModels[0]) && oDone.standby === true,
+      JSON.stringify({ inspector: oDone?.inspector, model: oDone?.model, standby: oDone?.standby, trail: (oDone?.trail || []).map((x) => x.kind) }));
 
     // A reader's connection cut mid-claim, then the page attaching again: the same text, one name line, nothing twice; and
     // the finished claim read again from the start gives exactly what was sent.
@@ -4665,6 +4665,13 @@ async function readerViewChecks() {
     const missing = [...new Set(asked)].filter((k) => !L.en.has(k) && !L.en.has(`${k}_one`) && !L.en.has(`${k}_other`));
     check('every sentence the page asks for exists in English, and the four languages hold the same sentences',
       missing.length === 0 && parity.length === 0, JSON.stringify({ missing, parity }));
+    // The operator's words are on their page (index.html, #op-words), every one their tools ask for (public/js/op.js).
+    const opBlock = fs.readFileSync(path.join(root, 'public', 'index.html'), 'utf8').match(/<span id="op-words"[\s\S]*?><\/span>/)?.[0] || '';
+    const opWords = new Set([...opBlock.matchAll(/\bdata-([a-z0-9-]+)=/g)].map((m) => m[1].replace(/-([a-z])/g, (x, c) => c.toUpperCase())));
+    const opAsked = [...fs.readFileSync(path.join(root, 'public', 'js', 'op.js'), 'utf8').matchAll(/\bword\(([^,)]*)/g)].flatMap((m) => [...m[1].matchAll(/'([a-zA-Z0-9]+)'/g)].map((q) => q[1]));
+    const opMissing = [...new Set(opAsked)].filter((k) => !opWords.has(k));
+    check('every word the operator\'s tools ask for is on their page, in its block of the operator\'s words',
+      opAsked.length >= 20 && opMissing.length === 0, JSON.stringify({ opMissing, asked: opAsked.length }));
   } catch (err) {
     check('reader view checks ran', false, err.stack || err.message);
   } finally {
@@ -5013,17 +5020,18 @@ async function downloadChecks() {
       styleFaults.length === 0 && pageFaults.length === 0, JSON.stringify({ styleFaults, pageFaults }));
 
     // (b) The page in the asker's form: a reader's without the operator's parts, the operator's with them.
-    const OPERATOR_IDS = ['score-internal', 'score-cost', 'score-entries', 'step2-gate', 'trial-bar', 'trial-grid', 'trial-why', 'op-words'];
+    const OPERATOR_IDS = ['score-internal', 'score-cost', 'score-entries', 'step2-gate', 'trial-bar', 'trial-grid', 'trial-why', 'op-words', 'ext-script'];
     const idsOf = (html) => new Set([...html.matchAll(/\bid="([^"]+)"/g)].map((m) => m[1]));
     const readerHome = (await raw(PA, '/', { cookie: reader })).text;
     const visitorHome = (await raw(PA, '/')).text;
     const opHome = (await raw(PA, '/', { cookie: op })).text;
     const onlyOp = [...idsOf(opHome)].filter((id) => !idsOf(readerHome).has(id)).sort();
     const src = fs.readFileSync(path.join(publicDir, 'index.html'), 'utf8');
-    check('a reader and a visitor receive the page without the operator\'s parts and without a comment; the operator receives it with every part; the parts are exactly the operator\'s eight',
+    check('a reader and a visitor receive the page without the operator\'s parts and without a comment; the operator receives it with every part, their tools\' script and style sheet named at the build\'s addresses; the parts are exactly the operator\'s nine',
       readerHome === visitorHome && readerHome === assets.stampAddresses(assets.stripPage(assets.withoutOperatorParts(src)), build)
         && OPERATOR_IDS.every((id) => !readerHome.includes(`id="${id}"`) && opHome.includes(`id="${id}"`)) && JSON.stringify(onlyOp) === JSON.stringify([...OPERATOR_IDS].sort())
-        && !/chip-internal|class="card-cost|class="card-why"|<!--/.test(readerHome) && /class="card-cost/.test(opHome) && /class="card-why"/.test(opHome) && !opHome.includes('<!--')
+        && !/chip-internal|class="card-cost|class="card-why"|<!--|op\.js|op\.css/.test(readerHome) && /class="card-cost/.test(opHome) && /class="card-why"/.test(opHome) && !opHome.includes('<!--')
+        && opHome.includes(`<link rel="stylesheet" href="/b/${build}/css/op.css">`) && opHome.includes(`<link rel="modulepreload" id="ext-script" href="/b/${build}/js/op.js">`)
         && readerHome.includes('id="tpl-card"') && readerHome.includes('class="card-foot"') && (readerHome.match(/<label class="form-field">/g) || []).length >= 4,
       JSON.stringify({ onlyOp, same: readerHome === visitorHome }));
 
@@ -5052,6 +5060,21 @@ async function downloadChecks() {
       opCheck.status === 200 && opCheck.text.includes('id="verdict"') && /no-store/.test(opCheck.headers['cache-control'] || '') && opScript.status === 200 && opScript.text.includes('api/selftest')
         && opStamped.status === 200 && opStamped.text === opScript.text && /no-store/.test(opStamped.headers['cache-control'] || '') && openCheck.status === 200 && openScript.status === 200,
       JSON.stringify([opCheck.status, opScript.status, opStamped.status, openCheck.status, openScript.status]));
+
+    // (c2) The operator's tools on the main page (31 October, night), a script and a style sheet of their own: "Not found"
+    // for anyone else however the address is spelt, as the check page is; the operator's, at the build's address, never kept.
+    const TOOLS = ['/js/op.js', '/JS/OP.JS', '/js/%6Fp.js', '/js/op%2Ejs', '/js%2Fop.js', '/js/./op.js', '//js/op.js', `/b/${build}/js/op.js`, `/%62/${build}/js/op.js`, '/b/abcdef123456/js/op.js',
+      '/css/op.css', '/CSS/Op.css', '/css/%6Fp.css', '/css/./op.css', `/b/${build}/css/op.css`, '/b/abcdef123456/css/op.css'];
+    const toolsRefused = async (cookie) => (await Promise.all(TOOLS.map(async (a) => [a, await raw(PA, a, { cookie })]))).filter(([, r]) => r.status !== 404 || r.text !== 'Not found' || r.headers.location || !/no-store/.test(r.headers['cache-control'] || '')).map(([a, r]) => `${a}:${r.status}`);
+    const toolsNotReader = [...await toolsRefused(reader), ...await toolsRefused(null)];
+    const opTools = await raw(PA, `/b/${build}/js/op.js`, { cookie: op });
+    const opToolsCss = await raw(PA, `/b/${build}/css/op.css`, { cookie: op });
+    const openTools = await raw(PD, `/b/${build}/js/op.js`);
+    check(`a reader and a visitor are told "Not found" for the operator's tools, script and style sheet, however the address is spelt (${TOOLS.length} spellings); the operator receives them at the build's address, never kept, the script as it is sent on an open door`,
+      toolsNotReader.length === 0 && opTools.status === 200 && opTools.headers['content-type'] === 'text/javascript; charset=utf-8' && /no-store/.test(opTools.headers['cache-control'] || '')
+        && opTools.text.includes('export function install') && opTools.text === openTools.text && opToolsCss.status === 200 && opToolsCss.headers['content-type'] === 'text/css; charset=utf-8'
+        && /\.trial-grid/.test(opToolsCss.text) && /no-store/.test(opToolsCss.headers['cache-control'] || ''),
+      JSON.stringify({ toolsNotReader, op: [opTools.status, opTools.headers['content-type'], opTools.headers['cache-control']], css: [opToolsCss.status, opToolsCss.headers['content-type']], open: openTools.status }));
 
     // (d) The vendor files: the ones the pages load, as shipped; nothing else.
     const vendor = assets.vendorFiles({ publicDir, nodeModules: path.join(root, 'node_modules') });
@@ -5105,15 +5128,26 @@ async function downloadChecks() {
       JSON.stringify({ typeFaults, font: [font.status, font.headers['content-type']], icon: [icon.status, icon.headers['content-type']], keptNever }));
 
     // (g) The operator's words are on the operator's page alone, never in the files everyone downloads.
-    const MOVED = ['step2.gate', 'score.cost', 'score.internal', 'card.cost', 'card.costUnknown', 'claims.avgCost'];
+    const MOVED = ['step2.gate', 'score.cost', 'score.internal', 'card.cost', 'card.costUnknown', 'claims.avgCost',
+      'step2.waitingProvider', 'card.waitingProvider', 'card.inspector', 'card.modelLine', 'warn.modelFallback', 'errors.checkLink'];
     const flat = (o, pre = '') => Object.entries(o).flatMap(([k, v]) => (v && typeof v === 'object' ? flat(v, `${pre}${k}.`) : [`${pre}${k}`]));
     const keys = new Set();
     for (const code of ['en', 'es', 'fr', 'de']) for (const k of flat((await import(pathToFileURL(path.join(publicDir, 'locales', `${code}.js`)).href)).default)) keys.add(`${code}:${k}`);
     const sentEveryone = (await Promise.all(['/js/app.js', '/locales/en.js', '/locales/es.js', '/locales/fr.js', '/locales/de.js'].map(async (a) => (await raw(PA, a, { cookie: reader })).text))).join('\n');
     check('the operator\'s words (the key\'s minute, the costs, the trial\'s labels) are on the operator\'s page alone: no locale carries them, nothing everyone downloads says them, and the operator\'s page does',
-      MOVED.every((k) => ['en', 'es', 'fr', 'de'].every((c) => !keys.has(`${c}:${k}`))) && !/[Tt]okens|jetons|Est\. cost|price unknown|\(readers\)|Side by side|Tick at least one|models and levels/.test(sentEveryone)
+      MOVED.every((k) => ['en', 'es', 'fr', 'de'].every((c) => !keys.has(`${c}:${k}`))) && !/[Tt]okens|jetons|Est\. cost|price unknown|\(readers\)|Side by side|Tick at least one|models and levels|zero credibility|Why did this happen|asks to wait|waiting for \{who\}|Tested with \{used\}/.test(sentEveryone)
         && opHome.includes('data-gate="The key\'s minute:') && opHome.includes('<span class="chip chip-internal">Internal</span> <span>Est. cost</span>') && !readerHome.includes('data-gate'),
       MOVED.filter((k) => ['en', 'es', 'fr', 'de'].some((c) => keys.has(`${c}:${k}`))).join(', '));
+
+    // (h) The scripts everyone downloads name none of the operator's tools (31 October, night: "I don't plan on giving away
+    // any information"): their branches are in the operator's script, behind hooks that do nothing on anyone else's page.
+    const everyoneJs = (await Promise.all(['/js/app.js', `/b/${build}/js/app.js`, '/js/api.js', '/js/account.js', '/js/render.js', '/js/i18n.js', '/js/field.js']
+      .map(async (a) => (await raw(PA, a, { cookie: reader })).text))).join('\n');
+    const TOOL_NAMES = /trial|accounting|fellBack|retryWho|errorWho|keptOut|entryTally|unpriced|averageCost|gateLine|modelLine|op-words|op\.js|illustrate|claimOperator|\bhl\b|effort|\.model\b|requested|zero credibility/g;
+    const toolHits = [...new Set(everyoneJs.match(TOOL_NAMES) || [])];
+    const OP_NAMES = ['trial', 'accounting', 'fellBack', 'keptOut', 'gate', 'modelLine', 'effort', 'hl'];
+    check('the scripts everyone downloads name none of the operator\'s tools (the trial, the costs, the key\'s minute, the models and levels, the marks of their list, the standby model\'s name, the class\'s highlight); the operator\'s script names them',
+      toolHits.length === 0 && OP_NAMES.every((w) => opTools.text.includes(w)), JSON.stringify({ toolHits, missing: OP_NAMES.filter((w) => !opTools.text.includes(w)) }));
   } catch (err) {
     check('download checks ran', false, err.stack || err.message);
   } finally {

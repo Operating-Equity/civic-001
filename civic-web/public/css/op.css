@@ -1,0 +1,33 @@
+/* The operator's tools on their page (31 October, night): served to their account alone (server/assets.js), named on
+   their page alone (index.html, the operator's part). Nothing here styles anything on anyone else's page. */
+.chip { display: inline-block; font-size: 12px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; padding: 3px 9px; border-radius: 999px; }
+.chip-demo { background: var(--sun); color: #3a2a00; }
+.chip-internal { background: var(--ink); color: #fff; }
+.score-internal { display: inline-flex; align-items: center; gap: 6px; }
+.card-cost { color: var(--ink-2); }
+.step-gate { margin: 10px 0 0; font-size: 13px; line-height: 1.45; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+/* The operator's class for the inspector's name, highlighted on their page (31 October, evening). */
+.entry .hl { background: var(--blue-soft); border-radius: 4px; padding: 0 0.15em; -webkit-box-decoration-break: clone; box-decoration-break: clone; }
+/* The operator's trial (25 October): their account alone sees it. A grid above the claims, a row per model, a tick box per
+   level; each ticked entry is a card of its own under each claim chosen. */
+.trial-bar { display: flex; flex-direction: column; gap: 6px; margin: 6px 0 4px; padding: 8px 12px; border: 1px dashed var(--line-soft); border-radius: 10px; font-size: 13.5px; color: var(--ink-2); }
+.trial-title { font-weight: 600; color: var(--ink); }
+.trial-grid { display: flex; flex-direction: column; gap: 4px; }
+.trial-row { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 14px; }
+.trial-name { min-width: 10em; white-space: nowrap; color: var(--ink); }
+.trial-tick { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+.trial-tick input[type="checkbox"] { width: 15px; height: 15px; margin: 0; accent-color: var(--blue); }
+.trial-tick input:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+.trial-why { margin: 0; }
+/* A claim's card for each ticked entry, under the claim's own, each headed with its entry. */
+.claims-list > li.is-entry { margin-block-start: -2px; }
+.card.is-entry { border-inline-start: 3px solid var(--line-soft); }
+.card-entry { font-size: 12px; color: var(--ink-3); letter-spacing: .02em; }
+/* The operator's scoreboard with several entries: one line per entry. */
+.score-entries { grid-column: 1 / -1; display: grid; grid-template-columns: max-content 1fr max-content; gap: 2px 14px; font-size: 13px; color: var(--ink-2); padding-block-start: 6px; border-block-start: 1px solid var(--line-soft); }
+.score-entry { display: contents; }
+.score-entry-name { color: var(--ink); }
+/* A provider's own words for its wait: a line of its own, so a long reason (with its links) wraps instead of pushing the status off */
+.card-why { margin: 6px 0 0; font-size: 12.5px; line-height: 1.45; color: var(--ink-2); overflow-wrap: anywhere; }
+.card[data-state="done"] .card-why, .card[data-state="error"] .card-why { display: none; }
+.card-mark { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--false); margin-inline-start: 8px; }

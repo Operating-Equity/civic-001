@@ -339,7 +339,12 @@
 <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
 
 <!--op-->
-<!-- The operator's words, filled in by js/app.js (opWord): the key's minute, the costs, the trial's labels, the marks of their list. -->
+<!-- The operator's tools (js/op.js, css/op.css): served to their account alone, named on their page alone. js/app.js
+     loads the script from this address before the page starts. -->
+<link rel="stylesheet" href="css/op.css">
+<link rel="modulepreload" id="ext-script" href="js/op.js">
+<!-- The operator's words, filled in by js/op.js: the key's minute, the costs, the trial's labels, the marks of their list,
+     the model's name and level, the inspector's name, a provider's wait. -->
 <span id="op-words" hidden
   data-gate="The key's minute: {limit} tokens · one determination counts {cost} · {atOnce} at once, one more every {every} s"
   data-avg-cost="About {usd} per claim in this run." data-card-cost="est. {usd}" data-card-cost-unknown="price unknown"
@@ -349,7 +354,11 @@
   data-all-ran="Every model and level ticked has already run on the claims chosen."
   data-new-runs="New determinations: {n}. A model and level already run on a claim is not run on it again."
   data-entry-tally="{t} true · {f} false · {u} unverified · {unread} unread · {failed} failed"
-  data-listed="zero credibility" data-from-list="{n} of zero credibility" data-from-list-kept="{n} of zero credibility, {kept} kept out"></span>
+  data-listed="zero credibility" data-from-list="{n} of zero credibility" data-from-list-kept="{n} of zero credibility, {kept} kept out"
+  data-model-line="{model} · {effort}" data-inspector="Inspector"
+  data-model-fallback="Tested with {used}, not {requested}. Treat these determinations as provisional."
+  data-step-waiting-provider="{running} running · {n} waiting for {who} · {done} of {total} done · {time}"
+  data-card-waiting-provider="{who} asks to wait · {time} · until {clock}" data-check-link="Why did this happen?"></span>
 <!--/op-->
 
 <script src="vendor/katex/katex.min.js"></script>

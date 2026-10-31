@@ -381,6 +381,7 @@ export async function runEvaluation({ apiKey, claims, document = '', send, signa
       reasoning: reasoning.trim() || null,
       trail, sources,
       model: modelUsed, requested: models[0], fellBack, effort, mode: config.evalReasoningMode || null, // no token figures go to the page; the ledger keeps them
+      standby: Boolean(fellBack),   // a standby model answered: what every page marks, whoever reads it
       searches: searchCount(trail), ms, cost, incomplete, ...fromList,
       ...(trial ? { trial: true, provider: 'openai' } : {}),
     });
