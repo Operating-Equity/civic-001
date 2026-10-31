@@ -1321,6 +1321,9 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
     - the service providers by kind, each for its part;
     - the servers' country alone;
     - no provider's country, no training clause, no two-step description, and no search that no longer happens.
+  - **Live** (31 October, 21:00 UTC): PR #97 deployed, with the check key's hash and the tell words set on Render;
+    the boot line says the tell words are set and none is in what a reader receives. Live check clean, nothing spent.
+  - **Next:** the page's part, the operator's tools out of the script readers download (`op.js`, `op.css`).
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 
