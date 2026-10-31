@@ -1249,6 +1249,7 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
   - **Proof:** a browser check (scratchpad `browser/glass-check.mjs`) of the recipe on every panel, the glow rising and
     settling, a paste, reduced motion, the readers' card and stream, and a phone; the earlier browser checks; the guard in
     the three prompt shapes; the leak check.
+  - **Live** (31 October, 17:00 UTC): PR #94 deployed, with the readers' settings. Live check clean, nothing spent.
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 
