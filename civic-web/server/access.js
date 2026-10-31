@@ -61,15 +61,22 @@ function fromAnotherSite(req) {
   try { return new URL(origin).host !== req.get('host'); } catch { return true; }
 }
 
+/** The API's answer for an address it does not have (31 October, night): the operator's tools give the same to anyone else. */
+export const apiNotFound = (res) => res.status(404).set('Cache-Control', 'no-store').json({ error: { code: 'not_found', message: 'Not found.' } });
+
+// The operator's addresses: their tools, /check's record and the picture route. To anyone else they do not exist.
+const OPERATOR_PATH = /^\/(?:operator\/|selftest$|illustrate$)/;
+
 export async function gate(req, res, next) {
   if (!SAFE.has(req.method) && fromAnotherSite(req)) {
     return next(new ApiError(403, 'cross_site', 'That request came from another site, so FactEngine did not act on it.'));
   }
-  // The account's doors and the operator's tools take JSON alone: a form on another site cannot send it.
-  if (!SAFE.has(req.method) && /^\/(account|operator)\//.test(req.path) && !req.is('application/json')) {
-    return next(Object.assign(new ApiError(415, 'json_only', 'That request must be sent as JSON.'), { expected: true }));
-  }
-  if (!accountsOn()) return next();
+  // The account's doors and the operator's tools take JSON alone: a form on another site cannot send it. The operator's
+  // are asked only once the request is known to be theirs, so their addresses say nothing to anyone else.
+  const jsonOnly = () => next(Object.assign(new ApiError(415, 'json_only', 'That request must be sent as JSON.'), { expected: true }));
+  const needsJson = (re) => !SAFE.has(req.method) && re.test(req.path) && !req.is('application/json');
+  if (needsJson(/^\/account\//)) return jsonOnly();
+  if (!accountsOn()) return needsJson(/^\/operator\//) ? jsonOnly() : next();
   let session = null;
   try {
     session = await sessionOf(req);
@@ -82,6 +89,7 @@ export async function gate(req, res, next) {
   }
   if (OPEN.has(req.path)) return next();
   if (!session) return next(Object.assign(new ApiError(401, 'signin_required', 'Sign in or create an account first.'), { expected: true }));
-  if (req.path.startsWith('/operator/') && !isOperator(session)) return next(Object.assign(new ApiError(403, 'operator_only', 'That is for the operator\'s account.'), { expected: true }));
+  if (OPERATOR_PATH.test(req.path) && !isOperator(session)) return apiNotFound(res);
+  if (needsJson(/^\/operator\//)) return jsonOnly();
   next();
 }

@@ -15,7 +15,7 @@ const body = (req) => (req.body && typeof req.body === 'object' ? req.body : {})
 
 /** What the page is told of a session: never more than the account's own email, flag and balance. */
 async function sessionView(user) {
-  return { email: user.email, operator: Boolean(user.operator), balanceCents: await credit.balanceOf(user.id).catch(() => null) };
+  return { email: user.email, ...(user.operator ? { operator: true } : {}), balanceCents: await credit.balanceOf(user.id).catch(() => null) };
 }
 
 /** A new session replaces whatever session this request carried (a fresh token at every sign-in: no fixation). */
@@ -96,7 +96,7 @@ export function mountAccountRoutes(app, { wrap }) {
   app.get('/api/account', wrap(async (req, res) => {
     res.setHeader('Cache-Control', 'no-store');
     const s = await sessionNeeded(req);
-    res.json({ ok: true, account: await accounts.view(s.user), claim: false });
+    res.json({ ok: true, account: await accounts.view(s.user) });
   }));
 
   app.get('/api/account/activity', wrap(async (req, res) => {

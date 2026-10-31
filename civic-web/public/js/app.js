@@ -821,7 +821,7 @@ async function startRun() {
 
   const text = ui.source.value.trim();
   if (text.length < 20) { toast(t('intake.empty'), { error: true }); ui.source.focus(); return; }
-  if (!state.server.prompts?.extract || !state.server.prompts?.evaluate) { toast(t('errors.prompt'), { error: true }); return; }
+  if (!state.server.ready) { toast(t('errors.prompt'), { error: true }); return; }
 
   resetRunState();
   state.accounting = Boolean(state.server?.accounting);
@@ -1832,7 +1832,9 @@ function finishBatch(ev) {
 function failRun(err) {
   const code = err?.code || '';
   let message;
-  if (code === 'source_too_long') message = `${t('errors.sourceTooLong')} ${err?.message || ''}`;
+  // FactEngine's own fault, told to a reader as one plain sentence (server/view.js, 31 October, night).
+  if (code === 'unavailable') message = t(state.phase === 'extracting' ? 'errors.unavailableListing' : 'errors.unavailable');
+  else if (code === 'source_too_long') message = `${t('errors.sourceTooLong')} ${err?.message || ''}`;
   else if (code === 'signin_required') message = t('account.cookies');   // signed in, and still refused: the browser kept no cookie
   // A rejected key, or a provider's account that can no longer pay (402): the operator's to look at; the page names neither.
   else if (err?.status === 401 || err?.status === 402 || code === 'invalid_key' || code === 'missing_key' || code === 'balance_exhausted') message = t('errors.key');
@@ -2179,9 +2181,11 @@ function renderCardError(i) {
   if (!msg) { msg = el('p', { class: 'card-error' }); $('.card-head', card).after(msg); }
   // Said in words first; the technical reason follows, so it can be reported. A claim the credit could not cover says
   // so in its own sentence, which is not a fault.
-  const own = r.errorCode === 'credit_short' || r.errorCode === 'month_limit' || r.errorCode === 'already_tested';
+  const own = r.errorCode === 'credit_short' || r.errorCode === 'month_limit' || r.errorCode === 'already_tested' || r.errorCode === 'unavailable';
   // A provider that refuses outright (Gemini at a limit of 0, on the operator's trial) is named, with its own sentence.
-  const why = r.errorCode === 'quota_exhausted' ? (r.error ? `${t('card.quota')} (${r.error})` : t('card.quota')) : r.errorWho && r.error ? `${r.errorWho}: ${r.error}` : (r.error || '');
+  // FactEngine's own fault reaches a reader as one plain sentence (server/view.js, 31 October, night).
+  const why = r.errorCode === 'unavailable' ? t('card.unavailable')
+    : r.errorCode === 'quota_exhausted' ? (r.error ? `${t('card.quota')} (${r.error})` : t('card.quota')) : r.errorWho && r.error ? `${r.errorWho}: ${r.error}` : (r.error || '');
   msg.replaceChildren(document.createTextNode(own ? why : `${t('card.error')} ${why}`.trim()),
     el('button', { type: 'button', class: 'btn btn-small btn-text', text: t('card.retryBtn'), onclick: () => retryClaim(i) }));
   $('.card-brief', card).hidden = true;

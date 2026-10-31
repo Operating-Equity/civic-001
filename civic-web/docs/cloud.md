@@ -1294,6 +1294,33 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
       `/check` and the log line;
     - the stand-in writes the class (`MOCK_NAME_CLASS`);
     - browser checks of both cards.
+  - **Live** (31 October, 19:07 UTC): PR #96 deployed. Live check clean, nothing spent. The class does nothing until
+    the operator sets its word in their list; until then every entry is read by the name's forms, as before.
+- **31 October, night: what anyone else receives of how FactEngine works (the server's part).** The operator: "I don't
+  plan on giving away any information."
+  - **The health line** gives anyone but the operator only what the page reads:
+    - its build, pace and readiness (`ready`, in place of the two prompts);
+    - their own balance.
+    - Gone for them: the runs in flight, the prices' tier, the parts it is made of, the operator's flag.
+    - The runs in flight go to the operator, or to a request carrying a private check key (`x-check-key`), whose
+      SHA-256 is `CIVIC_CHECK_KEY_SHA256`. The key is kept by whoever runs a release, never here.
+  - **Failures** (`server/view.js` `readerError`, the error handler in `server/index.js`):
+    - one a reader can act on is told as it is: a sign-in, the document, the credit, a link, a file, the account;
+    - a document too long is told without the settings' names;
+    - any other is one plain sentence. For a claim, the operator's words: "This claim could not be tested just now.
+      Try again shortly."; for the listing or anything else, its like, in the page's four languages;
+    - the true failure stays on the operator's page and /check.
+  - **The operator's addresses** (`/api/selftest`, `/api/illustrate`, `/api/operator/…`) answer anyone else exactly
+    as an address the API does not have (404, "Not found."), before anything else is read of the request.
+  - **`/mcp`** is there only when its pass is set, and the unused door is gone (`server/tools/gateway.js`).
+  - **The stream and the link reader:**
+    - a reader's price no longer carries its tier;
+    - a page read for them no longer says whether it is of a kind the operator keeps out.
+  - **The account link** names no operator: "Create the account", and "This link has been used or is not valid."
+  - **The privacy page**, the operator's minimum:
+    - the service providers by kind, each for its part;
+    - the servers' country alone;
+    - no provider's country, no training clause, no two-step description, and no search that no longer happens.
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 
