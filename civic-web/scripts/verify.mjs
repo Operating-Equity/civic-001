@@ -4549,10 +4549,11 @@ async function readerViewChecks() {
       JSON.stringify((rDone?.trail || []).map((x) => x.verb)) === '["search","open","find","search"]' && Boolean(rDone.trail[0].query) && Boolean(rDone.trail[1].url)
         && Boolean(rDone.trail[2].pattern) && Boolean(rDone.trail[3].query) && rDone.trail.every((x) => !('kind' in x) && !('name' in x) && !('source' in x)),
       JSON.stringify(rDone?.trail));
-    check('a reader is told a standby model answered, in a neutral warning naming no model',
-      rDet.some((e) => e.t === 'warning' && e.code === 'fallback' && !('used' in e) && !('requested' in e)) && !rDet.some((e) => e.t === 'warning' && e.code === 'model_fallback')
-        && rDone?.standby === true && !('fellBack' in (rDone || {})),
-      JSON.stringify(rDet.filter((e) => e.t === 'warning')));
+    check('a reader is not told a standby model answered (31 October, night): no warning of it and no word of it on the finished claim; nor any wait, retry or figure of their turn',
+      !rDet.some((e) => e.t === 'warning') && !['standby', 'fellBack'].some((k) => k in (rDone || {}))
+        && !rDet.some((e) => e.t === 'retry' || e.t === 'rank-retry') && rDet.filter((e) => e.t === 'phase' && e.phase === 'queued').every((e) => !('waitMs' in e) && !('position' in e))
+        && !r.listing.some((e) => e.t === 'retry' || e.t === 'rank-retry' || (e.t === 'warning' && e.code !== 'source_truncated')),
+      JSON.stringify(rDet.filter((e) => e.t === 'warning' || e.t === 'retry')));
     const TELLS = [...new Set([...config.evalModels, 'gpt-missing-x', `"${config.evalEffort}"`, 'open_page', 'find_in_page', 'web_search', 'search_web', 'read_page', 'get_transcript', 'verdictSource'])];
     check('no name that gives the method away reaches a reader\'s stream: no model id, effort, tool name or verdict source',
       TELLS.every((w) => !rSerial.includes(w)), TELLS.filter((w) => rSerial.includes(w)).join(', '));
@@ -4679,6 +4680,100 @@ async function readerViewChecks() {
   }
 }
 await readerViewChecks();
+
+// ---- the readers' standby (31 October, night; server/standby.js) ----------------------------------------------------
+// The operator: "it does not help you or the service to show that it is struggling. But it also shouldn't fail." A
+// reader's claim the readers' model still fails goes once more, by itself, to the standby on Anthropic's path, and the
+// reader is not told; only the standby's own failure reaches them, as the plain sentence, and that is never charged.
+// The standby is a setting (CIVIC_EVAL_STANDBY, model|level): written wrong, the start stops, naming it.
+async function standbyChecks() {
+  const SMOCK = MOCK_PORT + 140, FMOCK = MOCK_PORT + 141, P = PORT + 140, PF = PORT + 141;
+  const ANKEY = 'an-verify-key-standby-0000';   // made-up, and never in the shape of a real Anthropic key
+  const STANDBY = 'claude-fable-5-1|max';   // the guard's own choice, never the one set on Render
+  const stamp = Date.now();
+  const procs = [];
+  try {
+    const stopsOn = (value) => spawnSync(process.execPath, [path.join(root, 'server', 'index.js')], { cwd: root, timeout: 20000, encoding: 'utf8', env: { ...process.env, ...ACCOUNTS_OFF, PORT: String(PORT + 142), OPENAI_API_KEY: KEY, CIVIC_EVAL_STANDBY: value } });
+    const wrong = ['gpt-6-astra|high', 'claude-fable-5-1|low', 'claude-fable-5-1', 'claude-fable-5-1|high|max'].map(stopsOn);
+    check('a standby written wrong stops the start, naming the setting: a model not Anthropic\'s, a level the model has not, no level, two',
+      wrong.every((r) => r.status !== 0 && /STOPPED: CIVIC_EVAL_STANDBY/.test(`${r.stdout}${r.stderr}`)),
+      wrong.map((r) => `${r.status}: ${`${r.stdout}${r.stderr}`.split('\n').find((l) => /STOPPED/.test(l)) || ''}`).join(' | '));
+
+    // Two servers with the standby set: on one, Claude answers; on the other, Claude fails too (its credit used up).
+    const mock = start([path.join(root, 'scripts', 'mock-openai.js')], { MOCK_PORT: String(SMOCK), MOCK_SPEED: '0.2', MOCK_EVAL_FAIL_TEXT: 'Refuse this claim', MOCK_INSPECTOR: 'Sir Edwin Cardale (geologist)', MOCK_EVAL_MARK: process.env.MOCK_EVAL_MARK_FOR_GATE || '' });
+    const mockF = start([path.join(root, 'scripts', 'mock-openai.js')], { MOCK_PORT: String(FMOCK), MOCK_SPEED: '0.2', MOCK_EVAL_FAIL_TEXT: 'Refuse this claim', MOCK_AN_CREDIT: '1,2,3,4,5,6,7,8,9,10', MOCK_EVAL_MARK: process.env.MOCK_EVAL_MARK_FOR_GATE || '' });
+    procs.push(mock, mockF);
+    await wait(`http://localhost:${SMOCK}/v1/mock/stats`, 15000, { anyResponse: true });
+    await wait(`http://localhost:${FMOCK}/v1/mock/stats`, 15000, { anyResponse: true });
+    const ledger = path.join(os.tmpdir(), `civic-verify-standby-ledger-${stamp}.jsonl`);
+    const envOf = (mockPort, file) => ({ ANTHROPIC_API_KEY: ANKEY, CIVIC_ANTHROPIC_BASE_URL: `http://localhost:${mockPort}/anthropic`, CIVIC_EVAL_STANDBY: STANDBY,
+      CIVIC_OPERATOR_EMAILS: 'op@example.com', CIVIC_OPERATOR_CLAIM: claimHash(), CIVIC_LIST_PRICE_CENTS: '125', CIVIC_TIER_ORDER: '1', CIVIC_LEDGER_FILE: file });
+    const srv = accountServer(P, SMOCK, envOf(SMOCK, ledger));
+    const srvF = accountServer(PF, FMOCK, envOf(FMOCK, path.join(os.tmpdir(), `civic-verify-standby-ledger-f-${stamp}.jsonl`)));
+    procs.push(srv.child, srvF.child);
+    await wait(`http://localhost:${P}/api/health`, 20000);
+    await wait(`http://localhost:${PF}/api/health`, 20000);
+    const boot = srv.output();
+    check('the start-up line says the standby is ready, by its model and level, and that the reader is not told',
+      /\[standby\] a reader's claim the readers' model still fails goes once more, by itself, to claude-fable-5-1 at max, on Anthropic's path; the reader is not told/.test(boot),
+      (boot.split('\n').find((l) => /\[standby\]/.test(l)) || '').slice(0, 300));
+
+    const anStats = async (port) => (await fetch(`http://localhost:${port}/anthropic/mock/stats`)).json();
+    const testOn = async (base, who) => {
+      const people = accountClient(base);
+      const reader = (await people.signup(`standby-${who}@example.com`)).cookie;
+      const op = (await people.json('/api/account/claim', { method: 'POST', body: { token: CLAIM_TOKEN, email: 'op@example.com', password: PASSWORD, agree: true } })).cookie;
+      const claimOn = async (cookie, tag, claim) => {
+        const runId = `sb-${who}-${tag}-run-${stamp}`;
+        await people.stream('/api/extract', { jobId: runId, text: ACCT_TEXT }, cookie);
+        const bal = await people.balance(cookie);
+        const ev = (await people.stream('/api/evaluate', { jobId: `sb-${who}-${tag}-c-${stamp}`, claims: [claim], text: ACCT_TEXT, runId, n: 2 }, cookie)).events;
+        return { ev, charged: bal - (await people.balance(cookie)) };
+      };
+      return { people, reader, op, claimOn };
+    };
+
+    // Claude answers.
+    const A = await testOn(`http://localhost:${P}`, 'a');
+    const before = (await anStats(SMOCK)).requests;
+    const rd = await A.claimOn(A.reader, 'reader', 'Refuse this claim, as the stand-in is told to.');
+    const rDone = rd.ev.find((e) => e.t === 'done');
+    check('a reader\'s claim the readers\' model fails goes once more to the standby, by itself: delivered whole, charged once, as any claim; the reader is told nothing of it (no error, warning, retry, standby or model)',
+      Boolean(rDone?.verdict) && (rDone.text || '').length > 100 && !rd.ev.some((e) => e.t === 'error' || e.t === 'warning' || e.t === 'retry')
+        && !['standby', 'fellBack', 'model', 'requested', 'provider', 'effort'].some((k) => k in rDone) && rd.charged === 125 && (await anStats(SMOCK)).requests > before
+        && !/claude|anthropic|standby/i.test(JSON.stringify(rd.ev)),
+      JSON.stringify({ types: rd.ev.map((e) => e.t), charged: rd.charged, keys: Object.keys(rDone || {}) }));
+    const od = await A.claimOn(A.op, 'operator', 'Refuse this claim, as the stand-in is told to.');
+    const oDone = od.ev.find((e) => e.t === 'done');
+    check('the operator is told which model answered and which was asked: the warning and the finished claim name the standby',
+      od.ev.some((e) => e.t === 'warning' && e.code === 'model_fallback' && e.used === 'claude-fable-5-1') && oDone?.standby === true && oDone.model === 'claude-fable-5-1' && oDone.effort === 'max'
+        && oDone.fellBack?.used === 'claude-fable-5-1' && !od.ev.some((e) => e.t === 'error'),
+      JSON.stringify({ warning: od.ev.find((e) => e.t === 'warning'), model: oDone?.model, fellBack: oDone?.fellBack }));
+    const lines = (fs.existsSync(ledger) ? fs.readFileSync(ledger, 'utf8') : '').split('\n').filter(Boolean).map((l) => JSON.parse(l));
+    const sbLines = lines.filter((l) => l.kind === 'evaluate' && l.standby === true);
+    check('the ledger keeps both: the readers\' model\'s failure, and the standby\'s determination as a reader\'s (kind evaluate, Anthropic\'s, its model and level)',
+      lines.some((l) => l.kind === 'evaluate' && l.ok === false) && sbLines.length >= 2 && sbLines.every((l) => l.ok === true && l.provider === 'anthropic' && l.model === 'claude-fable-5-1' && l.effort === 'max'),
+      JSON.stringify(lines.map((l) => [l.kind, l.ok, l.provider, l.model, l.standby])));
+    const plain = await A.claimOn(A.reader, 'plain', 'The Eiffel Tower stands about 330 metres tall.');
+    check('a claim the readers\' model answers never goes to the standby',
+      Boolean(plain.ev.find((e) => e.t === 'done')) && sbLines.length === (fs.readFileSync(ledger, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)).filter((l) => l.standby === true).length),
+      '');
+
+    // Claude fails too: the one plain sentence, and nothing charged.
+    const F = await testOn(`http://localhost:${PF}`, 'f');
+    const fr = await F.claimOn(F.reader, 'reader', 'Refuse this claim, as the stand-in is told to.');
+    const fErr = fr.ev.filter((e) => e.t === 'error');
+    check('when the standby fails too, the reader is told the one plain sentence, once, and is not charged; nothing else of either failure reaches them',
+      fErr.length === 1 && JSON.stringify(fErr[0]) === JSON.stringify({ t: 'error', i: 0, code: 'unavailable', message: 'This claim could not be tested just now. Try again shortly.' })
+        && fr.charged === 0 && !fr.ev.some((e) => e.t === 'done' || e.t === 'warning' || e.t === 'retry') && !/claude|anthropic|credit|standby/i.test(JSON.stringify(fr.ev)),
+      JSON.stringify({ events: fr.ev.map((e) => e.t), error: fErr[0], charged: fr.charged }));
+  } catch (err) {
+    check('standby checks ran', false, err.stack || err.message);
+  } finally {
+    for (const p of procs) { try { p.kill('SIGTERM'); } catch {} }
+  }
+}
+await standbyChecks();
 
 // ---- the inspector's name as a class of the entry (31 October, evening) ----------------------------------------------
 // The operator: "outputs can be a class that are designated as such and different from the textual content". The entry
@@ -5129,13 +5224,16 @@ async function downloadChecks() {
 
     // (g) The operator's words are on the operator's page alone, never in the files everyone downloads.
     const MOVED = ['step2.gate', 'score.cost', 'score.internal', 'card.cost', 'card.costUnknown', 'claims.avgCost',
-      'step2.waitingProvider', 'card.waitingProvider', 'card.inspector', 'card.modelLine', 'warn.modelFallback', 'errors.checkLink'];
+      'step2.waitingProvider', 'card.waitingProvider', 'card.inspector', 'card.modelLine', 'warn.modelFallback', 'errors.checkLink',
+      // What FactEngine works around on its way (31 October, night): a reader's page says only the work going on.
+      'step1.queued', 'step1.queuedTimed', 'step1.retry', 'step1.unreachable', 'step1.reconnecting', 'step2.throttled', 'step2.unreachable',
+      'card.retry', 'card.waitingLimit', 'card.queued', 'card.waitingConnection', 'card.reconnecting', 'warn.fallback', 'net.connection', 'net.ECONNRESET'];
     const flat = (o, pre = '') => Object.entries(o).flatMap(([k, v]) => (v && typeof v === 'object' ? flat(v, `${pre}${k}.`) : [`${pre}${k}`]));
     const keys = new Set();
     for (const code of ['en', 'es', 'fr', 'de']) for (const k of flat((await import(pathToFileURL(path.join(publicDir, 'locales', `${code}.js`)).href)).default)) keys.add(`${code}:${k}`);
     const sentEveryone = (await Promise.all(['/js/app.js', '/locales/en.js', '/locales/es.js', '/locales/fr.js', '/locales/de.js'].map(async (a) => (await raw(PA, a, { cookie: reader })).text))).join('\n');
     check('the operator\'s words (the key\'s minute, the costs, the trial\'s labels) are on the operator\'s page alone: no locale carries them, nothing everyone downloads says them, and the operator\'s page does',
-      MOVED.every((k) => ['en', 'es', 'fr', 'de'].every((c) => !keys.has(`${c}:${k}`))) && !/[Tt]okens|jetons|Est\. cost|price unknown|\(readers\)|Side by side|Tick at least one|models and levels|zero credibility|Why did this happen|asks to wait|waiting for \{who\}|Tested with \{used\}/.test(sentEveryone)
+      MOVED.every((k) => ['en', 'es', 'fr', 'de'].every((c) => !keys.has(`${c}:${k}`))) && !/[Tt]okens|jetons|Est\. cost|price unknown|\(readers\)|Side by side|Tick at least one|models and levels|zero credibility|Why did this happen|asks to wait|waiting for \{who\}|Tested with \{used\}|going again|waiting for the connection|Retrying|waiting their turn|standby model/.test(sentEveryone)
         && opHome.includes('data-gate="The key\'s minute:') && opHome.includes('<span class="chip chip-internal">Internal</span> <span>Est. cost</span>') && !readerHome.includes('data-gate'),
       MOVED.filter((k) => ['en', 'es', 'fr', 'de'].some((c) => keys.has(`${c}:${k}`))).join(', '));
 

@@ -1,9 +1,11 @@
 // The operator's tools on their page (31 October, night: "I don't plan on giving away any information"): the grid of
 // models and levels, the costs, the key's-minute line, the per-entry scoreboard, the zero-credibility mark, the model's
-// name and level on a card, a provider's wait, the inspector's name and the class it is written in, and the operator's own
-// words for all of them. Served to the operator's account alone (server/assets.js OPERATOR_ONLY) and named only on their
-// page (index.html, the operator's part); public/js/app.js loads it before the page starts and puts it in the hooks it
-// keeps (`ext`), which do nothing on anyone else's page. The script everyone downloads names none of this.
+// name and level on a card, a standby model's answer, what FactEngine works around on its way (a claim's turn, a wait,
+// a retry, a cut connection; a reader's page says only the work going on), the inspector's name and the class it is
+// written in, and the operator's own words for all of them. Served to the operator's account alone (server/assets.js
+// OPERATOR_ONLY) and named only on their page (index.html, the operator's part); public/js/app.js loads it before the
+// page starts and puts it in the hooks it keeps (`ext`), which do nothing on anyone else's page. The script everyone
+// downloads names none of this.
 
 const TRIAL_KEY = 'fe.trial';   // where this browser remembers the operator's ticked models and levels
 
@@ -206,6 +208,7 @@ export function install(ctx) {
     Object.assign(r, {
       cost: ev.cost || null, model: ev.model || null, requested: ev.requested || null, fellBack: ev.fellBack || null,
       effort: ev.effort || null, mode: ev.mode || null, listed: ev.listed ?? null, keptOut: ev.keptOut ?? null,
+      standby: Boolean(ev.standby || ev.fellBack),
     });
     tally(i, r.verdict || 'unread');
     addCost(r.cost);
@@ -228,7 +231,9 @@ export function install(ctx) {
   function foot(r, card) {
     const modelNode = $('.card-model', card);
     if (r.model) modelNode.textContent = word('modelLine', { model: r.model, effort: [r.effort, r.mode].filter(Boolean).join(' / ') });
-    if (r.fellBack?.used) modelNode.title = word('modelFallback', { used: r.fellBack.used, requested: r.fellBack.requested });
+    // A standby model's answer, marked as such on the operator's page, so a downgrade never passes them unnoticed.
+    modelNode.classList.toggle('is-fallback', Boolean(r.standby));
+    modelNode.title = r.fellBack?.used ? word('modelFallback', { used: r.fellBack.used, requested: r.fellBack.requested }) : '';
     const costNode = $('.card-cost', card);
     if (!costNode) return;
     if (state.server?.accounting && r.status === 'done' && r.cost) {
@@ -246,14 +251,59 @@ export function install(ctx) {
     return text ? [el('span', { class: 'card-mark mono', text })] : [];
   }
 
-  /** A provider's own wait, on a card: who asks it, the time left, the clock it ends at. */
-  const waitLine = (r) => word('cardWaitingProvider', { who: r.who, time: fmtSeconds(Math.max(0, (r.retryUntil || 0) - Date.now())), clock: ctx.fmtClock(r.retryUntil || Date.now()) });
+  // ---- what FactEngine works around on its way, said on the operator's page alone (31 October, night: a reader's page
+  // says only the work going on) ----
 
-  /** Step 2's line while a provider asks claims to wait. */
-  function stepLine({ working, retrying, elapsed }) {
-    const waiting = state.results.filter((r) => retrying(r) && r.retryReason === 'rate_limit' && r.who);
-    if (!waiting.length) return '';
-    return word('stepWaitingProvider', { running: working, n: waiting.length, who: waiting[0].who, done: state.batch.done, total: state.batch.size, time: elapsed });
+  // A connection failure in words, from the operating system's code (server/openai.js sends both).
+  const NET = {
+    EHOSTUNREACH: 'no route to host', ENETUNREACH: 'the network is unreachable', ENETDOWN: 'the network is down', EHOSTDOWN: 'the host is down',
+    ECONNREFUSED: 'the connection was refused', ENOTFOUND: 'the name could not be resolved', EAI_AGAIN: 'the name could not be resolved',
+    ETIMEDOUT: 'the connection timed out', UND_ERR_CONNECT_TIMEOUT: 'the connection timed out', ECONNRESET: 'the connection was reset',
+    ECONNABORTED: 'the connection was aborted', EPIPE: 'the connection was closed while sending', UND_ERR_SOCKET: 'the connection was cut during the reply',
+    cut: 'the connection was cut during the reply', connection: 'the connection failed',
+  };
+  const netWords = (code, why) => NET[code || 'connection'] || why || NET.connection;
+  const secondsTo = (at) => Math.max(0, Math.ceil(((at || 0) - Date.now()) / 1000));
+
+  /**
+   * A card's line while FactEngine works around something (its turn, a wait, a retry, a cut connection); '' otherwise. A
+   * provider's own words for its wait go on a line of their own under the bar, so a long reason never squeezes the line.
+   */
+  function cardLine(r, card) {
+    const providerWait = r.phase === 'retry' && r.retryReason === 'rate_limit' && r.who;
+    const why = $('.card-why', card);
+    if (why) {
+      why.textContent = providerWait ? r.retryWhy || '' : '';
+      why.hidden = !(providerWait && r.retryWhy);
+    }
+    if (r.phase === 'queued') { const s = secondsTo(r.queuedUntil); return word('cardQueued') + (s > 0 ? ` · ${s} s` : ''); }
+    if (providerWait) return word('cardWaitingProvider', { who: r.who, time: fmtSeconds(Math.max(0, (r.retryUntil || 0) - Date.now())), clock: ctx.fmtClock(r.retryUntil || Date.now()) });
+    if (r.phase === 'retry' && r.retryReason === 'rate_limit') return word('cardWaitingLimit', { s: secondsTo(r.retryUntil) });
+    if (r.phase === 'retry' && r.retryReason === 'connection') return word('cardWaitingConnection', { why: netWords(r.retryCode, r.retryWhy), time: fmtSeconds(Date.now() - (r.retrySince || Date.now())) });
+    if (r.phase === 'retry') return word('cardRetry', { n: r.retryAttempt || 1 });
+    if (r.phase === 'reconnecting') return word('cardReconnecting');
+    return '';
+  }
+
+  /** Step 2's line while claims are held back: a missing connection, a provider's wait, their turn; '' otherwise. */
+  function stepLine({ elapsed }) {
+    const retrying = (r) => r.phase === 'retry' && r.status !== 'done' && r.status !== 'error';
+    const working = state.results.filter((r) => r.status === 'running' && r.phase !== 'queued' && r.phase !== 'retry').length;
+    const at = { running: working, done: state.batch.done, total: state.batch.size, time: elapsed };
+    const unreachable = state.results.filter((r) => retrying(r) && r.retryReason === 'connection');
+    if (unreachable.length) return word('stepUnreachable', { ...at, n: unreachable.length, why: netWords(unreachable[0].retryCode, unreachable[0].retryWhy) });
+    const provider = state.results.filter((r) => retrying(r) && r.retryReason === 'rate_limit' && r.who);
+    if (provider.length) return word('stepWaitingProvider', { ...at, n: provider.length, who: provider[0].who });
+    const held = state.results.filter((r) => r.phase === 'queued' || (retrying(r) && r.retryReason !== 'connection')).length;
+    return held ? word('stepThrottled', { ...at, n: held }) : '';
+  }
+
+  /** The listing's line while it is held back: its connection cut and opened again, a missing connection, its turn. */
+  function listingLine({ cut, wait, queued }) {
+    if (cut) return word('listingReconnecting');
+    if (wait) return word('listingUnreachable', { why: netWords(wait.code, wait.why), time: fmtSeconds(Date.now() - wait.since) });
+    if (queued && !state.found) return word('listingQueued', { time: fmtSeconds(Date.now() - queued.at) });
+    return '';
   }
 
   /** Step 2's title with several entries: the claims chosen on each model and level ticked, or the cards of each. */
@@ -296,7 +346,7 @@ export function install(ctx) {
   choice = loadChoice();
   return {
     start, reset, again: () => Boolean(trialOffer()), choices, runsFor, paint, tools, title, ask: (claim) => claim.ask || {},
-    event, waitLine, stepLine, listingDone: (ev) => addCost(ev.cost), cardDone, retrying, logParts, foot, named, mark,
+    event, cardLine, stepLine, listingLine, listingDone: (ev) => addCost(ev.cost), cardDone, retrying, logParts, foot, named, mark,
     warning, failureLink: () => word('checkLink'), score, shown, signOut,
   };
 }

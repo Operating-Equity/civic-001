@@ -1346,6 +1346,26 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
   - **Live** (31 October, 23:18 UTC): PR #98 deployed. A stranger's page and the scripts it downloads name none of the
     operator's tools, and the tools are "Not found" to a stranger however the address is spelt; the boot line says
     none of the tell words is in what a reader receives. Live check clean, nothing spent.
+- **31 October, night: a service that never shows it is struggling, and does not fail.** The operator: "it does not
+  help you or the service to show that it is struggling. But it also shouldn't fail." Their answers: normal progress
+  only; one more try on a standby; no standby note for readers; the standby, their choice, set on Render.
+  - **What a reader receives** (`server/view.js`): no wait, no retry, no figure of their turn, and no word that a
+    standby answered. Their page (`public/js/app.js`) says only the work going on:
+    - a claim held for its turn says "Starting…";
+    - one waiting to go again, or reconnecting, goes on saying what it was doing;
+    - one that goes again from its start keeps its words and its count of searches;
+    - a bar never goes back;
+    - the listing's line likewise.
+  - **The operator's page** says what is really happening, in their words (`public/js/op.js`): a claim's turn, a wait,
+    a retry, a cut connection, a provider's wait, a standby's answer naming both models. The six sentences, and the
+    connection words, left the four locales.
+  - **The readers' standby** (`server/standby.js`, `CIVIC_EVAL_STANDBY`, `model|level`, set on Render and never named
+    here). A reader's claim the readers' model still fails after its own tries goes once more, by itself, to the
+    standby on Anthropic's path:
+    - its answer is the reader's determination, booked, measured and charged as one;
+    - only the standby's own failure reaches the reader, as the one plain sentence, never charged;
+    - the ledger keeps both lines, and `/check` and the log keep why the readers' model did not answer;
+    - unset, there is none; written wrong, the start stops, naming it; the start-up line says whether it is ready.
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 

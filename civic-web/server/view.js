@@ -8,9 +8,10 @@
 // - each research step's tool is a plain word (search, open, find, read, transcript), with its question and address;
 // - the model is "LLR" on the page, with no name and no level (31 October: "The users do not care what level the model
 //   is run at. They care about the answers.");
-// - a provider's own words for a wait keep their sense, with model ids, companies, hosts and accounts named no more; a
-//   failure is told as it is only when a reader can act on it (the document, the credit, a link), and any other as one
-//   plain sentence (31 October, night).
+// - nothing of what FactEngine works around on its way (31 October, night: "it does not help you or the service to show
+//   that it is struggling"): no wait, no retry, no figure of a claim's turn, and no word that a standby model answered
+//   (server/standby.js); a failure is told as it is only when a reader can act on it (the document, the credit, a link),
+//   and any other as one plain sentence.
 // Fields no page shows are not sent: where a verdict was read, the request's own settings, the key's minute figures, the
 // price's tier.
 // Nor is what is the operator's alone: which sources and steps are of a site the operator keeps out of the research, and
@@ -149,7 +150,7 @@ export function readerView({ keep = [], what = 'other' } = {}) {
         return { t: 'phase', i: ev.i, phase: 'inspecting' };
       case 'phase':
         if (ev.phase === 'incomplete') return pick(ev, ['t', 'i', 'phase', 'reason']);
-        if (ev.phase === 'queued') return pick(ev, ['t', 'i', 'phase', 'waitMs', 'position']);
+        if (ev.phase === 'queued') return pick(ev, ['t', 'i', 'phase']);   // its turn, without its figures
         return pick(ev, ['t', 'i', 'phase', 'searches', 'claims']);
       case 'trail':
         // A claim's step is counted as it happens; what it asked comes with the finished claim, its inspector's name made
@@ -158,14 +159,10 @@ export function readerView({ keep = [], what = 'other' } = {}) {
       case 'note':
         return pick(ev, ['t', 'i', 'code']);
       case 'retry': case 'rank-retry':
-        return {
-          ...pick(ev, ['t', 'i', 'attempt', 'status', 'reason', 'waitMs', 'code', 'since', 'at', 'until']),
-          ...(ev.why ? { why: maskProviders(ev.why) } : {}), ...(ev.who ? { who: maskProviders(ev.who) } : {}),
-        };
+        return null;   // a wait or a retry is FactEngine's to work around, never the reader's to watch
       case 'warning':
-        if (ev.code === 'model_fallback') return { t: 'warning', ...pick(ev, ['i']), code: 'fallback' };
         if (ev.code === 'source_truncated') return pick(ev, ['t', 'code', 'omitted', 'read', 'original']);
-        return null;
+        return null;   // a standby model's answer among them: the reader is not told (31 October, night)
       case 'done':
         if (ev.i === undefined) {
           return {
@@ -188,7 +185,6 @@ export function readerView({ keep = [], what = 'other' } = {}) {
             text: maskEntry(ev.text || '', { name, keep: kept }),
             reasoning: ev.reasoning ? told(ev.reasoning, name, kept) : null,
             trail: (ev.trail || []).map((s) => readerStep(s, name, kept)),
-            standby: Boolean(ev.standby),   // a standby model answered: said, never which
             incomplete: ev.incomplete || null,
           };
         }
