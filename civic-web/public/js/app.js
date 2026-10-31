@@ -1793,7 +1793,8 @@ function handleEvalEvent(ev, mapIndex) {
       break;
     case 'delta':
       // The entry is kept, not drawn: it appears whole when the claim is done (finalizeCard). Its length drives the bar.
-      r.text += ev.text; r.chars = r.text.length;
+      // A reader's stream carries only that length (server/view.js); the entry comes whole with the finished claim.
+      if (typeof ev.text === 'string') { r.text += ev.text; r.chars = r.text.length; } else r.chars += Number(ev.n) || 0;
       if (r.phase !== 'writing') { r.phase = 'writing'; renderCardStatus(i); }
       break;
     case 'trail': r.trail.push(ev.step); renderCardStatus(i); break;

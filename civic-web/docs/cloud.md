@@ -934,7 +934,7 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
     FactEngine's own words unless set; `/check` names the list by its fingerprint.
   - **The leak check** reports what it finds by fingerprint, never by its text.
   - **Live** (20 October, 01:58 UTC): PR #78; live check clean, nothing spent. The health line gives anyone but the
-    operator its fourteen fields alone, the picture route asks for a sign-in, and the served page writes the depth line.
+    operator its fourteen fields alone, the picture route asks for a sign-in, and the served page writes the model's line under the operator's mark.
   - **Next, by the operator:** link Render to a GitHub login that can see a private repository, then make it private
     (Stage 1's four steps).
 - **20 October: what anyone can download.** Step two of the operator's four (`server/assets.js`).
@@ -1249,6 +1249,27 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
   - **Proof:** a browser check (scratchpad `browser/glass-check.mjs`) of the recipe on every panel, the glow rising and
     settling, a paste, reduced motion, the readers' card and stream, and a phone; the earlier browser checks; the guard in
     the three prompt shapes; the leak check.
+  - **Live** (31 October, 17:00 UTC): PR #94 deployed, with the readers' settings. Live check clean, nothing spent.
+- **31 October, evening: the inspector's name, gone wherever a reader could see it.** The operator: "eliminating the
+  name everywhere the reviewer or inspector appears. They are simply referred to as inspector and then the 1st letter of
+  their 1st name plus one letter and if the letter is Z, it goes to a … a direct match between the letter and the first
+  name is not that hard of a code to break."
+  - **The mark** (`server/verdict.js`, `markLetter`): the letter after the first letter of the name's first word that
+    is not a title, Z going to A. An accented letter counts as its plain one, and a name with no Latin letter has the
+    mark's word alone.
+  - **The name's line** is read by "Name", "Inspector" or "Reviewer" (`server/names.js`).
+  - **The name is made the mark wherever it stands for the inspector** (`maskName`, `maskEntry`):
+    - in the entry's body, its line, the card, the thinking's summary, the searches and the conclusion;
+    - in full, without its titles, with a title before the first name or the surname, and the first name alone.
+  - **What stays as written:**
+    - a surname alone, which also names laws and units: the operator's answer;
+    - any form the claim or the document itself writes (`server/view.js` is given the run's claims and document).
+  - **The stream:** as an entry is written, a reader receives only its length (the card's bar); the entry comes whole
+    with the finished claim. The operator's page receives it as before, with the real name.
+  - **Proof:**
+    - guard checks of the mark, the labels, every form, the claim's own words and the stream;
+    - the stand-in can name its inspector in the entry's body (`MOCK_INSPECTOR_BODY`);
+    - the browser checks of a reader's card.
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 

@@ -18,7 +18,9 @@ import fs from 'node:fs';
 const DEFAULTS = {
   conclusion: ['Conclusion'],
   confidence: ['Confidence'],
-  name: ['Name'],
+  // The inspector's line (31 October: "the reviewer or inspector"): read by any of these labels, so its name never
+  // passes to a reader under a label the prompt chose.
+  name: ['Name', 'Inspector', 'Reviewer'],
   verdicts: { true: ['true'], false: ['false'], unverified: ['uncertain', 'unverified', 'unverifiable', 'indeterminate', 'inconclusive'] },
   verdictTags: ['verdict', 'determination'],
   inspector: 'Inspector {initial}',
