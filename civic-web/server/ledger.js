@@ -53,7 +53,10 @@ export function factCheckWords(line) {
   // With anything kept out of the research set (server/sites.js): what the fact-check took of it ("zero credibility",
   // the operator's word of 25 October), and what it asked for and did not get.
   const listed = line.listed == null ? '' : ` · ${n(line.listed)} of zero credibility${line.keptOut ? `, ${n(line.keptOut)} kept out` : ''}`;
-  return `[fact-check] ${line.model} at ${line.effort} (${who}): ${time}, waited ${s(line.waitMs)}; entry ${n(line.entryChars)} characters, ${n(line.entryWords)} words; ${work}${tokens}${cost}; ${verdict}${line.incomplete ? `; stopped early (${line.incomplete})` : ''}${listed}`;
+  // With the operator's class for the inspector's name set (31 October, evening): how the entry wrote the name, never it.
+  const c = line.nameClass;
+  const named = !c ? '' : c.written ? ` · the name ${many(c.written, 'time', 'times')} in its class${c.outside ? `, ${many(c.outside, 'time', 'times')} in full outside it` : ''}` : ' · the name not in its class';
+  return `[fact-check] ${line.model} at ${line.effort} (${who}): ${time}, waited ${s(line.waitMs)}; entry ${n(line.entryChars)} characters, ${n(line.entryWords)} words; ${work}${tokens}${cost}; ${verdict}${line.incomplete ? `; stopped early (${line.incomplete})` : ''}${listed}${named}`;
 }
 
 /**

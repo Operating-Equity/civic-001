@@ -6,7 +6,7 @@
 // always read; the role words (24 October) are those of the listing prompt installed that day. A word the operator sets
 // replaces its default, so a heading the prompt no longer writes is no longer read.
 //
-// {"conclusion": ["…"], "confidence": ["…"], "name": ["…"], "verdicts": {"true": ["…"], "false": ["…"],
+// {"conclusion": ["…"], "confidence": ["…"], "name": ["…"], "nameClass": "…", "verdicts": {"true": ["…"], "false": ["…"],
 //  "unverified": ["…"]}, "verdictTags": ["…"], "inspector": "Inspector {initial}", "titles": ["…"], "claim": ["…"],
 //  "fields": ["…"], "role": ["…"], "roles": {"central": ["…"], "supporting": ["…"], "incidental": ["…"], "unranked": ["…"]}}
 //
@@ -21,6 +21,11 @@ const DEFAULTS = {
   // The inspector's line (31 October: "the reviewer or inspector"): read by any of these labels, so its name never
   // passes to a reader under a label the prompt chose.
   name: ['Name', 'Inspector', 'Reviewer'],
+  // The class the entry writes the inspector's name in, wherever it writes it (31 October, evening: "outputs can be a class
+  // that are designated as such and different from the textual content"): <span class="…">the name</span>, the class the
+  // operator's word, set in their list and never in this repository. Unset, no class is read, and the name is found by
+  // its forms (server/verdict.js).
+  nameClass: null,
   verdicts: { true: ['true'], false: ['false'], unverified: ['uncertain', 'unverified', 'unverifiable', 'indeterminate', 'inconclusive'] },
   verdictTags: ['verdict', 'determination'],
   inspector: 'Inspector {initial}',
@@ -73,6 +78,10 @@ export function loadNames(env = process.env) {
     } else if (key === 'inspector') {
       if (typeof value !== 'string' || !value.includes('{initial}')) fail(key, 'must be words holding {initial}');
       out.inspector = value.trim();
+    } else if (key === 'nameClass') {
+      // One class, as HTML writes one: a letter, then letters, digits, hyphens or underscores.
+      if (typeof value !== 'string' || !/^[A-Za-z][A-Za-z0-9_-]*$/.test(value.trim())) fail(key, 'must be one word of letters, digits, - or _, starting with a letter');
+      out.nameClass = value.trim();
     } else if (key === 'titles') {
       out.titles = Array.isArray(value) && value.length === 0 ? [] : words(key, value);
     } else out[key] = words(key, value);

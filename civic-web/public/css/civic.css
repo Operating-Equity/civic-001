@@ -381,6 +381,8 @@ body {
 .card-brief { margin: 6px 0 0 34px; font-size: 14px; line-height: 1.45; color: var(--ink-2); cursor: pointer; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 .card.is-open .card-brief { display: none; }
 .card:not(.is-open) .entry, .card:not(.is-open) .card-detail, .card:not(.is-open) .card-foot, .card:not(.is-open) .card-note { display: none !important; }
+/* The operator's class for the inspector's name, highlighted on their page (31 October, evening). */
+.entry .hl { background: var(--blue-soft); border-radius: 4px; padding: 0 0.15em; -webkit-box-decoration-break: clone; box-decoration-break: clone; }
 .card-error .btn { margin-inline-start: 6px; vertical-align: baseline; }
 .claims-beyond { margin-block-start: 16px; padding-block-start: 12px; border-block-start: 1px dashed var(--line); }
 .claims-beyond-head { display: flex; justify-content: space-between; align-items: center; gap: 10px 16px; flex-wrap: wrap; }

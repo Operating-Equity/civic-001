@@ -862,7 +862,9 @@ step's question and address, the listing as written, and a work log counted in p
 · 2 sources cited"). `/api/health` tells anyone but the operator only what the page needs. The names, and the headings
 an entry is read by, are kept with the prompts (`CIVIC_OUTPUT_NAMES`, or `CIVIC_OUTPUT_NAMES_FILE`;
 `server/names.js`), FactEngine's own words unless set; a list that cannot be read stops the start, naming the key and
-never a word of it, and `/check` names the list by its fingerprint. The leak check reports what it finds by
+never a word of it, and `/check` names the list by its fingerprint. When the entry writes the inspector's name in a
+class of the operator's (the list's `nameClass`), a reader's copy has each of its spans made the mark, and the name in
+full wherever the entry left it outside the class; `/check` counts both. The leak check reports what it finds by
 fingerprint, never by its text.
 
 **What anyone can download** (`server/assets.js`, 20 October). Every script, style sheet and page of FactEngine's own

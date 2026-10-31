@@ -4655,6 +4655,116 @@ async function readerViewChecks() {
 }
 await readerViewChecks();
 
+// ---- the inspector's name as a class of the entry (31 October, evening) ----------------------------------------------
+// The operator: "outputs can be a class that are designated as such and different from the textual content". The entry
+// writes the inspector's name, in any form, in a class of the operator's own (server/names.js, nameClass), and a
+// reader's copy has each of the class's spans made the mark; then the name in full, with or without its titles,
+// wherever the entry left it outside the class (their answer: the full name only), counted for /check and the log. An
+// entry that writes no class is read by the name's forms, as before. The operator's page gets the class to highlight it;
+// no span's markup, and never the class's word, reaches a reader. The word here is invented.
+async function nameClassChecks() {
+  const WORD = 'qx-7';
+  const MOCKC = MOCK_PORT + 130, PC = PORT + 130;
+  const procs = [];
+  const stamp = Date.now();
+  try {
+    // The functions, in a process of their own that reads the class as the server reads it, at its start.
+    const unit = await new Promise((resolve) => {
+      const script = `const v = await import(${JSON.stringify(pathToFileURL(path.join(root, 'server', 'verdict.js')).href)});
+        const { loadNames } = await import(${JSON.stringify(pathToFileURL(path.join(root, 'server', 'names.js')).href)});
+        const entry = ['**Name**: <span class="${WORD}">Sir Edwin Cardale</span> (geologist)', '',
+          '**Notes**: As <span class="${WORD}">Sir Edwin Cardale</span>, I weighed the record; <span class=\\'${WORD}\\'>Cardale</span> read it twice, and the Cardale point is cited. Edwin Cardale signs it. Edwin agrees. Mark the date.',
+          '', '**Conclusion**: True, says <SPAN CLASS="${WORD}">Edwin</SPAN>.'].join('\\n');
+        const refusals = ['7a', 'a b', ''].map((w) => { try { loadNames({ CIVIC_OUTPUT_NAMES: JSON.stringify({ nameClass: w }) }); return 'accepted'; } catch (e) { return e.message; } });
+        console.log(JSON.stringify({
+          name: v.inspectorOf(entry), forms: v.classForms(entry), masked: v.maskEntry(entry, { keep: 'Is the tower 330 m tall?' }),
+          kept: v.maskEntry(entry, { keep: 'Did Edwin Cardale map the coast?' }), figures: v.classFigures(entry),
+          noLine: [v.inspectorOf('As <span class="${WORD}">Cardale</span> and <span class="${WORD}">Edwin Cardale</span> say.'), v.maskEntry('As <span class="${WORD}">Cardale</span> and <span class="${WORD}">Edwin Cardale</span> say.')],
+          without: [v.maskEntry('**Name**: Edwin Cardale\\nEdwin checks; Dr. Cardale agrees.'), v.classFigures('**Name**: Edwin Cardale\\nEdwin checks.')],
+          other: v.maskEntry('**Name**: <span class="other">Edwin Cardale</span>\\nAs <span class="other">Edwin</span>, I agree.'),
+          refusals,
+        }));`;
+      const child = spawn(process.execPath, ['--input-type=module', '-e', script], { cwd: root, env: { ...process.env, CIVIC_OUTPUT_NAMES: JSON.stringify({ nameClass: WORD }) }, stdio: ['ignore', 'pipe', 'pipe'] });
+      let out = '';
+      let err = '';
+      child.stdout.on('data', (d) => { out += d; });
+      child.stderr.on('data', (d) => { err += d; });
+      child.on('close', () => { try { resolve(JSON.parse(out.trim().split('\n').pop())); } catch { resolve({ out, err: err.slice(0, 400) }); } });
+    });
+    check('the class: the inspector is read through it (the name\'s line), and each of its spans, in any capitals and either quotes, is the mark for a reader, the surname alone in it too',
+      unit.name === 'Sir Edwin Cardale' && JSON.stringify(unit.forms) === JSON.stringify(['Sir Edwin Cardale', 'Sir Edwin Cardale', 'Cardale', 'Edwin'])
+        && unit.masked === '**Name**: Inspector F\n\n**Notes**: As Inspector F, I weighed the record; Inspector F read it twice, and the Cardale point is cited. Inspector F signs it. Edwin agrees. Mark the date.\n\n**Conclusion**: True, says Inspector F.',
+      JSON.stringify(unit).slice(0, 900));
+    check('the class\'s backstop is the full name only (the operator\'s answer): left outside the class it is the mark, and counted; a point named after the surname, the first name alone and a word like "Mark" outside it stay as written; a full name the claim writes stays too',
+      /Inspector F signs it\. Edwin agrees\. Mark the date\./.test(unit.masked || '') && /the Cardale point is cited/.test(unit.masked || '')
+        && JSON.stringify(unit.figures) === JSON.stringify({ nameClass: { written: 4, outside: 1 } })
+        && /Edwin Cardale signs it\./.test(unit.kept || '') && /As Inspector F, I weighed/.test(unit.kept || ''),
+      JSON.stringify({ figures: unit.figures, kept: (unit.kept || '').slice(0, 300) }));
+    check('an entry with no inspector line takes the name from its fullest form in the class; an entry that writes no class is read by the name\'s forms, as before, and counted as such',
+      JSON.stringify(unit.noLine) === JSON.stringify(['Edwin Cardale', 'As Inspector F and Inspector F say.'])
+        && JSON.stringify(unit.without) === JSON.stringify(['**Name**: Inspector F\nInspector F checks; Inspector F agrees.', { nameClass: { written: 0, outside: 0 } }]),
+      JSON.stringify({ noLine: unit.noLine, without: unit.without }));
+    check('a span of another class is no class of the operator\'s: the name in it is found by its forms, and its markup reaches no reader; a class word that is not one word of letters, digits, - or _ stops the start, naming the key and not the word',
+      unit.other === '**Name**: Inspector F\nAs Inspector F, I agree.'
+        && unit.refusals?.length === 3 && unit.refusals.every((m) => m === 'CIVIC_OUTPUT_NAMES: nameClass must be one word of letters, digits, - or _, starting with a letter'),
+      JSON.stringify({ other: unit.other, refusals: unit.refusals }));
+
+    // A reader and the operator, each with a listing and a fact-check, against a stand-in writing the class.
+    const mock = start([path.join(root, 'scripts', 'mock-openai.js')], { MOCK_PORT: String(MOCKC), MOCK_SPEED: '0.2', MOCK_INSPECTOR: 'Sir Edwin Cardale (geologist)', MOCK_NAME_CLASS: WORD, MOCK_SEARCH_ACTIONS: 'search', MOCK_EVAL_MARK: process.env.MOCK_EVAL_MARK_FOR_GATE || '' });
+    procs.push(mock);
+    await wait(`http://localhost:${MOCKC}/v1/mock/stats`, 15000, { anyResponse: true });
+    const srv = accountServer(PC, MOCKC, { CIVIC_OPERATOR_EMAILS: 'op@example.com', CIVIC_OPERATOR_CLAIM: claimHash(), CIVIC_LIST_PRICE_CENTS: '125', CIVIC_TIER_ORDER: '1', CIVIC_OUTPUT_NAMES: JSON.stringify({ nameClass: WORD }), CIVIC_LEDGER_FILE: path.join(os.tmpdir(), `civic-verify-class-ledger-${stamp}.jsonl`) });
+    procs.push(srv.child);
+    await wait(`http://localhost:${PC}/api/health`, 20000);
+    const people = accountClient(`http://localhost:${PC}`);
+    const reader = (await people.signup('class-reader@example.com')).cookie;
+    const op = (await people.json('/api/account/claim', { method: 'POST', body: { token: CLAIM_TOKEN, email: 'op@example.com', password: PASSWORD, agree: true } })).cookie;
+    const claim = 'The Eiffel Tower stands about 330 metres tall.';
+    const run = async (cookie, who) => {
+      const runId = `nc-${who}-run-${stamp}`;
+      const listing = await people.stream('/api/extract', { jobId: runId, text: ACCT_TEXT }, cookie);
+      const det = await people.stream('/api/evaluate', { jobId: `nc-${who}-c1-${stamp}`, claims: [claim], text: ACCT_TEXT, runId, n: 1 }, cookie);
+      return { listing: listing.events, det: det.events };
+    };
+    const r = await run(reader, 'reader');
+    const o = await run(op, 'operator');
+    const rDone = r.det.find((e) => e.t === 'done');
+    const oDone = o.det.find((e) => e.t === 'done');
+    const rAll = JSON.stringify(r);
+    check('a reader\'s fact-check from an entry that writes the class: the name\'s line, the notes and the conclusion carry the mark; outside the class, the full name too, and a point named after the surname and the first name alone as written; no span and no class word anywhere it received',
+      rDone?.inspectorMark === 'Inspector F' && /^\*\*Name\*\*: Inspector F$/m.test(rDone?.text || '')
+        && /As Inspector F, I weighed the record; Inspector F read it twice, and the Cardale point is cited\. Inspector F signs it\. Edwin agrees\./.test(rDone?.text || '')
+        && /So says Inspector F\.$/.test(rDone?.conclusion || '') && /So says Inspector F\./.test(rDone?.text || '')
+        && !/<span|qx-7|Sir Edwin|Edwin Cardale|geologist/i.test(rAll),
+      JSON.stringify({ mark: rDone?.inspectorMark, text: (rDone?.text || '').slice(0, 500), conclusion: rDone?.conclusion }));
+    check('the operator\'s fact-check keeps the entry as written, its class and all, and the inspector\'s name read through the class',
+      oDone?.inspector === 'Sir Edwin Cardale' && (oDone?.text || '').includes(`**Name**: <span class="${WORD}">Sir Edwin Cardale</span> (geologist)`) && (oDone?.text || '').includes(`<span class='${WORD}'>Cardale</span> read it twice`),
+      JSON.stringify({ inspector: oDone?.inspector, text: (oDone?.text || '').slice(0, 300) }));
+    const hOp = (await people.json('/api/health', { cookie: op })).body;
+    const hReader = (await people.json('/api/health', { cookie: reader })).body;
+    const hNone = (await people.json('/api/health')).body;
+    check('the operator\'s health line gives their page the class to highlight; a reader\'s and a stranger\'s carry no trace of it',
+      hOp?.hl === WORD && !('hl' in (hReader || {})) && !('hl' in (hNone || {})) && !JSON.stringify(hReader).includes(WORD) && !JSON.stringify(hNone).includes(WORD),
+      JSON.stringify({ op: hOp?.hl, reader: Object.keys(hReader || {}) }));
+    const st = (await people.json('/api/selftest', { cookie: op })).body;
+    const row = (st?.checks || []).find((c) => /inspector's name/.test(c.title));
+    check('/check counts what the entries did with the class since the start, never its word: two finished, the name 8 times in it and 2 in full outside it, so it says the name is not always in its class',
+      row?.state === 'warn' && row.title === 'The inspector\'s name is not always in its class'
+        && row.detail === 'Since this start, 2 entries finished: 2 entries wrote the name in the class, 8 times in all, with the name in full outside it 2 times (made the mark for readers); 0 entries wrote no class, and were read by the name\'s forms.'
+        && !JSON.stringify(st).includes(WORD),
+      JSON.stringify(row));
+    const lines = srv.output().split('\n').filter((l) => l.startsWith('[fact-check]'));
+    check('each finished fact-check\'s log line says how its entry wrote the name, in counts and never the class\'s word',
+      lines.length === 2 && lines.every((l) => l.endsWith(' · the name 4 times in its class, 1 time in full outside it')) && !srv.output().includes(WORD),
+      JSON.stringify(lines.map((l) => l.slice(-90))));
+  } catch (err) {
+    check('name class checks ran', false, err.stack || err.message);
+  } finally {
+    for (const p of procs) { try { p.kill('SIGTERM'); } catch {} }
+  }
+}
+await nameClassChecks();
+
 // ---- the pages a commercial service owes: the texts are served, whole, English, with no script but the field ----
 // Terms, Privacy, Refunds and Contact are static files (public/*.html) served at /terms, /privacy, /refunds and
 // /contact by the extensionless rule; each carries its heading, the support address and the text in .prose, names no

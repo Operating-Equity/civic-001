@@ -11,6 +11,7 @@ import { config, publicConfig, requestShape } from './config.js';
 import { promptStatus, hasPrompt, promptVersions } from './prompts.js';
 import { ApiError, operatorKey, describeError } from './openai.js';
 import { readerView, readerError } from './view.js';
+import { names } from './names.js';
 import { listingKey, onOwnProvider, onDeepSeek, listingHost, listingProviderName } from './listing.js';
 import { openStream } from './stream.js';
 import * as jobs from './jobs.js';
@@ -206,6 +207,9 @@ app.get('/api/health', wrap(async (req, res) => {
     pricing,
     // The operator's trial (server/trial.js): the models they may choose on the page, and whether it can run. Nobody else's.
     trial: trialState(),
+    // The class their entries write the inspector's name in (server/names.js), so their page can show it (31 October,
+    // evening: highlighted). Nobody else's. A plain key, as the page that reads it is everyone's.
+    hl: names.nameClass || null,
   });
 }));
 

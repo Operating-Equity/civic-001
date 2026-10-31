@@ -128,9 +128,9 @@ const DECOR_START = new RegExp(`^${DECOR}`, 'u');
 const SUFFIX = /^(?:jr|sr|ii|iii|iv)\.?$/i;
 const LOOKS_LIKE_A_NAME = /^[\p{L}][\p{L} .'’-]*$/u;
 
-/** A name as a name: without Markdown's marks or brackets, up to the first mark that ends one ("Orin Vale (geologist)" is Orin Vale). */
+/** A name as a name: without markup, Markdown's marks or brackets, up to the first mark that ends one ("Orin Vale (geologist)" is Orin Vale). */
 export function cleanName(raw) {
-  let s = String(raw ?? '').replace(/[*_`~]/g, '').replace(/[[\]]/g, '').trim();
+  let s = String(raw ?? '').replace(/<[^>]*>/g, '').replace(/[*_`~]/g, '').replace(/[[\]]/g, '').trim();
   s = s.split(/\s[-–—]\s|[,;:(|/]|[–—]/)[0];
   s = s.replace(/\s+/g, ' ').trim().replace(/^["“'‘]+|["”'’]+$/g, '').trim();
   const words = s.split(' ');
@@ -139,14 +139,46 @@ export function cleanName(raw) {
   return /\p{L}/u.test(s) ? s.slice(0, 160) : null;
 }
 
-/** The inspector the entry names on its label's line (the label's own line, or the line after a label left bare), or null. */
+// The class the entry writes the inspector's name in (server/names.js, nameClass; 31 October, evening: "outputs can be a
+// class that are designated as such and different from the textual content"): each <span class="…">…</span> of it is the
+// inspector, in whatever form the model wrote the name there. Read in any capitals and either quotes, as a page reads it.
+const CLASS = names.nameClass
+  ? new RegExp(`<span\\s+class\\s*=\\s*(?:"${esc(names.nameClass)}"|'${esc(names.nameClass)}'|${esc(names.nameClass)}(?=[\\s>]))\\s*>([^<]*)</span\\s*>`, 'giu')
+  : null;
+
+/** The text with each of the class's spans taken off its name: the name as the model wrote it there. */
+export function unclassed(text) {
+  return CLASS ? String(text ?? '').replace(CLASS, '$1') : String(text ?? '');
+}
+
+/**
+ * Text without its spans' markup, their words kept: what a reader receives carries no class, so the operator's class never
+ * reaches a reader, even from an entry whose class is not the one set.
+ */
+export function withoutSpans(text) {
+  return String(text ?? '').replace(/<\/?span\b[^>]*>/gi, '');
+}
+
+/** The forms of the name the entry writes in the class, in its order (none when no class is set). */
+export function classForms(text) {
+  return CLASS ? [...String(text ?? '').matchAll(CLASS)].map((m) => m[1]) : [];
+}
+
+/**
+ * The inspector the entry names on its label's line (the label's own line, or the line after a label left bare), read
+ * through the class; with no such line, the fullest form the entry writes in the class (the most words); or null.
+ */
 export function inspectorOf(text) {
-  const m = String(text ?? '').match(NAME_LINE);
-  if (!m) return null;
-  const same = cleanName(m[1]);
-  if (same) return same;
-  const after = String(text).slice(m.index + m[0].length).split('\n').map((l) => l.trim()).find(Boolean) || '';
-  return LOOKS_LIKE_A_NAME.test(after.replace(/[*_]/g, '').trim()) ? cleanName(after) : null;
+  const plain = unclassed(text);
+  const m = plain.match(NAME_LINE);
+  if (m) {
+    const same = cleanName(m[1]);
+    if (same) return same;
+    const after = plain.slice(m.index + m[0].length).split('\n').map((l) => l.trim()).find(Boolean) || '';
+    if (LOOKS_LIKE_A_NAME.test(after.replace(/[*_]/g, '').trim())) return cleanName(after);
+  }
+  const forms = classForms(text).map(cleanName).filter(Boolean);
+  return forms.length ? forms.reduce((a, b) => (b.split(' ').length > a.split(' ').length ? b : a)) : null;
 }
 
 // Words that come before a name and are not it, so "Sir Isaac Newton" is Inspector J and "Dr. Ada Lovelace" Inspector B.
@@ -200,6 +232,32 @@ export function keptWords(keep) {
   return { words, hasPhrase };
 }
 
+/** The name's forms: as the entry gives it, its words without titles or suffixes, and in full with and without titles. */
+function formsOf(name) {
+  const full = cleanName(name);
+  const mark = inspectorMark(name);
+  if (!full || !mark || MARK.test(full)) return null;
+  const bare = (w) => w.replace(/[.,]+$/, '');
+  const words = full.split(' ');
+  let k = 0;
+  while (k < words.length - 1 && TITLES.has(bare(words[k]).toLowerCase())) k++;
+  const own = words.slice(k).map(bare).filter((w) => w && !SUFFIX.test(w));
+  return { mark, own, whole: [...new Set([full, words.slice(k).join(' ')])].filter((f) => f.includes(' ')) };
+}
+
+const longest = (a, b) => b.length - a.length;
+
+/** Each match of the pattern, as a whole word, made the mark; `found` is told of each. */
+const swapIn = (s, pattern, flags, mark, found) => s.replace(new RegExp(`${EDGE0}(?:${pattern})${EDGE1}`, flags), () => { found(); return mark; });
+
+/** The name in full, with or without its titles (a one-word name: that word), in any capitals, made the mark; not a form the claim or the document writes. */
+function maskWhole(s, f, kept, found) {
+  const many = f.whole.filter((x) => !kept.hasPhrase(x)).sort(longest);
+  if (many.length) s = swapIn(s, any(many), 'giu', f.mark, found);
+  if (f.own.length === 1 && f.own[0].length > 1 && !kept.words.has(f.own[0].toLowerCase())) s = swapIn(s, esc(f.own[0]), 'giu', f.mark, found);
+  return s;
+}
+
 /**
  * Text a reader receives (the entry, the thinking's summary, a search's question, the conclusion), with the inspector's
  * name made the mark wherever it stands for the inspector (31 October: "eliminating the name everywhere the reviewer or
@@ -207,38 +265,69 @@ export function keptWords(keep) {
  * title before the first name or the surname ("Sir Edwin", "Dr. Cardale"), and the first name alone; a surname alone as
  * MASK_SURNAME_ALONE says. A form that is in the claim or the document itself (`keep`) stays as written, so a claim about
  * a person reads with that person's name. A word alone is matched in its own capitals, so a name that is also a common
- * word ("Grace", "Hope") is not made the mark where it is a word.
+ * word ("Grace", "Hope") is not made the mark where it is a word. The entry itself, when it writes the class, is read by
+ * the class instead (maskClassed).
  */
 export function maskName(text, name, keep = '') {
   let s = String(text ?? '');
-  const full = cleanName(name);
-  const mark = inspectorMark(name);
-  if (!s || !full || !mark || MARK.test(full)) return s;
-  const bare = (w) => w.replace(/[.,]+$/, '');
-  const words = full.split(' ');
-  let k = 0;
-  while (k < words.length - 1 && TITLES.has(bare(words[k]).toLowerCase())) k++;
-  const own = words.slice(k).map(bare).filter((w) => w && !SUFFIX.test(w));
+  const f = s ? formsOf(name) : null;
+  if (!f) return s;
   const kept = keptWords(keep);
   const keptWord = (w) => kept.words.has(w.toLowerCase());
-  const longest = (a, b) => b.length - a.length;
-  const swap = (pattern, flags) => { s = s.replace(new RegExp(`${EDGE0}(?:${pattern})${EDGE1}`, flags), mark); };
-  // The name in full, and without its titles: in any capitals.
-  const many = [...new Set([full, words.slice(k).join(' ')])].filter((f) => f.includes(' ') && !kept.hasPhrase(f)).sort(longest);
-  if (many.length) swap(any(many), 'giu');
-  if (own.length === 1) {   // a one-word name is its full form
-    if (own[0].length > 1 && !keptWord(own[0])) swap(esc(own[0]), 'giu');
-    return s;
-  }
+  const none = () => {};
+  s = maskWhole(s, f, kept, none);
+  if (f.own.length < 2) return s;   // a one-word name is its full form
   // A title before the first name or the surname ("Sir Edwin", "Dr. Cardale", "Professor Cardale").
   const titles = [...TITLES].sort(longest).map(esc).join('|');
-  for (const w of [own[0], own[own.length - 1]]) {
-    if (w.length > 1 && !keptWord(w)) swap(`(?:${titles})\\.?[ \\t]+${esc(w)}`, 'giu');
+  for (const w of [f.own[0], f.own[f.own.length - 1]]) {
+    if (w.length > 1 && !keptWord(w)) s = swapIn(s, `(?:${titles})\\.?[ \\t]+${esc(w)}`, 'giu', f.mark, none);
   }
   // The first name alone, and the surname alone as MASK_SURNAME_ALONE says: in the name's own capitals.
-  const alone = [own[0], ...(MASK_SURNAME_ALONE ? [own[own.length - 1]] : [])].filter((w) => w.length > 1 && !keptWord(w));
-  if (alone.length) swap([...new Set(alone)].sort(longest).map(esc).join('|'), 'gu');
+  const alone = [f.own[0], ...(MASK_SURNAME_ALONE ? [f.own[f.own.length - 1]] : [])].filter((w) => w.length > 1 && !keptWord(w));
+  if (alone.length) s = swapIn(s, [...new Set(alone)].sort(longest).map(esc).join('|'), 'gu', f.mark, none);
   return s;
+}
+
+/**
+ * Text a reader receives from an entry that writes the class (31 October, evening): each of the class's spans is the mark,
+ * whatever form of the name the model wrote in it; then the name in full, with or without its titles, wherever the entry
+ * left it outside the class (the operator's answer: the full name only, so a first name that is also a word is never
+ * swapped), but not a form the claim or the document writes. `found` is told of each it finds outside the class.
+ */
+export function maskClassed(text, name, keep = '', found = () => {}) {
+  const f = name ? formsOf(name) : null;
+  const mark = f?.mark || (name && MARK.test(cleanName(name) || '') ? cleanName(name) : names.inspector.replace('{initial}', '').replace(/\s+/g, ' ').trim());
+  const s = CLASS ? String(text ?? '').replace(CLASS, () => mark) : String(text ?? '');
+  return f ? maskWhole(s, f, keptWords(keep), found) : s;
+}
+
+// What the finished entries did with the class since this start, for /check: how many finished, how many times they wrote
+// the name in the class and in full outside it, and how many wrote no class at all.
+const tally = { checks: 0, written: 0, outside: 0, without: 0 };
+
+/** A finished fact-check's line, counted for /check by what its entry did with the class. */
+export function countClass(line) {
+  const c = line?.nameClass;
+  if (!c) return;
+  tally.checks++;
+  if (c.written) { tally.written += c.written; tally.outside += c.outside; } else tally.without++;
+}
+
+/** The finished entries' use of the class since this start. */
+export const classTally = () => ({ ...tally });
+
+/**
+ * What a finished entry did with the class, for its line in the ledger and the log and for /check: how many times it
+ * wrote the name in the class, and how many times in full outside it. Nothing when no class is set.
+ */
+export function classFigures(text) {
+  if (!CLASS) return {};
+  const written = classForms(text).length;
+  const name = inspectorOf(text);
+  let outside = 0;
+  const f = name ? formsOf(name) : null;
+  if (f && written) maskWhole(String(text ?? '').replace(CLASS, ''), f, keptWords(''), () => { outside++; });
+  return { nameClass: { written, outside } };
 }
 
 /** The value of an inspector line with its name made the mark; its Markdown around the name is kept. */
@@ -319,13 +408,15 @@ export class NameMasker {
 /**
  * A whole entry for a reader: every inspector line's name made the mark (as its pieces through a NameMasker), then the
  * name made the mark wherever else the entry writes it (maskName), but in the words of the claim or the document
- * (`keep`). The name is the one given (`name`), or the one the entry's own inspector line names.
+ * (`keep`). An entry that writes the class is read by the class instead (maskClassed), and its inspector line after it.
+ * The name is the one given (`name`), or the one the entry names (inspectorOf). No span's markup is left in it.
  */
 export function maskEntry(text, { name = null, keep = '' } = {}) {
-  const m = new NameMasker();
-  const lines = m.push(text) + m.flush();
   const who = name || inspectorOf(text);
-  return who ? maskName(lines, who, keep) : lines;
+  const m = new NameMasker();
+  if (classForms(text).length) return withoutSpans(m.push(maskClassed(text, who, keep)) + m.flush());
+  const lines = m.push(text) + m.flush();
+  return withoutSpans(who ? maskName(lines, who, keep) : lines);
 }
 
 /** The entry around its last verdict heading, for the record of a verdict that could not be read. */
