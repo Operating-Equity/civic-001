@@ -20,6 +20,7 @@ import { gateStates } from './gate.js';
 import { readers as readersNow } from './jobs.js';
 import { silentSites } from './fetchurl.js';
 import { names } from './names.js';
+import { classTally } from './verdict.js';
 import { tellReport } from './tells.js';
 import { sitesState, sitesWords, anthropicWords } from './sites.js';
 import { searchOn, readerOn } from './copies.js';
@@ -283,6 +284,20 @@ export async function selftest({ apiKey, build, operator = true }) {
   checks.push(ok('The entries are read by their headings', names.installed
     ? `By your own list (#${names.installed}, ${names.keys} name${names.keys === 1 ? '' : 's'} set), kept beside the prompts. A reader sees each inspector as ${names.inspector.replace('{initial}', 'B')} for an Albert: the letter after the name's first letter, Z going to A.`
     : `By FactEngine's own words: no list is set (CIVIC_OUTPUT_NAMES or CIVIC_OUTPUT_NAMES_FILE). A reader sees each inspector as ${names.inspector.replace('{initial}', 'B')} for an Albert: the letter after the name's first letter, Z going to A.`));
+  // The class the entries write the inspector's name in (server/names.js, nameClass; 31 October, evening): whether it is
+  // set, and what the finished entries did with it since this start. Never its word.
+  const ct = classTally();
+  const entries = (k) => `${k} ${k === 1 ? 'entry' : 'entries'}`;
+  const times = (k) => `${k} ${k === 1 ? 'time' : 'times'}`;
+  if (!names.nameClass) checks.push(ok('No class is set for the inspector\'s name', 'Your list sets no nameClass, so a reader\'s copy of each entry has the inspector\'s name found by its forms.'));
+  else if (!ct.checks) checks.push(ok('The inspector\'s name is read by its class', 'Set in your list. No fact-check has finished since this start.'));
+  else {
+    const detail = `Since this start, ${entries(ct.checks)} finished: ${entries(ct.checks - ct.without)} wrote the name in the class, ${times(ct.written)} in all, `
+      + `with the name in full outside it ${times(ct.outside)} (made the mark for readers); ${entries(ct.without)} wrote no class, and were read by the name's forms.`;
+    checks.push(ct.outside || ct.without
+      ? warn('The inspector\'s name is not always in its class', detail, 'Each entry should write the name in the class, in every form.')
+      : ok('The inspector\'s name is read by its class', detail));
+  }
   // The tell words (server/tells.js): whether what a reader receives carries any, read at start-up, by fingerprint only.
   const tr = tellReport();
   if (!tr) checks.push(ok('No tell words are set', 'No list is set (CIVIC_TELL_WORDS or CIVIC_TELL_WORDS_FILE), so what a reader receives is read against none. Kept beside the prompts, a list is read against it at every start.'));

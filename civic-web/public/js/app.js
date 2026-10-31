@@ -1897,7 +1897,7 @@ function buildCard(claim, n) {
   const copy = $('.btn-copy', node);
   copy.textContent = t('card.copy');
   copy.addEventListener('click', async () => {
-    const ok = await copyText(state.results[idx()]?.text || '');
+    const ok = await copyText(plainText(state.results[idx()]?.text));
     toast(t(ok ? 'card.copied' : 'card.copyFailed'), { error: !ok });
   });
   // The row opens and closes in place, once its claim is finished (25 October, the operator: "none of the empirical
@@ -1953,11 +1953,14 @@ function syncCardHead(node) {
   entry.hidden = true;
 }
 
+/** An entry's words where they are shown as plain text (the closed row, a copy): without a span's markup, its words kept. */
+const plainText = (text) => String(text || '').replace(/<\/?span\b[^>]*>/gi, '');
+
 /** The closed row's line: the Conclusion section behind the verdict, in the model's own words. */
 function renderBrief(i) {
   const r = state.results[i];
   const brief = $('.card-brief', cardOf(i));
-  const text = r.conclusion || (r.verdict ? '' : t('card.noteUnread'));
+  const text = plainText(r.conclusion) || (r.verdict ? '' : t('card.noteUnread'));
   brief.textContent = text;
   brief.hidden = !text;
 }
@@ -1997,6 +2000,10 @@ function renderEntry(i) {
   const entry = $('.entry', cardOf(i));
   entry.innerHTML = renderMarkdown(r.text); // the complete text, never a slice of it
   renderMath(entry);                          // and its formulas as mathematics, not as broken prose
+  // The operator's class for the inspector's name (server/names.js), highlighted on their page (31 October, evening). A
+  // reader's entry has no class: the server gives it the mark.
+  const hl = String(state.server?.hl || '').toLowerCase();
+  if (hl) for (const node of entry.querySelectorAll('span[class]')) if (node.className.toLowerCase().split(/\s+/).includes(hl)) node.classList.add('hl');
   entry.hidden = false;
 }
 

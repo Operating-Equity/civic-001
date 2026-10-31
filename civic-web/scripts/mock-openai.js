@@ -1136,10 +1136,20 @@ const MOCK_NAMES = (() => { try { return JSON.parse(process.env.MOCK_OUTPUT_NAME
 const label = (key, fallback) => (Array.isArray(MOCK_NAMES[key]) ? MOCK_NAMES[key][0] : MOCK_NAMES[key]) || fallback;
 const said = (verdict) => (MOCK_NAMES.verdicts?.[verdict]?.[0] ? MOCK_NAMES.verdicts[verdict][0].replace(/^./, (c) => c.toUpperCase()) : null);
 
+// MOCK_NAME_CLASS: the class the entry writes the inspector's name in (server/names.js, nameClass): the name's line
+// writes it in the class, and the notes in full, by the surname and in the conclusion by the
+// first name; the notes also write it once in full outside the class, beside a point named after the surname and the
+// first name alone outside it, as a real entry may.
+const CLASS_WORD = process.env.MOCK_NAME_CLASS || '';
+const inClass = (x, quote = '"') => `<span class=${quote}${CLASS_WORD}${quote}>${x}</span>`;
+const fullOf = (who) => String(who).replace(/\s*\(.*\)\s*$/, '');
+const ownOf = (who) => fullOf(who).replace(/^(?:Sir|Dame|Dr\.?|Professor)\s+/, '').split(' ');
+
 const bodyNames = (who) => {
+  const full = fullOf(who);
+  const own = ownOf(who);
+  if (CLASS_WORD) return ` As ${inClass(full)}, I weighed the record; ${inClass(own[own.length - 1], "'")} read it twice, and the ${own[own.length - 1]} point is cited. ${own.join(' ')} signs it. ${own[0]} agrees.`;
   if (!process.env.MOCK_INSPECTOR_BODY) return '';
-  const full = String(who).replace(/\s*\(.*\)\s*$/, '');
-  const own = full.replace(/^(?:Sir|Dame|Dr\.?|Professor)\s+/, '').split(' ');
   return ` As ${full}, I weighed the record; ${own[0]} read it twice, and Professor ${own[own.length - 1]} agrees.`;
 };
 
@@ -1151,7 +1161,7 @@ function mockEntry(claim) {
   const conf = verdict === 'Uncertain' ? 35 + Math.floor(Math.random() * 25) : 78 + Math.floor(Math.random() * 20);
   // Invented filler for development only, in no format of the operator's: only the three labels FactEngine reads an
   // entry by are present, the inspector's, the verdict's and the confidence's, in FactEngine's own words unless set.
-  return `**${label('name', 'Name')}**: ${who}
+  return `**${label('name', 'Name')}**: ${CLASS_WORD ? `${inClass(fullOf(who))}${String(who).slice(fullOf(who).length)}` : who}
 
 (Development mock. Invented placeholder text, never a determination.)
 
@@ -1165,7 +1175,7 @@ function mockEntry(claim) {
    - fourteen separate weeks, excluding breaks.
 3. **Third point:** one further instance would change the figure as stated.
 
-**${label('conclusion', 'Conclusion')}**: ${word}. ${verdict === 'True' ? 'The record states the proposition as claimed.' : verdict === 'False' ? 'The record contradicts the proposition as stated.' : 'No record was found that settles the proposition either way.'}
+**${label('conclusion', 'Conclusion')}**: ${word}. ${verdict === 'True' ? 'The record states the proposition as claimed.' : verdict === 'False' ? 'The record contradicts the proposition as stated.' : 'No record was found that settles the proposition either way.'}${CLASS_WORD ? ` So says ${inClass(ownOf(who)[0])}.` : ''}
 
 **${label('confidence', 'Confidence')}**: ${conf}%. ${verdict === 'Uncertain' ? 'Confidence is limited by the absence of a record.' : 'Some uncertainty remains.'}`;
 }

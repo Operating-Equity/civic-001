@@ -2,8 +2,9 @@
 // of 19 October). The operator, and an open door, receive every event as it is made; anyone else receives each event
 // through readerView, which keeps every output the page shows and gives it the operator's names:
 // - the inspector's name is its mark ("Inspector B" for an Albert, server/verdict.js) wherever it stands for the
-//   inspector: on the card, in the entry, in the thinking's summary and the research steps (31 October). The entry
-//   comes whole with the finished claim; as it is written, a reader receives only how much there is of it;
+//   inspector: on the card, in the entry, in the thinking's summary and the research steps (31 October). An entry that
+//   writes the operator's class for the name is read by it (31 October, evening), and no span's markup reaches a reader.
+//   The entry comes whole with the finished claim; as it is written, a reader receives only how much there is of it;
 // - each research step's tool is a plain word (search, open, find, read, transcript), with its question and address;
 // - the model is "LLR" on the page, with no name and no level (31 October: "The users do not care what level the model
 //   is run at. They care about the answers.");
@@ -15,7 +16,7 @@
 //
 // The view is applied where the job records each event (server/jobs.js), so a page that comes back after a cut connection,
 // or reads a finished run again, receives exactly what it would have received.
-import { inspectorMark, keptWords, maskEntry, maskName } from './verdict.js';
+import { classForms, inspectorMark, keptWords, maskClassed, maskEntry, maskName, unclassed, withoutSpans } from './verdict.js';
 import { verbOf } from './tools/request.js';
 
 const pick = (ev, keys) => {
@@ -52,13 +53,19 @@ export function readerError(ev) {
 /** A cited source as a reader receives it: its address and title, and nothing the operator's card adds to it. */
 const readerSource = (s) => (s && typeof s === 'object' ? pick(s, ['url', 'title']) : s);
 
+/**
+ * Text written outside the entry (the thinking's summary, a search's question), as a reader receives it: the inspector's
+ * name made the mark in every form (maskName), for the class cannot reach it there; and no span's markup.
+ */
+const told = (text, name, keep) => withoutSpans(maskName(unclassed(text), name, keep));
+
 /** A research step as a reader receives it: what it did, in a plain word, what it asked and where it went; never the tool. */
 function readerStep(step, name, keep = '') {
   if (!step || typeof step !== 'object') return null;
   const out = { verb: step.verb || verbOf(step) };
-  if (step.query) out.query = maskName(step.query, name, keep);
+  if (step.query) out.query = told(step.query, name, keep);
   if (step.url) out.url = step.url;
-  if (step.pattern) out.pattern = maskName(step.pattern, name, keep);
+  if (step.pattern) out.pattern = told(step.pattern, name, keep);
   if (step.status) out.status = step.status;
   if (step.error) out.error = maskProviders(step.error);
   return out;
@@ -137,13 +144,16 @@ export function readerView({ keep = [] } = {}) {
         } else {
           const name = ev.inspector || null;
           const kept = keptOf();
+          // The conclusion is the entry's own words: read by the class when the entry writes it (31 October, evening).
+          const classed = classForms(ev.text || '').length > 0;
+          const concluded = (x) => withoutSpans(classed ? maskClassed(x, name, kept) : maskName(x, name, kept));
           return {
             ...pick(ev, ['t', 'i', 'verdict', 'confidence', 'searches', 'ms']),
             ...(Array.isArray(ev.sources) ? { sources: ev.sources.map(readerSource) } : {}),
             inspectorMark: name ? inspectorMark(name) : null,
-            conclusion: ev.conclusion ? maskName(ev.conclusion, name, kept) : ev.conclusion ?? null,
+            conclusion: ev.conclusion ? concluded(ev.conclusion) : ev.conclusion ?? null,
             text: maskEntry(ev.text || '', { name, keep: kept }),
-            reasoning: ev.reasoning ? maskName(ev.reasoning, name, kept) : null,
+            reasoning: ev.reasoning ? told(ev.reasoning, name, kept) : null,
             trail: (ev.trail || []).map((s) => readerStep(s, name, kept)),
             fellBack: ev.fellBack ? { standby: true } : null,
             incomplete: ev.incomplete || null,

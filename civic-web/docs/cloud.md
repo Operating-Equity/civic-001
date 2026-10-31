@@ -1270,6 +1270,29 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
     - guard checks of the mark, the labels, every form, the claim's own words and the stream;
     - the stand-in can name its inspector in the entry's body (`MOCK_INSPECTOR_BODY`);
     - the browser checks of a reader's card.
+- **31 October, evening: the inspector's name as a class of the entry.** The operator: "outputs can be a class that are
+  designated as such and different from the textual content."
+  - **The class:** the entry writes the inspector's name, in any form, as `<span class="…">…</span>`. The class's word
+    is the operator's, set in their list (`nameClass`, `server/names.js`) and never in this repository.
+  - **A reader's copy** (`maskClassed`, `server/view.js`):
+    - each of the class's spans is the mark, whatever form of the name it holds, the surname alone included;
+    - then the name in full, with or without its titles, wherever the entry left it outside the class (the operator's
+      answer: the full name only, so a first name that is also a word is never swapped);
+    - an entry that writes no class is read by the name's forms, as before;
+    - the thinking's summary and the searches are written outside the entry, so the class cannot reach them: the name's
+      forms are read there, as before;
+    - no span's markup reaches a reader, so the class's word never does either.
+  - **Counted** (`classFigures`): each finished fact-check's line in the ledger and the log says how many times the
+    entry wrote the name in the class, and in full outside it. `/check` counts the same since the start, and warns
+    when an entry left the name outside the class or wrote no class.
+  - **The operator's page:** their health line gives the class (`hl`), and the name in it is highlighted in the entry.
+    The closed row and a copy show it as plain text.
+  - **Proof:**
+    - guard checks of the class's spans in any capitals and either quotes, the backstop and its count, an entry with no
+      inspector line or no class, a span of another class, the operator's entry kept as written, the health line,
+      `/check` and the log line;
+    - the stand-in writes the class (`MOCK_NAME_CLASS`);
+    - browser checks of both cards.
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 

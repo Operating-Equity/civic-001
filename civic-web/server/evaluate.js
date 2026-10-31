@@ -39,7 +39,7 @@ import { gateFor, parseRefusal } from './gate.js';
 import { record as recordFailure } from './diagnostics.js';
 import { estimateTextCost } from './pricing.js';
 import { record, claimHash, factCheckWords } from './ledger.js';
-import { parseEntry, conclusionExcerpt } from './verdict.js';
+import { parseEntry, conclusionExcerpt, classFigures, countClass } from './verdict.js';
 import { requestTools, requestInclude, toolStep, searchCount, verbOf } from './tools/request.js';
 import { listedSite, listedCounts, anthropicExclusions, NOT_CONSULTED } from './sites.js';
 import { registry } from './tools/index.js';
@@ -72,7 +72,10 @@ const pagesIn = (trail) => trail.filter((s) => s.kind === 'open_page' || (s.kind
 function measured({ ms, waitMs, firstAt, endAt, text }) {
   const workMs = Math.max(0, ms - waitMs);
   const writeMs = firstAt !== null && endAt !== null && endAt >= firstAt ? endAt - firstAt : null;
-  return { waitMs, workMs, firstWordMs: writeMs === null ? null : Math.max(0, workMs - writeMs), writeMs, entryChars: text.length, entryWords: (text.match(/\S+/g) || []).length };
+  return {
+    waitMs, workMs, firstWordMs: writeMs === null ? null : Math.max(0, workMs - writeMs), writeMs, entryChars: text.length, entryWords: (text.match(/\S+/g) || []).length,
+    ...classFigures(text),   // with the operator's class set: the name written in it, and in full outside it (31 October, evening)
+  };
 }
 
 /** A wait, timed: `onWaited` is told how long it took, so the line can keep the waits apart from the work. */
@@ -104,6 +107,7 @@ function returnedUrls(name, output) {
 /** A finished fact-check's line: kept on the ledger and said in the host's log, counts and times only. */
 function recordDone(line, ctx) {
   record(line, ctx);
+  countClass(line);
   console.log(factCheckWords(line));
 }
 
