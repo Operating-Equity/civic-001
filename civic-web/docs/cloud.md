@@ -1233,6 +1233,22 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
     grid has 27 entries. The code and the key are unchanged; unsetting the setting brings them back.
   - **Live** (27 October, 22:07 UTC): PR #93 deployed. The boot line names the six models at their levels and no Claude
     model; the lists kept out as before. Live check clean, nothing spent.
+- **31 October: the glass, and readers' cards without a level.** The operator: "Really good apps have glass effect boxes
+  which are more detailed and subtle … As you are typing in the box the box dynamically brightens."
+  - **The panels** (`public/css/civic.css`): one recipe for every panel, with the same blur and a fine rim of light
+    brightest at the top left, a soft light from that corner and a faint glow inside. A box on a panel (the text box, a
+    card, a copy) takes the rim and the highlight without a second blur. The figures are variables at the top of the
+    stylesheet.
+  - **The text box** (`public/js/app.js`, `wireGlow`): each keystroke or paste lifts its glow by a fifth, and a pause
+    lets it settle back over a second; with reduced motion it steps. One CSS variable, written at most once a frame while
+    it moves.
+  - **Readers' cards** show "LLR" alone, and a reader's stream carries no level (`server/view.js`). The operator's cards
+    name the model and level, as before.
+  - **The readers' model and level** are settings on Render (`CIVIC_EVAL_MODELS`, `CIVIC_EVAL_EFFORT`), changed there
+    on the operator's word. The repository names neither.
+  - **Proof:** a browser check (scratchpad `browser/glass-check.mjs`) of the recipe on every panel, the glow rising and
+    settling, a paste, reduced motion, the readers' card and stream, and a phone; the earlier browser checks; the guard in
+    the three prompt shapes; the leak check.
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 

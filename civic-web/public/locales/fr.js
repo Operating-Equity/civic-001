@@ -130,7 +130,7 @@ export default {
     noteIncomplete: 'Le modèle s\'est arrêté avant la fin ({reason}). Tout ce qu\'il a renvoyé est ci-dessous.',
     noteNoSummary: 'Aucun résumé du raisonnement n\'est disponible.',
     modelLine: '{model} · {effort}',
-    engineLine: 'LLR · profondeur {depth}',
+    engineLine: 'LLR',
     copy: 'Copier l\'entrée',
     copied: 'Entrée copiée.',
     copyFailed: 'Échec de la copie. Ouvrez l\'entrée brute et sélectionnez-la.',

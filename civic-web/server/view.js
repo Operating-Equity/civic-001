@@ -4,7 +4,8 @@
 // - the inspector's name is its mark ("Inspector A", server/verdict.js), on the card, on the entry's own line as it
 //   streams, and wherever the name appears in the thinking's summary and the research steps;
 // - each research step's tool is a plain word (search, open, find, read, transcript), with its question and address;
-// - the model and its effort are a depth ("LLR · depth V" on the page), never a model's name;
+// - the model is "LLR" on the page, with no name and no level (31 October: "The users do not care what level the model
+//   is run at. They care about the answers.");
 // - a provider's own words for a failure or a wait keep their sense, with model ids, companies, hosts and accounts named
 //   no more.
 // Fields no page shows are not sent: where a verdict was read, the request's own settings, the key's minute figures.
@@ -21,9 +22,6 @@ const pick = (ev, keys) => {
   for (const k of keys) if (ev[k] !== undefined) out[k] = ev[k];
   return out;
 };
-
-// How hard the model was asked to think, as a depth: the operator's names for the efforts (the page writes "depth V").
-const DEPTH = { none: 1, minimal: 1, low: 2, medium: 3, high: 4, xhigh: 5, max: 6 };
 
 // The names in a provider's words that would say whose services do the work: model ids first (they hold the companies'
 // names), then hosts, then the companies, then accounts.
@@ -146,7 +144,6 @@ export function readerView() {
             text: maskEntry(ev.text || ''),
             reasoning: ev.reasoning ? maskName(ev.reasoning, name) : null,
             trail: (ev.trail || []).map((s) => readerStep(s, name)),
-            depth: DEPTH[ev.effort] ?? null,
             fellBack: ev.fellBack ? { standby: true } : null,
             incomplete: ev.incomplete || null,
           };

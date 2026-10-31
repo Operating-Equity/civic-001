@@ -131,7 +131,7 @@ export default {
     noteIncomplete: 'The model stopped early ({reason}). Everything it returned is below.',
     noteNoSummary: 'No reasoning summary is available.',
     modelLine: '{model} · {effort}',
-    engineLine: 'LLR · depth {depth}',
+    engineLine: 'LLR',
     copy: 'Copy entry',
     copied: 'Entry copied.',
     copyFailed: 'Copy failed. Open the raw entry and select it.',

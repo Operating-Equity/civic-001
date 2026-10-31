@@ -23,7 +23,6 @@ const workOf = (trail) => {
 };
 const searchCount = (trail) => workOf(trail).searches;
 const GLYPH = { true: '✓', false: '✕', unverified: '?', unread: '–' };
-const ROMAN = ['', 'I', 'II', 'III', 'IV', 'V', 'VI'];   // a depth as the page writes it
 // The operator's words (the key's minute, the costs, the trial's labels): on the operator's page alone (index.html,
 // #op-words), in English, filled in as the locales' are. Anywhere else, nothing.
 const opWord = (key, params = {}) => {
@@ -530,6 +529,7 @@ function renderNav() {
 function wireIntake() {
   ui.source.addEventListener('input', updateSourceMeta);
   ui.source.addEventListener('input', hideCopies);   // a list found for a link no longer in the box is stale
+  wireGlow(ui.source);
   ui.showText.addEventListener('click', () => {
     const open = ui.intake.classList.toggle('is-open');
     ui.showText.textContent = t(open ? 'intake.hideText' : 'intake.showText');
@@ -557,6 +557,42 @@ function wireIntake() {
     }
   });
   ui.run.addEventListener('click', startRun);
+}
+
+/**
+ * The text box brightens as it is typed in (31 October: "As you are typing in the box the box dynamically brightens"):
+ * each keystroke or paste lifts its glow by a fifth, and a pause lets it settle back to rest over a second. The glow is
+ * one CSS variable (--glow, 0 to 1; css/civic.css says what it brightens), written at most once a frame and only while
+ * it moves, so typing is never slowed. With the system's reduced motion, it steps instead of easing.
+ */
+const GLOW_STEP = 0.2;
+const GLOW_SETTLE_MS = 1000;
+function wireGlow(box) {
+  let glow = 0;        // as painted
+  let peak = 0;        // where the last keystroke left it
+  let lastAt = 0;
+  let frame = 0;
+  let stepBack = 0;
+  const calm = () => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+  const paint = (g) => { glow = g; box.style.setProperty('--glow', g.toFixed(3)); };
+  const settle = (now) => {
+    frame = 0;
+    const t = Math.min(1, (now - lastAt) / GLOW_SETTLE_MS);
+    paint(t >= 1 ? 0 : peak * (1 - t * t * (3 - 2 * t)));   // eased: it holds a moment, then lets go
+    if (glow > 0) frame = requestAnimationFrame(settle);
+  };
+  box.addEventListener('input', () => {
+    if (calm()) {
+      paint(1);
+      clearTimeout(stepBack);
+      stepBack = setTimeout(() => paint(0), GLOW_SETTLE_MS);
+      return;
+    }
+    peak = Math.min(1, glow + GLOW_STEP);
+    lastAt = performance.now();
+    paint(peak);
+    if (!frame) frame = requestAnimationFrame(settle);
+  });
 }
 
 function updateSourceMeta() {
@@ -1972,7 +2008,7 @@ function finalizeCard(i, ev) {
     verdict: ev.verdict || null, verdictSource: ev.verdictSource || 'none',
     confidence: ev.confidence ?? null, inspector: ev.inspector || null, inspectorMark: ev.inspectorMark || null, conclusion: ev.conclusion || null,
     cost: ev.cost || null, ms: ev.ms ?? null,
-    model: ev.model || null, requested: ev.requested || null, fellBack: ev.fellBack || null, effort: ev.effort || null, mode: ev.mode || null, depth: ev.depth ?? null,
+    model: ev.model || null, requested: ev.requested || null, fellBack: ev.fellBack || null, effort: ev.effort || null, mode: ev.mode || null,
     trail: ev.trail?.length ? ev.trail : r.trail, sources: ev.sources?.length ? ev.sources : r.sources,
     incomplete: ev.incomplete || r.incomplete || null,
     listed: ev.listed ?? null, keptOut: ev.keptOut ?? null,
@@ -2097,11 +2133,11 @@ function renderCardFoot(i) {
     log.textContent = parts.join(' · ');
     log.hidden = parts.length === 0;
   }
-  // Which model actually answered, always: a downgrade must never pass unnoticed. A reader is told it by its depth, in
-  // the operator's names (server/view.js); the operator, by the model's name.
+  // Which model actually answered: the operator, by the model's name and level; a reader, by the operator's mark alone,
+  // with no level (31 October), and a standby model's answer marked as such, so a downgrade never passes unnoticed.
   const modelNode = $('.card-model', card);
   if (r.model) modelNode.textContent = t('card.modelLine', { model: r.model, effort: [r.effort, r.mode].filter(Boolean).join(' / ') });
-  else if (r.depth) modelNode.textContent = t('card.engineLine', { depth: ROMAN[r.depth] || r.depth });
+  else if (r.status === 'done') modelNode.textContent = t('card.engineLine');
   else modelNode.textContent = '';
   modelNode.classList.toggle('is-fallback', Boolean(r.fellBack));
   modelNode.title = r.fellBack?.used ? t('warn.modelFallback', { used: r.fellBack.used, requested: r.fellBack.requested }) : r.fellBack ? t('warn.fallback') : '';
