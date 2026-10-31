@@ -4492,10 +4492,9 @@ async function readerViewChecks() {
         && rDet.filter((e) => e.t === 'trail').every((e) => JSON.stringify(Object.keys(e.step || {})) === '["verb"]')
         && rDet.filter((e) => e.t === 'start' || e.t === 'batch-start').every((e) => ['model', 'effort', 'requested', 'provider', 'mode'].every((k) => !(k in e))),
       JSON.stringify([...types]));
-    const DEPTH_OF = { none: 1, minimal: 1, low: 2, medium: 3, high: 4, xhigh: 5, max: 6 };
-    check('a reader\'s finished claim keeps every output: the verdict, the confidence, the reasoning summary, every step, the sources; the model told as a depth, never by its name',
-      Boolean(rDone) && ['inspector', 'verdictSource', 'model', 'requested', 'effort', 'mode', 'cost'].every((k) => !(k in rDone))
-        && /Restating the proposition/.test(rDone.reasoning || '') && rDone.trail?.length === 4 && rDone.sources?.length === 2 && rDone.depth === DEPTH_OF[config.evalEffort]
+    check('a reader\'s finished claim keeps every output: the verdict, the confidence, the reasoning summary, every step, the sources; the model told by no name and no level (no depth either)',
+      Boolean(rDone) && ['inspector', 'verdictSource', 'model', 'requested', 'effort', 'mode', 'cost', 'depth'].every((k) => !(k in rDone))
+        && /Restating the proposition/.test(rDone.reasoning || '') && rDone.trail?.length === 4 && rDone.sources?.length === 2
         && Boolean(rDone.verdict) && Number.isFinite(rDone.confidence),
       JSON.stringify(Object.keys(rDone || {})));
     const joined = rDet.filter((e) => e.t === 'delta').map((e) => e.text).join('');

@@ -11,13 +11,27 @@
   --ground: #eef3f7;
   --paper: #ffffff;
   /* The glass is clear: the mathematics shows through, softly blurred, under a bright edge of light. The
-     strong glass is where the reader reads and types; the arithmetic of legibility is in field.js's notes. */
+     strong glass is where the reader reads and types; the arithmetic of legibility is in field.js's notes.
+     One recipe for every panel (31 October: "glass effect boxes which are more detailed and subtle"), its figures
+     here alone: the tint, the blur, a fine rim of light brightest at the top left, a soft light from that corner, a
+     faint glow inside. A box on a panel (the text box, a card, a copy) takes the tint, the rim and the highlight but
+     no blur of its own: a second blur would only blur the panel beneath. */
   --glass: rgba(255, 255, 255, 0.36);
   --glass-strong: rgba(255, 255, 255, 0.5);
   --glass-edge: rgba(255, 255, 255, 0.75);
   --glass-blur: blur(18px) saturate(1.3);
   --glass-sheen: linear-gradient(135deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0) 55%);
   --glass-shine: inset 0 1px 0 rgba(255, 255, 255, 0.9), inset 1px 0 0 rgba(255, 255, 255, 0.45);
+  --glass-rim: linear-gradient(135deg, rgba(255, 255, 255, 0.95), rgba(255, 255, 255, 0.4) 32%, rgba(255, 255, 255, 0.08) 62%, rgba(255, 255, 255, 0.45));
+  --glass-light: radial-gradient(130% 90% at 0% 0%, rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0) 58%);
+  --glass-glow: inset 0 0 22px rgba(255, 255, 255, 0.16);
+  --field-shine: inset 0 1px 0 rgba(255, 255, 255, 0.85), inset 0 1px 2px rgba(21, 24, 29, 0.05);
+  /* The text box as it is typed in (public/js/app.js sets --glow on it, from 0 at rest to 1): its white rises from the
+     rest by the lift, its edge whitens, and a soft white halo of this size comes up around it. */
+  --type-rest: 0.66;
+  --type-lift: 0.14;
+  --type-halo: 12px;
+  --type-halo-alpha: 0.35;
   --gold-ink: #b8860b;
   --green-ink: #2f9a64;
   --blue: #4874e4;
@@ -87,12 +101,22 @@ body {
 
 /* ---------- glass ---------- */
 .glass {
-  background: var(--glass-sheen), var(--glass);
+  position: relative;
+  background: var(--glass-light), var(--glass-sheen), var(--glass);
   -webkit-backdrop-filter: var(--glass-blur);
   backdrop-filter: var(--glass-blur);
   border: 1px solid var(--glass-edge);
   border-radius: var(--radius);
-  box-shadow: var(--shadow), var(--glass-shine);
+  box-shadow: var(--shadow), var(--glass-shine), var(--glass-glow);
+}
+/* The rim of light, on every panel and every box on one: a 1 px ring over the border, brightest at the top left. */
+.glass::before, .step::before, .masthead-nav::before, .card::before, .copy::before {
+  content: ""; position: absolute; inset: -1px; border-radius: inherit; padding: 1px; pointer-events: none;
+  background: var(--glass-rim);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  mask-composite: exclude;
 }
 
 /* ---------- masthead ---------- */
@@ -109,8 +133,9 @@ body {
 }
 .masthead-nav {
   display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
-  padding: 4px 6px 4px 12px; border-radius: 999px; background: rgba(255, 255, 255, 0.44); border: 1px solid var(--glass-edge);
-  -webkit-backdrop-filter: blur(14px) saturate(1.25); backdrop-filter: blur(14px) saturate(1.25); box-shadow: var(--shadow-soft), var(--glass-shine);
+  padding: 4px 6px 4px 12px; border-radius: 999px; background: var(--glass-light), rgba(255, 255, 255, 0.44); border: 1px solid var(--glass-edge);
+  -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur); box-shadow: var(--shadow-soft), var(--glass-shine), var(--glass-glow);
+  position: relative;
 }
 .lang { display: inline-flex; align-items: center; gap: 6px; color: var(--ink-2); padding-inline-end: 6px; }
 .lang-select {
@@ -145,9 +170,23 @@ body {
 .input, .source {
   font: inherit; color: var(--ink); background: rgba(255, 255, 255, 0.66);
   border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 12px 14px; width: 100%;
+  box-shadow: var(--field-shine);
   transition: border-color .15s ease, box-shadow .15s ease;
 }
-.input:focus, .source:focus { outline: none; border-color: var(--blue); box-shadow: 0 0 0 3px rgba(72, 116, 228, 0.18); }
+.input:focus { outline: none; border-color: var(--blue); box-shadow: var(--field-shine), 0 0 0 3px rgba(72, 116, 228, 0.18); }
+/* The text box's glow (--glow, set as it is typed in): painted every frame while it moves, so only its edge eases. */
+.source {
+  --glow: 0;
+  background-color: rgb(255 255 255 / calc(var(--type-rest) + var(--type-lift) * var(--glow)));
+  border-color: color-mix(in srgb, var(--line), #fff calc(var(--glow) * 100%));
+  box-shadow: var(--field-shine), 0 0 var(--type-halo) rgb(255 255 255 / calc(var(--type-halo-alpha) * var(--glow)));
+  transition: border-color .15s ease;
+}
+.source:focus {
+  outline: none;
+  border-color: color-mix(in srgb, var(--blue), #fff calc(var(--glow) * 100%));
+  box-shadow: var(--field-shine), 0 0 0 3px rgba(72, 116, 228, 0.18), 0 0 var(--type-halo) rgb(255 255 255 / calc(var(--type-halo-alpha) * var(--glow)));
+}
 .mono { font-family: var(--font-mono); font-size: 0.93em; }
 /* A form's label and its field. Not `.field`, which is the drawn background (above): sharing it put the background's
    fixed, click-through layer over the sign-in fields from 2 October, so nothing could be typed on a touch screen. */
@@ -206,7 +245,7 @@ body {
 .intake.is-collapsed.is-open .source { display: block; margin-block-start: 12px; max-height: 260px; }
 .intake-summary { display: flex; align-items: center; gap: 6px 14px; flex-wrap: wrap; margin-block-start: 6px; font-size: 14.5px; color: var(--ink-2); }
 .intake-summary b { color: var(--ink); font-weight: 600; }
-.intake { padding: clamp(22px, 4vw, 38px) clamp(18px, 4vw, 40px) clamp(22px, 3vw, 30px); background: var(--glass-sheen), var(--glass-strong); }
+.intake { padding: clamp(22px, 4vw, 38px) clamp(18px, 4vw, 40px) clamp(22px, 3vw, 30px); background: var(--glass-light), var(--glass-sheen), var(--glass-strong); }
 .intake-title {
   font-family: var(--font-display); font-weight: 700; font-size: clamp(38px, 6vw, 58px); line-height: .98; letter-spacing: .005em;
   margin: 0 0 8px; text-wrap: balance;
@@ -220,7 +259,7 @@ body {
 .copies-title { margin: 0 0 6px; font-size: 14px; color: var(--ink-2); }
 .copies-title:empty, .copies-status:empty { display: none; }
 .copies-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
-.copy { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 2px 12px; padding: 8px 12px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: rgba(255, 255, 255, .55); }
+.copy { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 2px 12px; padding: 8px 12px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: rgba(255, 255, 255, .55); box-shadow: var(--glass-shine); }
 .copy-title { grid-column: 1; font-weight: 600; color: var(--ink); text-decoration: none; overflow-wrap: anywhere; }
 .copy-title:hover { text-decoration: underline; }
 .copy-meta { grid-column: 1; font-size: 13px; color: var(--ink-3); overflow-wrap: anywhere; }
@@ -247,7 +286,7 @@ body {
 .run-warnings li::before { content: "!"; font-weight: 700; font-family: var(--font-display); font-size: 17px; line-height: 1.35; }
 .rail { display: grid; grid-template-columns: 1fr 224px; gap: 18px; align-items: stretch; }
 .rail-steps { display: grid; gap: 14px; align-content: start; }
-.step { padding: 16px 18px 14px; border-radius: var(--radius); background: var(--glass-sheen), var(--glass); border: 1px solid var(--glass-edge); box-shadow: var(--shadow-soft), var(--glass-shine); -webkit-backdrop-filter: blur(14px) saturate(1.25); backdrop-filter: blur(14px) saturate(1.25); transition: opacity .3s ease; }
+.step { position: relative; padding: 16px 18px 14px; border-radius: var(--radius); background: var(--glass-light), var(--glass-sheen), var(--glass); border: 1px solid var(--glass-edge); box-shadow: var(--shadow-soft), var(--glass-shine), var(--glass-glow); -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur); transition: opacity .3s ease; }
 .step[data-state="idle"] { opacity: .6; }
 .step-head { display: grid; grid-template-columns: auto 1fr auto; align-items: baseline; gap: 12px; margin-block-end: 12px; }
 .step-n {
@@ -315,9 +354,9 @@ body {
    row has lists of its own, and a rule reaching them once put each point's text in the 34 px
    number column, one word per line. */
 .claims-list { margin: 0; padding: 0; list-style: none; counter-reset: claim; display: grid; gap: 6px; }
-.claims-list > li { display: grid; grid-template-columns: 34px 1fr; gap: 10px; padding: 7px 0; border-block-start: 1px solid var(--line-soft); font-size: 15px; line-height: 1.45; animation: open .25s ease-out; }
+.claims-list > li { display: grid; grid-template-columns: 34px 1fr; gap: 10px; padding: 7px 0; border-block-start: 1px solid var(--line-soft); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6); font-size: 15px; line-height: 1.45; animation: open .25s ease-out; }
 .claims-list > li::before { counter-increment: claim; content: counter(claim, decimal-leading-zero); font-family: var(--font-mono); font-size: 13px; color: var(--blue-deep); padding-block-start: 2px; }
-.claims-list > li:has(> .card) { display: block; padding: 0; border: 0; }
+.claims-list > li:has(> .card) { display: block; padding: 0; border: 0; box-shadow: none; }
 .claims-list > li:has(> .card)::before { content: none; }
 .claims-list.is-beyond { counter-reset: claim 10; }
 /* A ranked run's claims kept back: hidden until "Show the other claims" (the rows' own display rule would show them otherwise). */
@@ -378,7 +417,7 @@ body {
 .scoreboard {
   position: sticky; top: 10px; z-index: 5;
   display: grid; grid-template-columns: repeat(3, auto) 1fr auto; align-items: center; gap: 8px 22px;
-  padding: 10px 18px; background: var(--glass-sheen), var(--glass-strong);
+  padding: 10px 18px; background: var(--glass-light), var(--glass-sheen), var(--glass-strong);
 }
 .scoreboard-actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
 .score-source { grid-column: 1 / -1; display: flex; align-items: baseline; gap: 4px 12px; flex-wrap: wrap; min-width: 0; font-size: 13.5px; color: var(--ink-2); padding-block-end: 6px; border-block-end: 1px solid var(--line-soft); }
@@ -402,7 +441,7 @@ body {
 /* results */
 .card, .claims, .claims-beyond, .raw { scroll-margin-top: 96px; }
 /* A card sits on the blurred claims panel, so it needs no blur of its own: .48 white over .36 reads as .67. */
-.card { padding: 20px 24px 18px; border-radius: var(--radius); background: rgba(255, 255, 255, .48); border: 1px solid var(--glass-edge); box-shadow: var(--shadow-soft), var(--glass-shine); transition: box-shadow .3s ease; }
+.card { position: relative; padding: 20px 24px 18px; border-radius: var(--radius); background: var(--glass-light), rgba(255, 255, 255, .48); border: 1px solid var(--glass-edge); box-shadow: var(--shadow-soft), var(--glass-shine), var(--glass-glow); transition: box-shadow .3s ease; }
 @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
 .card-head { display: grid; grid-template-columns: auto 1fr auto auto; gap: 8px 16px; align-items: start; }
 .card-n { font-size: 13px; color: var(--ink-3); padding-block-start: 5px; }
@@ -439,7 +478,7 @@ body {
 
 /* everything the run produced besides the entry: reasoning, searches, sources, raw text */
 .card-detail { display: grid; gap: 6px; margin-block-start: 14px; }
-.raw { border: 1px solid var(--line-soft); border-radius: var(--radius-sm); background: rgba(255, 255, 255, .36); }
+.raw { border: 1px solid var(--line-soft); border-radius: var(--radius-sm); background: rgba(255, 255, 255, .36); box-shadow: var(--field-shine); }
 .raw-summary { cursor: pointer; padding: 8px 12px; font-size: 13px; font-weight: 600; letter-spacing: .03em; color: var(--ink-2); list-style: none; display: flex; align-items: center; gap: 8px; }
 .raw-summary::-webkit-details-marker { display: none; }
 .raw-summary::before { content: "▸"; color: var(--blue); font-size: 11px; transition: transform .15s ease; }

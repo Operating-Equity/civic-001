@@ -130,7 +130,7 @@ export default {
     noteIncomplete: 'El modelo se detuvo antes ({reason}). Abajo está todo lo que devolvió.',
     noteNoSummary: 'No hay resumen de razonamiento disponible.',
     modelLine: '{model} · {effort}',
-    engineLine: 'LLR · profundidad {depth}',
+    engineLine: 'LLR',
     copy: 'Copiar entrada',
     copied: 'Entrada copiada.',
     copyFailed: 'No se pudo copiar. Abre la entrada original y selecciónala.',

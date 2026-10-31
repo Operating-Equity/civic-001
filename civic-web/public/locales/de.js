@@ -130,7 +130,7 @@ export default {
     noteIncomplete: 'Das Modell hat früh gestoppt ({reason}). Unten steht alles, was es zurückgegeben hat.',
     noteNoSummary: 'Keine Zusammenfassung des Denkprozesses verfügbar.',
     modelLine: '{model} · {effort}',
-    engineLine: 'LLR · Tiefe {depth}',
+    engineLine: 'LLR',
     copy: 'Eintrag kopieren',
     copied: 'Eintrag kopiert.',
     copyFailed: 'Kopieren fehlgeschlagen. Öffnen Sie den Rohtext und markieren Sie ihn.',
