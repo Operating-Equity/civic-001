@@ -291,7 +291,10 @@ adults-only rule. `server/payments.js`, on Stripe's `stripe` package (23.1.0, AP
 - **What a reader buys:** one of `CIVIC_TOPUP_AMOUNTS_CENTS` (1000, 2500, 5000: $10, $25, $50), each shown with about
   how many fact-checks it buys at today's list price, or any other amount from `CIVIC_TOPUP_MIN_CENTS` to
   `CIVIC_TOPUP_MAX_CENTS` ($5 to $200: the ceiling bounds what a stolen card or a dispute can cost; a reader can buy
-  again). No figure is built into the code: unset, nothing is offered.
+  again). No figure is built into the code: unset, nothing is offered. The figures follow comparable services, looked
+  up on 1 November: $5 is the least at OpenAI, Anthropic, OpenRouter and ElevenLabs, and OpenAI starts at $10; an
+  automatic top-up below $5 adding $10 is Apple's own example (ElevenLabs: below $10, add $20); each monthly total is a
+  whole number of every top-up amount ($20, $50, $100, $200), so none is left unusable.
 - **How they pay:** on Stripe's own hosted page. The server writes the payment, makes Stripe's Checkout Session and
   answers with its address; the reader's page only moves there, so no key and no script of Stripe's is in it. Apple
   Pay, Google Pay and Link come from Stripe, and so do the receipts (two switches in Stripe's dashboard). Back on
@@ -309,7 +312,7 @@ adults-only rule. `server/payments.js`, on Stripe's `stripe` package (23.1.0, AP
   charge a test card (the account is made a live customer at its next purchase), /check's books count the key's own
   mode alone, and a test-mode notice reaching the live endpoint is acknowledged and nothing more.
 - **The automatic top-up**, off until the reader turns it on: "when my credit falls below $5 (or $10), add $10 (or $25
-  or $50), at most $25 (or $50, $100, $200) a month", from `CIVIC_RELOAD_LEVELS_CENTS`, `CIVIC_TOPUP_AMOUNTS_CENTS` and
+  or $50), at most $20 (or $50, $100, $200) a month", from `CIVIC_RELOAD_LEVELS_CENTS`, `CIVIC_TOPUP_AMOUNTS_CENTS` and
   `CIVIC_RELOAD_CAPS_CENTS`. The reader agrees to it in plain words beside the switch (the amount, the trigger, the
   monthly total, the card, how to stop); the time and the version of that wording are kept with the account. It runs
   before a test would be refused for short credit (the test then goes on) and after a charge leaves the credit below

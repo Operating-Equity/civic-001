@@ -291,7 +291,7 @@ export default {
     },
     topup: {
       title: 'Recarga automática',
-      statusOff: 'Desactivada. Si la activa, añade crédito por sí sola cuando su saldo baja.',
+      statusOff: 'Desactivada: nunca se cobra nada automáticamente si usted no la activa. Si la activa, añade crédito por sí sola cuando su saldo baja.',
       statusOn: 'Activada: cuando su crédito baje de {level}, se añaden {amount}, como máximo {cap} al mes. Añadido este mes: {month}.',
       paused: {
         declined: 'En pausa: su banco rechazó la tarjeta. Sustituya la tarjeta, o vuelva a activar la recarga automática para intentarlo una vez más.',

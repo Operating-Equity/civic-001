@@ -291,7 +291,7 @@ export default {
     },
     topup: {
       title: 'Recharge automatique',
-      statusOff: 'Désactivée. Une fois activée, elle ajoute du crédit d\'elle-même quand votre solde baisse.',
+      statusOff: 'Désactivée : rien n\'est jamais prélevé automatiquement sans que vous l\'activiez. Une fois activée, elle ajoute du crédit d\'elle-même quand votre solde baisse.',
       statusOn: 'Activée : quand votre crédit passe sous {level}, {amount} est ajouté, au plus {cap} par mois. Ajouté ce mois-ci : {month}.',
       paused: {
         declined: 'En pause : votre banque a refusé la carte. Remplacez la carte, ou réactivez la recharge automatique pour réessayer une fois.',

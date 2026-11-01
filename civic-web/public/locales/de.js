@@ -291,7 +291,7 @@ export default {
     },
     topup: {
       title: 'Automatische Aufladung',
-      statusOff: 'Aus. Eingeschaltet lädt sie von selbst auf, wenn Ihr Guthaben knapp wird.',
+      statusOff: 'Aus: Solange Sie sie nicht einschalten, wird nie etwas automatisch abgebucht. Eingeschaltet lädt sie von selbst auf, wenn Ihr Guthaben knapp wird.',
       statusOn: 'An: Fällt Ihr Guthaben unter {level}, werden {amount} aufgeladen, höchstens {cap} im Monat. Diesen Monat aufgeladen: {month}.',
       paused: {
         declined: 'Pausiert: Ihre Bank hat die Karte abgelehnt. Ersetzen Sie die Karte, oder schalten Sie die automatische Aufladung wieder ein, um es noch einmal zu versuchen.',

@@ -292,7 +292,7 @@ export default {
     },
     topup: {
       title: 'Automatic top-up',
-      statusOff: 'Off. Turned on, it adds credit by itself when your balance runs low.',
+      statusOff: 'Off: nothing is ever charged automatically unless you turn it on. Turned on, it adds credit by itself when your balance runs low.',
       statusOn: 'On: when your credit falls below {level}, {amount} is added, at most {cap} a month. Added this month: {month}.',
       paused: {
         declined: 'Paused: your bank declined the card. Replace the card, or turn automatic top-up on again to try it once more.',
