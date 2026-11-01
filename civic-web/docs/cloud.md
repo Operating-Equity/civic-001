@@ -1420,6 +1420,10 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
     a phone: visible while typing (ΔE 6.9 inside and 6.7 around on a desktop, 9.8 and 6.6 on a phone), at the cursor,
     the blue edge kept, settled at the settle time and gone once settled, stepped with reduced motion, and typing at
     the end of a 2.2 MB document as fast as before the light; the glass check, turned to the light.
+  - **Live** (1 November, 19:39 UTC): PR #102 deployed. Measured on the live page: ΔE 7.1 inside the box and 6.8 around
+    it on a desktop, 9.8 and 6.9 on a phone, at the cursor, settled in about a second; the page's figures are Medium and
+    the old glow's are gone; the record, the standby, the tell words and the readers' model are as before. Live check
+    clean, nothing spent.
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 
