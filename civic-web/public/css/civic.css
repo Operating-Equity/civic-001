@@ -26,12 +26,17 @@
   --glass-light: radial-gradient(130% 90% at 0% 0%, rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0) 58%);
   --glass-glow: inset 0 0 22px rgba(255, 255, 255, 0.16);
   --field-shine: inset 0 1px 0 rgba(255, 255, 255, 0.85), inset 0 1px 2px rgba(21, 24, 29, 0.05);
-  /* The text box as it is typed in (public/js/app.js sets --glow on it, from 0 at rest to 1): its white rises from the
-     rest by the lift, its edge whitens, and a soft white halo of this size comes up around it. */
-  --type-rest: 0.66;
-  --type-lift: 0.14;
-  --type-halo: 12px;
-  --type-halo-alpha: 0.35;
+  /* The text box as it is typed in (1 November, after Apple's Liquid Glass, where the glass lights up where it is
+     touched): public/js/app.js sets --glow on it (0 at rest, 1 at its brightest) and the light's place (--gx, --gy, the
+     cursor). A soft light comes up through the glass around the cursor, the blue edge brightens into a fine line of
+     light, and a soft glow rises around the box; a pause lets it settle. Every figure of the light is here: */
+  --type-light: 72 116 228;     /* the light's colour: the page's blue */
+  --type-light-size: 150px;     /* how far it reaches around the cursor */
+  --type-light-alpha: 0.18;     /* inside the glass, at its brightest */
+  --type-edge-alpha: 0.95;      /* the edge's line of light, at its brightest */
+  --type-halo: 24px;            /* the glow around the box */
+  --type-halo-alpha: 0.30;
+  --type-settle: 1000;          /* milliseconds for the light to settle after a pause */
   --gold-ink: #b8860b;
   --green-ink: #2f9a64;
   --blue: #4874e4;
@@ -174,18 +179,20 @@ body {
   transition: border-color .15s ease, box-shadow .15s ease;
 }
 .input:focus { outline: none; border-color: var(--blue); box-shadow: var(--field-shine), 0 0 0 3px rgba(72, 116, 228, 0.18); }
-/* The text box's glow (--glow, set as it is typed in): painted every frame while it moves, so only its edge eases. */
+/* The text box's light as it is typed in (--glow and its place, --gx and --gy): painted every frame while it moves. */
 .source {
   --glow: 0;
-  background-color: rgb(255 255 255 / calc(var(--type-rest) + var(--type-lift) * var(--glow)));
-  border-color: color-mix(in srgb, var(--line), #fff calc(var(--glow) * 100%));
-  box-shadow: var(--field-shine), 0 0 var(--type-halo) rgb(255 255 255 / calc(var(--type-halo-alpha) * var(--glow)));
+  --gx: 32px;
+  --gy: 28px;
+  background-color: rgba(255, 255, 255, 0.66);
+  background-image: radial-gradient(circle var(--type-light-size) at var(--gx) var(--gy), rgb(var(--type-light) / calc(var(--type-light-alpha) * var(--glow))), rgb(var(--type-light) / 0));
+  box-shadow: var(--field-shine), inset 0 0 0 1px rgb(255 255 255 / calc(var(--type-edge-alpha) * var(--glow))), 0 0 var(--type-halo) rgb(var(--type-light) / calc(var(--type-halo-alpha) * var(--glow)));
   transition: border-color .15s ease;
 }
 .source:focus {
   outline: none;
-  border-color: color-mix(in srgb, var(--blue), #fff calc(var(--glow) * 100%));
-  box-shadow: var(--field-shine), 0 0 0 3px rgba(72, 116, 228, 0.18), 0 0 var(--type-halo) rgb(255 255 255 / calc(var(--type-halo-alpha) * var(--glow)));
+  border-color: var(--blue);
+  box-shadow: var(--field-shine), inset 0 0 0 1px rgb(255 255 255 / calc(var(--type-edge-alpha) * var(--glow))), 0 0 0 3px rgba(72, 116, 228, 0.18), 0 0 var(--type-halo) rgb(var(--type-light) / calc(var(--type-halo-alpha) * var(--glow)));
 }
 .mono { font-family: var(--font-mono); font-size: 0.93em; }
 /* A form's label and its field. Not `.field`, which is the drawn background (above): sharing it put the background's

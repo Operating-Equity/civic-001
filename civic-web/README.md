@@ -68,9 +68,12 @@ of 14 : 1 and hints 4.7 : 1. The check page holds the golden rectangle still. Th
 colours on every surface: true green, false red, unverified grey (the grey zone: strong but conflicting evidence,
 nothing dirty about it, the operator's rule of 2 October); a verdict the page could not read is dashed and hollow,
 a different thing. The amber is for cautions only (a card's note, the check page's warning mark). There is one box type,
-rounded, and no corner brackets (the operator's rule of 2 October: the brackets made the page busy). The footer
-names the site and whose service it is ("A service of Fact Engine LLC, an Operating Equity company"), and carries
-the pages a commercial service owes, Terms, Privacy, Refunds and Contact (`public/terms.html`, `privacy.html`,
+rounded, and no corner brackets (the operator's rule of 2 October: the brackets made the page busy). The text box
+lights up as it is typed in (1 November, after Apple's Liquid Glass, where the glass lights up where it is touched): a
+soft light comes up through the glass at the cursor, its blue edge brightens into a fine line of light and a soft glow
+rises around it, and a pause lets it settle (`css/civic.css`, the `--type-*` figures; `js/app.js`, `wireGlow`).
+The footer names the site and whose service it is ("A service of Fact Engine LLC, an Operating Equity company"), and
+carries the pages a commercial service owes, Terms, Privacy, Refunds and Contact (`public/terms.html`, `privacy.html`,
 `refunds.html`, `contact.html`: the operator's launch texts of 3 October, in English, static HTML in `.prose` over
 the still field, their placeholders in square brackets theirs to fill), and the year. The four open in a new tab,
 because leaving the page cancels a run in progress. Under the results, one sentence in the reader's language says
