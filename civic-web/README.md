@@ -215,7 +215,7 @@ statement ... each fact-check is $1.25", and "The formula is going to test and r
 
 The operator, 5 October: "Get rid of access codes … We need to establish a sign-up and sign-on process first, followed
 by payments. We don't need to worry about account funds; assume everyone who signs up gets $10 in their account." So
-the door is an account, and a test is paid from the account's credit; payments, the last step, are not built.
+the door is an account, and a test is paid from the account's credit; credit is bought as "Buying credit", below, says.
 
 - **Sign up and sign in** with an email address and a password, in a box on the page itself: no pop-up, and real form
   fields, so a password manager offers to save and fill them. An account comes before anything runs, the listing
@@ -256,7 +256,8 @@ the door is an account, and a test is paid from the account's credit; payments, 
   and then answers 409. That free go is for the same claim only: the row keeps a fingerprint of the claim (its SHA-256,
   never its text), so a different claim under a delivered one's id is refused (409 `already_tested`). At boot every hold left unsettled is settled by its row. Records that cannot be written are a
   wait (503 `books_wait`, which the page rides out), never a free test.
-- **The Account page** (/account, four languages): the balance and its history, Add credit (it opens with payments), a
+- **The Account page** (/account, four languages): the balance and its history, Add credit and the automatic top-up
+  (below; while payments are off, Add credit says it opens with payments), a
   monthly limit of the reader's own (this month's spend and the day it resets, the 1st, UTC), the activity (each test
   with its date, claim number, verdict and amount; a free one reads Free, one that failed Not charged), a password
   change, sign out everywhere, and deleting the account. It also takes the reset link (`#reset=`) and the operator's
@@ -264,17 +265,78 @@ the door is an account, and a test is paid from the account's credit; payments, 
 - **A forgotten password:** the reader writes to support from the account's address; the operator makes a one-time link
   on /check (it lasts `CIVIC_RESET_LINK_HOURS`, 24) and sends it. When email sending arrives with the domain, the link
   is sent by itself.
-- **The operator's table on /check:** every account with its balance, this month, its tests and its state; add credit
-  (an adjustment, with a note), a reset link (shown once, with Copy), close and open, delete (the email and the password
-  wiped and the sessions ended; the amounts stay for the accounts). A line under the measurement adds up the credit
-  given and spent, and that nothing is collected while payments are not live.
-- **Payments**, the last step: Stripe's hosted Checkout for Add credit (its webhook writing a `purchase` row),
-  auto-reload, and Stripe's Customer Portal. Nothing of it is built; it needs the Stripe account, which needs the domain.
+- **The operator's table on /check:** every account with its balance, this month, its tests, what it has bought, its
+  automatic top-up (off, on or paused) and its state; add credit (an adjustment, with a note), a reset link (shown once,
+  with Copy), lift a dispute's hold, close and open, delete (the email and the password wiped and the sessions ended;
+  the amounts stay for the accounts). A line under the measurement adds up the credit given and spent and what was
+  collected, and the payments' lines follow it.
 
 The access codes of 17 September, their allowance of runs, the sign-in log and the cookie's secret are gone. Their
 settings (`CIVIC_ACCESS_CODES`, `CIVIC_OPERATOR_CODES`, `CIVIC_CODE_USES`, `CIVIC_USES_FILE`, `CIVIC_SIGNIN_LOG`,
 `CIVIC_SESSION_SECRET`) are read by nothing; the startup line and /check name any still set, for the operator to
 delete in Render when convenient.
+
+## Buying credit
+
+The operator, 1 November: "my next step is the integration of stripe", the strawman of the amounts, the screens, the
+data and Stripe's part theirs to approve, "with the idea that this service runs with a very comfortable 25% margin on
+all costs"; the automatic top-up, the reader opting in; purchased credit not refundable; the Terms enough for the
+adults-only rule. `server/payments.js`, on Stripe's `stripe` package (23.1.0, API version `2026-10-28.endive`).
+
+- **Off until switched on.** `CIVIC_PAYMENTS` is `off` (nothing can be bought, the Account page says Add credit opens
+  with payments), `operator` (the operator's account alone, for a trial in Stripe's test mode on the live site) or `on`.
+  It needs `DATABASE_URL`, `CIVIC_STRIPE_KEY` (a restricted key) and `CIVIC_STRIPE_WEBHOOK_SECRET` (the notices'
+  signing secret), both set in Render's dashboard and never anywhere else, and the amounts. The start-up line says
+  which, naming what is missing and never a value; test or live is read from the key's own prefix.
+- **What a reader buys:** one of `CIVIC_TOPUP_AMOUNTS_CENTS` (1000, 2500, 5000: $10, $25, $50), each shown with about
+  how many fact-checks it buys at today's list price, or any other amount from `CIVIC_TOPUP_MIN_CENTS` to
+  `CIVIC_TOPUP_MAX_CENTS` ($5 to $200: the ceiling bounds what a stolen card or a dispute can cost; a reader can buy
+  again). No figure is built into the code: unset, nothing is offered.
+- **How they pay:** on Stripe's own hosted page. The server writes the payment, makes Stripe's Checkout Session and
+  answers with its address; the reader's page only moves there, so no key and no script of Stripe's is in it. Apple
+  Pay, Google Pay and Link come from Stripe, and so do the receipts (two switches in Stripe's dashboard). Back on
+  /account (`?paid=`), the page says the payment was received, is waiting for Stripe's confirmation (and asks again
+  every few seconds), or that no payment was made.
+- **Exactly once.** Stripe's signed notices reach `POST /hooks/stripe`, read as the raw body ahead of every parser and
+  of the door, and refused unless their signature holds. Each notice's id is kept, so one that comes twice is handled
+  once, and one that failed is handled again when Stripe sends it again. A purchase writes its `purchase` row in the
+  same transaction that moves the payment from pending to paid, and the row names Stripe's payment, under a unique
+  index: notices twice, out of order or together, and the reader's return before them, credit it once. The payment's
+  own record (its metadata, amount and currency) must match the row it names, so a payment only ever credits the
+  account that made it.
+- **Test and live apart.** Each payment keeps its mode, and a test payment is never money. An account's Stripe customer
+  and saved card belong to the mode they were made in, so after the operator's trial in test mode, live keys never
+  charge a test card (the account is made a live customer at its next purchase), /check's books count the key's own
+  mode alone, and a test-mode notice reaching the live endpoint is acknowledged and nothing more.
+- **The automatic top-up**, off until the reader turns it on: "when my credit falls below $5 (or $10), add $10 (or $25
+  or $50), at most $25 (or $50, $100, $200) a month", from `CIVIC_RELOAD_LEVELS_CENTS`, `CIVIC_TOPUP_AMOUNTS_CENTS` and
+  `CIVIC_RELOAD_CAPS_CENTS`. The reader agrees to it in plain words beside the switch (the amount, the trigger, the
+  monthly total, the card, how to stop); the time and the version of that wording are kept with the account. It runs
+  before a test would be refused for short credit (the test then goes on) and after a charge leaves the credit below
+  the level; one at a time per account (a unique index on its pending top-up), and never past the month's total. Claims
+  refused for short credit at the same moment (the page runs several at once) wait on the one top-up and go on. A
+  top-up an instance stopped in the middle of (a deploy) is settled from Stripe's record once it is older than the
+  client's longest request (80 s, tried three times, at most 5 s apart), so it never blocks the next. A card
+  the bank refuses (declined, or asking the reader to confirm) pauses it; the Account page and the line under the
+  claims say so, with Add credit.
+- **The saved card** is saved on Stripe's page, with the reader's tick, during a purchase or through Add a card. The
+  Account page shows its brand, last four digits and expiry, with Replace (Stripe's page again) and Remove (it goes
+  from Stripe, and the automatic top-up turns off). Its number never reaches FactEngine.
+- **Refunds and disputes:** purchased credit is not refunded, as the Terms say. A refund made in Stripe's dashboard
+  reaches the ledger by itself (a `refund` row for each). A dispute pauses testing, buying and the automatic top-up on
+  that account; its amount comes off the balance when Stripe takes the funds (`dispute`) and goes back if it is won
+  (`dispute_won`, which lifts the hold); the operator can lift it on /check.
+- **No expiry, no subscription, no tax at launch:** credit does not expire, and Stripe Tax stays off until the operator
+  registers somewhere ("plus any applicable taxes" is in the Terms already).
+- **The books on /check:** off, test or live; collected, Stripe's own fees (read from each payment's balance
+  transaction), net, refunds, disputes (open, won, lost, the funds and their fees), the automatic top-ups (made, failed,
+  on, paused), and the margin on all costs since the first payment (what readers paid and kept paid, against the
+  models' cost of every reader's work, free and paid, plus Stripe's and the disputes' fees), marked when it is below
+  `CIVIC_MARGIN_TARGET_PERCENT` (25).
+- **Kept** (migration `005-payments.sql`): each payment (the account, on Stripe's page or automatic, the amount, its
+  status, Stripe's ids, the fee and the net, the card's brand and country, a wallet, a failure's code); each notice's
+  id; on each account, Stripe's customer id, the saved card's brand, last four and expiry, the top-up's choices, its
+  consent and whether it is paused, and a dispute's hold.
 
 ## Reading a link
 

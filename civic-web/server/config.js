@@ -322,6 +322,21 @@ export const config = {
   tierLossGuardUsd: optNum('CIVIC_TIER_LOSS_GUARD_USD'),        // "unless one is very unprofitable and I am losing a lot of money. Become 1 until we earn it back"; unset = off
   tierFixed: optInt('CIVIC_TIER_FIXED'),                        // one tier for everyone, for when the data has spoken
   pricingNote: env('CIVIC_PRICING_NOTE', ''),                   // a sentence of the operator's under the prices (for instance that the beta is not charged)
+  // Payments (1 November, server/payments.js): credit bought on the payment processor's hosted page, and topped up
+  // automatically when the reader has asked for it. Off unless set; `operator` shows it to the operator alone (the
+  // trial in the processor's test mode on the live site); `on` to everyone. The key (a restricted key) and the
+  // endpoint's signing secret are set in Render's dashboard and never printed. Every amount is the operator's setting:
+  // unset, nothing is offered.
+  payments: ((v) => (v === 'on' || v === 'operator' ? v : 'off'))(env('CIVIC_PAYMENTS', 'off').trim().toLowerCase()),
+  stripeKey: env('CIVIC_STRIPE_KEY', '').trim(),
+  stripeWebhookSecret: env('CIVIC_STRIPE_WEBHOOK_SECRET', '').trim(),
+  stripeApi: env('CIVIC_STRIPE_API', '').trim(),                // the guard's stand-in for the processor (http://host:port); unset in service
+  topupAmountsCents: list('CIVIC_TOPUP_AMOUNTS_CENTS', '').map((x) => Number.parseInt(x, 10)).filter((x) => Number.isInteger(x) && x > 0),
+  topupMinCents: optInt('CIVIC_TOPUP_MIN_CENTS'),              // with the maximum: "Other amount" between the two; unset = the listed amounts alone
+  topupMaxCents: optInt('CIVIC_TOPUP_MAX_CENTS'),
+  reloadLevelsCents: list('CIVIC_RELOAD_LEVELS_CENTS', '').map((x) => Number.parseInt(x, 10)).filter((x) => Number.isInteger(x) && x > 0),
+  reloadCapsCents: list('CIVIC_RELOAD_CAPS_CENTS', '').map((x) => Number.parseInt(x, 10)).filter((x) => Number.isInteger(x) && x > 0),
+  marginTargetPercent: num('CIVIC_MARGIN_TARGET_PERCENT', 25),  // "a very comfortable 25% margin on all costs": /check flags the margin below it
   // The measurement's home: Render's Postgres when DATABASE_URL is set (the rows outlive every
   // deploy); without it, this instance's memory, which a restart empties. Never a CIVIC_ name:
   // DATABASE_URL is what Render itself puts on a service. CIVIC_DATABASE_SSL: auto (verified TLS

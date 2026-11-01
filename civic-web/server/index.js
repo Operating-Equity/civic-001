@@ -28,6 +28,7 @@ import * as geminiProvider from './gemini.js';
 import * as anthropicProvider from './anthropic.js';
 import { loadStandby, standbyState } from './standby.js';
 import { keeps, listingEnded, claimEnded, letGo, recordOn, recordState, writeRecord } from './record.js';
+import * as payments from './payments.js';
 import { runIllustration } from './illustrate.js';
 import { selftest } from './selftest.js';
 import { whereTheShellSetsIt } from './key.js';
@@ -107,6 +108,7 @@ async function sendIndex(req, res, next) {
 const notFound = (res) => res.status(404).set('Cache-Control', 'no-store').type('text/plain').send('Not found');
 
 const app = express();
+const wrapEarly = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 app.disable('x-powered-by');
 app.set('trust proxy', 1);
 // Routes match their case exactly. Express matches them regardless of case unless told otherwise,
@@ -134,6 +136,14 @@ app.use((req, res, next) => {
 
 // The door (server/access.js), before any body is read: a request without a session is refused on its headers alone, so
 // nobody without an account can make this instance read 64 MB. The account's own doors take a small body of their own.
+// The payment processor's notices (server/payments.js): signed, so they are read as the raw body, ahead of every parser and
+// of the door (they carry no session). A request without the processor's signature header is refused before its body
+// is read. The processor's events are a few kilobytes.
+app.post('/hooks/stripe', (req, res, next) => (req.get('stripe-signature') ? next() : notFound(res)), express.raw({ type: '*/*', limit: '1mb' }), wrapEarly(async (req, res) => {
+  const out = await payments.onNotice(req.body, String(req.get('stripe-signature') || ''));
+  if (out.status === 404) return notFound(res);
+  res.status(out.status).json(out.status === 200 ? { received: true } : { error: out.error || 'not handled' });
+}));
 app.use('/api/account', express.json({ limit: '16kb' }));
 app.use('/api/operator', express.json({ limit: '16kb' }));
 app.use('/api', gate);
@@ -191,6 +201,10 @@ function checkKeyGiven(req) {
   return a.length === b.length && crypto.timingSafeEqual(a, b);
 }
 
+// Whether this account can add credit (server/payments.js), and whether its automatic top-up is paused: the main page's
+// Add credit link when a test is refused for credit. Nothing else of payments reaches the main page.
+const buying = (user) => (payments.openTo(user) ? { addCredit: true, ...(user.topupOn && user.topupPausedAt ? { topupPaused: true } : {}) } : {});
+
 app.get('/api/health', wrap(async (req, res) => {
   const session = signinRequired() ? req.account || null : null;
   const balanceCents = session ? await credit.balanceOf(session.user.id).catch(() => null) : null;
@@ -200,7 +214,7 @@ app.get('/api/health', wrap(async (req, res) => {
   const all = !signinRequired() || isOperator(session);
   const access = {
     required: signinRequired(),
-    session: session ? { email: session.user.email, operator: isOperator(session), balanceCents, monthlyLimitCents: session.user.monthlyLimitCents } : null,
+    session: session ? { email: session.user.email, operator: isOperator(session), balanceCents, monthlyLimitCents: session.user.monthlyLimitCents, ...buying(session.user) } : null,
     grantCents: config.signupGrantCents, minChars: config.passwordMinChars, currency: config.currency,
   };
   const active = jobs.active();   // runs in flight right now, whatever their connections are doing; an update waits for zero
@@ -211,7 +225,7 @@ app.get('/api/health', wrap(async (req, res) => {
     const p = promptStatus();
     res.json({
       build: BUILD, ...pick(publicConfig(p), ['autoTestFirst', 'inFlight', 'heartbeatMs', 'findCopies']), ready: Boolean(p.extract && p.evaluate),
-      access: { ...access, session: session ? { balanceCents } : null },
+      access: { ...access, session: session ? { balanceCents, ...buying(session.user) } : null },
       ...(checkKeyGiven(req) ? { active } : {}),
     });
     return;
@@ -513,17 +527,30 @@ app.post('/api/evaluate', wrap(async (req, res) => {
     const joined = jobs.get(id, owner);
     if (joined) { joined.attach(openStream(req, res), req.body?.cursor); return; }
   }
+  // A payment dispute pauses testing on that account (server/payments.js), and the reader is told why.
+  if (req.account?.user?.payHoldAt) throw Object.assign(new ApiError(403, 'account_hold', 'This account is paused while a payment dispute is open. Write to support.'), { expected: true });
   let opened;
   opening.set(id, new Promise((resolve) => { opened = resolve; }));
   const quotes = [];
   const user = req.account?.user || null;
   try {
     for (let i = 0; i < claims.length; i++) {
-      quotes.push(await economics.openDetermination({
+      const open = () => economics.openDetermination({
         id: detIds[i], runId, n: claims.length === 1 ? n : null, chars: claims[i].length,
         userId: user?.id ?? null, owner, limitCents: user?.monthlyLimitCents ?? null, requireRun: signinRequired(),
         fingerprint: fingerprintOf(claims[i]),   // a delivered claim's free second go is for the same claim, never another
         trial: Boolean(trial),                    // the operator's trial: never charged, never in the readers' measurements
+      });
+      quotes.push(await open().catch(async (err) => {
+        // Short of credit, with the reader's automatic top-up on (server/payments.js): it runs first, or the one already
+        // under way (another claim's, at the same moment) is waited for; then the claim is opened again, once. Refused
+        // again, the reader is told as before.
+        if (err?.code === 'credit_short' && user && payments.ready()) {
+          const t = await payments.topUp(user.id, { needCents: Number(err.extra?.priceCents) || 0 }).catch(() => ({ done: false }));
+          if (t.why === 'running') await payments.awaitTopUp(user.id).catch(() => {});
+          if (t.done || t.why === 'running' || t.why === 'enough') return open();
+        }
+        throw err;
       }).catch((err) => {
         if (err?.expected) throw err;   // a refusal the reader must see: the credit, the limit, a run that is not theirs
         console.error('[economics] the determination could not be recorded:', err.message);
@@ -558,7 +585,11 @@ app.post('/api/evaluate', wrap(async (req, res) => {
     const inOrder = (fn) => { order = order.then(fn).catch((err) => console.error('[economics] an event could not be passed on:', err?.message || err)); };
     const sendAndBook = (ev) => inOrder(async () => {
       const q = ev.i !== undefined ? quotes[ev.i] : null;
-      if (ev.t === 'done' && ev.i !== undefined) await economics.book(detIds[ev.i], { attempt: q?.attempt ?? null, status: 'done', verdict: ev.verdict || null, model: ev.model || null });
+      if (ev.t === 'done' && ev.i !== undefined) {
+        await economics.book(detIds[ev.i], { attempt: q?.attempt ?? null, status: 'done', verdict: ev.verdict || null, model: ev.model || null });
+        // A charge that leaves the credit below the reader's level: their automatic top-up, never in the reader's way.
+        if (user && payments.ready()) payments.topUp(user.id).catch((e) => console.error('[payments] a top-up after a charge failed:', e.message));
+      }
       else if (ev.t === 'error' && ev.i !== undefined) await economics.book(detIds[ev.i], { attempt: q?.attempt ?? null, status: 'failed', failure: ev.code || 'error' });
       if ((ev.t === 'done' || ev.t === 'error') && ev.i !== undefined) {
         claimEnded({ determinationId: detIds[ev.i], keep, claim: claims[ev.i], document: source && source.chars >= 20 ? source.text : null, meta: recordMeta, ev, trial: Boolean(trial) });
@@ -726,6 +757,8 @@ function banner() {
   console.log(!standing ? '[standby] none is set (CIVIC_EVAL_STANDBY): a claim the readers\' model still fails is a failure'
     : standing.ready ? `[standby] a reader's claim the readers' model still fails goes once more, by itself, to ${standing.model} at ${standing.effort}, on ${standing.provider === 'gemini' ? 'Google' : 'Anthropic'}'s path; the reader is not told`
       : `[standby] ${standing.model} at ${standing.effort} is set but not ready: ${String(standing.why || '').replace(/\.$/, '')}; a claim the readers' model still fails is a failure`);
+  // Payments (server/payments.js): off, set but not ready (naming what is missing, never a value), or on, its mode and amounts.
+  console.log(payments.bootLine());
   // The record (server/record.js): whether what is submitted and found is kept, and whose.
   console.log(!config.record ? '[record] off (CIVIC_RECORD): nothing submitted or found is kept'
     : !dbOn() ? '[record] set on, but there is no database to keep it in (DATABASE_URL): nothing is kept'

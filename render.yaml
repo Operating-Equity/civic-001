@@ -94,6 +94,27 @@ services:
         sync: false
       - key: CIVIC_SIGNUP_GRANT_CENTS
         value: "1000"
+      # Buying credit (civic-web/server/payments.js, 1 November): off until the operator switches it on (operator, for
+      # their own test-mode trial; then on). The key, a restricted key, and the notices' signing secret are set in Render,
+      # never here. The amounts are the operator's.
+      - key: CIVIC_PAYMENTS
+        value: "off"
+      - key: CIVIC_STRIPE_KEY
+        sync: false
+      - key: CIVIC_STRIPE_WEBHOOK_SECRET
+        sync: false
+      - key: CIVIC_TOPUP_AMOUNTS_CENTS
+        value: "1000,2500,5000"
+      - key: CIVIC_TOPUP_MIN_CENTS
+        value: "500"
+      - key: CIVIC_TOPUP_MAX_CENTS
+        value: "20000"
+      - key: CIVIC_RELOAD_LEVELS_CENTS
+        value: "500,1000"
+      - key: CIVIC_RELOAD_CAPS_CENTS
+        value: "2500,5000,10000,20000"
+      - key: CIVIC_MARGIN_TARGET_PERCENT
+        value: "25"
       # The measurement of every run and determination (server/economics.js), and the accounts, their
       # sessions and their credit (server/accounts.js, server/credit.js), live in the Render Postgres named
       # CIVIC; its internal connection string is set on the service in Render as DATABASE_URL (Render's own

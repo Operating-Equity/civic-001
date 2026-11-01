@@ -6,6 +6,7 @@ import { ApiError } from './openai.js';
 import * as accounts from './accounts.js';
 import * as credit from './credit.js';
 import * as economics from './economics.js';
+import * as payments from './payments.js';
 import { sessionOf, isOperator, setSessionCookie, clearSessionCookie } from './access.js';
 import { now } from './clock.js';
 
@@ -49,7 +50,7 @@ async function activity(userId, beforeAt) {
         const d = tests.get(r.determinationId) || {};
         return { at: r.at, kind: 'test', state: r.state, amountCents: r.amountCents, n: d.n ?? null, verdict: d.verdict ?? null, runId: r.runId };
       }
-      return { at: r.at, kind: r.kind, amountCents: r.amountCents, cents: r.cents, note: r.kind === 'adjustment' ? r.note : null };
+      return { at: r.at, kind: r.kind, amountCents: r.amountCents, cents: r.cents, note: r.kind === 'adjustment' ? r.note : null, ...(r.kind === 'purchase' ? { via: r.note === 'auto' ? 'auto' : 'checkout' } : {}) };
     }),
     ...free.rows.map((d) => ({ at: d.startedAt, kind: 'test', state: 'free', amountCents: 0, n: d.n ?? null, verdict: d.verdict ?? null, runId: d.runId })),
   ].sort((a, b) => b.at - a.at).slice(0, limit);
@@ -96,7 +97,46 @@ export function mountAccountRoutes(app, { wrap }) {
   app.get('/api/account', wrap(async (req, res) => {
     res.setHeader('Cache-Control', 'no-store');
     const s = await sessionNeeded(req);
-    res.json({ ok: true, account: await accounts.view(s.user) });
+    res.json({ ok: true, account: { ...(await accounts.view(s.user)), payments: await payments.viewFor(s.user) } });
+  }));
+
+  // ---- buying credit (server/payments.js): the processor's hosted page, the saved card, the automatic top-up ----
+  // The page moves to the address returned; nothing of the processor's (no key, no script) is ever in the page itself.
+  const origin = (req) => `${req.protocol}://${req.get('host')}`;
+  app.post('/api/account/checkout', wrap(async (req, res) => {
+    const s = await sessionNeeded(req);
+    const b = body(req);
+    res.json({ ok: true, ...(await payments.startCheckout(s.user, { amountCents: b.amountCents, saveCard: b.saveCard === true, origin: origin(req) })) });
+  }));
+
+  app.get('/api/account/checkout', wrap(async (req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    const s = await sessionNeeded(req);
+    res.json({ ok: true, ...(await payments.checkoutReturn(s.user, req.query.session)) });
+  }));
+
+  app.post('/api/account/card', wrap(async (req, res) => {
+    const s = await sessionNeeded(req);
+    res.json({ ok: true, ...(await payments.startCardSetup(s.user, { origin: origin(req) })) });
+  }));
+
+  app.get('/api/account/card', wrap(async (req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    const s = await sessionNeeded(req);
+    res.json({ ok: true, ...(await payments.cardReturn(s.user, req.query.session)) });
+  }));
+
+  app.post('/api/account/card/remove', wrap(async (req, res) => {
+    const s = await sessionNeeded(req);
+    await payments.removeCard(s.user);
+    res.json({ ok: true, payments: await payments.viewFor(await accounts.userById(s.user.id)) });
+  }));
+
+  app.post('/api/account/topup', wrap(async (req, res) => {
+    const s = await sessionNeeded(req);
+    const b = body(req);
+    await payments.setTopUp(s.user, { on: b.on === true, levelCents: b.levelCents, amountCents: b.amountCents, capCents: b.capCents, agreement: b.agreement });
+    res.json({ ok: true, payments: await payments.viewFor(await accounts.userById(s.user.id)) });
   }));
 
   app.get('/api/account/activity', wrap(async (req, res) => {
@@ -140,7 +180,18 @@ export function mountAccountRoutes(app, { wrap }) {
   // ---- the operator's tools (the gate lets the operator's session alone through) ----
   app.get('/api/operator/accounts', wrap(async (req, res) => {
     res.setHeader('Cache-Control', 'no-store');
-    res.json({ ok: true, accounts: await accounts.list(), totals: await credit.totals(), currency: config.currency, at: new Date(now()).toISOString(), claimSet: accounts.claimSet(), claimUsed: await accounts.claimUsed() });
+    const bought = await payments.byAccount();
+    const list = (await accounts.list()).map((a) => ({ ...a, ...(bought.get(a.id) || { purchasedCents: 0, disputed: 0 }) }));
+    res.json({ ok: true, accounts: list, totals: await credit.totals(), payments: await payments.books(), currency: config.currency, at: new Date(now()).toISOString(), claimSet: accounts.claimSet(), claimUsed: await accounts.claimUsed() });
+  }));
+
+  // A dispute's hold, lifted by the operator: testing, buying and the automatic top-up resume on that account.
+  app.post('/api/operator/payments-hold', wrap(async (req, res) => {
+    const userId = userIdOf(body(req).userId);
+    const target = await accounts.userById(userId);
+    if (!target || target.deletedAt) throw expected(new ApiError(404, 'no_account', 'There is no such account.'));
+    await payments.liftHold(userId);
+    res.json({ ok: true });
   }));
 
   app.post('/api/operator/credit', wrap(async (req, res) => {

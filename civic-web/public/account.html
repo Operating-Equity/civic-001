@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>FactEngine · Your account</title>
-<meta name="description" content="Your FactEngine account: your balance, your tests, your monthly limit and your sign-in.">
+<meta name="description" content="Your FactEngine account: your balance, adding credit, your tests, your monthly limit and your sign-in.">
 <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="css/fonts.css">
 <link rel="stylesheet" href="css/civic.css">
@@ -29,6 +29,28 @@
   .acct-form { display: grid; gap: 12px; max-width: 26rem; }
   .acct-form .input { font-size: 16px; min-height: 44px; }
   .acct-danger summary { cursor: pointer; color: var(--ink-2); }
+  .acct-buy, .acct-topup { display: grid; gap: 12px; }
+  .acct-amounts { border: 0; margin: 0; padding: 0; min-width: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .acct-choice { position: relative; display: grid; gap: 4px; align-content: start; min-width: 0; min-height: 44px; padding: 12px 16px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: rgba(255, 255, 255, 0.45); cursor: pointer; touch-action: manipulation; }
+  .acct-choice input { position: absolute; inset: 0; opacity: 0; margin: 0; cursor: pointer; }
+  .acct-choice strong { font-size: 20px; font-variant-numeric: tabular-nums; color: var(--ink); }
+  .acct-choice span { font-size: 13px; color: var(--ink-2); }
+  .acct-choice.is-chosen { border-color: var(--blue); background: #fff; box-shadow: 0 0 0 3px rgba(72, 116, 228, 0.18); }
+  .acct-choice.is-focus { outline: 2px solid var(--blue); outline-offset: 2px; }
+  .acct-other { max-width: 16rem; }
+  .acct-other .input { font-size: 16px; min-height: 44px; }
+  .acct-choices { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr)); }
+  .acct-choices .form-field { display: flex; flex-direction: column; justify-content: flex-end; }
+  .acct-choices .input { font-size: 16px; min-height: 44px; }
+  .acct-card { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 15px; }
+  .acct-card .btn { min-height: 40px; }
+  .acct-card-tools { display: inline-flex; gap: 8px; align-items: center; }
+  @media (max-width: 480px) {
+    /* A phone: each amount is one full-width row, the amount on the left and what it buys on the right. */
+    .acct-amounts { grid-template-columns: minmax(0, 1fr); }
+    .acct-choice { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; column-gap: 12px; row-gap: 2px; }
+  }
+  .acct-agreement { font-size: 14.5px; line-height: 1.55; color: var(--ink); padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: rgba(255, 255, 255, 0.5); }
 </style>
 </head>
 <body>
@@ -82,10 +104,51 @@
       <p class="acct-note" id="acct-balance-note"></p>
     </section>
 
-    <section class="acct-box glass">
+    <!-- Buying credit (1 November): the payment is made on the payment processor's own page, which this page only moves
+         to; no key and no script of the processor's is here. Built from the account's payments (js/account.js). -->
+    <section class="acct-box glass" id="add-credit">
       <h2 data-i18n="account.page.addCredit">Add credit</h2>
-      <!-- Payments, the last step (task #47): Stripe's own page takes the card; nothing here until it does. -->
+      <p class="acct-note" id="acct-paid-note" role="status" hidden></p>
       <p class="acct-note" id="acct-add-credit" data-i18n="account.page.addCreditSoon">Adding credit opens with payments.</p>
+      <p class="acct-note is-bad" id="acct-hold" data-i18n="account.pay.hold" hidden>This account is paused while a payment dispute is open: testing, adding credit and automatic top-up resume once it is settled. Write to support@operatingequity.ai.</p>
+      <form class="acct-buy" id="acct-buy" novalidate hidden>
+        <fieldset class="acct-amounts" id="acct-amounts">
+          <legend class="visually-hidden" data-i18n="account.pay.choose">Choose an amount</legend>
+        </fieldset>
+        <p class="acct-note" id="acct-price-note"></p>
+        <label class="form-field acct-other" id="acct-other-field" hidden>
+          <span class="field-label" id="acct-other-label"></span>
+          <input class="input" type="text" inputmode="decimal" id="acct-other" autocomplete="off">
+        </label>
+        <label class="account-agree" id="acct-save-field" hidden>
+          <input type="checkbox" id="acct-save">
+          <span id="acct-save-text"></span>
+        </label>
+        <p class="acct-note is-bad" id="acct-buy-note" hidden></p>
+        <p><button type="submit" class="btn btn-primary" id="acct-buy-go" data-i18n="account.pay.continue">Continue to payment</button></p>
+        <p class="acct-note" data-i18n="account.pay.where">You pay on a secure payment page, then come back here. Purchased credit does not expire and is not refunded.</p>
+      </form>
+    </section>
+
+    <section class="acct-box glass" id="auto-topup" hidden>
+      <h2 data-i18n="account.topup.title">Automatic top-up</h2>
+      <p class="acct-note" id="acct-topup-status" role="status"></p>
+      <p class="acct-note is-bad" id="acct-topup-paused" hidden></p>
+      <div class="acct-card" id="acct-card-line"></div>
+      <p class="acct-note" id="acct-card-note" role="status" hidden></p>
+      <form class="acct-topup" id="acct-topup-form" novalidate>
+        <div class="acct-choices">
+          <label class="form-field"><span class="field-label" data-i18n="account.topup.level">When my credit falls below</span><select class="input" id="acct-topup-level"></select></label>
+          <label class="form-field"><span class="field-label" data-i18n="account.topup.amount">Add</span><select class="input" id="acct-topup-amount"></select></label>
+          <label class="form-field"><span class="field-label" data-i18n="account.topup.cap">At most, each month</span><select class="input" id="acct-topup-cap"></select></label>
+        </div>
+        <p class="acct-agreement" id="acct-topup-agreement"></p>
+        <p class="acct-note is-bad" id="acct-topup-note" hidden></p>
+        <p class="acct-row">
+          <button type="submit" class="btn btn-primary" id="acct-topup-on"></button>
+          <button type="button" class="btn btn-outline" id="acct-topup-off" data-i18n="account.topup.off" hidden>Turn off</button>
+        </p>
+      </form>
     </section>
 
     <section class="acct-box glass">

@@ -57,6 +57,8 @@ const READER_CODES = new Set([
   'credit_short', 'month_limit', 'already_tested', 'not_your_job', 'books_wait',
   'email_invalid', 'email_taken', 'password_short', 'password_long', 'terms_required', 'wrong_password', 'account_closed',
   'reset_invalid', 'claim_invalid', 'tries_wait', 'signups_wait', 'no_account', 'limit_invalid', 'accounts_off',
+  // buying credit (server/payments.js, 1 November)
+  'payments_off', 'account_hold', 'amount_invalid', 'payment_unavailable', 'no_payment', 'card_needed', 'topup_invalid', 'agreement_changed',
 ]);
 /** Whether a reader is told this refusal as it is: one they can act on, or a link's (every url_… code). */
 export const readerCode = (code) => READER_CODES.has(String(code)) || /^url_/.test(String(code));

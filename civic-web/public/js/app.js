@@ -474,7 +474,7 @@ function refreshBalance() {
   if (!state.session) return;
   clearTimeout(balanceTimer);
   balanceTimer = setTimeout(async () => {
-    try { const out = await api.account(); setBalance(out?.account?.balanceCents); } catch { /* the next one will */ }
+    try { const out = await api.account(); noteBuying(out?.account?.payments); setBalance(out?.account?.balanceCents); } catch { /* the next one will */ }
   }, 400);
 }
 
@@ -1403,6 +1403,7 @@ function renderBalanceLine(selected) {
     ui.balanceLine.textContent = s.code === 'month_limit'
       ? t('credit.stoppedLimit', { limit: fmtMoney(s.limitCents) })
       : t('credit.stopped', { balance: fmtMoney(s.balanceCents), price: fmtMoney(s.priceCents) });
+    if (s.code !== 'month_limit') addCreditTail();
     return;
   }
   // Runs the hooks choose are never charged, so the balance holds nothing back.
@@ -1412,7 +1413,25 @@ function renderBalanceLine(selected) {
     ui.balanceLine.hidden = false;
     ui.balanceLine.classList.add('is-over');
     ui.balanceLine.textContent = covers > 0 ? t('credit.over', { n: covers, w: numberWord(covers) }) : t('credit.overNone');
+    addCreditTail();
   } else { ui.balanceLine.hidden = true; ui.balanceLine.textContent = ''; }
+}
+
+/**
+ * After a sentence that the credit is short, when this account can add credit (payments, 1 November): that its automatic
+ * top-up is paused, if it is, and the way to add credit, the Account page opened at its box in a new tab (a run here goes on).
+ */
+function addCreditTail() {
+  if (!state.session?.addCredit) return;
+  if (state.session.topupPaused) ui.balanceLine.append(' ', t('credit.topupPaused'));
+  ui.balanceLine.append(' ', el('a', { href: 'account#add-credit', target: '_blank', rel: 'noopener', text: t('credit.addCredit') }));
+}
+
+/** What the account's own page says of buying (its payments), for the line above: whether it can add credit, and a paused top-up. */
+function noteBuying(p) {
+  if (!state.session || !p) return;
+  state.session.addCredit = Boolean(p.on);
+  state.session.topupPaused = Boolean(p.topup?.on && p.topup?.paused);
 }
 
 // ---------- prices: what the server said this run's claims cost ---------------------------------------
@@ -1691,6 +1710,7 @@ function failRun(err) {
   if (code === 'unavailable') message = t(state.phase === 'extracting' ? 'errors.unavailableListing' : 'errors.unavailable');
   else if (code === 'source_too_long') message = `${t('errors.sourceTooLong')} ${err?.message || ''}`;
   else if (code === 'signin_required') message = t('account.cookies');   // signed in, and still refused: the browser kept no cookie
+  else if (code === 'account_hold') message = t('errors.hold');   // a payment dispute is open on this account (server/payments.js)
   // A rejected key, or a provider's account that can no longer pay (402): the operator's to look at; the page names neither.
   else if (err?.status === 401 || err?.status === 402 || code === 'invalid_key' || code === 'missing_key' || code === 'balance_exhausted') message = t('errors.key');
   else if (code === 'key_not_sendable') message = t('errors.keyUnusable');

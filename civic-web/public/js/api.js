@@ -80,6 +80,14 @@ export const activity = (before) => get(`api/account/activity${before ? `?before
 export const setLimit = (cents) => post('api/account/limit', { cents });
 export const changePassword = ({ current, next }) => post('api/account/password', { current, next });
 export const deleteAccount = ({ password }) => post('api/account/delete', { password });
+// Buying credit (1 November): the server makes the payment and answers with the payment page's address, which the page
+// moves to; back from it, the page asks how the payment or the saved card stands. No key or script of the processor's here.
+export const startCheckout = ({ amountCents, saveCard }) => post('api/account/checkout', { amountCents, saveCard });
+export const checkoutReturn = (session) => get(`api/account/checkout?session=${encodeURIComponent(session)}`);
+export const startCardSetup = () => post('api/account/card', {});
+export const cardReturn = (session) => get(`api/account/card?session=${encodeURIComponent(session)}`);
+export const removeCard = () => post('api/account/card/remove', {});
+export const setTopUp = ({ on, levelCents, amountCents, capCents, agreement }) => post('api/account/topup', { on, levelCents, amountCents, capCents, agreement });
 
 export async function health() {
   const res = await fetch('api/health', { cache: 'no-store' });

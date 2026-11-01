@@ -284,6 +284,35 @@ async function post(url, body) {
   return out;
 }
 
+/**
+ * Payments (server/payments.js): off, not ready (what is missing), or on (its mode, for whom); then what came in, the
+ * processor's fees, refunds, disputes, the automatic top-ups, and the margin on all costs against the target.
+ */
+function paymentLines(p, c) {
+  if (!p) return [];
+  const lines = [];
+  const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+  if (p.switched === 'off') lines.push({ text: 'Payments: off (CIVIC_PAYMENTS): nothing can be bought.' });
+  else if (!p.ready) lines.push({ text: `Payments: CIVIC_PAYMENTS=${p.switched}, but not ready: ${(p.missing || []).join(', ')} not set, so nothing can be bought.`, bad: true });
+  else lines.push({ text: `Payments: on, ${p.mode || 'unknown'} mode, ${p.switched === 'on' ? 'for every account' : 'for your account alone'}.` });
+  if (p.error) lines.push({ text: `The payments could not be read: ${p.error}`, bad: true });
+  if (p.payments > 0) {
+    lines.push({ text: `${p.mode === 'test' ? 'In test mode, not money: collected' : 'Collected'}: ${amount(p.collectedCents, c)} in ${plural(p.payments, 'payment', 'payments')} since ${new Date(p.since).toLocaleDateString()} · the processor's fees: ${amount(p.feeCents, c)}${p.feeUnknown ? ` (${plural(p.feeUnknown, 'payment', 'payments')} with no fee read)` : ''} · net: ${amount(p.netCents, c)} · refunded: ${amount(p.refundedCents, c)}.` });
+    const d = p.disputes || {};
+    lines.push({ text: `Disputes: ${d.open} open, ${d.won} won, ${d.lost} lost · funds taken ${amount(d.takenCents, c)}, given back ${amount(d.backCents, c)} · dispute fees ${amount(d.feeCents, c)} · ${plural(p.holds, 'account', 'accounts')} held.`, bad: d.open > 0 });
+    const tu = p.topups || {};
+    lines.push({ text: `Automatic top-ups: ${tu.made} made, ${tu.failed} failed · on for ${plural(tu.on, 'account', 'accounts')}, ${tu.paused} of them paused.` });
+    const m = p.margin;
+    if (m) {
+      lines.push(m.percent === null
+        ? { text: `Margin on all costs: ${amount(m.revenueCents, c)} paid and kept, and no cost yet.` }
+        : { text: `Margin on all costs since the first payment: ${amount(m.revenueCents, c)} paid and kept (collected less refunds and disputed funds) against ${amount(m.costCents, c)} of costs (readers' fact-checks and listings ${amount(m.modelCents, c)}, the processor's and dispute fees ${amount(m.feeCents, c)}): ${m.percent >= 0 ? '+' : ''}${m.percent}%, ${m.below ? 'below' : 'at or above'} the ${p.marginTargetPercent}% target (CIVIC_MARGIN_TARGET_PERCENT).`, bad: m.below });
+    }
+  } else if (p.ready) lines.push({ text: `No payment yet${p.mode === 'test' ? ' in test mode' : ''}.` });
+  if (p.unhandled > 0) lines.push({ text: `${plural(p.unhandled, 'payment fault', 'payment faults')} since this instance started; the last: ${p.lastFault}`, bad: true });
+  return lines;
+}
+
 /** Every account, newest first, with its balance, this month's spend and its charged tests; and the operator's tools. */
 async function renderAccounts(data) {
   let box = $('#accounts');
@@ -299,18 +328,23 @@ async function renderAccounts(data) {
   const c = out.currency;
   box.append(el('h2', null, 'Accounts'));
   const t = out.totals || {};
-  box.append(el('p', 'check-detail', `Credit given: ${amount(t.grantedCents, c)} to ${t.accounts ?? 0} ${t.accounts === 1 ? 'account' : 'accounts'} · spent from credit: ${amount(t.spentCents, c)} · collected: ${amount(t.collectedCents, c)} (payments are not live yet).`));
+  box.append(el('p', 'check-detail', `Credit given: ${amount(t.grantedCents, c)} to ${t.accounts ?? 0} ${t.accounts === 1 ? 'account' : 'accounts'} · spent from credit: ${amount(t.spentCents, c)} · collected: ${amount(t.collectedCents, c)}.`));
+  for (const line of paymentLines(out.payments, c)) {
+    const p = el('p', 'check-detail', line.text);
+    if (line.bad) p.style.color = 'var(--false)';
+    box.append(p);
+  }
   if (!out.claimUsed) box.append(el('p', 'check-detail', out.claimSet ? 'The operator\'s one-time link is set and not used yet.' : 'No operator link is set (CIVIC_OPERATOR_CLAIM).'));
   if (!out.accounts.length) { box.append(el('p', 'check-detail', 'Nobody has an account yet.')); return; }
   const wrap = el('div', 'check-scroll');
   const table = el('table', 'check-settings');
   const head = el('tr');
-  for (const h of ['Email', 'Made', 'Balance', 'This month', 'Tests charged', 'Status', '']) head.append(el('th', null, h));
+  for (const h of ['Email', 'Made', 'Balance', 'This month', 'Tests charged', 'Bought', 'Top-up', 'Status', '']) head.append(el('th', null, h));
   table.append(head);
   for (const a of out.accounts) {
     const tr = el('tr');
-    const status = a.deleted ? 'deleted' : a.blocked ? 'closed' : a.operator ? 'operator' : 'open';
-    for (const v of [a.email || '(deleted)', new Date(a.createdAt).toLocaleDateString(), amount(a.balanceCents, c), amount(a.monthCents, c), String(a.tests), status]) tr.append(el('td', null, v));
+    const status = a.deleted ? 'deleted' : a.blocked ? 'closed' : a.hold ? 'held: a payment dispute' : a.operator ? 'operator' : 'open';
+    for (const v of [a.email || '(deleted)', new Date(a.createdAt).toLocaleDateString(), amount(a.balanceCents, c), amount(a.monthCents, c), String(a.tests), amount(a.purchasedCents, c), a.topup || 'off', status]) tr.append(el('td', null, v));
     const tools = el('td');
     if (!a.deleted) {
       const btn = (label, fn) => { const b = el('button', 'btn btn-text btn-small', label); b.type = 'button'; b.addEventListener('click', fn); tools.append(b); return b; };
@@ -334,12 +368,19 @@ async function renderAccounts(data) {
           shown.append(input, copy);
           const row = el('tr');
           const cell = el('td');
-          cell.colSpan = 7;
+          cell.colSpan = 9;
           cell.append(shown);
           row.append(cell);
           tr.after(row);
         } catch (err) { alert(err.message); }
       });
+      // A dispute's hold: testing, buying and the automatic top-up resume on that account once the operator lifts it.
+      if (a.hold) {
+        btn('Lift the hold', async () => {
+          if (!confirm(`Lift the payment hold on ${a.email}? Testing, buying and the automatic top-up resume on that account.`)) return;
+          try { await post('api/operator/payments-hold', { userId: a.id }); await renderAccounts(data); } catch (err) { alert(err.message); }
+        });
+      }
       if (!a.operator) {
         btn(a.blocked ? 'Open' : 'Close', async () => { try { await post('api/operator/block', { userId: a.id, blocked: !a.blocked }); await renderAccounts(data); } catch (err) { alert(err.message); } });
         btn('Delete', async () => {
