@@ -245,6 +245,34 @@ function renderFailures(list) {
   box.append(ul);
 }
 
+// ---- the record (1 November): what is submitted and found, kept apart from every account ----------------------------
+function renderRecord(r) {
+  const box = $('#record');
+  box.textContent = '';
+  if (!r) { box.hidden = true; return; }
+  box.hidden = false;
+  box.append(el('h2', null, 'The record'));
+  if (!r.on) {
+    box.append(el('p', 'check-detail', !r.switched ? 'Off (CIVIC_RECORD): nothing submitted or found is kept.' : 'Set on, but there is no database to keep it in (DATABASE_URL): nothing is kept.'));
+    return;
+  }
+  const whose = r.termsFrom ? `your runs, and readers' whose accounts agreed to the Terms of ${r.termsFrom} or later` : 'your runs alone (no reader\'s: CIVIC_RECORD_TERMS_FROM is not set)';
+  box.append(el('p', 'check-detail', `On: the documents, claims and findings of ${whose}, kept apart from every account: no account, email, address or run number, and the day alone.`));
+  if (r.error) { box.append(el('p', 'check-detail', `The record could not be read: ${r.error}`)); return; }
+  const n = (x) => Number(x || 0).toLocaleString('en-US');
+  const size = r.bytes >= 1e9 ? `${(r.bytes / 1e9).toFixed(2)} GB` : `${(r.bytes / 1e6).toFixed(1)} MB`;
+  box.append(el('p', null, `${n(r.documents)} documents · ${n(r.factChecks)} fact-checks${r.since ? ` · since ${r.since}` : ''} · ${size}`));
+  if (r.unwritten) box.append(el('p', 'check-detail', `${n(r.unwritten)} could not be written since this start; the runs went on. The last: ${r.lastFault}`));
+  const links = el('p', 'check-record-links');
+  for (const [what, label] of [['documents', 'Download the documents'], ['fact-checks', 'Download the fact-checks']]) {
+    const a = el('a', 'btn btn-outline btn-small', label);
+    a.href = `api/operator/record?what=${what}`;
+    a.setAttribute('download', `factengine-${what}.jsonl`);
+    links.append(a, document.createTextNode(' '));
+  }
+  box.append(links);
+}
+
 // ---- the accounts (5 October): the operator's table, and what they can do from it -------------------------------------
 const amount = (c, currency) => money((Number(c) || 0) / 100, currency);
 
@@ -349,6 +377,12 @@ function asText(data) {
     lines.push('', 'Recent failures');
     for (const f of data.recentFailures) lines.push(`  ${f.at} ${f.where} ${f.code || ''} ${f.message}`);
   }
+  const r = data.record;
+  if (r) {
+    lines.push('', 'The record');
+    if (!r.on) lines.push(`  off${r.switched ? ' (set on, but no database)' : ''}`);
+    else lines.push(`  on · ${r.documents ?? '?'} documents · ${r.factChecks ?? '?'} fact-checks${r.since ? ` · since ${r.since}` : ''} · readers' from the Terms of ${r.termsFrom || '(none: yours alone)'}${r.unwritten ? ` · ${r.unwritten} not written since this start` : ''}`);
+  }
   return lines.join('\n');
 }
 
@@ -383,6 +417,7 @@ async function run() {
     renderSettings(data.settings, data.build, data.pacing, data.silentSites, data.tools, data.readers);
     renderEconomics(data.economics, { pacing: data.pacing, model: data.settings?.model });
     renderFailures(data.recentFailures);
+    renderRecord(data.record);
     await renderAccounts(data);
     $('#report').value = asText(data);
   } catch (err) {

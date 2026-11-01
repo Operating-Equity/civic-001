@@ -5679,6 +5679,153 @@ async function blockedSiteChecks() {
 }
 await blockedSiteChecks();
 
+// ---- the record (1 November) -----------------------------------------------------------------------------------------
+// The operator: "have you made any provisions for saving the users' outputs and the questions, not any user information";
+// their answers: keep the documents too, and say so on the privacy page (server/record.js). Proved on a real Postgres:
+// a reader under the Terms that say so is kept, every word and figure and nothing of them; a reader under the older Terms
+// is not; the operator's grid runs are kept and marked; a failure is kept with its code; a row that cannot be written
+// leaves the run as it was; with the record off nothing is kept; the downloads are the operator's alone.
+async function recordChecks() {
+  const required = /^(1|true|yes)$/i.test(process.env.CIVIC_VERIFY_REQUIRE_DATABASE || '');
+  const provision = await provisionPostgres().catch((err) => { console.error(`  (record: no database: ${err.message})`); return null; });
+  if (!provision) {
+    if (required) check('a Postgres is available for the record checks (CIVIC_VERIFY_REQUIRE_DATABASE=1)', false, 'no CIVIC_VERIFY_DATABASE_URL, and initdb is not on this machine');
+    else console.log('  (record: no Postgres here, so the record checks are skipped; CI runs them against a service container)');
+    return;
+  }
+  const MOCKR = MOCK_PORT + 150, PR1 = PORT + 150, PR2 = PORT + 151;
+  const procs = [];
+  const stamp = Date.now();
+  const TERMS = '2026-11-01';
+  pg.types.setTypeParser(1082, (v) => v);   // a day as it is written, as the server reads it
+  const db = new pg.Client({ connectionString: provision.url });
+  await db.connect();
+  const rowsFor = async (claim) => (await db.query('SELECT * FROM record_fact_checks WHERE claim = $1 ORDER BY day, id', [claim])).rows;
+  const waitRows = async (claim, n = 1) => { for (let k = 0; k < 50; k++) { const r = await rowsFor(claim); if (r.length >= n) return r; await new Promise((x) => setTimeout(x, 100)); } return rowsFor(claim); };
+  try {
+    const mock = start([path.join(root, 'scripts', 'mock-openai.js')], { MOCK_PORT: String(MOCKR), MOCK_SPEED: '0.2', MOCK_INSPECTOR: 'Sir Edwin Cardale (geologist)', MOCK_SEARCH_ACTIONS: 'search,open_page', MOCK_EVAL_FAIL_TEXT: 'Refuse this claim' });
+    procs.push(mock);
+    await wait(`http://localhost:${MOCKR}/v1/mock/stats`, 15000, { anyResponse: true });
+    const recordEnv = { DATABASE_URL: provision.url, CIVIC_OPERATOR_EMAILS: 'op@example.com', CIVIC_OPERATOR_CLAIM: claimHash(), CIVIC_LIST_PRICE_CENTS: '125', CIVIC_TIER_ORDER: '1',
+      CIVIC_TERMS_VERSION: TERMS, CIVIC_RECORD_TERMS_FROM: TERMS, CIVIC_EVAL_TRIAL_MODELS: 'gpt-6-astra', CIVIC_LEDGER_FILE: path.join(os.tmpdir(), `civic-verify-record-ledger-${stamp}.jsonl`) };
+    const srv = accountServer(PR1, MOCKR, { ...recordEnv, CIVIC_RECORD: 'on' });
+    procs.push(srv.child);
+    await wait(`http://localhost:${PR1}/api/health`, 30000);
+    const people = accountClient(`http://localhost:${PR1}`);
+    const readerEmail = `record-reader-${stamp}@example.com`;
+    const reader = (await people.signup(readerEmail)).cookie;
+    const older = (await people.signup(`record-older-${stamp}@example.com`)).cookie;
+    await db.query('UPDATE users SET terms_version = $1 WHERE email = $2', ['2026-10-03', `record-older-${stamp}@example.com`]);
+    const opClaim = await people.json('/api/account/claim', { method: 'POST', body: { token: CLAIM_TOKEN, email: 'op@example.com', password: PASSWORD, agree: true } });
+    const op = opClaim.cookie || (await people.signin('op@example.com')).cookie;
+    const text = `${ACCT_TEXT} Record ${stamp}.`;
+    const run = async (cookie, who, claim, extra = {}) => {
+      const runId = `rec-${who}-run-${stamp}`;
+      const listing = await people.stream('/api/extract', { jobId: runId, text }, cookie);
+      const det = await people.stream('/api/evaluate', { jobId: `rec-${who}-c-${stamp}-${claim.length}`, claims: [claim], text, runId, n: 1, ...extra }, cookie);
+      return { runId, listing: listing.events, det: det.events };
+    };
+
+    // A reader under the Terms that say so: the document, its listing and the fact-check, kept whole; nothing of them.
+    const claimA = `The Eiffel Tower stands about 330 metres tall (record ${stamp}).`;
+    const before = await people.balance(reader);
+    const a = await run(reader, 'reader', claimA);
+    const aDone = a.det.find((e) => e.t === 'done');
+    const [rowA] = await waitRows(claimA);
+    const docA = rowA?.document_id ? (await db.query('SELECT * FROM record_documents WHERE id = $1', [rowA.document_id])).rows[0] : null;
+    const today = new Date().toISOString().slice(0, 10);
+    check('the record keeps a reader\'s fact-check (under the Terms that say so) with every output and figure: the claim, the entry as written, the verdict, confidence, conclusion and sources, its steps and thinking, its model, level and prompt version, its cost and its measures (tokens, times)',
+      Boolean(aDone) && rowA?.path === 'readers' && rowA.claim === claimA && /Sir Edwin Cardale/.test(rowA.entry || '') && rowA.verdict === aDone.verdict && rowA.confidence === aDone.confidence
+        && Boolean(rowA.conclusion) && Array.isArray(rowA.sources) && rowA.sources.length > 0 && Array.isArray(rowA.trail) && rowA.trail.length > 0
+        && rowA.model === config.evalModels[0] && Boolean(rowA.prompt_version) && Number(rowA.usd) > 0 && rowA.measures?.usage?.input > 0 && Number.isFinite(rowA.measures?.ms) && rowA.failure === null && rowA.day === today,
+      JSON.stringify({ path: rowA?.path, model: rowA?.model, verdict: [rowA?.verdict, aDone?.verdict], usd: rowA?.usd, measures: Object.keys(rowA?.measures || {}), day: rowA?.day }));
+    check('the record keeps the document the claim came from, with its listing: the text as the listing read it, its kind and length, the listing as written and its claims, its model, level and prompt version',
+      Boolean(docA) && docA.text === text && docA.kind === 'text' && docA.chars === text.length && docA.day === today && typeof docA.listing?.raw === 'string' && docA.listing.raw.length > 0
+        && docA.listing.claims?.length > 0 && Boolean(docA.listing.model) && Boolean(docA.listing.promptVersion),
+      JSON.stringify({ kind: docA?.kind, chars: docA?.chars, listing: docA && Object.keys(docA.listing || {}) }));
+    const kept = JSON.stringify([rowA, docA]);
+    check('nothing of the reader is in the record: no email, account, run or determination number, no fingerprint the books keep of the claim, no time but the day',
+      Boolean(rowA) && !kept.includes(readerEmail) && !kept.includes(a.runId) && !kept.includes('rec-reader-c-') && !kept.includes(crypto.createHash('sha256').update(claimA).digest('hex').slice(0, 12))
+        && !/\d{4}-\d\d-\d\dT\d\d:\d\d/.test(kept) && ['run', 'determination', 'owner', 'claim', 'ts'].every((k) => !(k in (rowA.measures || {})))
+        && JSON.stringify(Object.keys(rowA).sort()) === JSON.stringify(['claim', 'conclusion', 'confidence', 'day', 'document_id', 'effort', 'entry', 'failure', 'id', 'measures', 'model', 'pages', 'path', 'priced', 'prompt_version', 'reasoning', 'requested', 'searches', 'sources', 'trail', 'usd', 'verdict'].sort()),
+      kept.slice(0, 400));
+    check('the reader\'s run is as it was: their stream carries nothing of the record, and their claim is charged as before',
+      Boolean(aDone) && (before - await people.balance(reader)) === 125 && !JSON.stringify(a).includes('record_'), JSON.stringify({ charged: before - await people.balance(reader) }));
+
+    // A reader under the older Terms: nothing kept.
+    const claimB = `Water boils at 100 degrees Celsius at sea level (record ${stamp}).`;
+    const b = await run(older, 'older', claimB);
+    await new Promise((x) => setTimeout(x, 1500));
+    check('a reader whose account agreed only to the older Terms is not kept at all: no fact-check of theirs',
+      Boolean(b.det.find((e) => e.t === 'done')) && (await rowsFor(claimB)).length === 0, JSON.stringify((await rowsFor(claimB)).length));
+
+    // The operator's grid: kept, and marked.
+    const claimT = `Mount Everest is 8,849 metres above sea level (record ${stamp}).`;
+    const t = await run(op, 'operator', claimT, { model: 'gpt-6-astra', effort: 'high' });
+    const [rowT] = await waitRows(claimT);
+    check('the operator\'s grid run is kept, marked as the grid\'s, with its model and level',
+      Boolean(t.det.find((e) => e.t === 'done')) && rowT?.path === 'trial' && rowT.model === 'gpt-6-astra' && rowT.effort === 'high', JSON.stringify({ path: rowT?.path, model: rowT?.model, effort: rowT?.effort }));
+
+    // A failure: kept with its code, no entry.
+    const claimF = `Refuse this claim, as the stand-in is told to (record ${stamp}).`;
+    const f = await run(reader, 'reader-f', claimF);
+    const [rowF] = await waitRows(claimF);
+    check('a claim that fails is kept with its failure\'s code and no entry',
+      Boolean(f.det.find((e) => e.t === 'error')) && Boolean(rowF?.failure) && rowF.entry === null && rowF.verdict === null, JSON.stringify({ failure: rowF?.failure, entry: rowF?.entry }));
+
+    // The downloads: the operator's alone.
+    const dl = async (what, cookie) => { const r = await fetch(`http://localhost:${PR1}/api/operator/record?what=${what}`, { headers: cookie ? { cookie } : {} }); return { status: r.status, type: r.headers.get('content-type') || '', text: await r.text() }; };
+    const dFacts = await dl('fact-checks', op);
+    const dDocs = await dl('documents', op);
+    const factLines = dFacts.text.split('\n').filter(Boolean).map((l) => JSON.parse(l));
+    const docLines = dDocs.text.split('\n').filter(Boolean).map((l) => JSON.parse(l));
+    const notTo = [await dl('fact-checks', reader), await dl('documents', null), await dl('fact-checks', older)];
+    const wrong = await dl('nothing', op);
+    check('the operator downloads the record\'s two tables as JSON lines; to a reader or a visitor the address does not exist; a table that is not one of the two is refused',
+      dFacts.status === 200 && /ndjson/.test(dFacts.type) && factLines.some((x) => x.claim === claimA) && factLines.some((x) => x.claim === claimT) && !factLines.some((x) => x.claim === claimB)
+        && dDocs.status === 200 && docLines.some((x) => x.text === text)
+        && notTo.every((r) => r.status === 404 && /Not found/.test(r.text)) && wrong.status === 400,
+      JSON.stringify({ facts: [dFacts.status, factLines.length], docs: [dDocs.status, docLines.length], notTo: notTo.map((r) => r.status), wrong: wrong.status }));
+    const self = (await people.json('/api/selftest', { cookie: op })).body?.record;
+    check('/check shows the record: on, whose runs it keeps, how much it holds, since when and its size',
+      self?.on === true && self.termsFrom === TERMS && self.documents >= 1 && self.factChecks >= 3 && self.since === today && self.bytes > 0 && self.unwritten === 0,
+      JSON.stringify(self));
+    check('the start-up line says the record is on and whose runs it keeps',
+      /\[record\] on: the documents, claims and findings of the operator's runs, and of readers whose accounts agreed to the Terms of 2026-11-01 or later, are kept apart from every account/.test(srv.output()), srv.output().match(/\[record\][^\n]*/)?.[0] || '');
+
+    // A row that cannot be written: counted, and the run goes on as it was.
+    await db.query('ALTER TABLE record_fact_checks RENAME TO record_fact_checks_away');
+    const claimW = `The Pacific is the largest ocean on Earth (record ${stamp}).`;
+    const beforeW = await people.balance(reader);
+    const w = await run(reader, 'reader-w', claimW);
+    await new Promise((x) => setTimeout(x, 1000));
+    const selfW = (await people.json('/api/selftest', { cookie: op })).body?.record;
+    await db.query('ALTER TABLE record_fact_checks_away RENAME TO record_fact_checks');
+    check('a fact-check the record cannot write leaves the run as it was (delivered and charged), and /check counts it',
+      Boolean(w.det.find((e) => e.t === 'done')) && (beforeW - await people.balance(reader)) === 125 && selfW?.unwritten >= 1 && /could not be kept/.test(selfW?.lastFault || ''),
+      JSON.stringify({ unwritten: selfW?.unwritten, fault: selfW?.lastFault }));
+
+    // The record off: nothing kept, on the same database.
+    const off = accountServer(PR2, MOCKR, { ...recordEnv });
+    procs.push(off.child);
+    await wait(`http://localhost:${PR2}/api/health`, 30000);
+    const offPeople = accountClient(`http://localhost:${PR2}`);
+    const claimO = `Light from the Sun takes about eight minutes to reach the Earth (record ${stamp}).`;
+    const o = await offPeople.stream('/api/evaluate', { jobId: `rec-off-c-${stamp}`, claims: [claimO], text, runId: a.runId, n: 2 }, reader);
+    await new Promise((x) => setTimeout(x, 1500));
+    check('with the record off, nothing is kept, and the start-up line says so',
+      Boolean(o.events.find((e) => e.t === 'done')) && (await rowsFor(claimO)).length === 0 && /\[record\] off \(CIVIC_RECORD\)/.test(off.output()),
+      JSON.stringify({ rows: (await rowsFor(claimO)).length, line: off.output().match(/\[record\][^\n]*/)?.[0] || '' }));
+  } catch (err) {
+    check('record checks ran', false, err.stack || err.message);
+  } finally {
+    for (const p of procs) { try { p.kill('SIGTERM'); } catch {} }
+    await db.end().catch(() => {});
+    await provision.stop();
+  }
+}
+await recordChecks();
+
 const failed = results.filter((r) => !r.ok);
 for (const r of results) console.log(`${r.ok ? 'PASS' : 'FAIL'}  ${r.name}${r.ok ? '' : `   ← ${r.detail}`}`);
 console.log(failed.length

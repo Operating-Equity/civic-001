@@ -296,6 +296,11 @@ export const config = {
   signupsPerAddressPerDay: int('CIVIC_SIGNUPS_PER_ADDRESS_PER_DAY', 0), // 0 = off
   resetLinkHours: int('CIVIC_RESET_LINK_HOURS', 24),             // a flagged default
   termsVersion: env('CIVIC_TERMS_VERSION', '2026-10-03'),        // the Terms an account agreed to: the operator's launch text of 3 October
+  // The record (server/record.js, 1 November): what is submitted and what FactEngine finds, kept apart from every account,
+  // to test and improve the service. Off unless set; a reader's runs are kept only once their account agreed to the Terms
+  // that say so, the first such version named here (none named: the operator's runs alone).
+  record: bool('CIVIC_RECORD', false),
+  recordTermsFrom: env('CIVIC_RECORD_TERMS_FROM', ''),
 
   // Facts have a price, and every user is measured (server/economics.js; the operator's program of
   // 2 October). Listing the claims is always free; testing one costs the list price, and a run's tier
