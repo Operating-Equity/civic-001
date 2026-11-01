@@ -261,7 +261,8 @@ function renderRecord(r) {
   if (r.error) { box.append(el('p', 'check-detail', `The record could not be read: ${r.error}`)); return; }
   const n = (x) => Number(x || 0).toLocaleString('en-US');
   const size = r.bytes >= 1e9 ? `${(r.bytes / 1e9).toFixed(2)} GB` : `${(r.bytes / 1e6).toFixed(1)} MB`;
-  box.append(el('p', null, `${n(r.documents)} documents · ${n(r.factChecks)} fact-checks${r.since ? ` · since ${r.since}` : ''} · ${size}`));
+  const count = (k, one, many) => `${n(k)} ${Number(k) === 1 ? one : many}`;
+  box.append(el('p', null, `${count(r.documents, 'document', 'documents')} · ${count(r.factChecks, 'fact-check', 'fact-checks')}${r.since ? ` · since ${r.since}` : ''} · ${size}`));
   if (r.unwritten) box.append(el('p', 'check-detail', `${n(r.unwritten)} could not be written since this start; the runs went on. The last: ${r.lastFault}`));
   const links = el('p', 'check-record-links');
   for (const [what, label] of [['documents', 'Download the documents'], ['fact-checks', 'Download the fact-checks']]) {
@@ -381,7 +382,7 @@ function asText(data) {
   if (r) {
     lines.push('', 'The record');
     if (!r.on) lines.push(`  off${r.switched ? ' (set on, but no database)' : ''}`);
-    else lines.push(`  on · ${r.documents ?? '?'} documents · ${r.factChecks ?? '?'} fact-checks${r.since ? ` · since ${r.since}` : ''} · readers' from the Terms of ${r.termsFrom || '(none: yours alone)'}${r.unwritten ? ` · ${r.unwritten} not written since this start` : ''}`);
+    else lines.push(`  on · ${r.documents ?? '?'} document${r.documents === 1 ? '' : 's'} · ${r.factChecks ?? '?'} fact-check${r.factChecks === 1 ? '' : 's'}${r.since ? ` · since ${r.since}` : ''} · readers' from the Terms of ${r.termsFrom || '(none: yours alone)'}${r.unwritten ? ` · ${r.unwritten} not written since this start` : ''}`);
   }
   return lines.join('\n');
 }
