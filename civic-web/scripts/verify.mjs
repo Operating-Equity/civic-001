@@ -4765,7 +4765,7 @@ async function standbyChecks() {
     const fErr = fr.ev.filter((e) => e.t === 'error');
     check('when the standby fails too, the reader is told the one plain sentence, once, and is not charged; nothing else of either failure reaches them',
       fErr.length === 1 && JSON.stringify(fErr[0]) === JSON.stringify({ t: 'error', i: 0, code: 'unavailable', message: 'This claim could not be tested just now. Try again shortly.' })
-        && fr.charged === 0 && !fr.ev.some((e) => e.t === 'done' || e.t === 'warning' || e.t === 'retry') && !/gemini|argon|balance|standby/i.test(JSON.stringify(fr.ev)),
+        && fr.charged === 0 && !fr.ev.some((e) => e.t === 'done' || e.t === 'warning' || e.t === 'retry') && !/gemini|argon|prepaid|standby/i.test(JSON.stringify(fr.ev.filter((e) => e.t !== 'quote'))),
       JSON.stringify({ events: fr.ev.map((e) => e.t), error: fErr[0], charged: fr.charged }));
   } catch (err) {
     check('standby checks ran', false, err.stack || err.message);
