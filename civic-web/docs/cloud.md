@@ -1401,6 +1401,10 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
     written is counted there, and the run goes on.
   - **The pages:** the privacy page's row for what is submitted, and the Terms' licence, now say it is kept, apart from
     the account, to test and improve the Service.
+  - **Live** (1 November, 19:04 UTC): PR #101 deployed, with `CIVIC_RECORD=on`, `CIVIC_TERMS_VERSION=2026-11-01` and
+    `CIVIC_RECORD_TERMS_FROM=2026-11-01` set on Render. The start-up line says the record is on and whose runs it keeps;
+    the privacy page and the Terms carry the new words; the downloads and `/check` are closed to a stranger; the
+    standby, the tell words and the readers' model are as before. Live check clean, nothing spent.
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 
