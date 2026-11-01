@@ -531,36 +531,88 @@ function wireIntake() {
 }
 
 /**
- * The text box brightens as it is typed in (31 October: "As you are typing in the box the box dynamically brightens"):
- * each keystroke or paste lifts its glow by a fifth, and a pause lets it settle back to rest over a second. The glow is
- * one CSS variable (--glow, 0 to 1; css/civic.css says what it brightens), written at most once a frame and only while
- * it moves, so typing is never slowed. With the system's reduced motion, it steps instead of easing.
+ * The text box lights up as it is typed in (31 October: "As you are typing in the box the box dynamically brightens";
+ * 1 November, after Apple's Liquid Glass, where the glass lights up where it is touched): each keystroke or paste lifts
+ * the light by a fifth, where the cursor is, and a pause lets it settle back to rest. The light is three CSS variables
+ * (--glow, 0 to 1, and its place, --gx and --gy; css/civic.css holds every figure of it, the settle time among them),
+ * written at most once a frame and only while it moves, so typing is never slowed. Placing it lays out the text before
+ * the cursor once more, out of sight; where that took longer than a frame of the display twice in a row, text that long
+ * is lit from the box's bright corner instead. With the system's reduced motion, it steps instead of easing.
  */
 const GLOW_STEP = 0.2;
-const GLOW_SETTLE_MS = 1000;
+// The box's style, copied onto a hidden twin, so the twin lays out the text as the box does and gives the cursor's place;
+// its width is the box's own text width, a scroll bar's taken off.
+const TWIN_STYLE = ['paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft', 'fontFamily', 'fontSize', 'fontWeight', 'fontStyle',
+  'letterSpacing', 'lineHeight', 'textTransform', 'wordSpacing', 'textIndent', 'tabSize', 'direction', 'wordBreak', 'overflowWrap'];
 function wireGlow(box) {
   let glow = 0;        // as painted
   let peak = 0;        // where the last keystroke left it
   let lastAt = 0;
   let frame = 0;
   let stepBack = 0;
+  let placed = false;  // the light's place is wanted at the next frame
+  let settleMs = 0;
+  let frameMs = 1000 / 60;  // a frame of the display: the shortest interval seen between the light's frames
+  let lastFrame = 0;
+  let slow = 0;             // placings in a row that took longer than a frame
+  let tooLong = Infinity;   // text before the cursor at least this long is lit from the corner
   const calm = () => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
   const paint = (g) => { glow = g; box.style.setProperty('--glow', g.toFixed(3)); };
+  const corner = () => {   // the box's bright top-left corner (css/civic.css)
+    box.style.removeProperty('--gx');
+    box.style.removeProperty('--gy');
+  };
+  /** The cursor's place inside the box, as the box shows it now; the box's bright corner when it cannot be read. */
+  const place = () => {
+    const at = box.selectionEnd ?? box.value.length;
+    if (at >= tooLong) return corner();
+    const began = performance.now();
+    try {
+      const cs = getComputedStyle(box);
+      const twin = document.createElement('div');
+      for (const k of TWIN_STYLE) twin.style[k] = cs[k];
+      const across = box.clientWidth - Number.parseFloat(cs.paddingLeft) - Number.parseFloat(cs.paddingRight);
+      Object.assign(twin.style, { position: 'absolute', visibility: 'hidden', top: '0', left: '-99999px', whiteSpace: 'pre-wrap', overflow: 'hidden',
+        boxSizing: 'content-box', width: `${Math.max(0, across)}px`, height: 'auto', border: '0' });
+      twin.textContent = box.value.slice(0, at);
+      const mark = document.createElement('span');
+      mark.textContent = box.value.slice(at, at + 1) || '.';
+      twin.append(mark);
+      document.body.append(twin);
+      const x = mark.offsetLeft + mark.offsetWidth / 2;
+      const y = mark.offsetTop + mark.offsetHeight / 2 - box.scrollTop;
+      twin.remove();
+      if (!Number.isFinite(x) || !Number.isFinite(y)) throw new Error('no place');
+      box.style.setProperty('--gx', `${Math.round(Math.max(0, Math.min(x, box.clientWidth)))}px`);
+      box.style.setProperty('--gy', `${Math.round(Math.max(0, Math.min(y, box.clientHeight)))}px`);
+    } catch {
+      corner();
+    }
+    slow = performance.now() - began > frameMs ? slow + 1 : 0;
+    if (slow > 1) { tooLong = at; slow = 0; }
+  };
   const settle = (now) => {
     frame = 0;
-    const t = Math.min(1, (now - lastAt) / GLOW_SETTLE_MS);
+    if (lastFrame) frameMs = Math.min(frameMs, now - lastFrame);
+    lastFrame = now;
+    if (placed) { placed = false; place(); }
+    const t = Math.min(1, (now - lastAt) / settleMs);
     paint(t >= 1 ? 0 : peak * (1 - t * t * (3 - 2 * t)));   // eased: it holds a moment, then lets go
     if (glow > 0) frame = requestAnimationFrame(settle);
+    else lastFrame = 0;
   };
   box.addEventListener('input', () => {
+    settleMs = Number.parseFloat(getComputedStyle(box).getPropertyValue('--type-settle')) || 1000;
     if (calm()) {
+      place();
       paint(1);
       clearTimeout(stepBack);
-      stepBack = setTimeout(() => paint(0), GLOW_SETTLE_MS);
+      stepBack = setTimeout(() => paint(0), settleMs);
       return;
     }
     peak = Math.min(1, glow + GLOW_STEP);
     lastAt = performance.now();
+    placed = true;
     paint(peak);
     if (!frame) frame = requestAnimationFrame(settle);
   });

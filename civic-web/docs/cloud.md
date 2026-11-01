@@ -1401,6 +1401,25 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
     written is counted there, and the run goes on.
   - **The pages:** the privacy page's row for what is submitted, and the Terms' licence, now say it is kept, apart from
     the account, to test and improve the Service.
+  - **Live** (1 November, 19:04 UTC): PR #101 deployed, with `CIVIC_RECORD=on`, `CIVIC_TERMS_VERSION=2026-11-01` and
+    `CIVIC_RECORD_TERMS_FROM=2026-11-01` set on Render. The start-up line says the record is on and whose runs it keeps;
+    the privacy page and the Terms carry the new words; the downloads and `/check` are closed to a stranger; the
+    standby, the tell words and the readers' model are as before. Live check clean, nothing spent.
+- **1 November: the text box lights up as it is typed in.** The operator: "You also ignored my direction for having
+  the box brighten in the same effect that Apple uses as you are typing in the box that creates a perfect finished and
+  polished look to the user interface". Measured on the live site, the glow of 31 October changed the box by ΔE 1.2
+  inside and 0.4 around it, below what a person can see (about 2.3). Recorded at three strengths; the operator chose
+  Medium.
+  - **The light** (`public/css/civic.css`, `public/js/app.js` `wireGlow`): a soft light comes up through the glass where
+    the cursor is, the blue edge brightens into a fine line of light, and a soft glow rises around the box; a pause lets
+    it settle over a second; with reduced motion it steps. Every figure is a variable at the top of the stylesheet.
+  - **Typing is never slowed:** the light's figures are written at most once a frame, only while it moves. Its place is
+    found by laying out the text before the cursor out of sight; where that took longer than a frame twice in a row,
+    text that long is lit from the box's bright corner.
+  - **Proof:** a browser check (scratchpad `browser/light-check.mjs`) measures the light in screenshots on a desktop and
+    a phone: visible while typing (ΔE 6.9 inside and 6.7 around on a desktop, 9.8 and 6.6 on a phone), at the cursor,
+    the blue edge kept, settled at the settle time and gone once settled, stepped with reduced motion, and typing at
+    the end of a 2.2 MB document as fast as before the light; the glass check, turned to the light.
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 
