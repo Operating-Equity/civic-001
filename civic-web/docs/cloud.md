@@ -1392,7 +1392,7 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
   and of course, monitoring, such as being able to predict cost based on question type or even model routing"; their
   answers: keep the documents too, and say so on the privacy page.
   - **What is kept** (`server/record.js`, `server/migrations/004-record.sql`), apart from every account:
-    - each document, with its listing;
+    - each document, with each kept listing of it;
     - each fact-check, with every output as written, its measures, its cost and which path answered.
   - **Nothing of the reader:** no account, email, address, run or determination number, and the day alone.
   - **Whose:** the operator's runs always; a reader's once their account agreed to the Terms that say so

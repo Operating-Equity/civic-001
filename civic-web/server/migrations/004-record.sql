@@ -13,7 +13,8 @@ CREATE TABLE IF NOT EXISTS record_documents (
   url          text,
   chars        integer NOT NULL,
   text         text NOT NULL,                    -- the document as the listing read it
-  listing      jsonb                             -- the listing: its output, its claims, model, level, prompt version, measures
+  listings     jsonb NOT NULL DEFAULT '[]'::jsonb  -- every listing of it, each with its day: its output, claims, model,
+                                                   -- level, prompt version and measures
 );
 CREATE INDEX IF NOT EXISTS record_documents_day ON record_documents (day);
 
@@ -38,7 +39,8 @@ CREATE TABLE IF NOT EXISTS record_fact_checks (
   pages           integer,
   usd             numeric(14,6),
   priced          boolean,
-  measures        jsonb,                         -- its cost line's figures: tokens, times (waiting, thinking, writing), queries
+  measures        jsonb,                         -- its cost line's figures: tokens, times (waiting, thinking, writing),
+                                                 -- queries
   failure         text                           -- a failure's code; null when delivered
 );
 CREATE INDEX IF NOT EXISTS record_fact_checks_day ON record_fact_checks (day);

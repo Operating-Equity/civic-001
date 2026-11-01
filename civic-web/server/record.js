@@ -4,10 +4,10 @@
 // monitoring, such as being able to predict cost based on question type or even model routing"; their answers: keep the
 // documents too, and say so on the privacy page.
 //
-// Two tables (server/migrations/004-record.sql): the documents, each with its listing; and the fact-checks, each with
-// every output and its measures. Nothing of the reader is kept: no account, email, address, run or determination number,
-// no fingerprint the books keep of a claim, and no time but the day. A fact-check is tied to its document by a
-// fingerprint of the document's text, kept in the record alone.
+// Two tables (server/migrations/004-record.sql): the documents, each with every listing of it; and the fact-checks,
+// each with every output and its measures. Nothing of the reader is kept: no account, email, address, run or
+// determination number, no fingerprint the books keep of a claim, and no time but the day. A fact-check is tied to its
+// document by a fingerprint of the document's text, kept in the record alone.
 //
 // Whose runs: the operator's (and an open door's), always; a reader's once their account has agreed to the Terms that
 // say so (CIVIC_RECORD_TERMS_FROM, the first such version of the Terms), and nothing before. CIVIC_RECORD turns it on;
@@ -66,31 +66,32 @@ function fault(what, err) {
   console.error(`[record] ${lastFault}`);
 }
 
-/** The document's row: found by its fingerprint, or kept now (with its listing when there is one). Returns its id. */
+/** The document's row: found by its fingerprint, or kept now; a listing of it is added to its listings. Returns its id. */
 async function documentId({ text, meta, listing = null }) {
   const fp = fingerprint(text);
-  const found = await query('SELECT id, listing IS NULL AS bare FROM record_documents WHERE fingerprint = $1', [fp]);
-  if (found.rows[0]) {
-    if (listing && found.rows[0].bare) await query('UPDATE record_documents SET listing = $2 WHERE id = $1', [found.rows[0].id, listing]);
-    return found.rows[0].id;
+  if (!listing) {
+    const found = await query('SELECT id FROM record_documents WHERE fingerprint = $1', [fp]);
+    if (found.rows[0]) return found.rows[0].id;
   }
-  const id = newId();
   const m = meta || {};
-  const made = await query(
-    `INSERT INTO record_documents (id, fingerprint, day, kind, title, author, site, published, url, chars, text, listing)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) ON CONFLICT (fingerprint) DO NOTHING RETURNING id`,
-    [id, fp, dayOf(now()), m.kind || null, m.title || null, m.author || null, m.site || null, m.published || null, m.url || null, String(text).length, String(text), listing]);
-  if (made.rows[0]) return made.rows[0].id;
-  return (await query('SELECT id FROM record_documents WHERE fingerprint = $1', [fp])).rows[0]?.id || null;   // kept meanwhile by another claim
+  // One statement, so two runs of one document at the same moment each keep their listing.
+  const kept = await query(
+    `INSERT INTO record_documents (id, fingerprint, day, kind, title, author, site, published, url, chars, text, listings)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::jsonb)
+     ON CONFLICT (fingerprint) DO UPDATE SET listings = record_documents.listings || EXCLUDED.listings
+     RETURNING id`,
+    [newId(), fp, dayOf(now()), m.kind || null, m.title || null, m.author || null, m.site || null, m.published || null, m.url || null,
+      String(text).length, String(text), JSON.stringify(listing ? [listing] : [])]);
+  return kept.rows[0]?.id || null;
 }
 
-/** A listing's end: its document and its listing kept (when the run is kept), and its cost line let go either way. */
+/** A listing's end: its document kept, and this listing added to it (when the run is kept); its cost line let go either way. */
 export function listingEnded({ runId, keep, text, meta, done = null, failure = null }) {
   const line = lines.get(`r:${runId}`) || null;
   lines.delete(`r:${runId}`);
   if (!keep || !text) return;
   const listing = {
-    raw: done?.raw ?? null, claims: (done?.claims || []).map((c) => ({ n: c.n, text: c.text, top: c.top })), total: done?.total ?? null,
+    day: dayOf(now()), raw: done?.raw ?? null, claims: (done?.claims || []).map((c) => ({ n: c.n, text: c.text, top: c.top })), total: done?.total ?? null,
     model: done?.model ?? line?.model ?? null, effort: done?.effort ?? null, promptVersion: promptVersions().extract?.version || null,
     ms: done?.ms ?? line?.ms ?? null, usd: done?.cost?.usd ?? line?.usd ?? null, priced: done?.cost?.priced ?? line?.priced ?? null,
     incomplete: done?.incomplete ?? null, failure, measures: measuresOf(line),

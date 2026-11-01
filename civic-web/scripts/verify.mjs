@@ -5739,10 +5739,11 @@ async function recordChecks() {
         && Boolean(rowA.conclusion) && Array.isArray(rowA.sources) && rowA.sources.length > 0 && Array.isArray(rowA.trail) && rowA.trail.length > 0
         && rowA.model === config.evalModels[0] && Boolean(rowA.prompt_version) && Number(rowA.usd) > 0 && rowA.measures?.usage?.input > 0 && Number.isFinite(rowA.measures?.ms) && rowA.failure === null && rowA.day === today,
       JSON.stringify({ path: rowA?.path, model: rowA?.model, verdict: [rowA?.verdict, aDone?.verdict], usd: rowA?.usd, measures: Object.keys(rowA?.measures || {}), day: rowA?.day }));
-    check('the record keeps the document the claim came from, with its listing: the text as the listing read it, its kind and length, the listing as written and its claims, its model, level and prompt version',
-      Boolean(docA) && docA.text === text && docA.kind === 'text' && docA.chars === text.length && docA.day === today && typeof docA.listing?.raw === 'string' && docA.listing.raw.length > 0
-        && docA.listing.claims?.length > 0 && Boolean(docA.listing.model) && Boolean(docA.listing.promptVersion),
-      JSON.stringify({ kind: docA?.kind, chars: docA?.chars, listing: docA && Object.keys(docA.listing || {}) }));
+    const listedA = docA?.listings?.[0];
+    check('the record keeps the document the claim came from, with its listing: the text as the listing read it, its kind and length, the listing as written and its claims, its model, level and prompt version, and its day',
+      Boolean(docA) && docA.text === text && docA.kind === 'text' && docA.chars === text.length && docA.day === today && docA.listings.length === 1
+        && typeof listedA?.raw === 'string' && listedA.raw.length > 0 && listedA.claims?.length > 0 && Boolean(listedA.model) && Boolean(listedA.promptVersion) && listedA.day === today,
+      JSON.stringify({ kind: docA?.kind, chars: docA?.chars, listings: docA?.listings?.length, listing: listedA && Object.keys(listedA) }));
     const kept = JSON.stringify([rowA, docA]);
     check('nothing of the reader is in the record: no email, account, run or determination number, no fingerprint the books keep of the claim, no time but the day',
       Boolean(rowA) && !kept.includes(readerEmail) && !kept.includes(a.runId) && !kept.includes('rec-reader-c-') && !kept.includes(crypto.createHash('sha256').update(claimA).digest('hex').slice(0, 12))
@@ -5765,6 +5766,12 @@ async function recordChecks() {
     const [rowT] = await waitRows(claimT);
     check('the operator\'s grid run is kept, marked as the grid\'s, with its model and level',
       Boolean(t.det.find((e) => e.t === 'done')) && rowT?.path === 'trial' && rowT.model === 'gpt-6-astra' && rowT.effort === 'high', JSON.stringify({ path: rowT?.path, model: rowT?.model, effort: rowT?.effort }));
+    // The same document listed again (the operator's run, after the older reader's): each kept listing is kept with it.
+    const listingsOf = async () => (await db.query('SELECT jsonb_array_length(listings) AS n FROM record_documents WHERE id = $1', [rowA?.document_id])).rows[0]?.n ?? 0;
+    for (let k = 0; k < 50 && await listingsOf() < 2; k++) await new Promise((x) => setTimeout(x, 100));
+    check('a document listed again is kept once, with each kept listing of it: the operator\'s second listing is there, the older reader\'s is not',
+      rowT?.document_id === rowA?.document_id && await listingsOf() === 2 && (await db.query('SELECT count(*) AS n FROM record_documents WHERE fingerprint = $1', [crypto.createHash('sha256').update(text).digest('hex')])).rows[0].n === '1',
+      JSON.stringify({ same: rowT?.document_id === rowA?.document_id, listings: await listingsOf() }));
 
     // A failure: kept with its code, no entry.
     const claimF = `Refuse this claim, as the stand-in is told to (record ${stamp}).`;

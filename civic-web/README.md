@@ -887,9 +887,9 @@ outputs and the questions, not any user information … it's just real world usa
 for testing and of course, monitoring, such as being able to predict cost based on question type or even model
 routing"; their answers: keep the documents too, and say so on the privacy page. With `CIVIC_RECORD=on` and a
 database, two tables keep, apart from every account: each document (its text as the listing read it, its kind,
-attribution and length, and the listing as written with its claims, model, level and prompt version) and each
-fact-check (the claim, every output as written, its thinking and steps, its model, level and prompt version, its cost
-and its cost line's measures, which path answered, and a failure's code). Nothing of the reader is kept: no account,
+attribution and length, and each kept listing of it as written, with its claims, model, level, prompt version and day)
+and each fact-check (the claim, every output as written, its thinking and steps, its model, level and prompt version,
+its cost and its cost line's measures, which path answered, and a failure's code). Nothing of the reader is kept: no account,
 email, address, run or determination number, no fingerprint the books keep of a claim, and the day alone; a fact-check
 is tied to its document by a fingerprint of the document's text kept in the record alone. The operator's runs are kept
 always; a reader's once their account agreed to the Terms that say so (`CIVIC_RECORD_TERMS_FROM`, the first such
