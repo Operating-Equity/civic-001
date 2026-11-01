@@ -1366,6 +1366,10 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
     - only the standby's own failure reaches the reader, as the one plain sentence, never charged;
     - the ledger keeps both lines, and `/check` and the log keep why the readers' model did not answer;
     - unset, there is none; written wrong, the start stops, naming it; the start-up line says whether it is ready.
+  - **Live** (1 November, 02:27 UTC): PR #99 deployed, with the standby set on Render; the start-up line says it is
+    ready. The scripts and language files a stranger downloads say nothing of a wait, a retry, a cut connection or a
+    standby; the boot line says none of the tell words is in what a reader receives. The standby's model answered
+    neutral test claims on the operator's key, for a few cents (never the operator's prompt). Live check clean.
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 
