@@ -1384,6 +1384,23 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
     happen, a plain word each, for its progress and its card's counts.
   - **The operator's page keeps every box** (`public/index.html`, the operator's part; `public/js/op.js`), in their
     words. The boxes' labels left the four locales.
+  - **Live** (1 November, 18:04 UTC): PR #100 deployed. A stranger's page, scripts and language files carry none of the
+    boxes or their labels, and keep "Sources cited"; the operator's script and style sheet are "Not found" to a
+    stranger; the standby, the tell words and the readers' model are as before. Live check clean, nothing spent.
+- **1 November: the record.** The operator: "have you made any provisions for saving the users' outputs and the
+  questions, not any user information … it's just real world usage and answers and provides valuable data for testing
+  and of course, monitoring, such as being able to predict cost based on question type or even model routing"; their
+  answers: keep the documents too, and say so on the privacy page.
+  - **What is kept** (`server/record.js`, `server/migrations/004-record.sql`), apart from every account:
+    - each document, with each kept listing of it;
+    - each fact-check, with every output as written, its measures, its cost and which path answered.
+  - **Nothing of the reader:** no account, email, address, run or determination number, and the day alone.
+  - **Whose:** the operator's runs always; a reader's once their account agreed to the Terms that say so
+    (`CIVIC_RECORD_TERMS_FROM`); never before.
+  - **Where it shows:** `/check`, with its size, its counts and downloads of its two tables. A row that cannot be
+    written is counted there, and the run goes on.
+  - **The pages:** the privacy page's row for what is submitted, and the Terms' licence, now say it is kept, apart from
+    the account, to test and improve the Service.
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 

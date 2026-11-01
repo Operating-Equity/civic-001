@@ -6,6 +6,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { config } from './config.js';
 import { costLine } from './economics.js';
+import { noteLine } from './record.js';
 
 let ready = false;
 function ensure() {
@@ -66,6 +67,7 @@ export function factCheckWords(line) {
 export function record(entry, ctx = {}) {
   const line = { ts: new Date().toISOString(), ...entry, ...(ctx.runId ? { run: ctx.runId } : {}), ...(ctx.determinationId ? { determination: ctx.determinationId } : {}), ...(ctx.owner ? { owner: ctx.owner } : {}) };
   try { costLine(line, ctx); } catch (err) { console.error('[ledger] the economics could not take the line:', err?.message || err); }
+  try { noteLine(line, ctx); } catch (err) { console.error('[record] a cost line could not be noted:', err?.message || err); }
   if (!config.ledgerFile || !ensure()) return;
   fs.appendFile(config.ledgerFile, JSON.stringify(line) + '\n', (err) => { if (err) console.error('[ledger] write failed:', err.code); });
 }

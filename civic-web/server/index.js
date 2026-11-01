@@ -27,6 +27,7 @@ import * as deepseekProvider from './deepseek.js';
 import * as geminiProvider from './gemini.js';
 import * as anthropicProvider from './anthropic.js';
 import { loadStandby, standbyState } from './standby.js';
+import { keeps, listingEnded, claimEnded, letGo, recordOn, recordState, writeRecord } from './record.js';
 import { runIllustration } from './illustrate.js';
 import { selftest } from './selftest.js';
 import { whereTheShellSetsIt } from './key.js';
@@ -244,7 +245,7 @@ app.get('/api/selftest', wrap(async (req, res) => {
   // The measurement (server/economics.js) is the operator's alone: the price and what it came from, the
   // tier clock, the guard, and the money per tier, per user and per window.
   const economy = operator && economics.enabled() ? await economics.report().catch((err) => ({ error: err.message })) : null;
-  res.json({ ...await selftest({ apiKey: operatorKey({ optional: true }), build: BUILD, operator }), access: { required: signinRequired(), operator, store: dbOn() ? 'postgres' : 'memory' }, economics: economy });
+  res.json({ ...await selftest({ apiKey: operatorKey({ optional: true }), build: BUILD, operator }), access: { required: signinRequired(), operator, store: dbOn() ? 'postgres' : 'memory' }, economics: economy, record: await recordState() });
 }));
 
 // The page reports its own failures here, so /check can show them afterwards.
@@ -357,6 +358,14 @@ app.post('/api/find-copies', wrap(async (req, res) => {
   }
 }));
 
+// The record (server/record.js, 1 November): the operator's download of one of its tables, as JSON lines, from /check.
+// The gate lets the operator's session alone through; to anyone else the address does not exist.
+app.get('/api/operator/record', wrap(async (req, res) => {
+  if (!recordOn()) throw Object.assign(new ApiError(409, 'record_off', 'The record is off (CIVIC_RECORD), or has no database to keep it in.'), { expected: true });
+  const what = String(req.query?.what || '');
+  if (!(await writeRecord(what, res))) throw Object.assign(new ApiError(400, 'record_what', 'Ask for documents or fact-checks.'), { expected: true });
+}));
+
 // /check's Try a link (21 October, the operator's alone: /api/operator/ is theirs at the door): every way FactEngine
 // reads one address, each told in a few words, without starting a run and without any of the text. The search service's
 // reader and its search are asked once each whatever FactEngine's own reader managed, so what each would do is seen.
@@ -447,14 +456,18 @@ app.post('/api/extract', wrap(async (req, res) => {
   // The second pass (server/rank.js): the claims ranked, the top quarter shown, for the operator's runs while CIVIC_RANK is
   // `operator` (their choice of 16 October), for everyone's once it is `on`.
   const rank = rankFor({ operator: seesAll(req) });
+  // The record (server/record.js): whether this run's document and listing are kept, apart from every account.
+  const keep = keeps({ operator: seesAll(req), termsVersion: user?.termsVersion });
   jobs.start(id, 'extraction', async ({ send, signal }) => {
     if (run) send({ t: 'pricing', tier: run.tier, freeFacts: run.freeAllowed, priceCents: run.priceCents, currency: config.currency, note: config.pricingNote || null });
     try {
       const result = await runExtraction({ apiKey, text, meta, send, signal, sourceWarning, ctx, rank });
       economics.finishRun(id, { claimsTotal: result?.total ?? null, status: result ? 'done' : 'cancelled' });
+      listingEnded({ runId: id, keep: keep && Boolean(result), text, meta, done: result });
     } catch (err) {
       economics.finishRun(id, { status: 'failed' });
       const safe = describeError(err);
+      listingEnded({ runId: id, keep, text, meta, failure: safe.code });
       // The provider's own words (a rejected key, a balance used up) are for /check; the page gets the code
       // and FactEngine's own sentence for it, naming no provider and no key.
       recordFailure({ where: 'server:listing', code: safe.code, message: safe.message, status: safe.status, detail: safe.detail || null });
@@ -527,6 +540,9 @@ app.post('/api/evaluate', wrap(async (req, res) => {
     opened();
   }
   const attempts = quotes.map((q, i) => (q ? { id: detIds[i], attempt: q.attempt } : null)).filter(Boolean);
+  // The record (server/record.js): whether these claims are kept, with their document, apart from every account.
+  const keep = keeps({ operator: seesAll(req), termsVersion: user?.termsVersion });
+  const recordMeta = sourceMeta(req.body?.source);
   const ctx = { runId, owner, determinationIds: detIds, jobId: id };
   // The rows were awaited: a second request for this job meanwhile joins it rather than starting it twice.
   const meanwhile = jobs.get(id, owner);
@@ -544,6 +560,9 @@ app.post('/api/evaluate', wrap(async (req, res) => {
       const q = ev.i !== undefined ? quotes[ev.i] : null;
       if (ev.t === 'done' && ev.i !== undefined) await economics.book(detIds[ev.i], { attempt: q?.attempt ?? null, status: 'done', verdict: ev.verdict || null, model: ev.model || null });
       else if (ev.t === 'error' && ev.i !== undefined) await economics.book(detIds[ev.i], { attempt: q?.attempt ?? null, status: 'failed', failure: ev.code || 'error' });
+      if ((ev.t === 'done' || ev.t === 'error') && ev.i !== undefined) {
+        claimEnded({ determinationId: detIds[ev.i], keep, claim: claims[ev.i], document: source && source.chars >= 20 ? source.text : null, meta: recordMeta, ev, trial: Boolean(trial) });
+      }
       send(ev);
     });
     try {
@@ -555,6 +574,7 @@ app.post('/api/evaluate', wrap(async (req, res) => {
       await order;   // every event out, every claim's end booked, before the job ends
       // A claim the request ended without a result for (the page stopped the run, the request failed): failed, nothing booked, its hold released.
       await economics.closeOpen(attempts, signal.aborted ? 'cancelled' : 'ended');
+      letGo(detIds);   // the record's notes of claims that ended without a result
     }
   }, { owner, view: viewFor(req, { keep: [...claims, document], what: 'claim' }) }).attach(openStream(req, res), 0);
 }));
@@ -706,6 +726,10 @@ function banner() {
   console.log(!standing ? '[standby] none is set (CIVIC_EVAL_STANDBY): a claim the readers\' model still fails is a failure'
     : standing.ready ? `[standby] a reader's claim the readers' model still fails goes once more, by itself, to ${standing.model} at ${standing.effort}, on ${standing.provider === 'gemini' ? 'Google' : 'Anthropic'}'s path; the reader is not told`
       : `[standby] ${standing.model} at ${standing.effort} is set but not ready: ${String(standing.why || '').replace(/\.$/, '')}; a claim the readers' model still fails is a failure`);
+  // The record (server/record.js): whether what is submitted and found is kept, and whose.
+  console.log(!config.record ? '[record] off (CIVIC_RECORD): nothing submitted or found is kept'
+    : !dbOn() ? '[record] set on, but there is no database to keep it in (DATABASE_URL): nothing is kept'
+      : `[record] on: the documents, claims and findings of the operator's runs${String(config.recordTermsFrom || '').trim() ? `, and of readers whose accounts agreed to the Terms of ${String(config.recordTermsFrom).trim()} or later,` : ' (no reader\'s: CIVIC_RECORD_TERMS_FROM is not set)'} are kept apart from every account`);
   // The operator's trial (server/trial.js): whether it can run, for the host's log. No key, nothing of anyone's.
   const trial = trialState();
   if (trial) {

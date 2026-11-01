@@ -882,6 +882,21 @@ and `/check` names the list by its fingerprint. When the entry writes the inspec
 (the list's `nameClass`), a reader's copy has each of its spans made the mark, and the name in full wherever the entry
 left it outside the class; `/check` counts both. The leak check reports what it finds by fingerprint, never by its text.
 
+**The record** (`server/record.js`, 1 November). The operator: "have you made any provisions for saving the users'
+outputs and the questions, not any user information … it's just real world usage and answers and provides valuable data
+for testing and of course, monitoring, such as being able to predict cost based on question type or even model
+routing"; their answers: keep the documents too, and say so on the privacy page. With `CIVIC_RECORD=on` and a
+database, two tables keep, apart from every account: each document (its text as the listing read it, its kind,
+attribution and length, and each kept listing of it as written, with its claims, model, level, prompt version and day)
+and each fact-check (the claim, every output as written, its thinking and steps, its model, level and prompt version,
+its cost and its cost line's measures, which path answered, and a failure's code). Nothing of the reader is kept: no account,
+email, address, run or determination number, no fingerprint the books keep of a claim, and the day alone; a fact-check
+is tied to its document by a fingerprint of the document's text kept in the record alone. The operator's runs are kept
+always; a reader's once their account agreed to the Terms that say so (`CIVIC_RECORD_TERMS_FROM`, the first such
+version of the Terms), never before. A row that cannot be written is counted on `/check` and the run goes on. `/check`
+shows the record's size and counts, and downloads its two tables as JSON lines (`/api/operator/record`, the
+operator's alone). The privacy page and the Terms say what is kept and why.
+
 **What anyone can download** (`server/assets.js`, 20 October). Every script, style sheet and page of FactEngine's own is
 sent without its comments, every other character as written (a licence notice stays); each is read at start-up, and one
 that cannot be read stops the start, naming it. The page comes in two forms: the operator's, and everyone else's without
