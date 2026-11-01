@@ -256,8 +256,8 @@ function renderRecord(r) {
     box.append(el('p', 'check-detail', !r.switched ? 'Off (CIVIC_RECORD): nothing submitted or found is kept.' : 'Set on, but there is no database to keep it in (DATABASE_URL): nothing is kept.'));
     return;
   }
-  const whose = r.termsFrom ? `your runs, and readers' whose accounts agreed to the Terms of ${r.termsFrom} or later` : 'your runs alone (no reader\'s: CIVIC_RECORD_TERMS_FROM is not set)';
-  box.append(el('p', 'check-detail', `On: the documents, claims and findings of ${whose}, kept apart from every account: no account, email, address or run number, and the day alone.`));
+  const whose = r.termsFrom ? `your runs, and of readers whose accounts agreed to the Terms of ${r.termsFrom} or later,` : 'your runs alone (no reader\'s: CIVIC_RECORD_TERMS_FROM is not set),';
+  box.append(el('p', 'check-detail', `On: the documents, claims and findings of ${whose} kept apart from every account: no account, email, address or run number, and the day alone.`));
   if (r.error) { box.append(el('p', 'check-detail', `The record could not be read: ${r.error}`)); return; }
   const n = (x) => Number(x || 0).toLocaleString('en-US');
   const size = r.bytes >= 1e9 ? `${(r.bytes / 1e9).toFixed(2)} GB` : `${(r.bytes / 1e6).toFixed(1)} MB`;
