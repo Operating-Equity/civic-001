@@ -5328,7 +5328,7 @@ async function tellWordChecks() {
         && !histText.includes('Quillon') && !histText.includes('planted line'), histText.slice(0, 600));
 
     // The leak check's own commands, with a planted list: what is served, and the list's fingerprints.
-    const PLANTED = 'Extraction output';   // a word a reader's language file carries
+    const PLANTED = 'Sources cited';   // words a reader's language file carries (1 November: the boxes' labels left them)
     const leak = (args, env) => spawnSync(process.execPath, [path.join(root, 'scripts', 'leak-check.mjs'), ...args], { cwd: root, encoding: 'utf8', timeout: 60000, env: { ...process.env, ...env } });
     const served = leak(['--served'], { CIVIC_TELL_WORDS: JSON.stringify({ served: [PLANTED] }) });
     const prints = leak(['--fingerprints'], { CIVIC_TELL_WORDS: JSON.stringify({ anywhere: [SECRET], served: [PLANTED] }) });
