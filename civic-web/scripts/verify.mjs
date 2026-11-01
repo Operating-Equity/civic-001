@@ -5703,7 +5703,7 @@ async function recordChecks() {
   const rowsFor = async (claim) => (await db.query('SELECT * FROM record_fact_checks WHERE claim = $1 ORDER BY day, id', [claim])).rows;
   const waitRows = async (claim, n = 1) => { for (let k = 0; k < 50; k++) { const r = await rowsFor(claim); if (r.length >= n) return r; await new Promise((x) => setTimeout(x, 100)); } return rowsFor(claim); };
   try {
-    const mock = start([path.join(root, 'scripts', 'mock-openai.js')], { MOCK_PORT: String(MOCKR), MOCK_SPEED: '0.2', MOCK_INSPECTOR: 'Sir Edwin Cardale (geologist)', MOCK_SEARCH_ACTIONS: 'search,open_page', MOCK_EVAL_FAIL_TEXT: 'Refuse this claim' });
+    const mock = start([path.join(root, 'scripts', 'mock-openai.js')], { MOCK_PORT: String(MOCKR), MOCK_SPEED: '0.2', MOCK_INSPECTOR: 'Sir Edwin Cardale (geologist)', MOCK_SEARCH_ACTIONS: 'search,open_page', MOCK_EVAL_FAIL_TEXT: 'Refuse this claim', MOCK_EVAL_MARK: process.env.MOCK_EVAL_MARK_FOR_GATE || '' });
     procs.push(mock);
     await wait(`http://localhost:${MOCKR}/v1/mock/stats`, 15000, { anyResponse: true });
     const recordEnv = { DATABASE_URL: provision.url, CIVIC_OPERATOR_EMAILS: 'op@example.com', CIVIC_OPERATOR_CLAIM: claimHash(), CIVIC_LIST_PRICE_CENTS: '125', CIVIC_TIER_ORDER: '1',
@@ -5779,13 +5779,17 @@ async function recordChecks() {
     const dDocs = await dl('documents', op);
     const factLines = dFacts.text.split('\n').filter(Boolean).map((l) => JSON.parse(l));
     const docLines = dDocs.text.split('\n').filter(Boolean).map((l) => JSON.parse(l));
-    const notTo = [await dl('fact-checks', reader), await dl('documents', null), await dl('fact-checks', older)];
+    const notTo = [await dl('fact-checks', reader), await dl('documents', older)];
+    // A visitor is asked to sign in, as at every address of the API, one that does not exist among them.
+    const visitor = await dl('documents', null);
+    const nowhere = await fetch(`http://localhost:${PR1}/api/operator/no-such-address`);
+    const nowhereText = await nowhere.text();
     const wrong = await dl('nothing', op);
-    check('the operator downloads the record\'s two tables as JSON lines; to a reader or a visitor the address does not exist; a table that is not one of the two is refused',
+    check('the operator downloads the record\'s two tables as JSON lines; to a reader the address does not exist, and a visitor is answered as at an address that does not; a table that is not one of the two is refused',
       dFacts.status === 200 && /ndjson/.test(dFacts.type) && factLines.some((x) => x.claim === claimA) && factLines.some((x) => x.claim === claimT) && !factLines.some((x) => x.claim === claimB)
         && dDocs.status === 200 && docLines.some((x) => x.text === text)
-        && notTo.every((r) => r.status === 404 && /Not found/.test(r.text)) && wrong.status === 400,
-      JSON.stringify({ facts: [dFacts.status, factLines.length], docs: [dDocs.status, docLines.length], notTo: notTo.map((r) => r.status), wrong: wrong.status }));
+        && notTo.every((r) => r.status === 404 && /Not found/.test(r.text)) && visitor.status === nowhere.status && visitor.text === nowhereText && wrong.status === 400,
+      JSON.stringify({ facts: [dFacts.status, factLines.length], docs: [dDocs.status, docLines.length], notTo: notTo.map((r) => r.status), visitor: [visitor.status, nowhere.status], wrong: wrong.status }));
     const self = (await people.json('/api/selftest', { cookie: op })).body?.record;
     check('/check shows the record: on, whose runs it keeps, how much it holds, since when and its size',
       self?.on === true && self.termsFrom === TERMS && self.documents >= 1 && self.factChecks >= 3 && self.since === today && self.bytes > 0 && self.unwritten === 0,
