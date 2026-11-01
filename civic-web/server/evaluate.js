@@ -29,6 +29,7 @@
 // with its decline on the card, and nothing else answers in its place (the operator's answer).
 import { config } from './config.js';
 import { evaluationPrompt } from './prompts.js';
+import { readersStandby } from './standby.js';
 import { clientFor, withModelFallback, usageOf, isRetryable, isRateLimit, isConnectionDrop, connectionWait, rateLimitWaitMs, sleep, describeError, throughGate, streamFailure, asStreamFailure, spacedWaitMs, cutReply } from './openai.js';
 import { openaiHost } from './providers.js';
 import * as deepseek from './deepseek.js';
@@ -124,6 +125,9 @@ export async function runEvaluation({ apiKey, claims, document = '', send, signa
   const effort = onDeepSeek || onGemini || onAnthropic || onOpenAITrial ? trial.effort : config.evalEffort;
   const mode = onDeepSeek || onGemini || onAnthropic ? null : config.evalReasoningMode || null;
   const kind = trial ? 'trial' : 'evaluate';
+  // The readers' standby (server/standby.js): a reader's claim the readers' model still fails goes once more to it, on
+  // its provider's path. None for the operator's trial, and none when it is not set or its key is missing.
+  const standby = trial ? null : readersStandby();
   // Whose work each claim's line is: the run, the sign-in, and the determination's own id (server/economics.js).
   const lineCtx = (i) => ({ runId: ctx.runId || null, owner: ctx.owner || null, determinationId: ctx.determinationIds?.[i] || null });
   // Whose turn the request takes at the gate: the sign-in when the door is shut, else the run, else the job.
@@ -348,6 +352,19 @@ export async function runEvaluation({ apiKey, claims, document = '', send, signa
         }
         const safe = describeError(err);
         record({ kind, ok: false, code: safe.code, ...(trial ? { provider: 'openai' } : {}), model: modelUsed, effort, claim: claimHash(claim), ms: Date.now() - startedAt }, lineCtx(i));
+        if (standby) {
+          // One more try, by itself, on the readers' standby (31 October, night: "One more try on standby"): the reader's
+          // claim goes on as if nothing had happened, and only the standby's own failure reaches them. The operator is told
+          // which model answered; /check and the log keep why the readers' model did not.
+          const said = `${modelUsed || models[0]} could not test a reader's claim (${safe.code}); it went once more, to the standby (${standby.model} at ${standby.effort})`;
+          recordFailure({ where: 'evaluate:standby', code: safe.code, message: `${said}.`, status: safe.status, detail: safe.detail || null });
+          console.log(`[standby] ${said}`);
+          send({ t: 'warning', i, code: 'model_fallback', used: standby.model, requested: modelUsed || models[0] });
+          const go = { model: standby.model, effort: standby.effort, standby: true };
+          if (standby.provider === 'gemini') await evaluateOnGemini(claim, i, { ...go, key: gemini.key() });
+          else await evaluateOnAnthropic(claim, i, { ...go, key: anthropic.key() });
+          return;
+        }
         send({ t: 'error', i, code: safe.code, message: safe.message });
         completed++;
         send({ t: 'batch-progress', completed, total });
@@ -592,7 +609,9 @@ export async function runEvaluation({ apiKey, claims, document = '', send, signa
    * second from the go's start, a 5xx is tried again on the operator's count, a cut connection or a reply without its
    * last event goes again; Google's balance used up (402) ends the claim at once.
    */
-  const evaluateOnGemini = async (claim, i) => {
+  // `on`: whose fact-check this is. The operator's trial on Gemini by default; or a reader's claim gone once more to the
+  // readers' standby (server/standby.js), which is the readers' determination, booked, measured and charged as one.
+  const evaluateOnGemini = async (claim, i, on = { model: trial?.model, effort: trial?.effort, key: apiKey, standby: false }) => {
     const prompt = evaluationPrompt(claim);
     const startedAt = Date.now();
     let text = '';
@@ -641,17 +660,17 @@ export async function runEvaluation({ apiKey, claims, document = '', send, signa
         // its page reading, the stream, and store: false (Google would otherwise keep the interaction for 55 days).
         // Nothing else: no output cap, no sampling setting, no system instruction.
         const body = {
-          model: trial.model,
+          model: on.model,
           input: geminiInput(prompt),
-          generation_config: { thinking_level: trial.effort, thinking_summaries: 'auto' },
+          generation_config: { thinking_level: on.effort, thinking_summaries: 'auto' },
           tools: [{ type: 'google_search' }, { type: 'url_context' }],
           stream: true,
           store: false,
         };
-        const events = await gemini.stream(body, { key: apiKey, signal });
+        const events = await gemini.stream(body, { key: on.key, signal });
         noteReply(gemini.NAME);
         pricedAt = attemptAt;
-        send({ t: 'start', i, model: trial.model, requested: trial.model, at: Date.now() });
+        send({ t: 'start', i, model: on.model, requested: on.standby ? models[0] : on.model, at: Date.now() });
         let ended = false;
         const steps = new Map();   // index → the step in flight: its type and what it named
         const pages = new Map();   // url → its trail step, so Google's report of the read can say how it went
@@ -743,8 +762,8 @@ export async function runEvaluation({ apiKey, claims, document = '', send, signa
             const said = why.replace(/\d+(?:\.\d+)?/g, '#');
             if (said !== lastSaid) {
               lastSaid = said;
-              const asked = `Google asked ${trial.model} at ${trial.effort} to wait ${Math.round(waitMs / 1000)} s`;
-              recordFailure({ where: 'trial:gemini', code: 'rate_limited', status: 429, message: `${asked} (refusal ${tries + 1} of this fact-check).`, detail: why || null });
+              const asked = `Google asked ${on.model} at ${on.effort} to wait ${Math.round(waitMs / 1000)} s`;
+              recordFailure({ where: on.standby ? 'evaluate:standby' : 'trial:gemini', code: 'rate_limited', status: 429, message: `${asked} (refusal ${tries + 1} of this fact-check).`, detail: why || null });
               console.log(`[gemini] ${asked} (refusal ${tries + 1} of this fact-check): "${why}"`);
             }
             send({ t: 'retry', i, attempt: tries + 1, status: 429, reason: 'rate_limit', waitMs, who: gemini.PROVIDER, why, until: Date.now() + waitMs });
@@ -771,12 +790,12 @@ export async function runEvaluation({ apiKey, claims, document = '', send, signa
         // card as well, saying whose it is, since only the key's project can change it.
         const failure = gemini.failure(err);
         const safe = describeError(failure);
-        recordFailure({ where: 'trial:gemini', code: safe.code, message: safe.message || safe.code, detail: failure.detail || null });
+        recordFailure({ where: on.standby ? 'evaluate:standby' : 'trial:gemini', code: safe.code, message: safe.message || safe.code, detail: failure.detail || null });
         const why = outright ? gemini.words(err) : null;
-        if (outright) console.log(`[gemini] Google refused ${trial.model} at ${trial.effort} outright, its limit for this key being 0: "${why}"`);
+        if (outright) console.log(`[gemini] Google refused ${on.model} at ${on.effort} outright, its limit for this key being 0: "${why}"`);
         const searches = spentSearches + searchesIn(trail);
-        const spent = estimateTextCost({ model: trial.model, usage: null, searches, at: startedAt });
-        record({ kind: 'trial', ok: false, provider: 'gemini', code: safe.code, model: trial.model, effort: trial.effort, claim: claimHash(claim), searches, ms: Date.now() - startedAt, usd: spent.usd, priced: false }, lineCtx(i));
+        const spent = estimateTextCost({ model: on.model, usage: null, searches, at: startedAt });
+        record({ kind: on.standby ? 'evaluate' : 'trial', ok: false, provider: 'gemini', ...(on.standby ? { standby: true, requested: models[0] } : {}), code: safe.code, model: on.model, effort: on.effort, claim: claimHash(claim), searches, ms: Date.now() - startedAt, usd: spent.usd, priced: false }, lineCtx(i));
         send({ t: 'error', i, code: safe.code, message: outright ? why : safe.message, ...(outright ? { who: gemini.PROVIDER } : {}) });
         completed++;
         send({ t: 'batch-progress', completed, total: claims.length });
@@ -786,17 +805,18 @@ export async function runEvaluation({ apiKey, claims, document = '', send, signa
 
     if (signal.aborted) return;
     const parsed = parseEntry(text);
-    if (parsed.verdictSource === 'unread') recordFailure({ where: 'trial:verdict', code: 'verdict_unread', message: conclusionExcerpt(text) });
+    if (parsed.verdictSource === 'unread') recordFailure({ where: on.standby ? 'server:verdict' : 'trial:verdict', code: 'verdict_unread', message: conclusionExcerpt(text) });
     const ms = Date.now() - startedAt;
     // Google's own count of the searches it bills, when it gives one; else the searches the model named. Plus those of
     // goes cut short.
     const searches = (billed ?? searchesIn(trail)) + spentSearches;
-    const tokens = estimateTextCost({ model: trial.model, usage, at: pricedAt });   // the day's price: Argon's changes on 1 December
-    const all = estimateTextCost({ model: trial.model, usage, searches, at: pricedAt });
+    const tokens = estimateTextCost({ model: on.model, usage, at: pricedAt });   // the day's price: Argon's changes on 1 December
+    const all = estimateTextCost({ model: on.model, usage, searches, at: pricedAt });
     const cost = { usd: all.usd, priced: all.priced };
     const fromList = counted({ sources, trail });   // Google's API cannot keep a site out: counted only
     recordDone({
-      kind: 'trial', ok: true, provider: 'gemini', model: trial.model, effort: trial.effort, mode: null,
+      kind: on.standby ? 'evaluate' : 'trial', ok: true, provider: 'gemini', model: on.model, effort: on.effort, mode: null,
+      ...(on.standby ? { standby: true, requested: models[0] } : {}),
       claim: claimHash(claim), chars: claim.length, verdict: parsed.verdict, verdictSource: parsed.verdictSource, confidence: parsed.confidence,
       usage, searches, queries: queriesIn(trail), reads: readsIn(trail), sources: sources.length, ...fromList, incomplete, ms,
       ...measured({ ms, waitMs: waited, firstAt, endAt, text }),
@@ -810,9 +830,10 @@ export async function runEvaluation({ apiKey, claims, document = '', send, signa
       text: parsed.text,
       reasoning: reasoning.trim() || null,   // Gemini's own summary of its thinking, as the readers' model's
       trail, sources,
-      model: trial.model, requested: trial.model, fellBack: null, effort: trial.effort, mode: null,
+      model: on.model, requested: on.standby ? models[0] : on.model, fellBack: on.standby ? { used: on.model, requested: models[0] } : null,
+      effort: on.effort, mode: null, standby: on.standby,
       searches: searchesIn(trail), ms, cost, incomplete, ...fromList,
-      trial: true, provider: 'gemini',
+      ...(on.standby ? { provider: 'gemini' } : { trial: true, provider: 'gemini' }),
     });
     send({ t: 'batch-progress', completed, total: claims.length });
   };
@@ -848,7 +869,9 @@ export async function runEvaluation({ apiKey, claims, document = '', send, signa
    * from the start. A decline ends the claim with Anthropic's own words, and nothing else answers in its place (the
    * operator's answer of 26 October); the balance used up ends it at once.
    */
-  const evaluateOnAnthropic = async (claim, i) => {
+  // `on`: whose fact-check this is. The operator's trial on Claude by default; or a reader's claim gone once more to the
+  // readers' standby (server/standby.js), which is the readers' determination, booked, measured and charged as one.
+  const evaluateOnAnthropic = async (claim, i, on = { model: trial?.model, effort: trial?.effort, key: apiKey, standby: false }) => {
     const prompt = evaluationPrompt(claim);
     const startedAt = Date.now();
     const tools = anthropicTools();
@@ -889,7 +912,7 @@ export async function runEvaluation({ apiKey, claims, document = '', send, signa
       seen = new Set(sources.map((s) => s.url)); firstAt = kept.firstAt; incomplete = null;
     };
     const resume = () => {
-      send({ t: 'start', i, model: trial.model, requested: trial.model, at: Date.now() });
+      send({ t: 'start', i, model: on.model, requested: on.standby ? models[0] : on.model, at: Date.now() });
       if (reasoning) send({ t: 'reasoning', i, text: reasoning });
       for (const step of trail) send({ t: 'trail', i, step, searches: searchesIn(trail) });
       for (const source of sources) send({ t: 'source', i, source });
@@ -899,21 +922,21 @@ export async function runEvaluation({ apiKey, claims, document = '', send, signa
     for (;;) {
       const attemptAt = Date.now();
       try {
-        if (ceiling === null) ceiling = await anthropic.ceiling(trial.model, { key: apiKey });
+        if (ceiling === null) ceiling = await anthropic.ceiling(on.model, { key: on.key });
         // The model, its own ceiling for what it writes, the two texts, the operator's level, Claude's summary of its
         // thinking, Anthropic's two tools and the stream; a paused turn's own reply and container go back with it.
         // Nothing else: no sampling setting, no system prompt, no cap on the tools.
         const body = {
-          model: trial.model,
+          model: on.model,
           max_tokens: ceiling,
           messages: kept.messages,
-          output_config: { effort: trial.effort },
+          output_config: { effort: on.effort },
           thinking: { type: 'adaptive', display: 'summarized' },
           tools,
           stream: true,
           ...(kept.container ? { container: kept.container } : {}),
         };
-        const { events, final } = anthropic.stream(body, { key: apiKey, signal });
+        const { events, final } = anthropic.stream(body, { key: on.key, signal });
         let ended = false;
         let stop = null;
         let details = null;
@@ -1007,10 +1030,10 @@ export async function runEvaluation({ apiKey, claims, document = '', send, signa
           // Anthropic declined the claim: the claim ends with Anthropic's words, and nothing else answers in its place.
           const said = anthropic.declineWords(details);
           const searches = kept.billed + spentSearches;
-          const spent = estimateTextCost({ model: trial.model, usage: kept.usage, searches, at: pricedAt });
-          recordFailure({ where: 'trial:anthropic', code: 'declined', message: `${said} (${trial.model} at ${trial.effort}).`, detail: details?.category || null });
-          console.log(`[anthropic] ${said.replace(/\.$/, '')} (${trial.model} at ${trial.effort})`);
-          record({ kind: 'trial', ok: false, provider: 'anthropic', code: 'declined', model: trial.model, effort: trial.effort, claim: claimHash(claim), usage: kept.usage, searches, ms: Date.now() - startedAt, usd: spent.usd, priced: spent.priced }, lineCtx(i));
+          const spent = estimateTextCost({ model: on.model, usage: kept.usage, searches, at: pricedAt });
+          recordFailure({ where: on.standby ? 'evaluate:standby' : 'trial:anthropic', code: 'declined', message: `${said} (${on.model} at ${on.effort}).`, detail: details?.category || null });
+          console.log(`[anthropic] ${said.replace(/\.$/, '')} (${on.model} at ${on.effort})`);
+          record({ kind: on.standby ? 'evaluate' : 'trial', ok: false, provider: 'anthropic', ...(on.standby ? { standby: true, requested: models[0] } : {}), code: 'declined', model: on.model, effort: on.effort, claim: claimHash(claim), usage: kept.usage, searches, ms: Date.now() - startedAt, usd: spent.usd, priced: spent.priced }, lineCtx(i));
           send({ t: 'error', i, code: 'declined', message: said });
           completed++;
           send({ t: 'batch-progress', completed, total: claims.length });
@@ -1039,8 +1062,8 @@ export async function runEvaluation({ apiKey, claims, document = '', send, signa
             const said = why.replace(/\d+(?:\.\d+)?/g, '#');
             if (said !== lastSaid) {
               lastSaid = said;
-              const asked = `Anthropic asked ${trial.model} at ${trial.effort} to wait ${Math.round(waitMs / 1000)} s (${err.status})`;
-              recordFailure({ where: 'trial:anthropic', code: err.status === 529 ? 'overloaded' : 'rate_limited', status: err.status, message: `${asked} (refusal ${tries} of this fact-check).`, detail: why || null });
+              const asked = `Anthropic asked ${on.model} at ${on.effort} to wait ${Math.round(waitMs / 1000)} s (${err.status})`;
+              recordFailure({ where: on.standby ? 'evaluate:standby' : 'trial:anthropic', code: err.status === 529 ? 'overloaded' : 'rate_limited', status: err.status, message: `${asked} (refusal ${tries} of this fact-check).`, detail: why || null });
               console.log(`[anthropic] ${asked} (refusal ${tries} of this fact-check): "${why}"`);
             }
             send({ t: 'retry', i, attempt: tries, status: err.status, reason: 'rate_limit', waitMs, who: anthropic.PROVIDER, why, until: Date.now() + waitMs });
@@ -1066,10 +1089,10 @@ export async function runEvaluation({ apiKey, claims, document = '', send, signa
         // FactEngine's own sentence, and Anthropic's words go to /check.
         const failure = anthropic.failure(err);
         const safe = describeError(failure);
-        recordFailure({ where: 'trial:anthropic', code: safe.code, message: safe.message || safe.code, detail: failure.detail || null });
+        recordFailure({ where: on.standby ? 'evaluate:standby' : 'trial:anthropic', code: safe.code, message: safe.message || safe.code, detail: failure.detail || null });
         const searches = kept.billed + spentSearches;
-        const spent = estimateTextCost({ model: trial.model, usage: kept.usage, searches, at: pricedAt ?? startedAt });
-        record({ kind: 'trial', ok: false, provider: 'anthropic', code: safe.code, model: trial.model, effort: trial.effort, claim: claimHash(claim), usage: kept.usage, searches, ms: Date.now() - startedAt, usd: spent.usd, priced: Boolean(kept.usage) && spent.priced }, lineCtx(i));
+        const spent = estimateTextCost({ model: on.model, usage: kept.usage, searches, at: pricedAt ?? startedAt });
+        record({ kind: on.standby ? 'evaluate' : 'trial', ok: false, provider: 'anthropic', ...(on.standby ? { standby: true, requested: models[0] } : {}), code: safe.code, model: on.model, effort: on.effort, claim: claimHash(claim), usage: kept.usage, searches, ms: Date.now() - startedAt, usd: spent.usd, priced: Boolean(kept.usage) && spent.priced }, lineCtx(i));
         send({ t: 'error', i, code: safe.code, message: safe.message });
         completed++;
         send({ t: 'batch-progress', completed, total: claims.length });
@@ -1079,17 +1102,18 @@ export async function runEvaluation({ apiKey, claims, document = '', send, signa
 
     if (signal.aborted) return;
     const parsed = parseEntry(text);
-    if (parsed.verdictSource === 'unread') recordFailure({ where: 'trial:verdict', code: 'verdict_unread', message: conclusionExcerpt(text) });
+    if (parsed.verdictSource === 'unread') recordFailure({ where: on.standby ? 'server:verdict' : 'trial:verdict', code: 'verdict_unread', message: conclusionExcerpt(text) });
     const ms = Date.now() - startedAt;
     // Anthropic's own count of the searches it bills, turn by turn; plus those of turns cut short.
     const searches = kept.billed + spentSearches;
     const usage = kept.usage;
-    const tokens = estimateTextCost({ model: trial.model, usage, at: pricedAt });
-    const all = estimateTextCost({ model: trial.model, usage, searches, at: pricedAt });
+    const tokens = estimateTextCost({ model: on.model, usage, at: pricedAt });
+    const all = estimateTextCost({ model: on.model, usage, searches, at: pricedAt });
     const cost = { usd: all.usd, priced: all.priced };
     const fromList = counted({ sources, trail, consulted });
     recordDone({
-      kind: 'trial', ok: true, provider: 'anthropic', model: trial.model, effort: trial.effort, mode: null,
+      kind: on.standby ? 'evaluate' : 'trial', ok: true, provider: 'anthropic', model: on.model, effort: on.effort, mode: null,
+      ...(on.standby ? { standby: true, requested: models[0] } : {}),
       claim: claimHash(claim), chars: claim.length, verdict: parsed.verdict, verdictSource: parsed.verdictSource, confidence: parsed.confidence,
       usage, searches, queries: queriesIn(trail), reads: readsIn(trail), sources: sources.length, ...fromList, incomplete, ms,
       ...measured({ ms, waitMs: waited, firstAt, endAt, text }),
@@ -1103,9 +1127,10 @@ export async function runEvaluation({ apiKey, claims, document = '', send, signa
       text: parsed.text,
       reasoning: reasoning.trim() || null,   // Claude's own summary of its thinking, as the readers' model's
       trail, sources,
-      model: trial.model, requested: trial.model, fellBack: null, effort: trial.effort, mode: null,
+      model: on.model, requested: on.standby ? models[0] : on.model, fellBack: on.standby ? { used: on.model, requested: models[0] } : null,
+      effort: on.effort, mode: null, standby: on.standby,
       searches: searchesIn(trail), ms, cost, incomplete, ...fromList,
-      trial: true, provider: 'anthropic',
+      ...(on.standby ? { provider: 'anthropic' } : { trial: true, provider: 'anthropic' }),
     });
     send({ t: 'batch-progress', completed, total: claims.length });
   };

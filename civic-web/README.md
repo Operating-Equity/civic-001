@@ -856,24 +856,26 @@ The prompts are the product. The design keeps them out of every place a reader c
 
 When accounts arrive, the prompts should move to a secrets manager rather than files on disk.
 
-**What a reader receives** (`server/view.js`, 19 October). The operator, and anyone on an open door, receive every
-event of a run as it is made. Anyone else receives every output of their run, under the operator's names, through one
-view applied where the job records each event, so a page that reconnects or reads a finished run again receives the
-same: the entry, the verdict, the confidence, the sources cited, the reasoning summary, the research log with each
-step's question and address, the listing as written, and a work log counted in plain words ("4 searches · 2 pages read
-· 2 sources cited"). `/api/health` tells anyone but the operator only what the page reads: its build, its pace, whether
-it is ready, and their own balance; the runs in flight go to the operator, or to a request carrying a private check key
-whose SHA-256 is `CIVIC_CHECK_KEY_SHA256`. A failure a reader can act on (the document, the credit, a link, a file, the
-account) is told as it is; any other is one plain sentence, "This claim could not be tested just now. Try again
-shortly.", or its like for the listing, and the true one stays on the operator's page and `/check`. The operator's
-addresses (`/api/selftest`, `/api/illustrate`, `/api/operator/…`) answer anyone else as an address that does not exist.
-The names, and the headings
-an entry is read by, are kept with the prompts (`CIVIC_OUTPUT_NAMES`, or `CIVIC_OUTPUT_NAMES_FILE`;
-`server/names.js`), FactEngine's own words unless set; a list that cannot be read stops the start, naming the key and
-never a word of it, and `/check` names the list by its fingerprint. When the entry writes the inspector's name in a
-class of the operator's (the list's `nameClass`), a reader's copy has each of its spans made the mark, and the name in
-full wherever the entry left it outside the class; `/check` counts both. The leak check reports what it finds by
-fingerprint, never by its text.
+**What a reader receives** (`server/view.js`, 19 October). The operator, and anyone on an open door, receive every event
+of a run as it is made. Anyone else receives every output of their run, under the operator's names, through one view
+applied where the job records each event, so a page that reconnects or reads a finished run again receives the same: the
+entry, the verdict, the confidence, the sources cited, the reasoning summary, the research log with each step's question
+and address, the listing as written, and a work log counted in plain words ("4 searches · 2 pages read · 2 sources
+cited"). `/api/health` tells anyone but the operator only what the page reads: its build, its pace, whether it is ready,
+and their own balance; the runs in flight go to the operator, or to a request carrying a private check key whose SHA-256
+is `CIVIC_CHECK_KEY_SHA256`. A failure a reader can act on (the document, the credit, a link, a file, the account) is
+told as it is; any other is one plain sentence, "This claim could not be tested just now. Try again shortly.", or its
+like for the listing, and the true one stays on the operator's page and `/check`. Nothing of what FactEngine works
+around on its way reaches a reader (31 October, night: "it does not help you or the service to show that it is
+struggling"): no wait, retry or figure of their turn is sent to them, and their page says only the work going on. A
+claim held for its turn says "Starting…", one waiting to go again or reconnecting goes on saying what it was doing, and
+a bar never goes back; the operator's page says what is really happening. The operator's addresses (`/api/selftest`,
+`/api/illustrate`, `/api/operator/…`) answer anyone else as an address that does not exist. The names, and the headings
+an entry is read by, are kept with the prompts (`CIVIC_OUTPUT_NAMES`, or `CIVIC_OUTPUT_NAMES_FILE`; `server/names.js`),
+FactEngine's own words unless set; a list that cannot be read stops the start, naming the key and never a word of it,
+and `/check` names the list by its fingerprint. When the entry writes the inspector's name in a class of the operator's
+(the list's `nameClass`), a reader's copy has each of its spans made the mark, and the name in full wherever the entry
+left it outside the class; `/check` counts both. The leak check reports what it finds by fingerprint, never by its text.
 
 **What anyone can download** (`server/assets.js`, 20 October). Every script, style sheet and page of FactEngine's own is
 sent without its comments, every other character as written (a licence notice stays); each is read at start-up, and one
@@ -929,10 +931,19 @@ finding by its file, commits and fingerprint, and removes the namespace.
 
 One model id per step means no fallback. Only if the operator lists several ids in
 `CIVIC_EXTRACT_MODELS` or `CIVIC_EVAL_MODELS` does the server move down the list, and only when the
-key cannot use the earlier id; when that happens the page shows a warning naming both models.
-The scoreboard shows the three counts and, with internal accounting on, the run's estimated cost.
-No token figure appears anywhere on the page or in what the page receives (the operator's rule of
-18 September); the ledger keeps OpenAI's usage per request.
+key cannot use the earlier id; when that happens the operator's page shows a warning naming both models, and a reader's
+says nothing of it.
+
+**The readers' standby** (`server/standby.js`, 31 October, night). The operator: "it does not help you or the service to
+show that it is struggling. But it also shouldn't fail." A reader's claim that the readers' model still fails after its
+own tries goes once more, by itself, to the standby, on its provider's path (Google's or Anthropic's) and the operator's
+key there; only if that fails too does the reader see the one plain sentence, and it is never charged. The reader is not
+told a standby answered: the operator's card and the run's warning name both models, and `/check` and the log keep why
+the readers' model did not. The standby's answer is the reader's determination, booked, measured and charged as one. The
+setting is `CIVIC_EVAL_STANDBY`, written `model|level`, set on Render and never named here; unset, there is none;
+written wrong, the start stops, naming it; the start-up line says whether it is ready. The scoreboard shows the three
+counts and, with internal accounting on, the run's estimated cost. No token figure appears anywhere on the page or in
+what the page receives (the operator's rule of 18 September); the ledger keeps OpenAI's usage per request.
 
 ### Why the echo looks the way it does
 

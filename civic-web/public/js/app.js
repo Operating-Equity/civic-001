@@ -27,17 +27,10 @@ const GLYPH = { true: '✓', false: '✕', unverified: '?', unread: '–' };
 // each does nothing, which is all there is on most pages.
 const ext = {
   start() {}, reset() {}, again: () => false, choices: () => null, runsFor: () => [], paint() {}, tools: () => ({ block: false, hint: [] }),
-  title: () => '', ask: () => ({}), event: () => false, waitLine: () => '', stepLine: () => '', listingDone() {}, cardDone() {},
+  title: () => '', ask: () => ({}), event: () => false, cardLine: () => '', stepLine: () => '', listingLine: () => '', listingDone() {}, cardDone() {},
   retrying() {}, logParts() {}, foot() {}, named: () => [], mark: () => [], warning: () => '', failureLink: () => '', score() {},
   shown() {}, signOut() {},
 };
-
-/** A connection failure in the reader's language, from the operating system's code; the server's own words otherwise. */
-function netWords(code, why) {
-  const key = `net.${code || 'connection'}`;
-  const words = t(key);
-  return words === key ? (why || t('net.connection')) : words;
-}
 
 const state = {
   phase: 'idle',
@@ -833,7 +826,7 @@ function newResult() {
   return {
     status: 'pending', phase: 'pending', text: '', reasoning: '', chars: 0, startedAt: 0,
     verdict: null, verdictSource: 'none', confidence: null, inspector: null, inspectorMark: null,
-    ms: null, trail: [], sources: [], incomplete: null, standby: false,
+    ms: null, trail: [], sources: [], incomplete: null,
     jobId: null, cutFrom: null,   // the claim's job at the server, and what the row said before its connection was cut
     free: null, priceCents: null, // what the server said this one costs: one of the document's free ones, or the price
   };
@@ -853,7 +846,7 @@ function resetRunState() {
   Object.assign(state, {
     phase: 'idle', warnings: [], claims: [], claimsRaw: '', beyond: [], cards: [], results: [], extraction: null, echo: null,
     batch: { start: 0, size: 0, done: 0 }, counts: { true: 0, false: 0, unverified: 0 }, unread: 0,
-    extractStartedAt: 0, extractChars: 0, found: 0, extractWait: null, extractQueued: null, extractCut: false, runId: '', extractJob: '', evalStartedAt: 0, pricing: null, status: { step1: null, step2: null },
+    extractStartedAt: 0, extractChars: 0, found: 0, extractWait: null, extractQueued: null, extractCut: false, bar1At: 0, runId: '', extractJob: '', evalStartedAt: 0, pricing: null, status: { step1: null, step2: null },
     rankRun: false, ranking: null, rankedRun: null, summaryText: '', showRest: false, streamed: 0,
   });
   hideSummary();
@@ -927,34 +920,17 @@ function showFailure(message, err) {
   ui.runWarnings.scrollIntoView({ behavior: 'smooth', block: 'center' });
 }
 
-/** The claims run as many at a time as the server says. The status line says how many are running
-    and how many are waiting their turn at the key's minute, which is the one thing that makes a run
-    take longer than its pace would. */
+/** The claims run as many at a time as the server says; the status line says how many are running and how many are done. */
 function updateEvalStatus() {
   if (state.phase !== 'evaluating' || !state.batch.size) return;
   const running = state.results.filter((r) => r.status === 'running').length;
-  // A claim waiting to go again (whether or not it had started: a refusal at the door comes before the start).
-  const retrying = (r) => r.phase === 'retry' && r.status !== 'done' && r.status !== 'error';
-  // A claim waiting for the connection to the model service is neither working nor held by its turn.
-  const unreachable = state.results.filter((r) => retrying(r) && r.retryReason === 'connection');
-  const working = state.results.filter((r) => r.status === 'running' && r.phase !== 'queued' && r.phase !== 'retry').length;
   const elapsed = fmtSeconds(Date.now() - state.evalStartedAt);
-  // A wait the service named itself in (`who`), said by the hooks' line when they have one; else a turn like any other.
-  const said = ext.stepLine({ working, retrying, elapsed });
-  // A claim held for its turn has not started; one waiting to go again has, but is not working.
-  const throttled = state.results.filter((r) => r.phase === 'queued' || (retrying(r) && r.retryReason !== 'connection' && !(said && r.who))).length;
-  if (unreachable.length) {
-    const w = unreachable[0];
-    setStatus('step2', 'step2.unreachable', { running: working, n: unreachable.length, why: netWords(w.retryCode, w.retryWhy), done: state.batch.done, total: state.batch.size, time: elapsed });
-  } else if (said) {
-    ui.step2Status.textContent = said;
-  } else if (throttled) {
-    setStatus('step2', 'step2.throttled', { running: working, n: throttled, done: state.batch.done, total: state.batch.size, time: elapsed });
-  } else if (running) {
-    setStatus('step2', 'step2.running', { running, done: state.batch.done, total: state.batch.size, time: elapsed });
-  } else {
-    setStatus('step2', 'step2.progress', { done: state.batch.done, total: state.batch.size });
-  }
+  // The line says the work going on, never what FactEngine works around on its way (31 October, night: "it does not help
+  // you or the service to show that it is struggling"); the hooks may say what holds claims back.
+  const said = ext.stepLine({ elapsed });
+  if (said) ui.step2Status.textContent = said;
+  else if (running) setStatus('step2', 'step2.running', { running, done: state.batch.done, total: state.batch.size, time: elapsed });
+  else setStatus('step2', 'step2.progress', { done: state.batch.done, total: state.batch.size });
 }
 
 function renderWarnings() {
@@ -977,7 +953,6 @@ function renderWarnings() {
   rows.push(...state.warnings.map((w) => {
     let text;
     if (w.code === 'source_truncated') text = t('warn.sourceTruncated', { n: fmtNumber(w.omitted), read: fmtNumber(w.read) });
-    else if (w.code === 'fallback') text = t('warn.fallback');
     else text = ext.warning(w) || w.code;
     return el('li', { text });
   }));
@@ -1029,12 +1004,11 @@ async function runExtraction(text) {
         if (state.streamed) clearStreamedClaims();
         break;
       case 'retry':
-        // A connection failure is a wait for the connection, shown as such until the next go begins.
+        // A connection failure is a wait for the connection, kept for the hooks until the next go begins.
         state.extractWait = ev.reason === 'connection' ? { code: ev.code, why: ev.why, since: ev.since || Date.now() } : null;
-        if (!state.extractWait) setStatus('step1', 'step1.retry');
         break;
       case 'phase':
-        if (ev.phase === 'queued') { state.extractQueued = { waitMs: ev.waitMs || 0, at: Date.now() }; setStatus('step1', 'step1.queued'); }
+        if (ev.phase === 'queued') state.extractQueued = { waitMs: ev.waitMs || 0, at: Date.now() };
         if (ev.phase === 'incomplete') toast(t('step1.incomplete'), { error: true, ms: 9000 });
         if (ev.phase === 'ranking') { state.ranking = { at: state.ranking?.at || Date.now(), claims: ev.claims || state.found }; state.extractWait = null; showSummary(); }
         break;
@@ -1073,28 +1047,26 @@ async function runExtraction(text) {
   }
 }
 
+/** The listing's bar never goes back (31 October, night): a listing that goes again keeps the ground it had made. */
+function listingBar(f) {
+  const was = state.bar1At || 0;
+  state.bar1At = Math.min(0.99, f >= was ? f : was + (0.94 - was) * 0.002);
+  return state.bar1At;
+}
+
 function updateExtractBar() {
   if (state.phase !== 'extracting') return;
   const elapsed = Date.now() - state.extractStartedAt;
 
-  // The connection to CIVIC was cut: the extraction goes on at the server, and the page is opening
-  // a new connection to it; the line says so until it has.
-  if (state.extractCut) {
-    ui.bar1.classList.add('is-waiting');
-    setStatus('step1', 'step1.reconnecting');
-    return;
-  }
-  // The connection to OpenAI cannot be made: the line says so, why, and for how long, until it can.
-  if (state.extractWait) {
-    ui.bar1.classList.add('is-waiting');
-    setStatus('step1', 'step1.unreachable', { why: netWords(state.extractWait.code, state.extractWait.why), time: fmtSeconds(Date.now() - state.extractWait.since) });
-    return;
-  }
+  // The line says the work going on, never what FactEngine works around on its way (31 October, night): a cut connection
+  // being opened again, a missing one, the listing's turn. The hooks may say so.
+  const held = ext.listingLine({ cut: state.extractCut, wait: state.extractWait, queued: state.extractQueued });
+  if (held) { ui.bar1.classList.add('is-waiting'); ui.step1Status.textContent = held; return; }
 
   // The claims are in and are being ranked: the line says so, with the time, until the ranked list is drawn.
   if (state.ranking) {
     ui.bar1.classList.add('is-waiting');
-    setBar(ui.bar1, 0.9 + easeTime(Date.now() - state.ranking.at, 60000, 0.08));
+    setBar(ui.bar1, listingBar(0.9 + easeTime(Date.now() - state.ranking.at, 60000, 0.08)));
     setStatus('step1', 'step1.ranking', { time: fmtSeconds(Date.now() - state.ranking.at) });
     return;
   }
@@ -1104,9 +1076,7 @@ function updateExtractBar() {
   // which is the truth: the model is working and has not produced a claim yet.
   if (!state.found) {
     ui.bar1.classList.add('is-waiting');
-    setBar(ui.bar1, 0.06 + easeTime(elapsed, 90000, 0.2));
-    // Held at the gate (the key's minute, or another reader's turn): the waiting words stay, with the time, until the request goes.
-    if (state.extractQueued) { setStatus('step1', 'step1.queuedTimed', { time: fmtSeconds(Date.now() - state.extractQueued.at) }); return; }
+    setBar(ui.bar1, listingBar(0.06 + easeTime(elapsed, 90000, 0.2)));
     setStatus('step1', state.extractSearches ? 'step1.thinkingSearched' : 'step1.thinking',
       { time: fmtSeconds(elapsed), n: state.extractSearches });
     return;
@@ -1114,7 +1084,7 @@ function updateExtractBar() {
   ui.bar1.classList.remove('is-waiting');
   const byTime = easeTime(elapsed, 45000, 0.45);
   const byClaims = easeChars(state.found, 10, 0.5);
-  setBar(ui.bar1, Math.min(0.94, Math.max(byTime, 0.08 + byClaims + byTime * 0.5)));
+  setBar(ui.bar1, listingBar(Math.min(0.94, Math.max(byTime, 0.08 + byClaims + byTime * 0.5))));
   // No count of claims here (25 October): the list itself says how many can be tested, and nothing else counts them.
   setStatus('step1', 'step1.listing', { time: fmtSeconds(elapsed) });
 }
@@ -1719,6 +1689,22 @@ function failRun(err) {
   syncBeyondRows();
 }
 
+/**
+ * A running card's bar: by the time it has run, and by its entry's length once it writes. It never goes back (31 October,
+ * night): a claim that goes again from its start keeps the ground it had made, and its bar creeps on until the new go
+ * passes it.
+ */
+function cardBar(r, now) {
+  const elapsed = now - r.startedAt;
+  let f;
+  if (r.phase === 'starting') f = easeTime(elapsed, 4000, 0.08);
+  else if (r.phase === 'writing') f = 0.48 + easeChars(r.chars, 4500, 0.47);
+  else f = 0.08 + easeTime(elapsed, 90000, 0.4);
+  const was = r.barAt || 0;
+  r.barAt = Math.min(0.96, f >= was ? f : was + (0.96 - was) * 0.002);
+  return r.barAt;
+}
+
 function updateEvalBars() {
   if (state.phase !== 'evaluating') return;
   let running = 0;
@@ -1728,16 +1714,11 @@ function updateEvalBars() {
     const r = state.results[i];
     if (!r) continue;
     if (r.phase === 'queued') { renderCardStatus(i); continue; }
-    // A wait counts down whether or not the claim had started: a provider's refusal at its door comes before the start
-    // (on 18 October Gemini's first refusal sat at "3,366 s" and never moved).
+    // A wait the hooks count down is said again as it goes, whether or not the claim had started (on 18 October Gemini's
+    // first refusal sat at "3,366 s" and never moved).
     if (r.phase === 'retry') renderCardStatus(i);
     if (r.status !== 'running') continue;
-    const elapsed = now - r.startedAt;
-    let f;
-    if (r.phase === 'starting') f = easeTime(elapsed, 4000, 0.08);
-    else if (r.phase === 'writing') f = 0.48 + easeChars(r.chars, 4500, 0.47);
-    else f = 0.08 + easeTime(elapsed, 90000, 0.4);
-    f = Math.min(0.96, f);
+    const f = cardBar(r, now);
     running += f;
     setBar(cardOf(i).querySelector('.bar'), f);
   }
@@ -1834,28 +1815,30 @@ function setCardState(i, stateName) {
   syncCardHead(card);
 }
 
+// The words of the work a claim is doing.
+const CARD_WORDS = { pending: 'card.pending', starting: 'card.starting', reasoning: 'card.reasoning', inspecting: 'card.reasoning', searching: 'card.searching', reading: 'card.reading', writing: 'card.writing', error: 'card.error' };
+// The work itself, as against what FactEngine works around on its way (its turn, a wait, a retry, a cut connection).
+const WORKING = new Set(['starting', 'reasoning', 'inspecting', 'searching', 'reading', 'writing']);
+
+/**
+ * A card's status: the work it is doing, and nothing of what FactEngine works around on its way (31 October, night: "it
+ * does not help you or the service to show that it is struggling"). A claim held for its turn says it is starting; one
+ * waiting to go again, or reconnecting, goes on saying what it was doing; one that goes again from its start keeps the
+ * ground it had made, and its count of searches never goes back. The hooks may say what is really happening.
+ */
 function renderCardStatus(i) {
   const r = state.results[i];
   const card = cardOf(i);
-  const map = { pending: 'card.pending', starting: 'card.starting', reasoning: 'card.reasoning', inspecting: 'card.reasoning', searching: 'card.searching', reading: 'card.reading', writing: 'card.writing', reconnecting: 'card.reconnecting', error: 'card.error' };
+  // The furthest work shown so far: a new start after a retry does not take the card back to its beginning.
+  if (WORKING.has(r.phase) && !(r.phase === 'starting' && r.shown && r.shown !== 'starting')) r.shown = r.phase;
+  r.searchesShown = Math.max(r.searchesShown || 0, searchCount(r.trail));
+  const said = ext.cardLine(r, card);
+  const words = (phase) => (phase === 'searching' && r.searchesShown ? t('card.searchingN', { n: r.searchesShown }) : t(CARD_WORDS[phase] || 'card.pending'));
   let text;
-  // A wait the service named itself in, said by the hooks' line when they have one, its own words on a line of their
-  // own under the bar (where the card has one): a long reason never squeezes the status.
-  const waitLine = r.phase === 'retry' && r.retryReason === 'rate_limit' && r.who ? ext.waitLine(r) : '';
-  const why = $('.card-why', card);
-  if (why) {
-    why.textContent = waitLine ? r.retryWhy || '' : '';
-    why.hidden = !(waitLine && r.retryWhy);
-  }
-  if (r.phase === 'queued') {
-    const s = r.queuedUntil ? Math.max(0, Math.ceil((r.queuedUntil - Date.now()) / 1000)) : 0;
-    text = t('card.queued') + (s > 0 ? ` · ${s} s` : '');
-  } else if (waitLine) text = waitLine;
-  else if (r.phase === 'retry' && r.retryReason === 'rate_limit') text = t('card.waitingLimit', { s: Math.max(0, Math.ceil(((r.retryUntil || 0) - Date.now()) / 1000)) });
-  else if (r.phase === 'retry' && r.retryReason === 'connection') text = t('card.waitingConnection', { why: netWords(r.retryCode, r.retryWhy), time: fmtSeconds(Date.now() - (r.retrySince || Date.now())) });
-  else if (r.phase === 'retry') text = t('card.retry', { n: r.retryAttempt || 1 });
-  else if (r.phase === 'searching' && searchCount(r.trail)) text = t('card.searchingN', { n: searchCount(r.trail) });
-  else text = t(map[r.phase] || 'card.pending');
+  if (said) text = said;
+  else if (WORKING.has(r.phase)) text = words(r.shown || r.phase);
+  else if (r.phase === 'queued' || r.phase === 'retry' || r.phase === 'reconnecting') text = r.shown ? words(r.shown) : t('card.begin');
+  else text = words(r.phase);
   $('.card-status', card).textContent = text;
 }
 
@@ -1879,7 +1862,6 @@ function finalizeCard(i, ev) {
     ms: ev.ms ?? null,
     trail: ev.trail?.length ? ev.trail : r.trail, sources: ev.sources?.length ? ev.sources : r.sources,
     incomplete: ev.incomplete || r.incomplete || null,
-    standby: Boolean(ev.standby),   // tested on a standby model
   });
   ext.cardDone(i, ev, r);   // what the hooks keep of the finished claim, before its card is drawn
   const card = cardOf(i);
@@ -1991,12 +1973,9 @@ function renderCardFoot(i) {
     log.textContent = parts.join(' · ');
     log.hidden = parts.length === 0;
   }
-  // The model that answered, by the operator's mark alone (31 October), and a standby model's answer marked as such, so a
-  // downgrade never passes unnoticed; then whatever the hooks add to the footer.
+  // The model that answered, by the operator's mark alone (31 October); then whatever the hooks add to the footer.
   const modelNode = $('.card-model', card);
   modelNode.textContent = r.status === 'done' ? t('card.engineLine') : '';
-  modelNode.classList.toggle('is-fallback', Boolean(r.standby));
-  modelNode.title = r.standby ? t('warn.fallback') : '';
   ext.foot(r, card);
   $('.btn-copy', card).textContent = t('card.copy');
   $('.btn-copy', card).hidden = r.status !== 'done';
@@ -2048,15 +2027,14 @@ async function retryClaim(i) {
   $('.btn-retry', card).hidden = true;
   $('.card-foot', card).hidden = true;
   ext.retrying(i, r);   // before the card is a running one again: what the hooks counted of its failure
-  Object.assign(r, { status: 'running', phase: 'starting', startedAt: Date.now(), text: '', reasoning: '', chars: 0, error: null, trail: [], sources: [], jobId: null, cutFrom: null });
+  // Asked again: a new go from the start, its words and its bar with it.
+  Object.assign(r, { status: 'running', phase: 'starting', startedAt: Date.now(), text: '', reasoning: '', chars: 0, error: null, trail: [], sources: [], jobId: null, cutFrom: null, shown: null, searchesShown: 0, barAt: 0 });
   setCardState(i, 'running');
   renderCardStatus(i);
   const tick = setInterval(() => {
     if (r.status !== 'running') return;
-    if (r.phase === 'retry') renderCardStatus(i);
-    const elapsed = Date.now() - r.startedAt;
-    const f = r.phase === 'writing' ? 0.48 + easeChars(r.chars, 4500, 0.47) : 0.08 + easeTime(elapsed, 90000, 0.4);
-    setBar(card.querySelector('.bar'), Math.min(0.96, f));
+    if (r.phase === 'retry' || r.phase === 'queued') renderCardStatus(i);
+    setBar(card.querySelector('.bar'), cardBar(r, Date.now()));
   }, 250);
   const controller = state.abort || new AbortController();
   try {

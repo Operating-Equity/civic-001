@@ -344,7 +344,8 @@
 <link rel="stylesheet" href="css/op.css">
 <link rel="modulepreload" id="ext-script" href="js/op.js">
 <!-- The operator's words, filled in by js/op.js: the key's minute, the costs, the trial's labels, the marks of their list,
-     the model's name and level, the inspector's name, a provider's wait. -->
+     the model's name and level, the inspector's name, and what FactEngine works around on its way (a provider's wait, a
+     claim's turn, a retry, a cut connection), which a reader's page never says. -->
 <span id="op-words" hidden
   data-gate="The key's minute: {limit} tokens · one determination counts {cost} · {atOnce} at once, one more every {every} s"
   data-avg-cost="About {usd} per claim in this run." data-card-cost="est. {usd}" data-card-cost-unknown="price unknown"
@@ -358,7 +359,14 @@
   data-model-line="{model} · {effort}" data-inspector="Inspector"
   data-model-fallback="Tested with {used}, not {requested}. Treat these determinations as provisional."
   data-step-waiting-provider="{running} running · {n} waiting for {who} · {done} of {total} done · {time}"
-  data-card-waiting-provider="{who} asks to wait · {time} · until {clock}" data-check-link="Why did this happen?"></span>
+  data-card-waiting-provider="{who} asks to wait · {time} · until {clock}" data-check-link="Why did this happen?"
+  data-card-queued="Waiting its turn" data-card-waiting-limit="Waiting its turn · {s} s"
+  data-card-waiting-connection="Waiting for the connection · {why} · {time}" data-card-retry="Retrying (attempt {n})…"
+  data-card-reconnecting="The connection to FactEngine was cut · going again"
+  data-step-unreachable="{running} running · {n} waiting for the connection · {why} · {done} of {total} done · {time}"
+  data-step-throttled="{running} running · {n} waiting their turn · {done} of {total} done · {time}"
+  data-listing-reconnecting="The connection to FactEngine was cut · going again"
+  data-listing-unreachable="Waiting for the connection · {why} · {time}" data-listing-queued="Waiting its turn · {time}"></span>
 <!--/op-->
 
 <script src="vendor/katex/katex.min.js"></script>

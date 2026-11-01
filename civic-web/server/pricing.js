@@ -34,6 +34,10 @@ const DEFAULT_PRICES = {
   'claude-opus-5-5': { input: 4, cached: 0.20, output: 20, search: 0.01 },
   'claude-fable-5-1': { input: 10, cached: 0.25, output: 50, search: 0.01 },
   'gemini-4-argon': { input: 2, cached: 0.10, output: 10, search: 0.014, from: [{ at: '2026-12-01T00:00:00Z', input: 4, cached: 0.20, output: 20 }] },
+  // Google's pricing page (31 October): prompts of 200,000 tokens or fewer, thinking included in the output; Google Search
+  // $14 per 1,000 requests after 5,000 free a month shared by its Gemini 3 and newer models. Its rates above 200,000
+  // tokens ($4, $0.40, $18) are not kept here.
+  'gemini-3.1-pro-preview': { input: 2, cached: 0.20, output: 12, search: 0.014 },
 };
 
 /** A row as it stood at `at`: its dated changes applied in order, then its off-peak price when the hour is off-peak. */

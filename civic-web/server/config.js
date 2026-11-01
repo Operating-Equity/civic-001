@@ -164,6 +164,9 @@ export const config = {
   // check page's pacing row, after a run, is the figure to set this by.
   evalConcurrency: int('CIVIC_EVAL_CONCURRENCY', 10),
   evalRetries: int('CIVIC_EVAL_RETRIES', 8),           // rate limits and 5xx only; never on a model or parameter error
+  // The readers' standby (31 October, night; server/standby.js): `model|level`, set on Render and never named here. A
+  // reader's claim the readers' model still fails goes once more to it, by itself. Unset, there is none.
+  evalStandby: env('CIVIC_EVAL_STANDBY', ''),
   // The operator's trial (14 October): their own determinations on DeepSeek, chosen on the page beside the readers'
   // model, which stays as it is. "I think the best experiment is to use the new DeepSeek deep reasoning model through
   // the already connected API." These are the models the operator may choose there; a reader never can. On 18 October:

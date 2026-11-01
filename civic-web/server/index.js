@@ -26,6 +26,7 @@ import { rankFor, rankState } from './rank.js';
 import * as deepseekProvider from './deepseek.js';
 import * as geminiProvider from './gemini.js';
 import * as anthropicProvider from './anthropic.js';
+import { loadStandby, standbyState } from './standby.js';
 import { runIllustration } from './illustrate.js';
 import { selftest } from './selftest.js';
 import { whereTheShellSetsIt } from './key.js';
@@ -69,6 +70,7 @@ let tells;
 try {
   pageFiles = assets.prepare({ publicDir, build: BUILD, nodeModules });
   tells = loadTells();   // the operator's tell words (server/tells.js); a list that cannot be read stops the start
+  loadStandby();         // the readers' standby (server/standby.js); a setting that cannot be read stops the start
 } catch (err) {
   console.error(`\nSTOPPED: ${err?.message || err}, so this FactEngine did not start.\n`);
   process.exit(1);
@@ -699,6 +701,11 @@ function banner() {
   console.log(kept
     ? `[sites] kept out of the research: ${sitesWords()}${anthropicWords() ? `; ${anthropicWords()}` : ''}; whatever a model takes of it is counted and marked, and on Gemini that is all`
     : '[sites] no site is kept out of the research (CIVIC_BLOCKED_SITES, CIVIC_BLOCKED_MORE, CIVIC_BLOCKED_WORDS, CIVIC_BLOCKED_MARKUP)');
+  // The readers' standby (server/standby.js): what a reader's claim the readers' model still fails goes to, once.
+  const standing = standbyState();
+  console.log(!standing ? '[standby] none is set (CIVIC_EVAL_STANDBY): a claim the readers\' model still fails is a failure'
+    : standing.ready ? `[standby] a reader's claim the readers' model still fails goes once more, by itself, to ${standing.model} at ${standing.effort}, on ${standing.provider === 'gemini' ? 'Google' : 'Anthropic'}'s path; the reader is not told`
+      : `[standby] ${standing.model} at ${standing.effort} is set but not ready: ${String(standing.why || '').replace(/\.$/, '')}; a claim the readers' model still fails is a failure`);
   // The operator's trial (server/trial.js): whether it can run, for the host's log. No key, nothing of anyone's.
   const trial = trialState();
   if (trial) {

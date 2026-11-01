@@ -444,7 +444,6 @@ body {
 .card-inspector b { color: var(--ink); font-weight: 600; }
 .card-log { color: var(--ink-2); }
 .card-model { color: var(--ink-3); }
-.card-model.is-fallback { color: var(--false); font-weight: 600; }
 .card-error { margin: 12px 0 0; color: var(--false); font-size: 14px; }
 .card-note { margin: 10px 0 0; font-size: 13.5px; color: var(--note); background: var(--note-bg); border: 1px solid var(--note-edge); border-radius: var(--radius-sm); padding: 8px 12px; }
 

@@ -31,3 +31,5 @@
 .card-why { margin: 6px 0 0; font-size: 12.5px; line-height: 1.45; color: var(--ink-2); overflow-wrap: anywhere; }
 .card[data-state="done"] .card-why, .card[data-state="error"] .card-why { display: none; }
 .card-mark { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--false); margin-inline-start: 8px; }
+/* A standby model's answer, marked on the operator's card (a reader's card is never told, 31 October, night). */
+.card-model.is-fallback { color: var(--false); font-weight: 600; }
