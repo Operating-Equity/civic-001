@@ -1384,6 +1384,9 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
     happen, a plain word each, for its progress and its card's counts.
   - **The operator's page keeps every box** (`public/index.html`, the operator's part; `public/js/op.js`), in their
     words. The boxes' labels left the four locales.
+  - **Live** (1 November, 18:04 UTC): PR #100 deployed. A stranger's page, scripts and language files carry none of the
+    boxes or their labels, and keep "Sources cited"; the operator's script and style sheet are "Not found" to a
+    stranger; the standby, the tell words and the readers' model are as before. Live check clean, nothing spent.
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 
