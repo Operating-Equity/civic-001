@@ -73,10 +73,10 @@ jobs:
         run: |
           # Words a reader's language file carries, given as a tell word: --served must fail, and name it by its
           # fingerprint alone (server/tells.js).
-          if out=$(CIVIC_TELL_WORDS='{"served": ["Extraction output"]}' node scripts/leak-check.mjs --served 2>&1); then
+          if out=$(CIVIC_TELL_WORDS='{"served": ["Sources cited"]}' node scripts/leak-check.mjs --served 2>&1); then
             echo "The leak guard did not notice a planted tell word in what a reader receives."; exit 1
           fi
-          if printf '%s' "$out" | grep -qi "extraction output"; then
+          if printf '%s' "$out" | grep -qi "sources cited"; then
             echo "The leak guard printed the word it found."; exit 1
           fi
           echo "Guard failed on a planted tell word, as it must, and printed none of it."
