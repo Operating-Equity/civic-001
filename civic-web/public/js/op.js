@@ -2,7 +2,9 @@
 // models and levels, the costs, the key's-minute line, the per-entry scoreboard, the zero-credibility mark, the model's
 // name and level on a card, a standby model's answer, what FactEngine works around on its way (a claim's turn, a wait,
 // a retry, a cut connection; a reader's page says only the work going on), the inspector's name and the class it is
-// written in, and the operator's own words for all of them. Served to the operator's account alone (server/assets.js
+// written in, the work behind each output (a card's thinking summary, its research steps and its entry as written; the
+// listing's thinking and the listing as written: 1 November, the boxes that show how the system runs underneath), and the
+// operator's own words for all of them. Served to the operator's account alone (server/assets.js
 // OPERATOR_ONLY) and named only on their page (index.html, the operator's part); public/js/app.js loads it before the
 // page starts and puts it in the hooks it keeps (`ext`), which do nothing on anyone else's page. The script everyone
 // downloads names none of this.
@@ -200,6 +202,7 @@ export function install(ctx) {
     }
     if (ev.t === 'retry' || ev.t === 'error') r.who = ev.who || null;
     if (ev.t === 'error') tally(i, 'failed');
+    if (ev.t === 'note' && ev.code === 'no_reasoning_summary') r.noSummary = true;
     return false;
   }
 
@@ -335,9 +338,82 @@ export function install(ctx) {
     });
   }
 
+  // ---- the work behind the outputs (1 November): the boxes that show how the system runs underneath, the operator's ----
+
+  /** The steps' box title: a form for one step and a form for more. */
+  const trailTitle = (n) => (n === 1 ? word('detailsTrailOne', { n }) : word('detailsTrailOther', { n }));
+  /** A research step as the operator reads it: the tool by its own name, what it asked or where it went, and its error. */
+  const stepKind = (s) => (s.kind ? (s.kind === 'tool' ? s.name || 'tool' : s.kind) : s.verb || 'search');
+  const stepWhat = (s) => (s.query ? `“${s.query}”` : s.url || s.pattern || s.kind || '') + (s.kind === 'tool' && s.error ? ` · ${s.error}` : '');
+
+  /** A finished card's work: its thinking summary, its research steps, and its entry as it was written. */
+  function detail(r, card) {
+    const reasoning = $('.card-reasoning', card);
+    if (reasoning) {
+      reasoning.hidden = !r.reasoning;
+      if (r.reasoning) {
+        $('.raw-summary', reasoning).textContent = word('detailsReasoning');
+        $('.reasoning-body', reasoning).textContent = r.reasoning;
+      }
+    }
+    const trail = $('.card-trail', card);
+    if (trail) {
+      const steps = (r.trail || []).filter((s) => s.kind || s.query || s.url);
+      trail.hidden = !steps.length;
+      if (steps.length) {
+        $('.raw-summary', trail).textContent = trailTitle(steps.length);
+        $('.trail-list', trail).replaceChildren(...steps.map((s) =>
+          el('li', {}, [el('span', { class: 'trail-kind mono', text: stepKind(s) }), el('span', { text: stepWhat(s) }), ...mark(s)])));
+      }
+    }
+    const raw = $('.card-raw', card);
+    if (raw) {
+      $('.raw-summary', raw).textContent = word('detailsRaw', { n: fmtNumber(String(r.text || '').length) });
+      $('.raw-entry', raw).textContent = r.text || '';
+    }
+  }
+
+  /** The note a card gives when its work has no thinking summary to show. */
+  function noteParts(r, parts) { if (r.noSummary) parts.push(word('noteNoSummary')); }
+
+  /** The listing's thinking, shown as it arrives under step 1. Nothing is summarised by us. */
+  function listingThinking(text) {
+    const box = byId('step1-thinking');
+    if (!box) return;
+    box.hidden = !text;
+    if (!text) return;
+    byId('step1-thinking-summary').textContent = word('step1ThinkingTitle');
+    const body = byId('step1-thinking-body');
+    body.textContent = text;
+    body.scrollTop = body.scrollHeight;
+  }
+
+  /** The listing as the model wrote it, with its thinking and its steps, under the claims. */
+  function listingDone(ev) {
+    addCost(ev.cost);
+    const box = byId('claims-raw');
+    if (!box) return;
+    const raw = ev?.raw || '';
+    box.hidden = !raw;
+    if (!raw) return;
+    byId('claims-raw-summary').textContent = word('claimsRaw');
+    const parts = [];
+    if (ev.reasoning) parts.push(`${word('detailsReasoning')}\n\n${ev.reasoning}`);
+    const trail = ev.trail || [];
+    if (trail.length) parts.push(`${trailTitle(trail.length)}\n\n${trail.map((s) => `  ${stepKind(s)}: ${s.query || s.url || s.pattern || ''}${s.error ? ` · ${s.error}` : ''}`).join('\n')}`);
+    parts.push(raw);
+    byId('claims-raw-body').textContent = parts.join(`\n\n${'─'.repeat(40)}\n\n`);
+  }
+
   function reset() {
     Object.assign(run, { cost: 0, unpriced: false, gate: null, tally: new Map() });
     gateLine();
+    for (const id of ['step1-thinking', 'claims-raw']) {
+      const box = byId(id);
+      if (box) { box.hidden = true; box.open = false; }
+    }
+    const thinking = byId('step1-thinking-body');
+    if (thinking) thinking.textContent = '';
   }
 
   /** Signed out: no trial is offered and no cost is shown until the page is the operator's again. */
@@ -346,7 +422,7 @@ export function install(ctx) {
   choice = loadChoice();
   return {
     start, reset, again: () => Boolean(trialOffer()), choices, runsFor, paint, tools, title, ask: (claim) => claim.ask || {},
-    event, cardLine, stepLine, listingLine, listingDone: (ev) => addCost(ev.cost), cardDone, retrying, logParts, foot, named, mark,
-    warning, failureLink: () => word('checkLink'), score, shown, signOut,
+    event, cardLine, stepLine, listingLine, listingDone, cardDone, retrying, logParts, foot, named, mark,
+    warning, failureLink: () => word('checkLink'), score, shown, signOut, detail, noteParts, listingThinking,
   };
 }

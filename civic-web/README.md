@@ -10,8 +10,9 @@ Two rules the code exists to keep:
 1. **Nothing runs that was not submitted.** There is no sample, no seeded text, no demo mode and
    no preloaded result anywhere in the product. The page is empty until a document is given to it.
 2. **Nothing the model returns is edited, trimmed or withheld.** The prompts are sent verbatim.
-   The entry is rendered whole. The reasoning summary, every web search performed and every source
-   cited are on the card, and the raw text is one click away. There is no output token cap by
+   The entry is rendered whole, with every source it cites. The work behind it (the reasoning
+   summary, every web search performed, the raw text, the listing as written) is on the operator's
+   page, one click away; a reader's card has the outputs alone (1 November). There is no output token cap by
    default. The verdict is read out of the model's own Conclusion section — when it cannot be read,
    the card says so and the claim is counted in no column rather than defaulting to Unverified.
 
@@ -684,7 +685,8 @@ the claim's own line, bold or plain (24 October: DeepSeek wrote "Claim: … **Ro
 on one line). The listing's field labels are in `server/names.js` (`fields`, beside `role`), and `CIVIC_OUTPUT_NAMES`
 can rename them. The claim alone is shown, and the claim alone is what each determination is given: nothing else the
 listing wrote goes downstream (the operator, 24 October: "I don't want the extraction to affect downstream processing
-in any way"); the listing's whole output stays under "Extraction output, verbatim". Since 24 October, night, the server
+in any way"); the listing's whole output stays under "Extraction output, verbatim", on the operator's page (a reader's
+page has the claims alone, 1 November). Since 24 October, night, the server
 holds to this for every copy of the page: each claim leaves the listing as its number, its text and whether it is
 shown first, nothing else; and the fact-check takes the claim alone whatever a page sends, an entry with its fields
 (from a copy of the page loaded before the change) read as the listing reads it (`claimAlone`, `server/extract.js`),
@@ -761,7 +763,7 @@ truncation setting. No fallback model. No size limit of ours on the document.
 | Reasoning effort, both steps on OpenAI | `xhigh` | Operator, 5 October: back to the setting before 21 September, when `max` in `pro` mode had taken a listing to fifteen minutes and $3.81 and a determination to almost seven minutes and $3.71. `max` from 21 September to 5 October. |
 | Reasoning mode, both steps on OpenAI | `standard` (no mode key sent) | Operator, 5 October, as above. `pro` (GPT-5.6's pro mode, OpenAI's "highest-intelligence API option": more model work per answer at the same per-token rates) from 21 September to 5 October; `CIVIC_REASONING_MODE=pro` brings it back. |
 | Web search | on for the determinations, never on the listing; not configurable, save the sites the operator keeps out of the research (`CIVIC_BLOCKED_SITES` and the rest, 25 October; see above) | The determinations' prompt was tested in a UI where search is available. The listing reads the document it is given and nothing else (24 October). |
-| Reasoning summary | `auto` | Display only: the model's own account of its reasoning, shown on the card. Does not change the answer. Blank to turn off. |
+| Reasoning summary | `auto` | Display only: the model's own account of its reasoning, shown on the operator's card (a reader's card has the outputs alone, 1 November). Does not change the answer. Blank to turn off. |
 | Claims run automatically | `CIVIC_AUTO_TEST_FIRST` of them (10 unless set; 0 = none: every claim found waits for the reader's checkbox and runs when chosen), ten at a time (`CIVIC_EVAL_CONCURRENCY`, the operator's figure of 3 October on a minute budget of 40,000,000 tokens), each on its own request, the whole selection in one batch. The page is told both figures by the server (`autoTestFirst` and `inFlight` on `/api/health`), so what runs and how fast change with one setting and no release. The intake sentences follow the figures too. | Operator's rule; 0 since 1 October |
 | Prices and tiers | Listing free; a determination at one list price for everyone, `CIVIC_LIST_PRICE_CENTS` (125: "each fact-check is $1.25"; unset, nothing priced), said once above the claims and on no row or button; a run's tier (1: nothing free; 2, 3: one, two of the reader's choices free per document) rotating every six hours in `CIVIC_TIER_ORDER` (1,2,3) with a daily shift; a loss guard to tier 1 when a window loses more than `CIVIC_TIER_LOSS_GUARD_USD`; revenue at list, not collected; every user measured in Postgres, and /check's figure of how many fact-checks the key runs at once. See "Facts have a price". | Operator's program, 2 October; the list price and 0, 1 or 2 free, 6 October; every figure theirs |
 | Accounts and credit | On unless `CIVIC_ACCOUNTS=off`: an account by email and password before anything runs; the operator's account only through the one-time link (`CIVIC_OPERATOR_CLAIM`, its SHA-256; `CIVIC_OPERATOR_EMAILS`, the reserved address); `CIVIC_SIGNUP_GRANT_CENTS` (1000) of credit to start; a test's price held when it starts, charged when it is delivered, released when it is not; a monthly limit of the reader's own. Flagged defaults, the operator's to change: `CIVIC_PASSWORD_MIN_CHARS` 8, `CIVIC_SESSION_DAYS` 400, `CIVIC_SIGNIN_TRIES` 10 an hour, `CIVIC_RESET_LINK_HOURS` 24; off unless set: `CIVIC_SIGNIN_TRIES_PER_ADDRESS`, `CIVIC_SIGNUPS_PER_ADDRESS_PER_DAY`. See "Accounts and credit". | Operator, 5 October |
@@ -859,9 +861,12 @@ When accounts arrive, the prompts should move to a secrets manager rather than f
 **What a reader receives** (`server/view.js`, 19 October). The operator, and anyone on an open door, receive every event
 of a run as it is made. Anyone else receives every output of their run, under the operator's names, through one view
 applied where the job records each event, so a page that reconnects or reads a finished run again receives the same: the
-entry, the verdict, the confidence, the sources cited, the reasoning summary, the research log with each step's question
-and address, the listing as written, and a work log counted in plain words ("4 searches · 2 pages read · 2 sources
-cited"). `/api/health` tells anyone but the operator only what the page reads: its build, its pace, whether it is ready,
+listing's claims; for each claim, the entry, the verdict, the confidence, the conclusion and the sources cited; and a
+work log counted in plain words ("4 searches · 2 pages read · 2 sources cited"). The work behind the outputs is the
+operator's alone (31 October: "We are not going to have the boxes on the user interface that allow people to see how
+the system is running underneath"; 1 November): no thinking summary, no research step's question or address, no
+listing as written, and no note about any of them reaches a reader, and the boxes that show them are on the operator's
+page alone. `/api/health` tells anyone but the operator only what the page reads: its build, its pace, whether it is ready,
 and their own balance; the runs in flight go to the operator, or to a request carrying a private check key whose SHA-256
 is `CIVIC_CHECK_KEY_SHA256`. A failure a reader can act on (the document, the credit, a link, a file, the account) is
 told as it is; any other is one plain sentence, "This claim could not be tested just now. Try again shortly.", or its
