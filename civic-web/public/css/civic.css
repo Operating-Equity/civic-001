@@ -456,10 +456,7 @@ body {
 .raw[open] > .raw-summary::before { transform: rotate(90deg); }
 .raw-summary:hover { color: var(--ink); }
 .raw-summary:focus-visible { outline: 2px solid var(--blue); outline-offset: -2px; border-radius: var(--radius-sm); }
-.raw-body { margin: 0; padding: 0 12px 12px; font-family: var(--font-mono); font-size: 12.5px; line-height: 1.55; color: var(--ink-2); white-space: pre-wrap; word-break: break-word; max-height: 460px; overflow: auto; }
-.trail-list, .sources-list { margin: 0; padding: 0 12px 12px 30px; font-size: 13.5px; color: var(--ink-2); display: grid; gap: 4px; }
-.trail-list li { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
-.trail-kind { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--ink-3); }
+.sources-list { margin: 0; padding: 0 12px 12px 30px; font-size: 13.5px; color: var(--ink-2); display: grid; gap: 4px; }
 .sources-list a { color: var(--blue-deep); word-break: break-word; }
 .claims .raw { margin-block-start: 14px; }
 
@@ -593,9 +590,6 @@ body {
 }
 @keyframes civic-waiting { from { background-position: 0 0; } to { background-position: 1.6rem 0; } }
 @media (prefers-reduced-motion: reduce) { .bar.is-waiting i { animation: none; } }
-
-.step-thinking { margin-top: .75rem; }
-.step-thinking .raw-body { max-height: 11rem; overflow-y: auto; white-space: pre-wrap; }
 
 .intake-slow { margin: .6rem 0 0; max-width: 46rem; }
 

@@ -33,3 +33,11 @@
 .card-mark { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--false); margin-inline-start: 8px; }
 /* A standby model's answer, marked on the operator's card (a reader's card is never told, 31 October, night). */
 .card-model.is-fallback { color: var(--false); font-weight: 600; }
+/* The work behind the outputs (1 November): a card's thinking summary, its research steps and its entry as written, the
+   listing's thinking and the listing as written. The box itself (.raw) is every reader's, for the sources cited. */
+.raw-body { margin: 0; padding: 0 12px 12px; font-family: var(--font-mono); font-size: 12.5px; line-height: 1.55; color: var(--ink-2); white-space: pre-wrap; word-break: break-word; max-height: 460px; overflow: auto; }
+.trail-list { margin: 0; padding: 0 12px 12px 30px; font-size: 13.5px; color: var(--ink-2); display: grid; gap: 4px; }
+.trail-list li { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+.trail-kind { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--ink-3); }
+.step-thinking { margin-top: .75rem; }
+.step-thinking .raw-body { max-height: 11rem; overflow-y: auto; white-space: pre-wrap; }

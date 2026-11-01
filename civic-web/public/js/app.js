@@ -3,10 +3,11 @@
 // Two rules this file exists to keep:
 //   1. Nothing runs that the reader did not submit. There is no sample, no seeded text, no
 //      preloaded result. The page is empty until a document is given to it.
-//   2. Nothing the model returns is summarised, trimmed or hidden. The entry is rendered whole,
-//      and the reasoning summary, the search trail, the cited sources and the raw text are all
-//      on the card. When the verdict cannot be read from the model's own Conclusion, the card
-//      says so instead of guessing.
+//   2. Nothing the model returns is summarised or trimmed. The entry is rendered whole, with the
+//      sources it cites. The work behind it (the thinking summary, the search trail, the raw text,
+//      the listing as written) is on the operator's page alone (1 November; public/js/op.js). When
+//      the verdict cannot be read from the model's own Conclusion, the card says so instead of
+//      guessing.
 import { t, fill, setLocale, initLocale, LOCALES, currentLocale, fmtNumber, fmtSeconds, fmtClock, fmtUsd, numberWord } from './i18n.js';
 import * as api from './api.js';
 import { $, $$, el, renderMarkdown, renderMath, setBar, toast, easeChars, easeTime, bump, copyText } from './render.js';
@@ -29,7 +30,7 @@ const ext = {
   start() {}, reset() {}, again: () => false, choices: () => null, runsFor: () => [], paint() {}, tools: () => ({ block: false, hint: [] }),
   title: () => '', ask: () => ({}), event: () => false, cardLine: () => '', stepLine: () => '', listingLine: () => '', listingDone() {}, cardDone() {},
   retrying() {}, logParts() {}, foot() {}, named: () => [], mark: () => [], warning: () => '', failureLink: () => '', score() {},
-  shown() {}, signOut() {},
+  shown() {}, signOut() {}, detail() {}, listingThinking() {}, noteParts() {},
 };
 
 const state = {
@@ -82,7 +83,6 @@ function cacheElements() {
     optEcho: $('#opt-echo'), run: $('#btn-run'),
     runSection: $('#run'), runWarnings: $('#run-warnings'),
     step1: $('#step-extract'), step1Status: $('#step1-status'), bar1: $('#bar-extract'),
-    step1Thinking: $('#step1-thinking'), step1ThinkingSummary: $('#step1-thinking-summary'), step1ThinkingBody: $('#step1-thinking-body'),
     step2: $('#step-eval'), step2Title: $('#step2-title'), step2Status: $('#step2-status'), bar2: $('#bar-eval'),
     echo: $('#echo'), echoImg: $('#echo-img'), echoShimmer: $('#echo-shimmer'), echoFrame: $('#echo .echo-frame'), rail: $('.rail'),
     intakeLede: $('.intake-lede'), intakeSlow: $('.intake-slow'),
@@ -92,7 +92,6 @@ function cacheElements() {
     beyond: $('#claims-beyond'), beyondTitle: $('#claims-beyond-title'), beyondList: $('#claims-beyond-list'), beyondHint: $('#claims-beyond-hint'),
     showRest: $('#btn-show-rest'), setAside: $('#claims-set-aside'), summary: $('#summary'), summaryBody: $('#summary-body'),
     selectAll: $('#btn-select-all'), testSelected: $('#btn-test-selected'),
-    claimsRaw: $('#claims-raw'), claimsRawSummary: $('#claims-raw-summary'), claimsRawBody: $('#claims-raw-body'),
     scoreboard: $('#scoreboard'), scoreTrue: $('#score-true'), scoreFalse: $('#score-false'), scoreUnv: $('#score-unverified'),
     scoreUnread: $('#score-unread'), scoreUnreadWrap: $('#score-unread-wrap'),
     report: $('#btn-report'),
@@ -837,7 +836,6 @@ function resetRunState() {
   state.creditStop = null;
   state.extractReasoning = '';
   state.extractSearches = 0;
-  if (ui.step1Thinking) { ui.step1Thinking.hidden = true; ui.step1ThinkingBody.textContent = ''; ui.step1Thinking.open = false; }
   ui.bar1.classList.remove('is-waiting');
   cancelJobs();
   state.abort?.abort();
@@ -858,8 +856,6 @@ function resetRunState() {
   ui.beyondList.replaceChildren();
   ui.claims.hidden = true;
   ui.beyond.hidden = true;
-  ui.claimsRaw.hidden = true;
-  ui.claimsRaw.open = false;
   ui.scoreboard.hidden = true;
   ui.report.hidden = true;
   ui.echo.hidden = true;
@@ -992,8 +988,9 @@ async function runExtraction(text) {
       case 'claim': if (!state.rankRun && ev.top !== false) addClaim(++state.streamed, ev); break;
       case 'progress': state.extractChars = ev.chars; state.found = Math.max(state.found, ev.found || 0); break;
       case 'reasoning':
+        // The listing's thinking (the operator's alone: a reader's page receives none of it).
         state.extractReasoning += ev.text || '';
-        renderExtractThinking();
+        ext.listingThinking(state.extractReasoning.trim());
         break;
       case 'trail':
         state.extractSearches = ev.searches || (state.extractSearches + 1);
@@ -1089,16 +1086,6 @@ function updateExtractBar() {
   setStatus('step1', 'step1.listing', { time: fmtSeconds(elapsed) });
 }
 
-/** The model's own account of its reading, shown as it arrives. Nothing is summarised by us. */
-function renderExtractThinking() {
-  const text = state.extractReasoning.trim();
-  ui.step1Thinking.hidden = !text;
-  if (!text) return;
-  ui.step1ThinkingSummary.textContent = t('step1.thinkingTitle');
-  ui.step1ThinkingBody.textContent = text;
-  ui.step1ThinkingBody.scrollTop = ui.step1ThinkingBody.scrollHeight;
-}
-
 // A claim is the text the listing wrote under its claim label, and only that: it is the row's title
 // and it is what is tested. Nothing else the listing wrote with it is shown or sent (the operator, 24
 // October: "I don't want the extraction to affect downstream processing in any way"); the listing's
@@ -1153,8 +1140,7 @@ function finishExtraction(ev) {
   ui.claims.hidden = all.length === 0 && !state.claimsRaw;
   renderClaimsHeadings();
   buildBeyondRows();
-  renderClaimsRaw();
-  ext.listingDone(ev);
+  ext.listingDone(ev);   // on the operator's page, the listing as the model wrote it
 
   setStep(ui.step1, 'done');
   ui.bar1.classList.remove('is-waiting');   // the ranking's waiting stripes, gone with it
@@ -1269,19 +1255,6 @@ function renderClaimsHeadings() {
   // The claims that run without a press: those shown first, never one waiting behind "Show the other claims".
   const first = state.claims.filter((c) => c.top !== false).slice(0, autoFirst()).length;
   ui.claimsSub.textContent = first === 0 ? '' : (state.beyond.length ? t('claims.testing', { n: first }) : t('claims.all', { n: first }));
-}
-
-function renderClaimsRaw() {
-  if (!state.claimsRaw) { ui.claimsRaw.hidden = true; return; }
-  ui.claimsRaw.hidden = false;
-  ui.claimsRawSummary.textContent = t('claims.raw');
-  const reasoning = state.extraction?.reasoning;
-  const trail = state.extraction?.trail || [];
-  const parts = [];
-  if (reasoning) parts.push(`${t('card.details.reasoning')}\n\n${reasoning}`);
-  if (trail.length) parts.push(`${t('card.details.trail', { n: trail.length })}\n\n${trail.map((s) => `  ${s.kind ? (s.kind === 'tool' ? s.name : s.kind) : t(`trail.${s.verb || 'search'}`)}: ${s.query || s.url || s.pattern || ''}${s.error ? ` · ${s.error}` : ''}`).join('\n')}`);
-  parts.push(state.claimsRaw);
-  ui.claimsRawBody.textContent = parts.join(`\n\n${'─'.repeat(40)}\n\n`);
 }
 
 // ---------- claims beyond the first ten: the reader chooses ------------------------------------
@@ -1633,7 +1606,6 @@ function handleEvalEvent(ev, mapIndex) {
     case 'trail': r.trail.push(ev.step); renderCardStatus(i); break;
     case 'quote': r.free = ev.free ?? null; r.priceCents = ev.priceCents ?? null; if (Number.isFinite(ev.balanceCents)) setBalance(ev.balanceCents); renderBeyondTools(); break;   // free, or the price: the server's word, and the balance after its hold
     case 'source': r.sources.push(ev.source); break;
-    case 'note': if (ev.code === 'no_reasoning_summary') r.noSummary = true; break;
     case 'retry':
       r.phase = 'retry'; r.retryAttempt = ev.attempt; r.retryStatus = ev.status ?? null;
       // A wait says when it ends, so a wait that arrives late, after a cut, still ends when it was said to.
@@ -1897,34 +1869,15 @@ function renderBadge(i) {
   } else if (conf) conf.remove();
 }
 
-/** Anything the run produced that is not the entry itself: reasoning, searches, sources, raw text. */
+/**
+ * What the entry cites, for every reader: the sources, each a link to the article (1 November: "Sources cited in reading
+ * the article should remain"). The work behind the entry (its thinking summary, its research steps, the entry as it was
+ * written) is drawn by the operator's page alone (ext.detail, public/js/op.js).
+ */
 function renderCardDetail(i) {
   const r = state.results[i];
   const card = cardOf(i);
   const detail = $('.card-detail', card);
-  detail.hidden = false;
-
-  const reasoning = $('.card-reasoning', card);
-  if (r.reasoning) {
-    reasoning.hidden = false;
-    $('.raw-summary', reasoning).textContent = t('card.details.reasoning');
-    $('.reasoning-body', reasoning).textContent = r.reasoning;
-  } else reasoning.hidden = true;
-
-  // The steps one by one, with what each asked: the operator's by the tool's own name, a reader's in a plain word.
-  const trail = $('.card-trail', card);
-  const steps = (r.trail || []).filter((s) => s.kind || s.query || s.url);
-  if (steps.length) {
-    trail.hidden = false;
-    $('.raw-summary', trail).textContent = t('card.details.trail', { n: steps.length });
-    $('.trail-list', trail).replaceChildren(...steps.map((s) => {
-      // A search shows its query; one of CIVIC's tools shows its verb and what it was asked, and the source's answer if it kept the page.
-      const what = (s.query ? `“${s.query}”` : s.url || s.pattern || s.kind || '') + (s.kind === 'tool' && s.error ? ` · ${s.error}` : '');
-      const kind = s.kind ? (s.kind === 'tool' ? s.name || 'tool' : s.kind) : t(`trail.${s.verb || 'search'}`);
-      return el('li', {}, [el('span', { class: 'trail-kind mono', text: kind }), el('span', { text: what }), ...ext.mark(s)]);
-    }));
-  } else trail.hidden = true;
-
   const sources = $('.card-sources', card);
   if (r.sources?.length) {
     sources.hidden = false;
@@ -1932,10 +1885,8 @@ function renderCardDetail(i) {
     $('.sources-list', sources).replaceChildren(...r.sources.map((s) =>
       el('li', {}, [el('a', { href: s.url, target: '_blank', rel: 'noopener', text: s.title || s.url }), ...ext.mark(s)])));
   } else sources.hidden = true;
-
-  const raw = $('.card-raw', card);
-  $('.raw-summary', raw).textContent = t('card.details.raw', { n: fmtNumber(r.text.length) });
-  $('.raw-entry', raw).textContent = r.text;
+  ext.detail(r, card);
+  detail.hidden = ![...detail.children].some((box) => !box.hidden);
 }
 
 function renderCardNote(i) {
@@ -1945,7 +1896,7 @@ function renderCardNote(i) {
   const parts = [];
   if (!r.verdict) parts.push(t('card.noteUnread'));
   if (r.incomplete) parts.push(t('card.noteIncomplete', { reason: r.incomplete }));
-  if (r.noSummary) parts.push(t('card.noteNoSummary'));
+  ext.noteParts(r, parts);   // the operator's notes about the work's own boxes
   note.textContent = parts.join(' ');
   note.hidden = parts.length === 0;
 }
@@ -2122,7 +2073,6 @@ function refreshDynamicText() {
   for (const tag of $$('.card-tag')) tag.textContent = t('card.headline');
   syncBeyondRows();
   renderSummary();
-  renderClaimsRaw();
   renderScoreboard();
   state.results.forEach((r, i) => {
     if (r.status === 'done') { renderBadge(i); renderCardDetail(i); renderCardNote(i); renderCardFoot(i); }

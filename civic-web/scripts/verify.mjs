@@ -4515,40 +4515,58 @@ async function readerViewChecks() {
 
     const rList = r.listing.find((e) => e.t === 'done');
     const oList = o.listing.find((e) => e.t === 'done');
-    check('a reader\'s listing arrives whole: its claims and the raw listing as the prompt wrote it, with its steps; never the model, its effort or the cost',
-      rList?.claims?.length > 0 && typeof rList.raw === 'string' && rList.raw.length > 0 && rList.raw === oList?.raw && Array.isArray(rList.trail)
+    // 1 November, the operator: "I have only asked you to extract the actual processes that are at the very end … I have
+    // not asked you to remove any of my outputs other than to mask the output of the identity of the person evaluating
+    // the claim." The outputs reach a reader whole; the work behind them is the operator's alone.
+    check('a reader\'s listing arrives with its claims: not the listing as the model wrote it, its thinking or its steps (the operator\'s alone, 1 November), and never the model, its effort or the cost; the operator\'s has the listing as written',
+      rList?.claims?.length > 0 && JSON.stringify(rList.claims) === JSON.stringify(oList?.claims)
+        && ['raw', 'reasoning', 'trail'].every((k) => !(k in rList)) && !r.listing.some((e) => e.t === 'reasoning' || e.t === 'note')
         && ['model', 'requested', 'effort', 'mode', 'cost', 'fellBack'].every((k) => !(k in rList))
-        && r.listing.filter((e) => e.t === 'start').every((e) => !('model' in e) && !('requested' in e)) && 'model' in oList,
+        && r.listing.filter((e) => e.t === 'start').every((e) => !('model' in e) && !('requested' in e))
+        && 'model' in oList && typeof oList.raw === 'string' && oList.raw.length > 0,
       JSON.stringify({ reader: Object.keys(rList || {}), operator: Object.keys(oList || {}) }));
 
     const rDet = r.det;
     const rDone = rDet.find((e) => e.t === 'done');
+    const oDone = o.det.find((e) => e.t === 'done');
     const types = new Set(rDet.map((e) => e.t));
-    check('a reader\'s claim streams its entry and counts its steps as they happen; its thinking and each step\'s question come with the finished claim; its starts name no model, effort or provider',
-      Boolean(rDone) && !types.has('reasoning') && !types.has('gate') && rDet.some((e) => e.t === 'phase' && e.phase === 'inspecting')
+    check('a reader\'s claim streams its entry\'s length and counts its steps as they happen, each by its plain word; nothing of its thinking (only that its inspector is at work) and no note about the work; its starts name no model, effort or provider',
+      Boolean(rDone) && !types.has('reasoning') && !types.has('note') && !types.has('gate') && rDet.some((e) => e.t === 'phase' && e.phase === 'inspecting')
         && rDet.filter((e) => e.t === 'trail').every((e) => JSON.stringify(Object.keys(e.step || {})) === '["verb"]')
+        && JSON.stringify(rDet.filter((e) => e.t === 'trail').map((e) => e.step.verb)) === '["search","open","find","search"]'
         && rDet.filter((e) => e.t === 'start' || e.t === 'batch-start').every((e) => ['model', 'effort', 'requested', 'provider', 'mode'].every((k) => !(k in e))),
       JSON.stringify([...types]));
-    check('a reader\'s finished claim keeps every output: the verdict, the confidence, the reasoning summary, every step, the sources; the model told by no name and no level (no depth either)',
-      Boolean(rDone) && ['inspector', 'verdictSource', 'model', 'requested', 'effort', 'mode', 'cost', 'depth'].every((k) => !(k in rDone))
-        && /Restating the proposition/.test(rDone.reasoning || '') && rDone.trail?.length === 4 && rDone.sources?.length === 2
-        && Boolean(rDone.verdict) && Number.isFinite(rDone.confidence),
+    check('a reader\'s finished claim keeps every output (the entry, the verdict, the confidence, the conclusion, the sources) and none of the work behind them: no thinking summary, no step\'s question or address (1 November); the model told by no name and no level (no depth either)',
+      Boolean(rDone) && ['inspector', 'verdictSource', 'model', 'requested', 'effort', 'mode', 'cost', 'depth', 'reasoning', 'trail'].every((k) => !(k in rDone))
+        && rDone.sources?.length === 2 && Boolean(rDone.verdict) && Number.isFinite(rDone.confidence) && Boolean(rDone.conclusion) && rDone.text.length > 0,
       JSON.stringify(Object.keys(rDone || {})));
+    // The entry, word for word (the stand-in draws its verdict anew for every claim, so the two runs differ): the operator's
+    // own finished claim, put through the view a reader's run is put through, keeps every line the entry writes, with the
+    // inspector's name made its mark and nothing else changed; and the reader's own entry has every section the entry writes.
+    const { readerView } = await import('../server/view.js');
+    const viewed = readerView({ keep: [claim, ACCT_TEXT], what: 'claim' })(oDone) || {};
+    const opLines = String(oDone?.text || '').split('\n');
+    const viewedLines = String(viewed.text || '').split('\n');
+    const nameIn = /Edwin|Cardale|geologist/;
+    check('a reader\'s entry is the operator\'s word for word, the inspector\'s name made its mark and nothing else changed: the same claim through the reader\'s view keeps every line, its verdict, confidence, conclusion and sources; and the reader\'s own entry has every section the entry writes',
+      Boolean(oDone) && viewed.text === maskEntry(oDone.text, { name: oDone.inspector, keep: keptWords([claim, ACCT_TEXT].join('\n')) }) && viewed.text !== oDone.text
+        && viewedLines.length === opLines.length && opLines.every((l, k) => (nameIn.test(l) ? /Inspector F/.test(viewedLines[k]) && !nameIn.test(viewedLines[k]) : viewedLines[k] === l))
+        && viewed.verdict === oDone.verdict && viewed.confidence === oDone.confidence
+        && JSON.stringify(viewed.sources) === JSON.stringify((oDone.sources || []).map((x) => ({ url: x.url, title: x.title })))
+        && String(viewed.conclusion || '').replace(/Inspector F/g, '') === String(oDone.conclusion || '').replace(/Sir Edwin Cardale|Edwin Cardale|Sir Edwin|Edwin|Professor Cardale|Dr\.? Cardale/g, '')
+        && ['**Name**', '**Claim**', '**Notes**', '**Conclusion**', '**Confidence**'].every((h) => (rDone?.text || '').includes(h)),
+      JSON.stringify({ lines: [opLines.length, viewedLines.length], differ: opLines.map((l, k) => (l === viewedLines[k] ? null : [l, viewedLines[k]])).filter(Boolean).slice(0, 4) }));
     const pieces = rDet.filter((e) => e.t === 'delta');
     const rSerial = JSON.stringify(r.listing) + JSON.stringify(rDet);
-    check('the inspector is a mark for a reader wherever its name stands for the inspector: on the card, on the entry\'s own line and in its body (in full, by the first name, with a title), in the reasoning summary and in the searches; as the entry is written, a reader receives only its length, and the entry whole with the finished claim; "Edwin", "Cardale" and "geologist" appear nowhere',
+    check('the inspector is a mark for a reader wherever its name stands for the inspector: on the card, on the entry\'s own line and in its body (in full, by the first name, with a title); as the entry is written, a reader receives only its length, and the entry whole with the finished claim; the name nowhere in what they receive',
       rDone?.inspectorMark === 'Inspector F' && /^\*\*Name\*\*: Inspector F$/m.test(rDone?.text || '')
         && /As Inspector F, I weighed the record; Inspector F read it twice, and Inspector F agrees\./.test(rDone?.text || '')
         && pieces.length > 0 && pieces.every((e) => !('text' in e) && Number.isInteger(e.n) && e.n > 0)
-        && /Working as Inspector F through the record\./.test(rDone?.reasoning || '') && /^Inspector F /.test(rDone?.trail?.[0]?.query || '') && !/Edwin|Cardale|geologist/.test(rSerial),
-      JSON.stringify({ mark: rDone?.inspectorMark, line: (rDone?.text || '').split('\n')[0], pieces: pieces.length, piece: pieces[0], query: rDone?.trail?.[0]?.query, reasoning: (rDone?.reasoning || '').slice(0, 60) }));
+        && !/Edwin|Cardale|geologist/.test(rSerial),
+      JSON.stringify({ mark: rDone?.inspectorMark, line: (rDone?.text || '').split('\n')[0], pieces: pieces.length, piece: pieces[0] }));
     const pr = parse(rDone?.text || '');
     check('a reader\'s verdict and confidence are the entry\'s own, read from the very text they received',
       pr.verdict === rDone?.verdict && pr.confidence === rDone?.confidence, JSON.stringify({ parsed: [pr.verdict, pr.confidence], sent: [rDone?.verdict, rDone?.confidence] }));
-    check('a reader\'s research steps keep what they asked and where they went, each named by a plain word (search, open, find), never by the tool',
-      JSON.stringify((rDone?.trail || []).map((x) => x.verb)) === '["search","open","find","search"]' && Boolean(rDone.trail[0].query) && Boolean(rDone.trail[1].url)
-        && Boolean(rDone.trail[2].pattern) && Boolean(rDone.trail[3].query) && rDone.trail.every((x) => !('kind' in x) && !('name' in x) && !('source' in x)),
-      JSON.stringify(rDone?.trail));
     check('a reader is not told a standby model answered (31 October, night): no warning of it and no word of it on the finished claim; nor any wait, retry or figure of their turn',
       !rDet.some((e) => e.t === 'warning') && !['standby', 'fellBack'].some((k) => k in (rDone || {}))
         && !rDet.some((e) => e.t === 'retry' || e.t === 'rank-retry') && rDet.filter((e) => e.t === 'phase' && e.phase === 'queued').every((e) => !('waitMs' in e) && !('position' in e))
@@ -4558,7 +4576,6 @@ async function readerViewChecks() {
     check('no name that gives the method away reaches a reader\'s stream: no model id, effort, tool name or verdict source',
       TELLS.every((w) => !rSerial.includes(w)), TELLS.filter((w) => rSerial.includes(w)).join(', '));
 
-    const oDone = o.det.find((e) => e.t === 'done');
     check('the operator sees the whole of their run as before: the name the entry gives, the model and effort, the thinking, the tools\' own steps (each with its plain word), the fallback\'s models',
       oDone?.inspector === 'Sir Edwin Cardale' && !oDone.inspectorMark && oDone.model === config.evalModels[0] && oDone.effort === config.evalEffort && Boolean(oDone.verdictSource)
         && o.det.some((e) => e.t === 'reasoning') && /Sir Edwin Cardale/.test(oDone.text)
@@ -4851,8 +4868,8 @@ async function nameClassChecks() {
     const rDone = r.det.find((e) => e.t === 'done');
     const oDone = o.det.find((e) => e.t === 'done');
     const rAll = JSON.stringify(r);
-    check('a reader\'s fact-check from an entry that writes the class: the name\'s line, the notes and the conclusion carry the mark; outside the class, the full name too, and a point named after the surname and the first name alone as written; no span and no class word anywhere it received',
-      rDone?.inspectorMark === 'Inspector F' && /^\*\*Name\*\*: Inspector F$/m.test(rDone?.text || '')
+    check('a reader\'s fact-check from an entry that writes the class: the name\'s line and the conclusion carry the mark (its thinking is the operator\'s alone); outside the class, the full name too, and a point named after the surname and the first name alone as written; no span and no class word anywhere it received',
+      rDone?.inspectorMark === 'Inspector F' && /^\*\*Name\*\*: Inspector F$/m.test(rDone?.text || '') && !('reasoning' in (rDone || {}))
         && /As Inspector F, I weighed the record; Inspector F read it twice, and the Cardale point is cited\. Inspector F signs it\. Edwin agrees\./.test(rDone?.text || '')
         && /So says Inspector F\.$/.test(rDone?.conclusion || '') && /So says Inspector F\./.test(rDone?.text || '')
         && !/<span|qx-7|Sir Edwin|Edwin Cardale|geologist/i.test(rAll),
@@ -5115,19 +5132,23 @@ async function downloadChecks() {
       styleFaults.length === 0 && pageFaults.length === 0, JSON.stringify({ styleFaults, pageFaults }));
 
     // (b) The page in the asker's form: a reader's without the operator's parts, the operator's with them.
-    const OPERATOR_IDS = ['score-internal', 'score-cost', 'score-entries', 'step2-gate', 'trial-bar', 'trial-grid', 'trial-why', 'op-words', 'ext-script'];
+    const OPERATOR_IDS = ['score-internal', 'score-cost', 'score-entries', 'step2-gate', 'trial-bar', 'trial-grid', 'trial-why', 'op-words', 'ext-script',
+      // The work behind the outputs (1 November): the listing's thinking and the listing as written, the operator's alone.
+      'step1-thinking', 'step1-thinking-summary', 'step1-thinking-body', 'claims-raw', 'claims-raw-summary', 'claims-raw-body'];
     const idsOf = (html) => new Set([...html.matchAll(/\bid="([^"]+)"/g)].map((m) => m[1]));
     const readerHome = (await raw(PA, '/', { cookie: reader })).text;
     const visitorHome = (await raw(PA, '/')).text;
     const opHome = (await raw(PA, '/', { cookie: op })).text;
     const onlyOp = [...idsOf(opHome)].filter((id) => !idsOf(readerHome).has(id)).sort();
     const src = fs.readFileSync(path.join(publicDir, 'index.html'), 'utf8');
-    check('a reader and a visitor receive the page without the operator\'s parts and without a comment; the operator receives it with every part, their tools\' script and style sheet named at the build\'s addresses; the parts are exactly the operator\'s nine',
+    check('a reader and a visitor receive the page without the operator\'s parts and without a comment; the operator receives it with every part, their tools\' script and style sheet named at the build\'s addresses; the parts are exactly the operator\'s fifteen, and a card\'s boxes of the work behind it (thinking, steps, the entry as written) are the operator\'s while "Sources cited" is everyone\'s',
       readerHome === visitorHome && readerHome === assets.stampAddresses(assets.stripPage(assets.withoutOperatorParts(src)), build)
         && OPERATOR_IDS.every((id) => !readerHome.includes(`id="${id}"`) && opHome.includes(`id="${id}"`)) && JSON.stringify(onlyOp) === JSON.stringify([...OPERATOR_IDS].sort())
         && !/chip-internal|class="card-cost|class="card-why"|<!--|op\.js|op\.css/.test(readerHome) && /class="card-cost/.test(opHome) && /class="card-why"/.test(opHome) && !opHome.includes('<!--')
         && opHome.includes(`<link rel="stylesheet" href="/b/${build}/css/op.css">`) && opHome.includes(`<link rel="modulepreload" id="ext-script" href="/b/${build}/js/op.js">`)
-        && readerHome.includes('id="tpl-card"') && readerHome.includes('class="card-foot"') && (readerHome.match(/<label class="form-field">/g) || []).length >= 4,
+        && readerHome.includes('id="tpl-card"') && readerHome.includes('class="card-foot"') && (readerHome.match(/<label class="form-field">/g) || []).length >= 4
+        && ['card-reasoning', 'card-trail', 'card-raw', 'reasoning-body', 'raw-entry', 'trail-list'].every((c) => !readerHome.includes(c) && opHome.includes(c))
+        && readerHome.includes('class="raw card-sources"') && opHome.includes('class="raw card-sources"'),
       JSON.stringify({ onlyOp, same: readerHome === visitorHome }));
 
     // (c) The check page and its script, every way the address can be spelt: "Not found" for anyone but the operator,
@@ -5227,14 +5248,18 @@ async function downloadChecks() {
       'step2.waitingProvider', 'card.waitingProvider', 'card.inspector', 'card.modelLine', 'warn.modelFallback', 'errors.checkLink',
       // What FactEngine works around on its way (31 October, night): a reader's page says only the work going on.
       'step1.queued', 'step1.queuedTimed', 'step1.retry', 'step1.unreachable', 'step1.reconnecting', 'step2.throttled', 'step2.unreachable',
-      'card.retry', 'card.waitingLimit', 'card.queued', 'card.waitingConnection', 'card.reconnecting', 'warn.fallback', 'net.connection', 'net.ECONNRESET'];
+      'card.retry', 'card.waitingLimit', 'card.queued', 'card.waitingConnection', 'card.reconnecting', 'warn.fallback', 'net.connection', 'net.ECONNRESET',
+      // The boxes of the work behind the outputs (1 November): the operator's alone.
+      'step1.thinkingTitle', 'claims.raw', 'card.details.reasoning', 'card.details.trail_one', 'card.details.trail_other', 'card.details.raw',
+      'card.noteNoSummary', 'trail.search', 'trail.open', 'trail.find', 'trail.read', 'trail.transcript'];
     const flat = (o, pre = '') => Object.entries(o).flatMap(([k, v]) => (v && typeof v === 'object' ? flat(v, `${pre}${k}.`) : [`${pre}${k}`]));
     const keys = new Set();
     for (const code of ['en', 'es', 'fr', 'de']) for (const k of flat((await import(pathToFileURL(path.join(publicDir, 'locales', `${code}.js`)).href)).default)) keys.add(`${code}:${k}`);
     const sentEveryone = (await Promise.all(['/js/app.js', '/locales/en.js', '/locales/es.js', '/locales/fr.js', '/locales/de.js'].map(async (a) => (await raw(PA, a, { cookie: reader })).text))).join('\n');
     check('the operator\'s words (the key\'s minute, the costs, the trial\'s labels) are on the operator\'s page alone: no locale carries them, nothing everyone downloads says them, and the operator\'s page does',
-      MOVED.every((k) => ['en', 'es', 'fr', 'de'].every((c) => !keys.has(`${c}:${k}`))) && !/[Tt]okens|jetons|Est\. cost|price unknown|\(readers\)|Side by side|Tick at least one|models and levels|zero credibility|Why did this happen|asks to wait|waiting for \{who\}|Tested with \{used\}|going again|waiting for the connection|Retrying|waiting their turn|standby model/.test(sentEveryone)
-        && opHome.includes('data-gate="The key\'s minute:') && opHome.includes('<span class="chip chip-internal">Internal</span> <span>Est. cost</span>') && !readerHome.includes('data-gate'),
+      MOVED.every((k) => ['en', 'es', 'fr', 'de'].every((c) => !keys.has(`${c}:${k}`))) && !/[Tt]okens|jetons|Est\. cost|price unknown|\(readers\)|Side by side|Tick at least one|models and levels|zero credibility|Why did this happen|asks to wait|waiting for \{who\}|Tested with \{used\}|going again|waiting for the connection|Retrying|waiting their turn|standby model|Reasoning summary|Search trail|Raw entry|Extraction output|What the model says it is doing|No reasoning summary/.test(sentEveryone)
+        && opHome.includes('data-gate="The key\'s minute:') && opHome.includes('<span class="chip chip-internal">Internal</span> <span>Est. cost</span>') && !readerHome.includes('data-gate')
+        && opHome.includes('data-details-reasoning="Reasoning summary"') && opHome.includes('data-claims-raw="Extraction output, verbatim"') && !readerHome.includes('data-details-'),
       MOVED.filter((k) => ['en', 'es', 'fr', 'de'].some((c) => keys.has(`${c}:${k}`))).join(', '));
 
     // (h) The scripts everyone downloads name none of the operator's tools (31 October, night: "I don't plan on giving away
@@ -5485,9 +5510,10 @@ async function blockedSiteChecks() {
     ];
     const seenText = JSON.stringify(seen);
     const doneSeen = [seen[3]].flat().find((e) => e?.t === 'done');
-    check('Sites: what a reader receives carries no mark and no count of the operator\'s lists, from a live source or a finished claim, while its sources and steps stay whole',
+    check('Sites: what a reader receives carries no mark and no count of the operator\'s lists, from a live source or a finished claim, while its sources stay whole and its steps are counted by their plain word alone (the steps\' addresses are the operator\'s, 1 November)',
       !/"listed"|"keptOut"/.test(seenText) && seen[0]?.source?.url === 'https://kept-one.example/r' && seen[0]?.source?.title === 'A page'
-        && doneSeen?.sources?.length === 2 && doneSeen.trail?.[0]?.url === 'https://kept-one.example/r', seenText.slice(0, 400));
+        && JSON.stringify(seen[2]?.step) === '{"verb":"open"}'
+        && doneSeen?.sources?.length === 2 && !('trail' in (doneSeen || {})), seenText.slice(0, 400));
 
     await new Promise((r) => site.listen(SITEP, r));
 

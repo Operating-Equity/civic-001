@@ -1,11 +1,17 @@
-// What a reader receives of a run: all of its work and its results, under the operator's names (the operator's decision
-// of 19 October). The operator, and an open door, receive every event as it is made; anyone else receives each event
-// through readerView, which keeps every output the page shows and gives it the operator's names:
+// What a reader receives of a run: every output the operator's prompts write, under the operator's names (the operator's
+// decision of 19 October), and nothing of the work behind it (1 November). The operator, and an open door, receive every
+// event as it is made; anyone else receives each event through readerView:
+// - every output, whole: the listing's claims; for each claim, the entry, its verdict, its confidence, its conclusion and
+//   the sources it cites (1 November: "Sources cited in reading the article should remain");
 // - the inspector's name is its mark ("Inspector B" for an Albert, server/verdict.js) wherever it stands for the
-//   inspector: on the card, in the entry, in the thinking's summary and the research steps (31 October). An entry that
-//   writes the operator's class for the name is read by it (31 October, evening), and no span's markup reaches a reader.
-//   The entry comes whole with the finished claim; as it is written, a reader receives only how much there is of it;
-// - each research step's tool is a plain word (search, open, find, read, transcript), with its question and address;
+//   inspector: on the card, in the entry and in its conclusion (31 October). An entry that writes the operator's class
+//   for the name is read by it (31 October, evening), and no span's markup reaches a reader. The entry comes whole with
+//   the finished claim; as it is written, a reader receives only how much there is of it;
+// - the work behind the outputs is the operator's alone (31 October: "We are not going to have the boxes on the user
+//   interface that allow people to see how the system is running underneath"; 1 November: "the actual processes that
+//   are at the very end"): no thinking summary, no research step's question or address, no listing as the model wrote
+//   it, and no note about any of them. A claim's steps are counted as they happen, a plain word each, for its progress
+//   and its card's counts;
 // - the model is "LLR" on the page, with no name and no level (31 October: "The users do not care what level the model
 //   is run at. They care about the answers.");
 // - nothing of what FactEngine works around on its way (31 October, night: "it does not help you or the service to show
@@ -14,12 +20,12 @@
 //   and any other as one plain sentence.
 // Fields no page shows are not sent: where a verdict was read, the request's own settings, the key's minute figures, the
 // price's tier.
-// Nor is what is the operator's alone: which sources and steps are of a site the operator keeps out of the research, and
-// how many a fact-check took from that list (server/sites.js), so the list is never a tell.
+// Nor is what is the operator's alone: which sources are of a site the operator keeps out of the research, and how many a
+// fact-check took from that list (server/sites.js), so the list is never a tell.
 //
 // The view is applied where the job records each event (server/jobs.js), so a page that comes back after a cut connection,
 // or reads a finished run again, receives exactly what it would have received.
-import { classForms, inspectorMark, keptWords, maskClassed, maskEntry, maskName, unclassed, withoutSpans } from './verdict.js';
+import { classForms, inspectorMark, keptWords, maskClassed, maskEntry, maskName, withoutSpans } from './verdict.js';
 import { verbOf } from './tools/request.js';
 
 const pick = (ev, keys) => {
@@ -82,24 +88,6 @@ export function readerError(ev, { what = 'other' } = {}) {
 /** A cited source as a reader receives it: its address and title, and nothing the operator's card adds to it. */
 const readerSource = (s) => (s && typeof s === 'object' ? pick(s, ['url', 'title']) : s);
 
-/**
- * Text written outside the entry (the thinking's summary, a search's question), as a reader receives it: the inspector's
- * name made the mark in every form (maskName), for the class cannot reach it there; and no span's markup.
- */
-const told = (text, name, keep) => withoutSpans(maskName(unclassed(text), name, keep));
-
-/** A research step as a reader receives it: what it did, in a plain word, what it asked and where it went; never the tool. */
-function readerStep(step, name, keep = '') {
-  if (!step || typeof step !== 'object') return null;
-  const out = { verb: step.verb || verbOf(step) };
-  if (step.query) out.query = told(step.query, name, keep);
-  if (step.url) out.url = step.url;
-  if (step.pattern) out.pattern = told(step.pattern, name, keep);
-  if (step.status) out.status = step.status;
-  if (step.error) out.error = maskProviders(step.error);
-  return out;
-}
-
 /** The listing's ranking as a reader receives it: the summary, the order and the headline; not why it failed or what ran it. */
 function readerRanking(r) {
   if (!r || typeof r !== 'object') return r;
@@ -112,8 +100,8 @@ function readerRanking(r) {
 /**
  * A reader's view of one job: a function from each event the job makes to what the reader receives of it (an event, a
  * list of events, or nothing). As a claim's entry is written, a reader receives only how much of it there is (the card's
- * bar); the entry itself, its thinking and its steps' details arrive with the finished claim, the inspector's name made
- * the mark wherever it stands for the inspector, but in the words the reader gave (`keep`: the claims and the document).
+ * bar); the entry itself arrives with the finished claim, the inspector's name made the mark wherever it stands for the
+ * inspector, but in the words the reader gave (`keep`: the claims and the document).
  */
 export function readerView({ keep = [], what = 'other' } = {}) {
   // Read when a claim finishes, once for the run, so a long document is read once and not for every text masked.
@@ -143,8 +131,9 @@ export function readerView({ keep = [], what = 'other' } = {}) {
         return n ? { t: 'delta', i: ev.i, n } : null;
       }
       case 'reasoning':
-        // The listing's thinking as it comes (it names no inspector); a claim's, with the finished claim.
-        if (ev.i === undefined) return { t: 'reasoning', text: ev.text || '' };
+        // Thinking is the work behind the outputs, the operator's alone: the listing's is not sent; a claim's first piece
+        // tells the reader's card that its inspector is at work, and nothing of what it thought.
+        if (ev.i === undefined) return null;
         if (thinking.has(ev.i)) return null;
         thinking.add(ev.i);
         return { t: 'phase', i: ev.i, phase: 'inspecting' };
@@ -153,11 +142,12 @@ export function readerView({ keep = [], what = 'other' } = {}) {
         if (ev.phase === 'queued') return pick(ev, ['t', 'i', 'phase']);   // its turn, without its figures
         return pick(ev, ['t', 'i', 'phase', 'searches', 'claims']);
       case 'trail':
-        // A claim's step is counted as it happens; what it asked comes with the finished claim, its inspector's name made
-        // the mark. The listing's steps name no inspector.
-        return { ...pick(ev, ['t', 'i', 'searches']), step: ev.i === undefined ? readerStep(ev.step, null) : { verb: ev.step?.verb || verbOf(ev.step) } };
+        // A claim's step is counted as it happens, by its plain word (search, open, find, read, transcript), for its
+        // progress and its card's counts; what it asked and where it went are the operator's. The listing's, counted alone.
+        if (ev.i === undefined) return pick(ev, ['t', 'searches']);
+        return { ...pick(ev, ['t', 'i', 'searches']), step: { verb: ev.step?.verb || verbOf(ev.step) } };
       case 'note':
-        return pick(ev, ['t', 'i', 'code']);
+        return null;   // a note about the work's own boxes (no thinking summary came): the operator's, with the boxes
       case 'retry': case 'rank-retry':
         return null;   // a wait or a retry is FactEngine's to work around, never the reader's to watch
       case 'warning':
@@ -165,9 +155,9 @@ export function readerView({ keep = [], what = 'other' } = {}) {
         return null;   // a standby model's answer among them: the reader is not told (31 October, night)
       case 'done':
         if (ev.i === undefined) {
+          // The listing's claims, its time and its ranking; not the listing as the model wrote it, its thinking or its steps.
           return {
-            ...pick(ev, ['t', 'total', 'limit', 'claims', 'raw', 'reasoning', 'ms']),
-            trail: (ev.trail || []).map((s) => readerStep(s, null)),
+            ...pick(ev, ['t', 'total', 'limit', 'claims', 'ms']),
             incomplete: ev.incomplete || null,
             ...(ev.ranking !== undefined ? { ranking: readerRanking(ev.ranking) } : {}),
           };
@@ -183,8 +173,6 @@ export function readerView({ keep = [], what = 'other' } = {}) {
             inspectorMark: name ? inspectorMark(name) : null,
             conclusion: ev.conclusion ? concluded(ev.conclusion) : ev.conclusion ?? null,
             text: maskEntry(ev.text || '', { name, keep: kept }),
-            reasoning: ev.reasoning ? told(ev.reasoning, name, kept) : null,
-            trail: (ev.trail || []).map((s) => readerStep(s, name, kept)),
             incomplete: ev.incomplete || null,
           };
         }

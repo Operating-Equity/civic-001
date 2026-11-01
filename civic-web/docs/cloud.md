@@ -1370,6 +1370,20 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
     ready. The scripts and language files a stranger downloads say nothing of a wait, a retry, a cut connection or a
     standby; the boot line says none of the tell words is in what a reader receives. The standby's model answered
     neutral test claims on the operator's key, for a few cents (never the operator's prompt). Live check clean.
+- **1 November: the work behind the outputs is the operator's; every output stays.** The operator: "I have only asked
+  you to extract the actual processes that are at the very end. They are narrow little slits in the page where you
+  click … I have not asked you to remove any of my outputs other than to mask the output of the identity of the person
+  evaluating the claim"; and "Sources cited in reading the article should remain."
+  - **What a reader receives** (`server/view.js`): every output, whole, as before:
+    - the listing's claims;
+    - for each claim, the entry, the verdict, the confidence, the conclusion and the sources cited;
+    - the inspector's name made its mark, as before.
+  - **What leaves a reader's page:** the boxes that show the work behind the outputs (a card's thinking summary,
+    research steps and entry as written; the listing's thinking and the listing as written), and the note about a
+    missing thinking summary. Their contents are no longer sent to a reader. A claim's steps are still counted as they
+    happen, a plain word each, for its progress and its card's counts.
+  - **The operator's page keeps every box** (`public/index.html`, the operator's part; `public/js/op.js`), in their
+    words. The boxes' labels left the four locales.
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 

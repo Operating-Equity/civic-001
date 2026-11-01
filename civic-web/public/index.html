@@ -186,10 +186,13 @@
             <span class="step-status" id="step1-status"></span>
           </div>
           <div class="bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="bar-extract"><i></i></div>
+<!--op-->
+          <!-- The listing's thinking as it arrives (1 November: the work behind the outputs is the operator's alone). -->
           <details class="raw step-thinking" id="step1-thinking" hidden>
             <summary class="raw-summary" id="step1-thinking-summary"></summary>
             <div class="raw-body" id="step1-thinking-body"></div>
           </details>
+<!--/op-->
         </div>
 
         <div class="step" id="step-eval" data-state="idle">
@@ -254,10 +257,13 @@
         <button type="button" class="btn btn-text btn-small claims-rest" id="btn-show-rest" aria-controls="claims-beyond-list" hidden></button>
         <p class="hint claims-set-aside" id="claims-set-aside" hidden></p>
       </div>
+<!--op-->
+      <!-- The listing as the model wrote it, with its thinking and its steps: the operator's alone (1 November). -->
       <details class="raw" id="claims-raw" hidden>
         <summary class="raw-summary" id="claims-raw-summary"></summary>
         <pre class="raw-body" id="claims-raw-body"></pre>
       </details>
+<!--/op-->
     </section>
 
     <div class="run-end">
@@ -306,6 +312,8 @@
     <p class="card-note" hidden></p>
     <div class="entry prose" hidden></div>
     <div class="card-detail" hidden>
+<!--op-->
+      <!-- The work behind the entry (1 November): its thinking summary and its research steps, the operator's alone. -->
       <details class="raw card-reasoning" hidden>
         <summary class="raw-summary"></summary>
         <pre class="raw-body reasoning-body"></pre>
@@ -314,14 +322,19 @@
         <summary class="raw-summary"></summary>
         <ol class="trail-list"></ol>
       </details>
+<!--/op-->
+      <!-- The sources the entry cites, each a link to the article: every reader's (1 November). -->
       <details class="raw card-sources" hidden>
         <summary class="raw-summary"></summary>
         <ol class="sources-list"></ol>
       </details>
+<!--op-->
+      <!-- The entry as it was written, unformatted: the operator's alone (1 November). -->
       <details class="raw card-raw">
         <summary class="raw-summary"></summary>
         <pre class="raw-body raw-entry"></pre>
       </details>
+<!--/op-->
     </div>
     <footer class="card-foot" hidden>
       <span class="card-inspector"></span>
@@ -366,7 +379,11 @@
   data-step-unreachable="{running} running · {n} waiting for the connection · {why} · {done} of {total} done · {time}"
   data-step-throttled="{running} running · {n} waiting their turn · {done} of {total} done · {time}"
   data-listing-reconnecting="The connection to FactEngine was cut · going again"
-  data-listing-unreachable="Waiting for the connection · {why} · {time}" data-listing-queued="Waiting its turn · {time}"></span>
+  data-listing-unreachable="Waiting for the connection · {why} · {time}" data-listing-queued="Waiting its turn · {time}"
+  data-step1-thinking-title="What the model says it is doing" data-claims-raw="Extraction output, verbatim"
+  data-details-reasoning="Reasoning summary" data-details-trail-one="Search trail ({n} step)"
+  data-details-trail-other="Search trail ({n} steps)" data-details-raw="Raw entry ({n} characters)"
+  data-note-no-summary="No reasoning summary is available."></span>
 <!--/op-->
 
 <script src="vendor/katex/katex.min.js"></script>
