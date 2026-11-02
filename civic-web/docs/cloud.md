@@ -1420,6 +1420,27 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
     a phone: visible while typing (ΔE 6.9 inside and 6.7 around on a desktop, 9.8 and 6.6 on a phone), at the cursor,
     the blue edge kept, settled at the settle time and gone once settled, stepped with reduced motion, and typing at
     the end of a 2.2 MB document as fast as before the light; the glass check, turned to the light.
+  - **Live** (1 November, 19:39 UTC): PR #102 deployed. Measured on the live page: ΔE 7.1 inside the box and 6.8 around
+    it on a desktop, 9.8 and 6.9 on a phone, at the cursor, settled in about a second; the page's figures are Medium and
+    the old glow's are gone; the record, the standby, the tell words and the readers' model are as before. Live check
+    clean, nothing spent.
+- **1 November: buying credit.** The operator: "my next step is the integration of stripe", the strawman theirs to
+  approve "with the idea that this service runs with a very comfortable 25% margin on all costs"; the automatic top-up,
+  the reader opting in; purchased credit not refundable; the Terms enough for the adults-only rule.
+  - **Built** (`server/payments.js`, `server/migrations/005-payments.sql`, on Stripe's `stripe` package 23.1.0): a
+    purchase on Stripe's hosted page ($10, $25, $50, or $5 to $200), written to the ledger exactly once by Stripe's
+    signed notices at `/hooks/stripe` or the reader's return, whichever comes first; the automatic top-up the reader
+    turns on, with its agreement kept; the saved card on the Account page; refunds and disputes in the ledger, a
+    dispute pausing the account; and the books on `/check`, with the margin on all costs against 25%.
+  - **The pages:** the Account page's Add credit and Automatic top-up, in four languages; Add credit under the claims
+    when the credit is short; `/check`'s payments and its columns for each account. The Terms (the purchase sentence
+    and a paragraph on automatic top-ups), the privacy page (a row for purchases and the saved card) and the refunds
+    page (purchased credit is not refunded) carry the approved words; Stripe is named on none of them.
+  - **Off until the operator switches it on** (`CIVIC_PAYMENTS`): first `operator`, for a trial in Stripe's test mode
+    on the live site, then `on`. The key and the signing secret are set in Render's dashboard by the operator. Test and
+    live stay apart: nothing of the trial (its customer, its card, its payments) is used or counted under live keys.
+  - **Proof:** the guard's payment checks against a stand-in for Stripe (`scripts/mock-stripe.js`, which serves
+    Stripe's addresses and sends signed notices), and a browser check of the Account page.
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 

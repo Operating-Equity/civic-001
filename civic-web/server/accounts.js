@@ -123,6 +123,12 @@ const rowUser = (r) => (r ? {
   id: Number(r.id), email: r.email, emailKey: r.email_key, passwordHash: r.password_hash, createdAt: ms(r.created_at),
   termsAt: ms(r.terms_at), termsVersion: r.terms_version, monthlyLimitCents: r.monthly_limit_cents === null ? null : Number(r.monthly_limit_cents),
   operator: Boolean(r.operator), blockedAt: ms(r.blocked_at), deletedAt: ms(r.deleted_at),
+  // Payments (server/payments.js, migration 005): the processor's customer, the saved card (never its number), the
+  // automatic top-up and its consent, and a hold while a dispute is open. Absent before the migration: all empty.
+  payCustomer: r.pay_customer ?? null, payMode: r.pay_mode ?? null, cardMethod: r.card_method ?? null, cardBrand: r.card_brand ?? null, cardLast4: r.card_last4 ?? null,
+  cardExp: r.card_exp ?? null, topupOn: Boolean(r.topup_on), topupLevelCents: r.topup_level_cents ?? null, topupAmountCents: r.topup_amount_cents ?? null,
+  topupCapCents: r.topup_cap_cents ?? null, topupConsentAt: ms(r.topup_consent_at ?? null), topupConsentVersion: r.topup_consent_version ?? null,
+  topupPausedAt: ms(r.topup_paused_at ?? null), topupPausedReason: r.topup_paused_reason ?? null, payHoldAt: ms(r.pay_hold_at ?? null), payHoldReason: r.pay_hold_reason ?? null,
 } : null);
 
 async function userByKey(key) {
@@ -371,7 +377,8 @@ export async function list() {
   const users = !dbOn() ? [...mem.users.values()].map((u) => ({ ...u })) : (await query('SELECT * FROM users ORDER BY id DESC')).rows.map(rowUser);
   return users.sort((a, b) => b.id - a.id).map((u) => {
     const s = sums.get(u.id) || { balanceCents: 0, monthCents: 0, tests: 0 };
-    return { id: u.id, email: u.deletedAt ? null : u.email, createdAt: new Date(u.createdAt).toISOString(), operator: u.operator, blocked: Boolean(u.blockedAt), deleted: Boolean(u.deletedAt), monthlyLimitCents: u.monthlyLimitCents, ...s };
+    return { id: u.id, email: u.deletedAt ? null : u.email, createdAt: new Date(u.createdAt).toISOString(), operator: u.operator, blocked: Boolean(u.blockedAt), deleted: Boolean(u.deletedAt), monthlyLimitCents: u.monthlyLimitCents,
+      topup: u.topupOn ? (u.topupPausedAt ? 'paused' : 'on') : 'off', hold: Boolean(u.payHoldAt), ...s };
   });
 }
 

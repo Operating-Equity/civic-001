@@ -626,4 +626,5 @@ body {
 .nav-balance:hover { border-color: var(--ink-3); }
 .balance-line { margin: 6px 0 0; font-size: 14.5px; color: var(--ink-2); }
 .balance-line.is-over { color: var(--false); }
+.balance-line a { color: var(--blue-deep); font-weight: 600; white-space: nowrap; }
 @media (max-width: 560px) { .account-box { padding: 20px 18px 18px; } .account-actions { justify-content: stretch; } .account-actions .btn { flex: 1 1 auto; justify-content: center; } }

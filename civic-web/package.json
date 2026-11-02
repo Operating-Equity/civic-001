@@ -14,7 +14,7 @@
     "verify": "node scripts/verify.mjs",
     "leak-check": "node scripts/leak-check.mjs",
     "tools": "node --env-file-if-exists=.env scripts/tools.mjs",
-    "check": "node --check server/index.js && node --check scripts/mock-openai.js"
+    "check": "node --check server/index.js && node --check scripts/mock-openai.js && node --check scripts/mock-stripe.js"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "0.133.0",
@@ -29,6 +29,7 @@
     "openai": "^7.15.0",
     "pdf-parse": "^2.4.5",
     "pg": "^8.23.1",
+    "stripe": "23.1.0",
     "undici": "^7.29.1"
   }
 }

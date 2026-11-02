@@ -93,8 +93,11 @@ const ANTHROPIC_OFF = { ANTHROPIC_API_KEY: '', CIVIC_ANTHROPIC_BASE_URL: 'http:/
 // Nothing kept out of the research (server/sites.js) unless a check sets it: a developer's own lists never reach the
 // guard's servers.
 const SITES_OFF = { CIVIC_BLOCKED_SITES: '', CIVIC_BLOCKED_SITES_FILE: '', CIVIC_BLOCKED_MORE: '', CIVIC_BLOCKED_MORE_FILE: '', CIVIC_BLOCKED_WORDS: '', CIVIC_BLOCKED_MARKUP: '' };
+// And payments off, with the payment processor out of reach (1 November, server/payments.js), unless a check points it at
+// the stand-in: no key or signing secret from the shell, an address on a closed port.
+const PAYMENTS_OFF = { CIVIC_PAYMENTS: '', CIVIC_STRIPE_KEY: '', CIVIC_STRIPE_WEBHOOK_SECRET: '', CIVIC_STRIPE_API: 'http://127.0.0.1:9/stripe' };
 const start = (args, extraEnv) => {
-  const child = spawn(process.execPath, args, { cwd: root, env: { ...process.env, ...DEEPSEEK_OFF, ...FIREWORKS_OFF, ...ACCOUNTS_OFF, ...PRICES_OFF, ...RANK_OFF, ...GEMINI_OFF, ...ANTHROPIC_OFF, ...SITES_OFF, ...extraEnv }, stdio: ['ignore', 'pipe', 'pipe'] });
+  const child = spawn(process.execPath, args, { cwd: root, env: { ...process.env, ...DEEPSEEK_OFF, ...FIREWORKS_OFF, ...ACCOUNTS_OFF, ...PRICES_OFF, ...RANK_OFF, ...GEMINI_OFF, ...ANTHROPIC_OFF, ...SITES_OFF, ...PAYMENTS_OFF, ...extraEnv }, stdio: ['ignore', 'pipe', 'pipe'] });
   child.stdout.on('data', () => {});
   child.stderr.on('data', (d) => process.stderr.write(`  [${path.basename(args[0])}] ${d}`));
   children.push(child);
@@ -736,7 +739,7 @@ function accountServer(port, mockPort, env = {}) {
   const out = [];
   const child = spawn(process.execPath, [path.join(root, 'server', 'index.js')], {
     cwd: root, stdio: ['ignore', 'pipe', 'pipe'],
-    env: { ...process.env, ...DEEPSEEK_OFF, ...FIREWORKS_OFF, ...ACCOUNTS_OFF, ...PRICES_OFF, ...RANK_OFF, ...GEMINI_OFF, CIVIC_ACCOUNTS: 'on', PORT: String(port), OPENAI_BASE_URL: `http://localhost:${mockPort}/v1`, OPENAI_API_KEY: KEY, CIVIC_IMAGE_ENABLED: 'false', CIVIC_LEDGER_FILE: path.join(os.tmpdir(), `civic-verify-accounts-ledger-${port}.jsonl`), ...env },
+    env: { ...process.env, ...DEEPSEEK_OFF, ...FIREWORKS_OFF, ...ACCOUNTS_OFF, ...PRICES_OFF, ...RANK_OFF, ...GEMINI_OFF, ...PAYMENTS_OFF, CIVIC_ACCOUNTS: 'on', PORT: String(port), OPENAI_BASE_URL: `http://localhost:${mockPort}/v1`, OPENAI_API_KEY: KEY, CIVIC_IMAGE_ENABLED: 'false', CIVIC_LEDGER_FILE: path.join(os.tmpdir(), `civic-verify-accounts-ledger-${port}.jsonl`), ...env },
   });
   child.stdout.on('data', (d) => out.push(String(d)));
   child.stderr.on('data', (d) => out.push(String(d)));
@@ -5729,20 +5732,23 @@ async function recordChecks() {
     // A reader under the Terms that say so: the document, its listing and the fact-check, kept whole; nothing of them.
     const claimA = `The Eiffel Tower stands about 330 metres tall (record ${stamp}).`;
     const before = await people.balance(reader);
+    const dayFirst = new Date().toISOString().slice(0, 10);
     const a = await run(reader, 'reader', claimA);
     const aDone = a.det.find((e) => e.t === 'done');
     const [rowA] = await waitRows(claimA);
     const docA = rowA?.document_id ? (await db.query('SELECT * FROM record_documents WHERE id = $1', [rowA.document_id])).rows[0] : null;
-    const today = new Date().toISOString().slice(0, 10);
+    // The run's day, read on both sides of it: a run that crosses midnight (UTC) is kept under either day.
+    const runDays = [dayFirst, new Date().toISOString().slice(0, 10)];
+    const ofRun = (day) => runDays.includes(day);
     check('the record keeps a reader\'s fact-check (under the Terms that say so) with every output and figure: the claim, the entry as written, the verdict, confidence, conclusion and sources, its steps and thinking, its model, level and prompt version, its cost and its measures (tokens, times)',
       Boolean(aDone) && rowA?.path === 'readers' && rowA.claim === claimA && /Sir Edwin Cardale/.test(rowA.entry || '') && rowA.verdict === aDone.verdict && rowA.confidence === aDone.confidence
         && Boolean(rowA.conclusion) && Array.isArray(rowA.sources) && rowA.sources.length > 0 && Array.isArray(rowA.trail) && rowA.trail.length > 0
-        && rowA.model === config.evalModels[0] && Boolean(rowA.prompt_version) && Number(rowA.usd) > 0 && rowA.measures?.usage?.input > 0 && Number.isFinite(rowA.measures?.ms) && rowA.failure === null && rowA.day === today,
+        && rowA.model === config.evalModels[0] && Boolean(rowA.prompt_version) && Number(rowA.usd) > 0 && rowA.measures?.usage?.input > 0 && Number.isFinite(rowA.measures?.ms) && rowA.failure === null && ofRun(rowA.day),
       JSON.stringify({ path: rowA?.path, model: rowA?.model, verdict: [rowA?.verdict, aDone?.verdict], usd: rowA?.usd, measures: Object.keys(rowA?.measures || {}), day: rowA?.day }));
     const listedA = docA?.listings?.[0];
     check('the record keeps the document the claim came from, with its listing: the text as the listing read it, its kind and length, the listing as written and its claims, its model, level and prompt version, and its day',
-      Boolean(docA) && docA.text === text && docA.kind === 'text' && docA.chars === text.length && docA.day === today && docA.listings.length === 1
-        && typeof listedA?.raw === 'string' && listedA.raw.length > 0 && listedA.claims?.length > 0 && Boolean(listedA.model) && Boolean(listedA.promptVersion) && listedA.day === today,
+      Boolean(docA) && docA.text === text && docA.kind === 'text' && docA.chars === text.length && ofRun(docA.day) && docA.listings.length === 1
+        && typeof listedA?.raw === 'string' && listedA.raw.length > 0 && listedA.claims?.length > 0 && Boolean(listedA.model) && Boolean(listedA.promptVersion) && ofRun(listedA.day),
       JSON.stringify({ kind: docA?.kind, chars: docA?.chars, listings: docA?.listings?.length, listing: listedA && Object.keys(listedA) }));
     const kept = JSON.stringify([rowA, docA]);
     check('nothing of the reader is in the record: no email, account, run or determination number, no fingerprint the books keep of the claim, no time but the day',
@@ -5798,9 +5804,10 @@ async function recordChecks() {
         && notTo.every((r) => r.status === 404 && /Not found/.test(r.text)) && visitor.status === nowhere.status && visitor.text === nowhereText && wrong.status === 400,
       JSON.stringify({ facts: [dFacts.status, factLines.length], docs: [dDocs.status, docLines.length], notTo: notTo.map((r) => r.status), visitor: [visitor.status, nowhere.status], wrong: wrong.status }));
     const self = (await people.json('/api/selftest', { cookie: op })).body?.record;
+    const earliest = (await db.query('SELECT min(day) AS day FROM record_fact_checks')).rows[0]?.day;
     check('/check shows the record: on, whose runs it keeps, how much it holds, since when and its size',
-      self?.on === true && self.termsFrom === TERMS && self.documents >= 1 && self.factChecks >= 3 && self.since === today && self.bytes > 0 && self.unwritten === 0,
-      JSON.stringify(self));
+      self?.on === true && self.termsFrom === TERMS && self.documents >= 1 && self.factChecks >= 3 && self.since === earliest && self.since <= rowA?.day && self.bytes > 0 && self.unwritten === 0,
+      JSON.stringify({ ...self, earliest }));
     check('the start-up line says the record is on and whose runs it keeps',
       /\[record\] on: the documents, claims and findings of the operator's runs, and of readers whose accounts agreed to the Terms of 2026-11-01 or later, are kept apart from every account/.test(srv.output()), srv.output().match(/\[record\][^\n]*/)?.[0] || '');
 
@@ -5837,9 +5844,434 @@ async function recordChecks() {
 }
 await recordChecks();
 
+// Buying credit (1 November). The operator: "my next step is the integration of stripe", "with the idea that this
+// service runs with a very comfortable 25% margin on all costs"; the automatic top-up, the reader opting in; purchased
+// credit not refundable. Proved against a stand-in for the payment processor (scripts/mock-stripe.js), which serves its
+// addresses and sends its notices signed as it signs them, on Postgres: payments need the database.
+async function paymentChecks() {
+  const required = /^(1|true|yes)$/i.test(process.env.CIVIC_VERIFY_REQUIRE_DATABASE || '');
+  const provision = await provisionPostgres().catch((err) => { console.error(`  (payments: no database: ${err.message})`); return null; });
+  if (!provision) {
+    if (required) check('a Postgres is available for the payment checks (CIVIC_VERIFY_REQUIRE_DATABASE=1)', false, 'no CIVIC_VERIFY_DATABASE_URL, and initdb is not on this machine');
+    else console.log('  (payments: no Postgres here, so the payment checks are skipped; CI runs them against a service container)');
+    return;
+  }
+  const MOCKO = MOCK_PORT + 160, STRIPE = PORT + 162, PP = PORT + 160, POFF = PORT + 161, POP = PORT + 163, PNR = PORT + 164, PLIVE = PORT + 165;
+  const procs = [];
+  const stamp = Date.now();
+  // Invented, and put together here, so that no file holds anything shaped like a key or a signing secret.
+  const STRIPE_KEY = ['rk', 'test', `verify${stamp}`].join('_');
+  const LIVE_KEY = ['rk', 'live', `verify${stamp}`].join('_');
+  const HOOK_SECRET = ['whsec', `verify${stamp}`].join('_');
+  const AGREEMENT = '2026-11-01';
+  // A database of their own: CI shares one server across every check and every prompt shape, and these checks add up
+  // every payment and every cost in it.
+  const admin = new pg.Client({ connectionString: provision.url });
+  await admin.connect();
+  await admin.query('DROP DATABASE IF EXISTS civic_verify_pay WITH (FORCE)');
+  await admin.query('CREATE DATABASE civic_verify_pay');
+  await admin.end();
+  const DB_URL = (() => { const u = new URL(provision.url); u.pathname = '/civic_verify_pay'; return u.toString(); })();
+  const db = new pg.Client({ connectionString: DB_URL });
+  await db.connect();
+  const sleep = (ms) => new Promise((x) => setTimeout(x, ms));
+  const until = async (fn, tries = 60) => { for (let k = 0; k < tries; k++) { const v = await fn(); if (v) return v; await sleep(100); } return fn(); };
+  const stand = async (pathname, body) => (await fetch(`http://localhost:${STRIPE}${pathname}`, { method: body ? 'POST' : 'GET', headers: { 'content-type': 'application/json' }, body: body ? JSON.stringify(body) : undefined })).json();
+  const fee = (cents) => Math.round(cents * 0.029) + 30;   // the stand-in's, as the processor's domestic card fee
+  // The servers' clock, set to the middle of next month (UTC) and running from there, so a run that crosses the end of
+  // a month adds up each reader's monthly total of top-ups as any other run does; the rows written here keep that clock.
+  const shift = (() => { const d = new Date(); return Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 15, 12) - d.getTime(); })();
+  const clockNow = () => new Date(Date.now() + shift);
+  const payServer = (port, env) => accountServer(port, MOCKO, { ...env, CIVIC_CLOCK: clockNow().toISOString() });
+  try {
+    procs.push(start([path.join(root, 'scripts', 'mock-openai.js')], { MOCK_PORT: String(MOCKO), MOCK_SPEED: '0.2', MOCK_EVAL_MARK: process.env.MOCK_EVAL_MARK_FOR_GATE || '' }));
+    procs.push(start([path.join(root, 'scripts', 'mock-stripe.js')], { MOCK_STRIPE_PORT: String(STRIPE), MOCK_STRIPE_HOOK: `http://localhost:${PP}/hooks/stripe`, MOCK_STRIPE_HOOK_LIVE: `http://localhost:${PLIVE}/hooks/stripe`, MOCK_STRIPE_SECRET: HOOK_SECRET }));
+    await wait(`http://localhost:${MOCKO}/v1/mock/stats`, 15000, { anyResponse: true });
+    await wait(`http://localhost:${STRIPE}/mock/stats`, 15000, { anyResponse: true });
+    const base = { DATABASE_URL: DB_URL, CIVIC_OPERATOR_EMAILS: 'op@example.com', CIVIC_OPERATOR_CLAIM: claimHash(), CIVIC_LIST_PRICE_CENTS: '125', CIVIC_TIER_ORDER: '1', CIVIC_SIGNUP_GRANT_CENTS: '1000', CIVIC_CURRENCY: 'USD',
+      CIVIC_LEDGER_FILE: path.join(os.tmpdir(), `civic-verify-payments-ledger-${stamp}.jsonl`) };
+    const amounts = { CIVIC_TOPUP_AMOUNTS_CENTS: '1000,2500,5000', CIVIC_TOPUP_MIN_CENTS: '500', CIVIC_TOPUP_MAX_CENTS: '20000', CIVIC_RELOAD_LEVELS_CENTS: '500,1000', CIVIC_RELOAD_CAPS_CENTS: '2500,5000,10000,20000' };
+    const paying = { ...base, ...amounts, CIVIC_PAYMENTS: 'on', CIVIC_STRIPE_KEY: STRIPE_KEY, CIVIC_STRIPE_WEBHOOK_SECRET: HOOK_SECRET, CIVIC_STRIPE_API: `http://localhost:${STRIPE}` };
+    const srv = payServer(PP, paying);
+    procs.push(srv.child);
+    await wait(`http://localhost:${PP}/api/health`, 30000);
+    const c = accountClient(`http://localhost:${PP}`);
+    const opClaim = await c.json('/api/account/claim', { method: 'POST', body: { token: CLAIM_TOKEN, email: 'op@example.com', password: PASSWORD, agree: true } });
+    const op = { cookie: opClaim.cookie || (await c.signin('op@example.com')).cookie };
+    const reader = async (name) => {
+      const email = `pay-${name}-${stamp}@example.com`;
+      const cookie = (await c.signup(email)).cookie;
+      return { email, cookie, id: Number((await db.query('SELECT id FROM users WHERE email = $1', [email])).rows[0].id) };
+    };
+    const view = async (who) => (await c.json('/api/account', { cookie: who.cookie })).body?.account;
+    const ledger = async (who, kind) => (await db.query('SELECT * FROM credit WHERE user_id = $1 AND kind = $2 ORDER BY id', [who.id, kind])).rows;
+    const autos = async (who) => (await db.query("SELECT * FROM payments WHERE user_id = $1 AND kind = 'auto' ORDER BY created_at", [who.id])).rows;
+    const paymentOf = async (session) => (await db.query('SELECT * FROM payments WHERE session_id = $1', [session])).rows[0];
+    const buy = async (who, amountCents, saveCard = false) => { const r = await c.json('/api/account/checkout', { method: 'POST', cookie: who.cookie, body: { amountCents, saveCard } }); return { ...r, session: String(r.body?.url || '').split('/pay/')[1] || null }; };
+    const topup = (who, body) => c.json('/api/account/topup', { method: 'POST', cookie: who.cookie, body: { on: true, agreement: AGREEMENT, ...body } });
+    const saveCard = async (who, card) => {
+      const r = await c.json('/api/account/card', { method: 'POST', cookie: who.cookie, body: {} });
+      const session = String(r.body?.url || '').split('/pay/')[1];
+      await stand(`/mock/pay/${session}`, { card });
+      return { start: r, back: await c.json(`/api/account/card?session=${session}`, { cookie: who.cookie }) };
+    };
+    const adjust = (who, cents) => c.json('/api/operator/credit', { method: 'POST', cookie: op.cookie, body: { userId: who.id, cents, note: 'guard' } });
+    const text = `${ACCT_TEXT} Payments ${stamp}.`;
+    let jobs = 0;
+    const factCheck = async (who) => {
+      who.runId = who.runId || `pay-${who.id}-run-${stamp}`;
+      if (!who.listed) { await c.stream('/api/extract', { jobId: who.runId, text }, who.cookie); who.listed = true; }
+      jobs += 1;
+      return c.stream('/api/evaluate', { jobId: `pay-${who.id}-c-${stamp}-${jobs}`, claims: [`The Eiffel Tower stands about 330 metres tall (payments ${stamp} ${jobs}).`], text, runId: who.runId, n: 1 }, who.cookie);
+    };
+    const done = (r) => Boolean(r.events?.find((e) => e.t === 'done'));
+    const calls = async (name) => (await stand('/mock/stats')).calls[name] || 0;
+
+    // ---- on: the start-up line, what the pages are told ----
+    const boot = srv.output().match(/\[payments\][^\n]*/)?.[0] || '';
+    check('payments: the start-up line says on, test mode, for every account, with the amounts and the automatic top-up\'s choices, and never the key or the signing secret',
+      boot === '[payments] on, test mode, for every account: 10.00 USD, 25.00 USD, 50.00 USD; or any amount from 5.00 USD to 200.00 USD; automatic top-ups, the reader\'s choice: below 5.00 USD or 10.00 USD, add 10.00 USD, 25.00 USD, 50.00 USD, at most 25.00 USD, 50.00 USD, 100.00 USD, 200.00 USD a month'
+        && !srv.output().includes(STRIPE_KEY) && !srv.output().includes(HOOK_SECRET), boot);
+    const a = await reader('a');
+    const va = await view(a);
+    const ha = (await c.json('/api/health', { cookie: a.cookie })).body?.access?.session;
+    check('payments: the Account page is told the amounts, the range, today\'s price, no card and the automatic top-up\'s choices with its agreement\'s version; the main page, that this account can add credit',
+      va?.payments?.on === true && va.payments.mode === 'test' && JSON.stringify(va.payments.amountsCents) === '[1000,2500,5000]' && va.payments.minCents === 500 && va.payments.maxCents === 20000
+        && va.payments.priceCents === 125 && va.payments.card === null && va.payments.hold === false && JSON.stringify(va.payments.topup?.levelsCents) === '[500,1000]'
+        && JSON.stringify(va.payments.topup?.capsCents) === '[2500,5000,10000,20000]' && va.payments.topup.on === false && va.payments.topup.paused === null && va.payments.topup.agreement === AGREEMENT
+        && ha?.addCredit === true && !('topupPaused' in ha),
+      JSON.stringify({ payments: va?.payments, session: ha }));
+    const pageAgreement = (fs.readFileSync(path.join(root, 'public', 'js', 'account.js'), 'utf8').match(/const TOPUP_AGREEMENT = '([^']+)'/) || [])[1];
+    check('payments: the Account page words the automatic top-up\'s agreement at the version the server keeps with each consent', pageAgreement === AGREEMENT && va?.payments?.topup?.agreement === AGREEMENT, String(pageAgreement));
+
+    // ---- amounts ----
+    const sessionsBefore = await calls('POST /v1/checkout/sessions');
+    const refused = [];
+    for (const amt of [123, 499, 20001, 1000.5, -1000, 0, null, 'ten']) refused.push((await buy(a, amt)).status);
+    const sessionsAfter = await calls('POST /v1/checkout/sessions');
+    const other = await buy(a, 750);
+    check('payments: an amount outside the list and the range is refused (400) before anything is asked of the processor; any amount in the range is taken',
+      refused.every((st) => st === 400) && sessionsAfter === sessionsBefore && other.status === 200 && Boolean(other.session) && (await paymentOf(other.session))?.status === 'pending',
+      JSON.stringify({ refused, sessions: [sessionsBefore, sessionsAfter], other: other.status }));
+
+    // ---- each purchase credited once ----
+    const balance0 = await c.balance(a.cookie);
+    const p1 = await buy(a, 1000);
+    await stand(`/mock/pay/${p1.session}`, { card: 'visa', deliver: 'hold' });
+    const twice = await stand('/mock/deliver', { times: 2 });
+    const p2 = await buy(a, 2500);
+    await stand(`/mock/pay/${p2.session}`, { card: 'visa', deliver: 'hold' });
+    const together = await stand('/mock/deliver', { times: 3, together: true });
+    const p3 = await buy(a, 5000);
+    await stand(`/mock/pay/${p3.session}`, { card: 'visa', deliver: 'hold' });
+    const reversed = await stand('/mock/deliver', { reverse: true });
+    const p4 = await buy(a, 1000);
+    await stand(`/mock/pay/${p4.session}`, { card: 'visa', deliver: 'hold' });
+    const back4 = await c.json(`/api/account/checkout?session=${p4.session}`, { cookie: a.cookie });
+    const late = await stand('/mock/deliver', { times: 2 });
+    const pending = await c.json(`/api/account/checkout?session=${other.session}`, { cookie: a.cookie });
+    const rows = await Promise.all([p1, p2, p3, p4].map((p) => paymentOf(p.session)));
+    const purchases = await ledger(a, 'purchase');
+    const statuses = [twice, together, reversed, late].flatMap((x) => (x.statuses || []).flat());
+    check('payments: a purchase is credited exactly once, whether its notices come twice, three at once, out of order, or after the reader is back (whose return credits it first): four purchases, four ledger rows naming each payment, the balance up by their sum',
+      statuses.length === 2 * 2 + 2 * 3 + 2 + 2 * 2 && statuses.every((st) => st === 200) && back4.status === 200 && back4.body?.status === 'paid' && back4.body.amountCents === 1000
+        && purchases.length === 4 && new Set(purchases.map((r) => r.ref)).size === 4 && purchases.every((r) => r.note === 'checkout' && r.cents === r.amount_cents)
+        && JSON.stringify(purchases.map((r) => r.amount_cents)) === '[1000,2500,5000,1000]' && rows.every((r, i) => r.status === 'paid' && r.intent_id === purchases[i].ref && r.id === purchases[i].payment_id)
+        && (await c.balance(a.cookie)) === balance0 + 9500 && pending.body?.status === 'pending',
+      JSON.stringify({ statuses, rows: purchases.map((r) => [r.amount_cents, r.ref]), balance: [balance0, await c.balance(a.cookie)], back: back4.body, pending: pending.body?.status }));
+    check('payments: each payment keeps the processor\'s own fee and net, and the card\'s brand and country, for the books; never the card\'s number',
+      rows.every((r) => Number(r.fee_cents) === fee(Number(r.amount_cents)) && Number(r.net_cents) === Number(r.amount_cents) - fee(Number(r.amount_cents)) && r.card_brand === 'visa' && r.card_country === 'US')
+        && !JSON.stringify(rows).includes('4242'),
+      JSON.stringify(rows.map((r) => [r.amount_cents, r.fee_cents, r.net_cents, r.card_brand, r.card_country])));
+
+    // ---- forged, and another account's ----
+    const p5 = await buy(a, 1000);
+    const forged = await stand('/mock/forge', { session: p5.session });
+    const bare = await fetch(`http://localhost:${PP}/hooks/stripe`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
+    const bareText = await bare.text();
+    check('payments: a notice whose signature does not hold is refused (400) and credits nothing; one with no signature is not found, before its body is read',
+      forged.statuses?.[0] === 400 && (await paymentOf(p5.session))?.status === 'pending' && bare.status === 404 && /Not found/.test(bareText) && (await ledger(a, 'purchase')).length === 4,
+      JSON.stringify({ forged: forged.statuses, bare: bare.status }));
+    const b = await reader('b');
+    const pb = await buy(b, 1000);
+    const peek = await c.json(`/api/account/checkout?session=${pb.session}`, { cookie: a.cookie });
+    const rowB = await paymentOf(pb.session);
+    const crossed = await stand('/mock/intent', { amount: 1000, metadata: { payment: rowB.id, account: String(a.id) } });
+    const short = await stand('/mock/intent', { amount: 500, metadata: { payment: rowB.id, account: String(b.id) } });
+    const outcomes = (await db.query('SELECT outcome FROM payment_notices ORDER BY received_at DESC LIMIT 2')).rows.map((r) => r.outcome);
+    check('payments: a payment only ever credits the account that made it: another account cannot ask after it, and a payment naming another account, or another amount, than the one it was made for credits nothing',
+      peek.status === 404 && crossed.statuses?.[0] === 200 && short.statuses?.[0] === 200 && outcomes.every((o) => o === 'mismatch') && (await paymentOf(pb.session)).status === 'pending'
+        && (await ledger(b, 'purchase')).length === 0 && (await ledger(a, 'purchase')).length === 4 && (await c.balance(b.cookie)) === 1000,
+      JSON.stringify({ peek: peek.status, outcomes, b: await c.balance(b.cookie) }));
+
+    // ---- the automatic top-up ----
+    const t = await reader('c');
+    const noCard = await topup(t, { levelCents: 1000, amountCents: 1000, capCents: 2500 });
+    const savedT = await saveCard(t, 'visa');
+    check('automatic top-up: it cannot be turned on without a saved card (409); a card saved on the processor\'s page is shown by its brand, last four digits and expiry, and nothing is charged',
+      noCard.status === 409 && noCard.body?.error?.code === 'card_needed' && savedT.start.status === 200 && savedT.back.body?.state === 'saved' && savedT.back.body?.payments?.card?.brand === 'visa'
+        && savedT.back.body.payments.card.last4 === '4242' && /^12\/\d\d$/.test(savedT.back.body.payments.card.exp || '') && (await c.balance(t.cookie)) === 1000
+        && Number((await db.query('SELECT count(*) AS n FROM payments WHERE user_id = $1', [t.id])).rows[0].n) === 0,
+      JSON.stringify({ noCard: noCard.status, back: savedT.back.body }));
+    const bad = [];
+    for (const x of [{ levelCents: 700, amountCents: 1000, capCents: 2500 }, { levelCents: 1000, amountCents: 1200, capCents: 2500 }, { levelCents: 1000, amountCents: 5000, capCents: 2500 }, { levelCents: 1000, amountCents: 1000, capCents: 3000 }]) bad.push((await topup(t, x)).status);
+    const stale = await topup(t, { levelCents: 1000, amountCents: 1000, capCents: 2500, agreement: '2026-10-01' });
+    const on = await topup(t, { levelCents: 1000, amountCents: 1000, capCents: 2500 });
+    const consent = (await db.query('SELECT topup_consent_at, topup_consent_version FROM users WHERE id = $1', [t.id])).rows[0];
+    check('automatic top-up: a level, an amount or a monthly total not in the lists, or a total below the amount, is refused (400), and an agreement worded otherwise than the one kept (409); turned on, the time of the reader\'s consent and its wording\'s version are kept',
+      bad.every((st) => st === 400) && stale.status === 409 && stale.body?.error?.code === 'agreement_changed' && on.status === 200 && on.body?.payments?.topup?.on === true
+        && on.body.payments.topup.levelCents === 1000 && on.body.payments.topup.amountCents === 1000 && on.body.payments.topup.capCents === 2500 && consent?.topup_consent_version === AGREEMENT && consent.topup_consent_at instanceof Date,
+      JSON.stringify({ bad, stale: stale.status, on: on.body?.payments?.topup, consent }));
+    const f1 = await factCheck(t);   // 1000 − 125 = 875, below the level: the top-up follows the charge
+    const t1 = await until(async () => ((await c.balance(t.cookie)) === 1875 ? 1875 : null), 80);
+    const a1 = await autos(t);
+    check('automatic top-up: a charge that leaves the credit below the reader\'s level adds their amount once, on their saved card, after the test is delivered',
+      done(f1) && t1 === 1875 && a1.length === 1 && a1[0].status === 'paid' && Number(a1[0].amount_cents) === 1000 && (await ledger(t, 'purchase')).filter((r) => r.note === 'auto').length === 1,
+      JSON.stringify({ balance: await c.balance(t.cookie), autos: a1.map((r) => [r.status, r.amount_cents]) }));
+    await adjust(t, -1000);   // 875
+    const f2 = await factCheck(t);   // 750: the second top-up of the month, 2000 of the 2500
+    const t2 = await until(async () => ((await c.balance(t.cookie)) === 1750 ? 1750 : null), 80);
+    await adjust(t, -1000);   // 750
+    const intentsBefore = await calls('POST /v1/payment_intents');
+    const f3 = await factCheck(t);   // 625: a third would make 3000, past the 2500
+    await sleep(800);
+    const intentsAfter = await calls('POST /v1/payment_intents');
+    check('automatic top-up: never past the reader\'s monthly total: the second of the month runs, a third that would pass it is not asked of the processor',
+      done(f2) && t2 === 1750 && done(f3) && (await c.balance(t.cookie)) === 625 && intentsAfter === intentsBefore && (await autos(t)).length === 2,
+      JSON.stringify({ balance: await c.balance(t.cookie), autos: (await autos(t)).length, intents: [intentsBefore, intentsAfter] }));
+    await topup(t, { levelCents: 1000, amountCents: 1000, capCents: 10000 });
+    await db.query("INSERT INTO payments (id, user_id, kind, mode, amount_cents, currency, status, created_at) VALUES ($1, $2, 'auto', 'test', 1000, 'USD', 'pending', $3)", [`guard-${stamp}`, t.id, clockNow()]);
+    const intentsBefore2 = await calls('POST /v1/payment_intents');
+    const f4 = await factCheck(t);   // 500: below the level, the total allows it, but one is under way
+    await sleep(800);
+    const intentsAfter2 = await calls('POST /v1/payment_intents');
+    const balance4 = await c.balance(t.cookie);
+    await db.query('DELETE FROM payments WHERE id = $1', [`guard-${stamp}`]);
+    const f5 = await factCheck(t);   // 375: none under way now, so it runs
+    const t5 = await until(async () => ((await c.balance(t.cookie)) === 1375 ? 1375 : null), 80);
+    check('automatic top-up: never two at once on one account: while one is under way another is not started, and once none is, the next runs',
+      done(f4) && balance4 === 500 && intentsAfter2 === intentsBefore2 && done(f5) && t5 === 1375 && (await autos(t)).filter((r) => r.status === 'paid').length === 3,
+      JSON.stringify({ balance4, intents: [intentsBefore2, intentsAfter2], after: await c.balance(t.cookie) }));
+    // One an instance stopped in the middle of (a deploy): pending, long past the client's longest request, no payment.
+    await db.query("INSERT INTO payments (id, user_id, kind, mode, amount_cents, currency, status, created_at) VALUES ($1, $2, 'auto', 'test', 1000, 'USD', 'pending', $3)", [`stopped-${stamp}`, t.id, new Date(clockNow().getTime() - 10 * 60e3)]);
+    await adjust(t, -1000);   // 375
+    const f6 = await factCheck(t);   // 250: below the level
+    const t6 = await until(async () => ((await c.balance(t.cookie)) === 1250 ? 1250 : null), 80);
+    const stopped = (await db.query('SELECT status, failure FROM payments WHERE id = $1', [`stopped-${stamp}`])).rows[0];
+    check('automatic top-up: one an instance stopped in the middle of does not block the next for ever: it is let go as failed, and the next runs',
+      done(f6) && t6 === 1250 && stopped?.status === 'failed' && stopped.failure === 'stopped' && (await autos(t)).filter((r) => r.status === 'paid').length === 4,
+      JSON.stringify({ balance: await c.balance(t.cookie), stopped }));
+
+    const d = await reader('d');
+    const pd = await buy(d, 1000, true);
+    await stand(`/mock/pay/${pd.session}`, { card: 'visa' });
+    const cardD = await until(async () => (await view(d))?.payments?.card || null);
+    await topup(d, { levelCents: 500, amountCents: 1000, capCents: 5000 });
+    await adjust(d, -1900);   // 2000 − 1900 = 100: short of a fact-check
+    const fd = await factCheck(d);
+    const bd = await until(async () => ((await c.balance(d.cookie)) === 975 ? 975 : null), 80);
+    check('automatic top-up: a card saved during a purchase, with the reader\'s tick, is kept; a test the credit could not cover goes on when the top-up runs first: the amount is added, the test is delivered and charged, and nothing more is added',
+      cardD?.last4 === '4242' && done(fd) && bd === 975 && (await autos(d)).length === 1 && (await autos(d))[0].status === 'paid',
+      JSON.stringify({ card: cardD, balance: await c.balance(d.cookie), autos: (await autos(d)).length }));
+
+    // Two claims refused for short credit at the same moment (the page runs several at once): one top-up, and both go on.
+    const g = await reader('g');
+    await saveCard(g, 'visa');
+    await topup(g, { levelCents: 500, amountCents: 1000, capCents: 5000 });
+    await adjust(g, -900);   // 100: short of a fact-check
+    g.runId = `pay-${g.id}-run-${stamp}`;
+    await c.stream('/api/extract', { jobId: g.runId, text }, g.cookie);
+    g.listed = true;
+    const both = await Promise.all([1, 2].map((k) => c.stream('/api/evaluate', { jobId: `pay-${g.id}-both-${stamp}-${k}`, claims: [`Mount Everest is 8,849 metres above sea level (payments ${stamp} ${k}).`], text, runId: g.runId, n: k }, g.cookie)));
+    const bg = await until(async () => ((await c.balance(g.cookie)) === 850 ? 850 : null), 80);
+    check('automatic top-up: two claims refused for short credit at the same moment both go on: one top-up runs, the other claim waits on it, and both are delivered and charged',
+      both.every(done) && bg === 850 && (await autos(g)).length === 1 && (await autos(g))[0].status === 'paid',
+      JSON.stringify({ statuses: both.map((x) => x.status), errors: both.map((x) => x.body?.error?.code || null), balance: await c.balance(g.cookie), autos: (await autos(g)).map((r) => r.status) }));
+
+    const e = await reader('e');
+    await saveCard(e, 'declined');   // saved; the bank declines charges on it, as the processor's own test card that attaches and then declines
+    await topup(e, { levelCents: 500, amountCents: 1000, capCents: 2500 });
+    await adjust(e, -950);   // 50
+    const fe = await factCheck(e);
+    const ve = await view(e);
+    const he = (await c.json('/api/health', { cookie: e.cookie })).body?.access?.session;
+    const ae = await autos(e);
+    const intentsBefore3 = await calls('POST /v1/payment_intents');
+    const fe2 = await factCheck(e);
+    const intentsAfter3 = await calls('POST /v1/payment_intents');
+    check('automatic top-up: a card the bank declines pauses it: the test is refused for short credit as before (402), nothing is added, the payment is kept as failed with the bank\'s code, the Account page and the main page say it is paused, and it is not tried again',
+      fe.status === 402 && fe.body?.error?.code === 'credit_short' && (await c.balance(e.cookie)) === 50 && ae.length === 1 && ae[0].status === 'failed' && ae[0].failure === 'generic_decline'
+        && ve?.payments?.topup?.paused === 'declined' && ve.payments.topup.on === true && he?.topupPaused === true && fe2.status === 402 && intentsAfter3 === intentsBefore3,
+      JSON.stringify({ status: fe.status, autos: ae.map((r) => [r.status, r.failure]), paused: ve?.payments?.topup?.paused, session: he, intents: [intentsBefore3, intentsAfter3] }));
+    const declinedPm = (await db.query('SELECT card_method FROM users WHERE id = $1', [e.id])).rows[0].card_method;
+    const replaced = await saveCard(e, 'auth');   // a new card un-pauses it; this one's bank asks to confirm, which an automatic charge cannot do
+    const unpaused = replaced.back.body?.payments?.topup?.paused;
+    const fe3 = await factCheck(e);
+    const ve3 = await view(e);
+    const authPm = (await db.query('SELECT card_method FROM users WHERE id = $1', [e.id])).rows[0].card_method;
+    const removed = await c.json('/api/account/card/remove', { method: 'POST', cookie: e.cookie, body: {} });
+    const detached = (await stand('/mock/stats')).detached;
+    check('automatic top-up: a replaced card takes the old one\'s place (removed at the processor) and resumes it; a bank asking the reader to confirm pauses it as such; Remove takes the card from the processor and turns it off',
+      replaced.back.body?.state === 'saved' && replaced.back.body.payments.card.last4 === '3184' && unpaused === null && fe3.status === 402 && ve3?.payments?.topup?.paused === 'confirm'
+        && removed.status === 200 && removed.body?.payments?.card === null && removed.body.payments.topup.on === false && detached.includes(declinedPm) && detached.includes(authPm),
+      JSON.stringify({ replaced: replaced.back.body?.payments?.card, unpaused, paused: ve3?.payments?.topup?.paused, removed: removed.body?.payments?.topup, detached }));
+
+    // ---- refunds and disputes ----
+    const balanceR = await c.balance(a.cookie);
+    await stand('/mock/refund', { intent: rows[0].intent_id, times: 2 });
+    await stand('/mock/refund', { intent: rows[1].intent_id, amount: 500 });
+    const refunds = await ledger(a, 'refund');
+    const [r1, r2] = await Promise.all([paymentOf(p1.session), paymentOf(p2.session)]);
+    check('refunds: a refund made at the processor writes its refund row once, however often its notice comes; a whole refund marks the payment refunded, a part of one keeps it paid; the balance goes down by them',
+      refunds.length === 2 && JSON.stringify(refunds.map((r) => [r.amount_cents, r.cents])) === '[[1000,-1000],[500,-500]]' && r1.status === 'refunded' && Number(r1.refunded_cents) === 1000
+        && r2.status === 'paid' && Number(r2.refunded_cents) === 500 && (await c.balance(a.cookie)) === balanceR - 1500,
+      JSON.stringify({ refunds: refunds.map((r) => [r.amount_cents, r.cents]), r1: [r1.status, r1.refunded_cents], r2: [r2.status, r2.refunded_cents] }));
+    const dp = `dp_guard${stamp}`;
+    await stand('/mock/dispute', { intent: rows[2].intent_id, step: 'created', dispute: dp });
+    const heldView = await view(a);
+    const heldTest = await factCheck(a);
+    const heldBuy = await buy(a, 1000);
+    const balanceD = await c.balance(a.cookie);
+    await stand('/mock/dispute', { intent: rows[2].intent_id, step: 'funds_withdrawn', dispute: dp, times: 2 });
+    const taken = await c.balance(a.cookie);
+    await stand('/mock/dispute', { intent: rows[2].intent_id, step: 'funds_reinstated', dispute: dp });
+    await stand('/mock/dispute', { intent: rows[2].intent_id, step: 'closed', status: 'won', dispute: dp });
+    const wonView = await view(a);
+    const r3 = await paymentOf(p3.session);
+    const afterWon = await factCheck(a);
+    check('disputes: a dispute pauses the account (testing and buying refused, 403, and the Account page told); its funds come off the balance once when the processor takes them, with the dispute fee kept, and go back when it is won, which lifts the pause',
+      heldView?.payments?.hold === true && heldTest.status === 403 && heldTest.body?.error?.code === 'account_hold' && heldBuy.status === 403 && heldBuy.body?.error?.code === 'account_hold'
+        && taken === balanceD - 5000 && (await ledger(a, 'dispute')).length === 1 && (await ledger(a, 'dispute_won')).length === 1 && Number(r3.dispute_fee_cents) === 1500 && r3.status === 'won'
+        && wonView?.payments?.hold === false && done(afterWon),
+      JSON.stringify({ hold: heldView?.payments?.hold, test: heldTest.status, buy: heldBuy.status, balance: [balanceD, taken, await c.balance(a.cookie)], status: r3.status, fee: r3.dispute_fee_cents, after: wonView?.payments?.hold }));
+    const dl = `dp_lost${stamp}`;
+    await stand('/mock/dispute', { intent: rows[3].intent_id, step: 'created', dispute: dl });
+    await stand('/mock/dispute', { intent: rows[3].intent_id, step: 'funds_withdrawn', dispute: dl });
+    await stand('/mock/dispute', { intent: rows[3].intent_id, step: 'closed', status: 'lost', dispute: dl });
+    const lostView = await view(a);
+    const notTheirs = await c.json('/api/operator/payments-hold', { method: 'POST', cookie: b.cookie, body: { userId: a.id } });
+    const lifted = await c.json('/api/operator/payments-hold', { method: 'POST', cookie: op.cookie, body: { userId: a.id } });
+    const liftedView = await view(a);
+    check('disputes: a lost dispute keeps the pause; the operator lifts it on /check (a reader cannot: the address is not found to them), and the account can test and buy again',
+      (await paymentOf(p4.session)).status === 'lost' && lostView?.payments?.hold === true && notTheirs.status === 404 && lifted.status === 200 && liftedView?.payments?.hold === false,
+      JSON.stringify({ lost: (await paymentOf(p4.session)).status, hold: [lostView?.payments?.hold, liftedView?.payments?.hold], reader: notTheirs.status, op: lifted.status }));
+
+    // ---- the reader's activity, /check's books ----
+    const linesA = (await c.json('/api/account/activity', { cookie: a.cookie })).body?.lines || [];
+    const linesT = (await c.json('/api/account/activity', { cookie: t.cookie })).body?.lines || [];
+    const kindsA = linesA.filter((l) => l.kind !== 'test' && l.kind !== 'grant').map((l) => `${l.kind}${l.via ? `:${l.via}` : ''}:${l.amountCents}`).sort();
+    check('payments: the reader\'s activity names each purchase (on the payment page or automatic), refund and dispute, with its amount',
+      JSON.stringify(kindsA) === JSON.stringify(['dispute:1000', 'dispute:5000', 'dispute_won:5000', 'purchase:checkout:1000', 'purchase:checkout:1000', 'purchase:checkout:2500', 'purchase:checkout:5000', 'refund:1000', 'refund:500'])
+        && linesT.filter((l) => l.kind === 'purchase' && l.via === 'auto').length === 4,
+      JSON.stringify({ a: kindsA, t: linesT.filter((l) => l.kind === 'purchase').map((l) => l.via) }));
+    const out = (await c.json('/api/operator/accounts', { cookie: op.cookie })).body;
+    const bk = out?.payments || {};
+    const model = (await db.query('SELECT (SELECT COALESCE(sum(cost_usd), 0) FROM determinations) + (SELECT COALESCE(sum(extract_usd), 0) FROM runs) AS usd')).rows[0];
+    const modelCents = Math.round(Number(model.usd) * 100);
+    // a: four purchases; t: four top-ups; d: a purchase and a top-up; g: a top-up
+    const collected = 9500 + 4000 + 2000 + 1000, fees = fee(1000) * 2 + fee(2500) + fee(5000) + fee(1000) * 4 + fee(1000) * 2 + fee(1000);
+    const revenue = collected - 1500 - (6000 - 5000), cost = modelCents + fees + 3000;
+    const percent = Math.round(((revenue - cost) / cost) * 1000) / 10;
+    check('/check\'s books add up, in the mode the key is in: collected, the processor\'s fees and net, refunds, disputes (won, lost, the funds and their fees), the automatic top-ups, and the margin on all costs (what readers paid and kept paid against the models\' cost of their work and every fee) against the 25% target; the credit line\'s money collected counts no test payment',
+      bk.ready === true && bk.mode === 'test' && bk.collectedCents === collected && out.totals?.collectedCents === 0 && bk.feeCents === fees && bk.netCents === collected - fees && bk.feeUnknown === 0
+        && bk.refundedCents === 1500 && bk.disputes?.open === 0 && bk.disputes.won === 1 && bk.disputes.lost === 1 && bk.disputes.takenCents === 6000 && bk.disputes.backCents === 5000 && bk.disputes.feeCents === 3000
+        && bk.topups?.made === 6 && bk.topups.failed === 3 && bk.holds === 0 && bk.marginTargetPercent === 25 && modelCents > 0
+        && bk.margin?.revenueCents === revenue && bk.margin.costCents === cost && bk.margin.modelCents === modelCents && bk.margin.percent === percent && bk.margin.below === (percent < 25)
+        && bk.unhandled >= 2 && /another account or payment|another amount/.test(bk.lastFault || ''),
+      JSON.stringify({ books: bk, expected: { collected, fees, revenue, cost, percent } }));
+    const rowOf = (who) => out?.accounts?.find((x) => x.id === who.id) || {};
+    check('/check\'s table shows what each account bought, its automatic top-up and any hold',
+      rowOf(a).purchasedCents === 9500 && rowOf(a).hold === false && rowOf(t).purchasedCents === 4000 && rowOf(t).topup === 'on' && rowOf(e).topup === 'off' && rowOf(b).purchasedCents === 0,
+      JSON.stringify([a, t, e, b].map((w) => ({ bought: rowOf(w).purchasedCents, topup: rowOf(w).topup, hold: rowOf(w).hold }))));
+    const seen = JSON.stringify([await view(a), await view(t), await view(e), (await c.json('/api/health', { cookie: a.cookie })).body, f1.events, fd.events, linesA, linesT]);
+    const accountPage = await (await fetch(`http://localhost:${PP}/account`)).text();
+    check('payments: nothing of the processor\'s reaches a reader\'s page or stream (no key, signing secret, or customer, card, payment, session or charge id), and no script of the processor\'s is in the Account page',
+      ![STRIPE_KEY, HOOK_SECRET].some((x) => seen.includes(x)) && !/\b(cus|pm|pi|cs|seti|ch|re|txn|dp)_[A-Za-z0-9_]{6,}/.test(seen) && !/stripe/i.test(accountPage) && /id="add-credit"/.test(accountPage),
+      seen.match(/\b(cus|pm|pi|cs|seti|ch|re|txn|dp)_[A-Za-z0-9_]{6,}/)?.[0] || '');
+
+    // ---- from the test-mode trial to live keys: nothing of the one is used in the other ----
+    const live = payServer(PLIVE, { ...paying, CIVIC_STRIPE_KEY: LIVE_KEY });
+    procs.push(live.child);
+    await wait(`http://localhost:${PLIVE}/api/health`, 30000);
+    const cl = accountClient(`http://localhost:${PLIVE}`);
+    const tl = { ...t, cookie: (await cl.signin(t.email)).cookie };
+    const dl2 = { ...d, cookie: (await cl.signin(d.email)).cookie };
+    const opl = (await cl.signin('op@example.com')).cookie;
+    const liveBoot = live.output().match(/\[payments\][^\n]*/)?.[0] || '';
+    const tSees = (await cl.json('/api/account', { cookie: tl.cookie })).body?.account?.payments;
+    const liveIntents = await calls('POST /v1/payment_intents');
+    await cl.json('/api/operator/credit', { method: 'POST', cookie: opl, body: { userId: t.id, cents: -1000, note: 'guard' } });   // below its level
+    const ft = await cl.stream('/api/evaluate', { jobId: `pay-live-${stamp}`, claims: [`Light from the Sun takes about eight minutes to reach the Earth (payments ${stamp}).`], text, runId: t.runId, n: 1 }, tl.cookie);
+    await sleep(800);
+    const liveBooks0 = (await cl.json('/api/operator/accounts', { cookie: opl })).body;
+    check('live keys after the test-mode trial: the start-up line says live mode; a card saved and a top-up turned on in test mode are not shown or used (no charge is asked of the processor), and the books count no test payment',
+      liveBoot.startsWith('[payments] on, live mode, for every account:') && tSees?.card === null && tSees?.topup?.on === false && done(ft) && (await calls('POST /v1/payment_intents')) === liveIntents
+        && liveBooks0?.payments?.mode === 'live' && liveBooks0.payments.payments === 0 && liveBooks0.payments.collectedCents === 0 && liveBooks0.totals?.collectedCents === 0,
+      JSON.stringify({ liveBoot, card: tSees?.card, topup: tSees?.topup?.on, intents: [liveIntents, await calls('POST /v1/payment_intents')], books: liveBooks0?.payments?.payments, collected: liveBooks0?.totals?.collectedCents }));
+    const liveCustomers = (await stand('/mock/stats')).liveCustomers;
+    const pl = await cl.json('/api/account/checkout', { method: 'POST', cookie: dl2.cookie, body: { amountCents: 1000, saveCard: true } });
+    const plSession = String(pl.body?.url || '').split('/pay/')[1] || null;
+    const plRow = await paymentOf(plSession);
+    const crossMode = await stand('/mock/intent', { amount: 1000, metadata: { payment: plRow?.id, account: String(d.id) }, to: 'live' });   // a test-mode notice reaching the live endpoint
+    const ignored = (await paymentOf(plSession))?.status === 'pending' && Number((await db.query('SELECT count(*) AS n FROM payment_notices WHERE id = $1', [crossMode.event])).rows[0].n) === 0;
+    const dBefore = await cl.balance(dl2.cookie);
+    await stand(`/mock/pay/${plSession}`, { card: 'visa' });
+    const dSees = await until(async () => { const v = (await cl.json('/api/account', { cookie: dl2.cookie })).body?.account?.payments; return v?.card ? v : null; });
+    const dUser = (await db.query('SELECT pay_mode FROM users WHERE id = $1', [d.id])).rows[0];
+    const liveBooks = (await cl.json('/api/operator/accounts', { cookie: opl })).body;
+    check('live keys: a purchase makes the account a live customer of its own, its notices come from the live endpoint and credit it once, the card saved with it is shown, and only live money is collected; a test-mode notice reaching the live endpoint is acknowledged and nothing more',
+      pl.status === 200 && plRow?.mode === 'live' && crossMode.statuses?.[0] === 200 && ignored && (await stand('/mock/stats')).liveCustomers === liveCustomers + 1 && dUser?.pay_mode === 'live'
+        && (await paymentOf(plSession))?.status === 'paid' && (await cl.balance(dl2.cookie)) === dBefore + 1000 && dSees?.card?.last4 === '4242'
+        && liveBooks?.payments?.payments === 1 && liveBooks.payments.collectedCents === 1000 && liveBooks.totals?.collectedCents === 1000,
+      JSON.stringify({ status: pl.status, mode: plRow?.mode, crossMode: crossMode.statuses, ignored, payMode: dUser?.pay_mode, paid: (await paymentOf(plSession))?.status, card: dSees?.card, books: liveBooks?.payments?.payments, collected: liveBooks?.totals?.collectedCents }));
+
+    // ---- for the operator alone; not ready; off ----
+    const opm = payServer(POP, { ...paying, CIVIC_PAYMENTS: 'operator' });
+    procs.push(opm.child);
+    const nr = payServer(PNR, { ...base, ...amounts, CIVIC_PAYMENTS: 'on' });
+    procs.push(nr.child);
+    const off = payServer(POFF, { ...base });
+    procs.push(off.child);
+    await Promise.all([PNR, POP, POFF].map((p) => wait(`http://localhost:${p}/api/health`, 30000)));
+    const cp = accountClient(`http://localhost:${POP}`);
+    const bOp = (await cp.signin(b.email)).cookie;
+    const opOp = (await cp.signin('op@example.com')).cookie;
+    const readerSees = (await cp.json('/api/account', { cookie: bOp })).body?.account?.payments;
+    const readerBuys = await cp.json('/api/account/checkout', { method: 'POST', cookie: bOp, body: { amountCents: 1000 } });
+    const opSees = (await cp.json('/api/account', { cookie: opOp })).body?.account?.payments;
+    const opBuys = await cp.json('/api/account/checkout', { method: 'POST', cookie: opOp, body: { amountCents: 1000 } });
+    check('payments for the operator alone (the test-mode trial on the live site): a reader is told they are off and cannot buy; the operator can; the start-up line says so',
+      JSON.stringify(readerSees) === '{"on":false}' && readerBuys.status === 404 && readerBuys.body?.error?.code === 'payments_off' && opSees?.on === true && opBuys.status === 200 && /for the operator's account alone/.test(opm.output()),
+      JSON.stringify({ reader: readerSees, buys: readerBuys.status, op: opSees?.on, opBuys: opBuys.status, line: opm.output().match(/\[payments\][^\n]*/)?.[0] }));
+    check('payments switched on without the key and the signing secret are not ready: nothing can be bought, and the start-up line names what is missing, never a value',
+      /\[payments\] CIVIC_PAYMENTS=on, but not ready \(missing CIVIC_STRIPE_KEY, CIVIC_STRIPE_WEBHOOK_SECRET\): nothing can be bought/.test(nr.output()), nr.output().match(/\[payments\][^\n]*/)?.[0] || '');
+    const co = accountClient(`http://localhost:${POFF}`);
+    const aOff = (await co.signin(a.email)).cookie;
+    const offSees = (await co.json('/api/account', { cookie: aOff })).body?.account;
+    const offBuys = await co.json('/api/account/checkout', { method: 'POST', cookie: aOff, body: { amountCents: 1000 } });
+    const offHook = await fetch(`http://localhost:${POFF}/hooks/stripe`, { method: 'POST', headers: { 'content-type': 'application/json', 'stripe-signature': 't=1,v1=00' }, body: '{}' });
+    const offHookText = await offHook.text();
+    const offSession = (await co.json('/api/health', { cookie: aOff })).body?.access?.session;
+    const offPage = await (await fetch(`http://localhost:${POFF}/account`)).text();
+    check('with payments off, nothing can be bought and nothing of them shows: the Account page is told only that they are off (and says Add credit opens with payments), a purchase is refused, the processor\'s notices are not found, the main page offers no Add credit, the balance stands, and the start-up line says so',
+      JSON.stringify(offSees?.payments) === '{"on":false}' && offSees.balanceCents === await c.balance(a.cookie) && offBuys.status === 404 && offBuys.body?.error?.code === 'payments_off'
+        && offHook.status === 404 && /Not found/.test(offHookText) && offSession && !('addCredit' in offSession) && /data-i18n="account\.page\.addCreditSoon"/.test(offPage)
+        && /\[payments\] off \(CIVIC_PAYMENTS\): nothing can be bought/.test(off.output()),
+      JSON.stringify({ payments: offSees?.payments, buys: offBuys.status, hook: offHook.status, session: offSession }));
+  } catch (err) {
+    check('payment checks ran', false, err.stack || err.message);
+  } finally {
+    for (const p of procs) { try { p.kill('SIGTERM'); } catch {} }
+    await db.end().catch(() => {});
+    await provision.stop();
+  }
+}
+await paymentChecks();
+
 const failed = results.filter((r) => !r.ok);
-for (const r of results) console.log(`${r.ok ? 'PASS' : 'FAIL'}  ${r.name}${r.ok ? '' : `   ← ${r.detail}`}`);
-console.log(failed.length
-  ? `\n${failed.length} FAILED. A request carries something the operator did not configure.`
-  : `\nAll ${results.length} checks passed. Requests carry the configured model and effort, the prompts verbatim, web search on the fact-checks and no tool on the listing, and nothing else.`);
-process.exit(failed.length ? 1 : 0);
+const lines = results.map((r) => `${r.ok ? 'PASS' : 'FAIL'}  ${r.name}${r.ok ? '' : `   ← ${r.detail}`}`);
+const summary = failed.length
+  ? `${failed.length} FAILED. A request carries something the operator did not configure.`
+  : `All ${results.length} checks passed. Requests carry the configured model and effort, the prompts verbatim, web search on the fact-checks and no tool on the listing, and nothing else.`;
+// Every result and the summary in one write, and the exit only once it is out: to a pipe (as in CI), nothing is cut off.
+process.stdout.write(`${lines.join('\n')}\n\n${summary}\n`, () => process.exit(failed.length ? 1 : 0));

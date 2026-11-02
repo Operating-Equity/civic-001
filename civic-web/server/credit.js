@@ -5,8 +5,10 @@
 //   charge       0       the hold was delivered: the test is paid (the hold's own -amount stands)
 //   release     +amount  the hold was not delivered (an error, a stop, an update, a crash): the price comes back
 //   adjustment  ±amount  the operator, on /check
-//   purchase    +amount  payments, when they exist
-//   refund      -amount  payments, when they exist
+//   purchase    +amount  credit bought (server/payments.js), once for each payment
+//   refund      -amount  a payment refunded through the processor, once for each refund
+//   dispute     -amount  a disputed payment's funds taken by the processor, once for each dispute
+//   dispute_won +amount  a won dispute's funds given back, once for each dispute
 // A hold is settled once (a unique index on the settlements). The balance is the sum of `cents`; this month's spend is
 // the held amounts of this month that were not released (charged, or still running).
 //
@@ -15,7 +17,7 @@
 import { dbOn, query } from './db.js';
 import { now } from './clock.js';
 
-export const KINDS = ['grant', 'hold', 'charge', 'release', 'adjustment', 'purchase', 'refund'];
+export const KINDS = ['grant', 'hold', 'charge', 'release', 'adjustment', 'purchase', 'refund', 'dispute', 'dispute_won'];
 
 // ---- memory ------------------------------------------------------------------------------------------
 const mem = { rows: [], nextId: 1 };
@@ -122,6 +124,24 @@ export async function adjust(userId, cents, { note = null, byEmail = null } = {}
   return Number(r.rows[0].id);
 }
 
+/**
+ * A row written by a payment (server/payments.js): a purchase (+), a refund (−), a dispute's funds taken (−) or given
+ * back (+). `ref` is the processor's id of what wrote it, so a notice that comes twice writes the row once (a unique
+ * index on the kind and the ref). Returns the row's id, or null when it was already written. Postgres only: payments
+ * need the database.
+ */
+export async function paymentEntry(userId, kind, amountCents, { paymentId, ref, note = null } = {}, c = null) {
+  const sign = { purchase: 1, dispute_won: 1, refund: -1, dispute: -1 }[kind];
+  if (!sign) throw new Error(`a payment writes a purchase, a refund or a dispute row, not ${kind}`);
+  if (!Number.isInteger(amountCents) || amountCents <= 0) throw new Error('a payment row is a whole, positive number of cents');
+  if (!ref) throw new Error('a payment row names what wrote it');
+  const r = await q(c)(
+    `INSERT INTO credit (user_id, at, kind, cents, amount_cents, payment_id, ref, note) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+     ON CONFLICT (kind, ref) WHERE ref IS NOT NULL DO NOTHING RETURNING id`,
+    [userId, new Date(now()), kind, sign * amountCents, amountCents, paymentId || null, ref, note]);
+  return r.rows[0] ? Number(r.rows[0].id) : null;
+}
+
 /** A reader's ledger rows, newest first: up to `limit` from before the instant `beforeAt` (ms), with each hold's settlement. */
 export async function rowsFor(userId, { beforeAt = null, limit = 50 } = {}) {
   // The settlements are not lines of their own: each hold's line says how it ended (charged, not charged, or running).
@@ -180,7 +200,10 @@ export async function totals() {
   const r = await query(`SELECT COALESCE(sum(cents) FILTER (WHERE kind = 'grant' OR (kind = 'adjustment' AND cents > 0)), 0)::bigint AS granted,
                                 COALESCE(sum(amount_cents) FILTER (WHERE kind = 'charge'), 0)::bigint AS spent,
                                 count(DISTINCT user_id) FILTER (WHERE kind = 'grant') AS accounts FROM credit`);
-  return { grantedCents: Number(r.rows[0].granted), spentCents: Number(r.rows[0].spent), accounts: Number(r.rows[0].accounts), collectedCents: 0 };
+  // Collected: what readers paid (server/payments.js), whatever became of it since (refunds and disputes are shown apart).
+  // Money alone: a payment in the processor's test mode never is.
+  const paid = await query("SELECT COALESCE(sum(amount_cents), 0)::bigint AS c FROM payments WHERE mode = 'live' AND status IN ('paid', 'refunded', 'disputed', 'lost', 'won')").catch(() => null);
+  return { grantedCents: Number(r.rows[0].granted), spentCents: Number(r.rows[0].spent), accounts: Number(r.rows[0].accounts), collectedCents: paid ? Number(paid.rows[0].c) : 0 };
 }
 
 /**
