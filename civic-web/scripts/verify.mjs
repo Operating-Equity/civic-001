@@ -5732,20 +5732,23 @@ async function recordChecks() {
     // A reader under the Terms that say so: the document, its listing and the fact-check, kept whole; nothing of them.
     const claimA = `The Eiffel Tower stands about 330 metres tall (record ${stamp}).`;
     const before = await people.balance(reader);
+    const dayFirst = new Date().toISOString().slice(0, 10);
     const a = await run(reader, 'reader', claimA);
     const aDone = a.det.find((e) => e.t === 'done');
     const [rowA] = await waitRows(claimA);
     const docA = rowA?.document_id ? (await db.query('SELECT * FROM record_documents WHERE id = $1', [rowA.document_id])).rows[0] : null;
-    const today = new Date().toISOString().slice(0, 10);
+    // The run's day, read on both sides of it: a run that crosses midnight (UTC) is kept under either day.
+    const runDays = [dayFirst, new Date().toISOString().slice(0, 10)];
+    const ofRun = (day) => runDays.includes(day);
     check('the record keeps a reader\'s fact-check (under the Terms that say so) with every output and figure: the claim, the entry as written, the verdict, confidence, conclusion and sources, its steps and thinking, its model, level and prompt version, its cost and its measures (tokens, times)',
       Boolean(aDone) && rowA?.path === 'readers' && rowA.claim === claimA && /Sir Edwin Cardale/.test(rowA.entry || '') && rowA.verdict === aDone.verdict && rowA.confidence === aDone.confidence
         && Boolean(rowA.conclusion) && Array.isArray(rowA.sources) && rowA.sources.length > 0 && Array.isArray(rowA.trail) && rowA.trail.length > 0
-        && rowA.model === config.evalModels[0] && Boolean(rowA.prompt_version) && Number(rowA.usd) > 0 && rowA.measures?.usage?.input > 0 && Number.isFinite(rowA.measures?.ms) && rowA.failure === null && rowA.day === today,
+        && rowA.model === config.evalModels[0] && Boolean(rowA.prompt_version) && Number(rowA.usd) > 0 && rowA.measures?.usage?.input > 0 && Number.isFinite(rowA.measures?.ms) && rowA.failure === null && ofRun(rowA.day),
       JSON.stringify({ path: rowA?.path, model: rowA?.model, verdict: [rowA?.verdict, aDone?.verdict], usd: rowA?.usd, measures: Object.keys(rowA?.measures || {}), day: rowA?.day }));
     const listedA = docA?.listings?.[0];
     check('the record keeps the document the claim came from, with its listing: the text as the listing read it, its kind and length, the listing as written and its claims, its model, level and prompt version, and its day',
-      Boolean(docA) && docA.text === text && docA.kind === 'text' && docA.chars === text.length && docA.day === today && docA.listings.length === 1
-        && typeof listedA?.raw === 'string' && listedA.raw.length > 0 && listedA.claims?.length > 0 && Boolean(listedA.model) && Boolean(listedA.promptVersion) && listedA.day === today,
+      Boolean(docA) && docA.text === text && docA.kind === 'text' && docA.chars === text.length && ofRun(docA.day) && docA.listings.length === 1
+        && typeof listedA?.raw === 'string' && listedA.raw.length > 0 && listedA.claims?.length > 0 && Boolean(listedA.model) && Boolean(listedA.promptVersion) && ofRun(listedA.day),
       JSON.stringify({ kind: docA?.kind, chars: docA?.chars, listings: docA?.listings?.length, listing: listedA && Object.keys(listedA) }));
     const kept = JSON.stringify([rowA, docA]);
     check('nothing of the reader is in the record: no email, account, run or determination number, no fingerprint the books keep of the claim, no time but the day',
@@ -5801,9 +5804,10 @@ async function recordChecks() {
         && notTo.every((r) => r.status === 404 && /Not found/.test(r.text)) && visitor.status === nowhere.status && visitor.text === nowhereText && wrong.status === 400,
       JSON.stringify({ facts: [dFacts.status, factLines.length], docs: [dDocs.status, docLines.length], notTo: notTo.map((r) => r.status), visitor: [visitor.status, nowhere.status], wrong: wrong.status }));
     const self = (await people.json('/api/selftest', { cookie: op })).body?.record;
+    const earliest = (await db.query('SELECT min(day) AS day FROM record_fact_checks')).rows[0]?.day;
     check('/check shows the record: on, whose runs it keeps, how much it holds, since when and its size',
-      self?.on === true && self.termsFrom === TERMS && self.documents >= 1 && self.factChecks >= 3 && self.since === today && self.bytes > 0 && self.unwritten === 0,
-      JSON.stringify(self));
+      self?.on === true && self.termsFrom === TERMS && self.documents >= 1 && self.factChecks >= 3 && self.since === earliest && self.since <= rowA?.day && self.bytes > 0 && self.unwritten === 0,
+      JSON.stringify({ ...self, earliest }));
     check('the start-up line says the record is on and whose runs it keeps',
       /\[record\] on: the documents, claims and findings of the operator's runs, and of readers whose accounts agreed to the Terms of 2026-11-01 or later, are kept apart from every account/.test(srv.output()), srv.output().match(/\[record\][^\n]*/)?.[0] || '');
 
@@ -5874,6 +5878,11 @@ async function paymentChecks() {
   const until = async (fn, tries = 60) => { for (let k = 0; k < tries; k++) { const v = await fn(); if (v) return v; await sleep(100); } return fn(); };
   const stand = async (pathname, body) => (await fetch(`http://localhost:${STRIPE}${pathname}`, { method: body ? 'POST' : 'GET', headers: { 'content-type': 'application/json' }, body: body ? JSON.stringify(body) : undefined })).json();
   const fee = (cents) => Math.round(cents * 0.029) + 30;   // the stand-in's, as the processor's domestic card fee
+  // The servers' clock, set to the middle of next month (UTC) and running from there, so a run that crosses the end of
+  // a month adds up each reader's monthly total of top-ups as any other run does; the rows written here keep that clock.
+  const shift = (() => { const d = new Date(); return Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 15, 12) - d.getTime(); })();
+  const clockNow = () => new Date(Date.now() + shift);
+  const payServer = (port, env) => accountServer(port, MOCKO, { ...env, CIVIC_CLOCK: clockNow().toISOString() });
   try {
     procs.push(start([path.join(root, 'scripts', 'mock-openai.js')], { MOCK_PORT: String(MOCKO), MOCK_SPEED: '0.2', MOCK_EVAL_MARK: process.env.MOCK_EVAL_MARK_FOR_GATE || '' }));
     procs.push(start([path.join(root, 'scripts', 'mock-stripe.js')], { MOCK_STRIPE_PORT: String(STRIPE), MOCK_STRIPE_HOOK: `http://localhost:${PP}/hooks/stripe`, MOCK_STRIPE_HOOK_LIVE: `http://localhost:${PLIVE}/hooks/stripe`, MOCK_STRIPE_SECRET: HOOK_SECRET }));
@@ -5883,7 +5892,7 @@ async function paymentChecks() {
       CIVIC_LEDGER_FILE: path.join(os.tmpdir(), `civic-verify-payments-ledger-${stamp}.jsonl`) };
     const amounts = { CIVIC_TOPUP_AMOUNTS_CENTS: '1000,2500,5000', CIVIC_TOPUP_MIN_CENTS: '500', CIVIC_TOPUP_MAX_CENTS: '20000', CIVIC_RELOAD_LEVELS_CENTS: '500,1000', CIVIC_RELOAD_CAPS_CENTS: '2500,5000,10000,20000' };
     const paying = { ...base, ...amounts, CIVIC_PAYMENTS: 'on', CIVIC_STRIPE_KEY: STRIPE_KEY, CIVIC_STRIPE_WEBHOOK_SECRET: HOOK_SECRET, CIVIC_STRIPE_API: `http://localhost:${STRIPE}` };
-    const srv = accountServer(PP, MOCKO, paying);
+    const srv = payServer(PP, paying);
     procs.push(srv.child);
     await wait(`http://localhost:${PP}/api/health`, 30000);
     const c = accountClient(`http://localhost:${PP}`);
@@ -6031,7 +6040,7 @@ async function paymentChecks() {
       done(f2) && t2 === 1750 && done(f3) && (await c.balance(t.cookie)) === 625 && intentsAfter === intentsBefore && (await autos(t)).length === 2,
       JSON.stringify({ balance: await c.balance(t.cookie), autos: (await autos(t)).length, intents: [intentsBefore, intentsAfter] }));
     await topup(t, { levelCents: 1000, amountCents: 1000, capCents: 10000 });
-    await db.query("INSERT INTO payments (id, user_id, kind, mode, amount_cents, currency, status, created_at) VALUES ($1, $2, 'auto', 'test', 1000, 'USD', 'pending', now())", [`guard-${stamp}`, t.id]);
+    await db.query("INSERT INTO payments (id, user_id, kind, mode, amount_cents, currency, status, created_at) VALUES ($1, $2, 'auto', 'test', 1000, 'USD', 'pending', $3)", [`guard-${stamp}`, t.id, clockNow()]);
     const intentsBefore2 = await calls('POST /v1/payment_intents');
     const f4 = await factCheck(t);   // 500: below the level, the total allows it, but one is under way
     await sleep(800);
@@ -6044,7 +6053,7 @@ async function paymentChecks() {
       done(f4) && balance4 === 500 && intentsAfter2 === intentsBefore2 && done(f5) && t5 === 1375 && (await autos(t)).filter((r) => r.status === 'paid').length === 3,
       JSON.stringify({ balance4, intents: [intentsBefore2, intentsAfter2], after: await c.balance(t.cookie) }));
     // One an instance stopped in the middle of (a deploy): pending, long past the client's longest request, no payment.
-    await db.query("INSERT INTO payments (id, user_id, kind, mode, amount_cents, currency, status, created_at) VALUES ($1, $2, 'auto', 'test', 1000, 'USD', 'pending', now() - interval '10 minutes')", [`stopped-${stamp}`, t.id]);
+    await db.query("INSERT INTO payments (id, user_id, kind, mode, amount_cents, currency, status, created_at) VALUES ($1, $2, 'auto', 'test', 1000, 'USD', 'pending', $3)", [`stopped-${stamp}`, t.id, new Date(clockNow().getTime() - 10 * 60e3)]);
     await adjust(t, -1000);   // 375
     const f6 = await factCheck(t);   // 250: below the level
     const t6 = await until(async () => ((await c.balance(t.cookie)) === 1250 ? 1250 : null), 80);
@@ -6181,7 +6190,7 @@ async function paymentChecks() {
       seen.match(/\b(cus|pm|pi|cs|seti|ch|re|txn|dp)_[A-Za-z0-9_]{6,}/)?.[0] || '');
 
     // ---- from the test-mode trial to live keys: nothing of the one is used in the other ----
-    const live = accountServer(PLIVE, MOCKO, { ...paying, CIVIC_STRIPE_KEY: LIVE_KEY });
+    const live = payServer(PLIVE, { ...paying, CIVIC_STRIPE_KEY: LIVE_KEY });
     procs.push(live.child);
     await wait(`http://localhost:${PLIVE}/api/health`, 30000);
     const cl = accountClient(`http://localhost:${PLIVE}`);
@@ -6217,11 +6226,11 @@ async function paymentChecks() {
       JSON.stringify({ status: pl.status, mode: plRow?.mode, crossMode: crossMode.statuses, ignored, payMode: dUser?.pay_mode, paid: (await paymentOf(plSession))?.status, card: dSees?.card, books: liveBooks?.payments?.payments, collected: liveBooks?.totals?.collectedCents }));
 
     // ---- for the operator alone; not ready; off ----
-    const opm = accountServer(POP, MOCKO, { ...paying, CIVIC_PAYMENTS: 'operator' });
+    const opm = payServer(POP, { ...paying, CIVIC_PAYMENTS: 'operator' });
     procs.push(opm.child);
-    const nr = accountServer(PNR, MOCKO, { ...base, ...amounts, CIVIC_PAYMENTS: 'on' });
+    const nr = payServer(PNR, { ...base, ...amounts, CIVIC_PAYMENTS: 'on' });
     procs.push(nr.child);
-    const off = accountServer(POFF, MOCKO, { ...base });
+    const off = payServer(POFF, { ...base });
     procs.push(off.child);
     await Promise.all([PNR, POP, POFF].map((p) => wait(`http://localhost:${p}/api/health`, 30000)));
     const cp = accountClient(`http://localhost:${POP}`);
@@ -6260,8 +6269,9 @@ async function paymentChecks() {
 await paymentChecks();
 
 const failed = results.filter((r) => !r.ok);
-for (const r of results) console.log(`${r.ok ? 'PASS' : 'FAIL'}  ${r.name}${r.ok ? '' : `   ← ${r.detail}`}`);
-console.log(failed.length
-  ? `\n${failed.length} FAILED. A request carries something the operator did not configure.`
-  : `\nAll ${results.length} checks passed. Requests carry the configured model and effort, the prompts verbatim, web search on the fact-checks and no tool on the listing, and nothing else.`);
-process.exit(failed.length ? 1 : 0);
+const lines = results.map((r) => `${r.ok ? 'PASS' : 'FAIL'}  ${r.name}${r.ok ? '' : `   ← ${r.detail}`}`);
+const summary = failed.length
+  ? `${failed.length} FAILED. A request carries something the operator did not configure.`
+  : `All ${results.length} checks passed. Requests carry the configured model and effort, the prompts verbatim, web search on the fact-checks and no tool on the listing, and nothing else.`;
+// Every result and the summary in one write, and the exit only once it is out: to a pipe (as in CI), nothing is cut off.
+process.stdout.write(`${lines.join('\n')}\n\n${summary}\n`, () => process.exit(failed.length ? 1 : 0));
