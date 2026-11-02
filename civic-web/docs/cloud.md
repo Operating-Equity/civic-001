@@ -1441,6 +1441,13 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
     live stay apart: nothing of the trial (its customer, its card, its payments) is used or counted under live keys.
   - **Proof:** the guard's payment checks against a stand-in for Stripe (`scripts/mock-stripe.js`, which serves
     Stripe's addresses and sends signed notices), and a browser check of the Account page.
+  - **Live** (2 November, 01:52 UTC): PR #103 deployed, payments off, with the amounts set on Render (1000, 2500 and
+    5000 cents, or 500 to 20000; levels 500 and 1000; monthly totals 2000, 5000, 10000 and 20000) and
+    `CIVIC_TERMS_VERSION=2026-11-02`. The Account page and its scripts are the released ones, and no page a reader
+    receives carries a script of Stripe's; Stripe's notices are not found; a stranger asking to buy is asked to sign in;
+    the Terms, the privacy page and the refunds page carry the approved words; the start-up line says nothing can be
+    bought, past the schema step; the record, the standby, the tell words and the readers' model are as before. Live
+    check clean, nothing spent.
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 
