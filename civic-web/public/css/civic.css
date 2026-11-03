@@ -26,24 +26,23 @@
   --glass-light: radial-gradient(130% 90% at 0% 0%, rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0) 58%);
   --glass-glow: inset 0 0 22px rgba(255, 255, 255, 0.16);
   --field-shine: inset 0 1px 0 rgba(255, 255, 255, 0.85), inset 0 1px 2px rgba(21, 24, 29, 0.05);
-  /* The text box while it is used (3 November, the operator: "the box lights up as the user is inputting data,
-     emphasizing the box being used"; 1 November, after Apple's Liquid Glass, where the glass lights up where it is
-     touched). In the box, the glass brightens, the blue edge becomes a line of light and a soft halo rises around it,
-     eased in and held while the box is in use; typing, pasting or dictating lifts the light further at the cursor, and a
-     pause lets the lift settle back to the lit box; leaving the box lets it settle to rest. public/js/app.js sets --lit
-     (0 at rest, 1 in use), --glow (the lift, 0 to 1) and the lift's place (--gx, --gy, the cursor). Every figure: */
-  --use-glass: 0.94;            /* the glass's white in use (0.66 at rest) */
-  --use-edge-alpha: 0.90;       /* the inner line of light, in use */
-  --use-ring-alpha: 0.24;       /* the blue ring along the edge, in use */
-  --use-halo: 22px;             /* the halo around the box, in use */
-  --use-halo-alpha: 0.26;
+  /* The text box while it is used, lit from behind (3 November, the operator: "It lights up as if from behind, as you
+     are typing in. It creates a greater contrast … between the dark letters being typed and the color of the
+     background"; "I don't mind the blue outline if it's subtle"). At rest the box holds Apple's own fill for input
+     fields and search bars (light appearance), so there is room for light to come up behind the letters. In the box,
+     the inside rises part of the way to white, and a subtle blue outline (the page's other fields' own) marks it;
+     typing, pasting or dictating lifts the whole inside further toward white, brightest under the cursor, and the
+     glass's edge catches the light; a pause lets it ease back to the lit box, and leaving the box lets it settle to
+     rest. No blue inside, no halo. public/js/app.js sets --lit (0 at rest, 1 in use), --glow (the lift, 0 to 1) and
+     its place (--gx, --gy, the cursor). Every figure: */
+  --rest-fill: 118 118 128;     /* the box at rest: Apple's tertiary fill, for input fields and search bars */
+  --rest-fill-alpha: 0.118;     /* (30 of 255) */
+  --use-lift: 0.5;              /* in the box: how far the inside rises from rest to white */
+  --use-ring-alpha: 0.18;       /* the blue outline in the box: as the page's other fields */
   --use-ease: 250;              /* milliseconds for the box to light, and to go back to rest */
-  --type-light: 72 116 228;     /* the light's colour: the page's blue */
-  --type-light-size: 150px;     /* how far it reaches around the cursor */
-  --type-light-alpha: 0.18;     /* inside the glass, at its brightest */
-  --type-edge-alpha: 0.95;      /* the edge's line of light, at its brightest */
-  --type-halo: 24px;            /* the glow around the box */
-  --type-halo-alpha: 0.30;
+  --type-lift: 0.7;             /* typing: how far the whole inside rises to white, at its brightest */
+  --type-bloom: 200px;          /* the white light under the cursor: how far it reaches (pure white at the cursor) */
+  --type-edge-alpha: 0.9;       /* the glass's rim of light, just inside the edge */
   --type-settle: 1000;          /* milliseconds for the light to settle after a pause */
   --gold-ink: #b8860b;
   --green-ink: #2f9a64;
@@ -187,23 +186,30 @@ body {
   transition: border-color .15s ease, box-shadow .15s ease;
 }
 .input:focus { outline: none; border-color: var(--blue); box-shadow: var(--field-shine), 0 0 0 3px rgba(72, 116, 228, 0.18); }
-/* The text box's light while it is used (--lit), and its lift as it is typed in (--glow, at --gx and --gy): painted every
-   frame while it moves. The device's own text-box style is off, so a phone's or a tablet's browser draws this one. */
+/* The text box lit from behind while it is used (--lit), and further as it is typed in (--glow, brightest at --gx and
+   --gy, fading out along the same eased curve the light settles on: 1, .84, .5, .16, 0): painted every frame while it
+   moves. --lift is how far the inside has risen from its rest to white. The device's own text-box style is off, so a
+   phone's or a tablet's browser draws this one. */
 .source {
   --lit: 0;
   --glow: 0;
   --gx: 32px;
   --gy: 28px;
+  --lift: max(calc(var(--use-lift) * var(--lit)), calc(var(--type-lift) * var(--glow)));
   appearance: none; -webkit-appearance: none;
-  background-color: rgb(255 255 255 / calc(0.66 + (var(--use-glass) - 0.66) * var(--lit)));
-  background-image: radial-gradient(circle var(--type-light-size) at var(--gx) var(--gy), rgb(var(--type-light) / calc(var(--type-light-alpha) * var(--glow))), rgb(var(--type-light) / 0));
+  background-color: rgb(255 255 255 / calc(0.66 + 0.34 * var(--lift)));
+  background-image:
+    radial-gradient(circle var(--type-bloom) at var(--gx) var(--gy), rgb(255 255 255 / var(--glow)), rgb(255 255 255 / calc(0.84 * var(--glow))) 25%,
+      rgb(255 255 255 / calc(0.5 * var(--glow))) 50%, rgb(255 255 255 / calc(0.16 * var(--glow))) 75%, rgb(255 255 255 / 0)),
+    linear-gradient(rgb(var(--rest-fill) / calc(var(--rest-fill-alpha) * (1 - var(--lift)))), rgb(var(--rest-fill) / calc(var(--rest-fill-alpha) * (1 - var(--lift)))));
   box-shadow: var(--field-shine),
-    inset 0 0 0 1px rgb(255 255 255 / max(calc(var(--use-edge-alpha) * var(--lit)), calc(var(--type-edge-alpha) * var(--glow)))),
-    0 0 0 3px rgb(var(--type-light) / calc(var(--use-ring-alpha) * var(--lit))),
-    0 0 calc(var(--use-halo) * var(--lit) + var(--type-halo) * var(--glow)) rgb(var(--type-light) / min(1, calc(var(--use-halo-alpha) * var(--lit) + var(--type-halo-alpha) * var(--glow))));
+    inset 0 0 0 1px rgb(255 255 255 / calc(var(--type-edge-alpha) * var(--lift))),
+    0 0 0 3px rgb(72 116 228 / calc(var(--use-ring-alpha) * var(--lit)));
   transition: border-color .15s ease;
 }
 .source:focus { outline: none; border-color: var(--blue); }
+/* What the box asks for, in the page's hint colour on every device, so it keeps the page's hint contrast on the fill. */
+.source::placeholder { color: var(--ink-3); opacity: 1; }
 .mono { font-family: var(--font-mono); font-size: 0.93em; }
 /* A form's label and its field. Not `.field`, which is the drawn background (above): sharing it put the background's
    fixed, click-through layer over the sign-in fields from 2 October, so nothing could be typed on a touch screen. */

@@ -585,13 +585,14 @@ function wireIntake() {
 /**
  * The text box lit while it is used (3 November: "the box lights up as the user is inputting data, emphasizing the box
  * being used"; 31 October: "As you are typing in the box the box dynamically brightens"; 1 November, after Apple's
- * Liquid Glass, where the glass lights up where it is touched). In the box, it lights (--lit eases to 1 over --use-ease)
- * and holds; each keystroke, paste or dictated phrase lifts the light by a fifth more, where the cursor is (--glow and
- * its place, --gx and --gy), and a pause lets the lift settle back to the lit box; leaving the box lets it settle to
- * rest. css/civic.css holds every figure. The variables are written at most once a frame and only while they move, so
- * typing is never slowed. Placing the lift lays out the text before the cursor once more, out of sight; where that took
- * longer than a frame of the display twice in a row, text that long is lit from the box's bright corner instead. With
- * the system's reduced motion, it steps instead of easing.
+ * Liquid Glass, where the glass lights up where it is touched; and later on 3 November: "It lights up as if from behind,
+ * as you are typing in"). In the box, it lights (--lit eases to 1 over --use-ease) and holds; each keystroke, paste or
+ * dictated phrase lifts the light behind the letters by a fifth more, brightest where the cursor is (--glow and its
+ * place, --gx and --gy), and a pause lets the lift settle back to the lit box; leaving the box lets it settle to rest.
+ * css/civic.css holds every figure. The variables are written at most once a frame and only while they move, so typing
+ * is never slowed. Placing the lift lays out the text before the cursor once more, out of sight; where that took longer
+ * than a frame of the display twice in a row, text that long is lit from the box's corner instead, until the reader
+ * comes back to the box or empties it. With the system's reduced motion, it steps instead of easing.
  */
 const GLOW_STEP = 0.2;
 // The box's style, copied onto a hidden twin, so the twin lays out the text as the box does and gives the cursor's place;
@@ -675,10 +676,13 @@ function wireGlow(box) {
     litAt = performance.now();
     if (!frame) frame = requestAnimationFrame(settle);
   };
-  box.addEventListener('focus', () => use(true));
+  // Each time the reader comes back to the box, or empties it, the light follows the cursor again: one slow moment (the
+  // device busy elsewhere) lights the corner only until then.
+  box.addEventListener('focus', () => { tooLong = Infinity; slow = 0; use(true); });
   box.addEventListener('blur', () => use(false));
   if (document.activeElement === box) { litTo = 1; paintLit(1); }
   box.addEventListener('input', () => {
+    if (!box.value) { tooLong = Infinity; slow = 0; }
     settleMs = Number.parseFloat(getComputedStyle(box).getPropertyValue('--type-settle')) || 1000;
     if (calm()) {
       place();
