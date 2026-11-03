@@ -503,7 +503,6 @@ body {
 .footer-site:hover, .footer-site:focus-visible { text-decoration: underline; }
 .footer-dot { color: var(--ink-3); }
 .footer-service { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; color: var(--ink-2); }
-.footer-company { color: var(--ink); font-weight: 600; }
 .footer-parent { display: inline-flex; align-items: center; gap: 8px; color: var(--ink-2); text-decoration: none; }
 .footer-parent:hover .oe-name, .footer-parent:focus-visible .oe-name { text-decoration: underline; }
 .footer-links { display: inline-flex; align-items: center; gap: 18px; flex-wrap: wrap; }

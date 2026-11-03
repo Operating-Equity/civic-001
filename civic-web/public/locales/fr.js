@@ -318,7 +318,8 @@ export default {
       cap: 'Au plus, chaque mois',
       yourCard: 'la carte que vous enregistrez',
       onCard: 'votre {card}',
-      agreement: 'Quand votre crédit passe sous {level}, FactEngine prélève {amount} sur {card} et l\'ajoute à votre crédit, sans vous le demander à chaque fois, jusqu\'à {cap} par mois civil (UTC). Chaque prélèvement apparaît sur votre relevé de carte sous le nom FACTENGINE* AUTO TOPUP, et un reçu vous est envoyé par e-mail. Elle reste activée jusqu\'à ce que vous la désactiviez ici, ce qui arrête les prélèvements suivants ; le crédit déjà acheté reste sur votre compte et n\'est pas remboursé. Si ces conditions changent, nous vous demanderons de les accepter à nouveau avant la recharge suivante. FactEngine est exploité par Fact Engine LLC{merchant}.',
+      agreement: 'Quand votre crédit passe sous {level}, FactEngine prélève {amount} sur {card} et l\'ajoute à votre crédit, sans vous le demander à chaque fois, jusqu\'à {cap} par mois civil (UTC). Chaque prélèvement apparaît sur votre relevé de carte sous le nom FACTENGINE* AUTO TOPUP, et un reçu vous est envoyé par e-mail. Elle reste activée jusqu\'à ce que vous la désactiviez ici, ce qui arrête les prélèvements suivants ; le crédit déjà acheté reste sur votre compte et n\'est pas remboursé. Si ces conditions changent, nous vous demanderons de les accepter à nouveau avant la recharge suivante.{merchant}',
+      merchantAt: 'Adresse de FactEngine : {address}.',
       agree: 'Accepter et activer',
       save: 'Accepter et enregistrer',
       off: 'Désactiver',
@@ -372,5 +373,5 @@ export default {
     start: 'Commencer à vérifier',
     unavailable: 'Les tarifs n\'ont pas pu être lus pour le moment. Réessayez bientôt.',
   },
-  footer: { pricing: 'Tarifs', site: 'FactEngine.com', service: 'Un service de', parent: 'une société d\'Operating Equity', terms: 'Conditions', privacy: 'Confidentialité', refunds: 'Remboursements', contact: 'Contact', copyright: '© 2026' },
+  footer: { pricing: 'Tarifs', site: 'FactEngine.com', parent: 'une société d\'Operating Equity', terms: 'Conditions', privacy: 'Confidentialité', refunds: 'Remboursements', contact: 'Contact', copyright: '© 2026' },
 };

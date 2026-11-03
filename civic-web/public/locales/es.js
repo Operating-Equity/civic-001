@@ -318,7 +318,8 @@ export default {
       cap: 'Como máximo, cada mes',
       yourCard: 'la tarjeta que guarde',
       onCard: 'su {card}',
-      agreement: 'Cuando su crédito baje de {level}, FactEngine cobra {amount} a {card} y los añade a su crédito, sin preguntarle cada vez, hasta {cap} en cada mes natural (UTC). Cada cargo aparece en el extracto de su tarjeta como FACTENGINE* AUTO TOPUP, y se le envía un recibo por correo electrónico. Sigue activada hasta que la desactive aquí, lo que detiene los cargos siguientes; el crédito ya comprado se queda en su cuenta y no se reembolsa. Si estas condiciones cambian, le pediremos que las acepte de nuevo antes de la siguiente recarga. FactEngine es operado por Fact Engine LLC{merchant}.',
+      agreement: 'Cuando su crédito baje de {level}, FactEngine cobra {amount} a {card} y los añade a su crédito, sin preguntarle cada vez, hasta {cap} en cada mes natural (UTC). Cada cargo aparece en el extracto de su tarjeta como FACTENGINE* AUTO TOPUP, y se le envía un recibo por correo electrónico. Sigue activada hasta que la desactive aquí, lo que detiene los cargos siguientes; el crédito ya comprado se queda en su cuenta y no se reembolsa. Si estas condiciones cambian, le pediremos que las acepte de nuevo antes de la siguiente recarga.{merchant}',
+      merchantAt: 'Dirección de FactEngine: {address}.',
       agree: 'Aceptar y activar',
       save: 'Aceptar y guardar',
       off: 'Desactivar',
@@ -372,5 +373,5 @@ export default {
     start: 'Empezar a verificar',
     unavailable: 'No se pudieron leer los precios en este momento. Inténtelo de nuevo en breve.',
   },
-  footer: { pricing: 'Precios', site: 'FactEngine.com', service: 'Un servicio de', parent: 'una empresa de Operating Equity', terms: 'Términos', privacy: 'Privacidad', refunds: 'Reembolsos', contact: 'Contacto', copyright: '© 2026' },
+  footer: { pricing: 'Precios', site: 'FactEngine.com', parent: 'una empresa de Operating Equity', terms: 'Términos', privacy: 'Privacidad', refunds: 'Reembolsos', contact: 'Contacto', copyright: '© 2026' },
 };
