@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>FactEngine · Contact</title>
-<meta name="description" content="Write to us at support@operatingequity.ai. We answer within two business days.">
+<meta name="description" content="Write to us at {{email}}. We answer within two business days.">
 <link rel="icon" type="image/svg+xml" href="assets/favicon.svg">
 <link rel="icon" type="image/png" href="assets/favicon.png">
 <link rel="stylesheet" href="css/fonts.css">
@@ -16,15 +16,21 @@
   <div class="field-layer" data-slot="a"></div>
   <div class="field-layer" data-slot="b"></div>
 </div>
-<!-- The text is the operator's launch text of 3 October 2026 ("FactEngine: launch texts and checklist"), published for
-     review; what stands in [square brackets] is theirs to fill. Static HTML: nothing here runs at request time. -->
+<!-- The text is the operator's launch text of 3 October 2026 ("FactEngine: launch texts and checklist"), with the words
+     approved since. The effective date, the support address, the phone and the mailing address are the operator's
+     settings, read in as the page is served (server/assets.js); nothing else here runs at request time. -->
 <main class="plain-page glass">
   <a class="plain-brand" href="./">FactEngine</a>
-  <nav class="plain-nav" aria-label="Terms, privacy, refunds and contact">
-    <a href="terms">Terms</a> · <a href="privacy">Privacy</a> · <a href="refunds">Refunds</a> · <a href="contact" aria-current="page">Contact</a>
+  <nav class="plain-nav" aria-label="FactEngine's pages">
+    <a href="pricing">Pricing</a> · <a href="terms">Terms</a> · <a href="privacy">Privacy</a> · <a href="refunds">Refunds</a> · <a href="contact" aria-current="page">Contact</a> · <a href="account">Your account</a>
   </nav>
   <h1 class="plain-head">Contact</h1>
-  <p class="plain-lede">Write to us at <a href="mailto:support@operatingequity.ai">support@operatingequity.ai</a>. We answer within two business days.</p>
+<!--if !phone-->
+  <p class="plain-lede">Write to us at <a href="mailto:{{email}}">{{email}}</a>. We answer within two business days.</p>
+<!--/if-->
+<!--if phone-->
+  <p class="plain-lede">Write to us at <a href="mailto:{{email}}">{{email}}</a>, or call {{phone}}. We answer within two business days.</p>
+<!--/if-->
   <div class="prose">
     <p>Use the same address for:</p>
     <ul>
@@ -34,10 +40,30 @@
     <li>Legal notices, including an arbitration opt-out under section 15(e) of the Terms of Service, with the subject &quot;Arbitration opt-out&quot;.</li>
     <li>Reporting a result you believe is wrong, with the sources that show why.</li>
     </ul>
-    <p>FactEngine is operated by Fact Engine LLC, a Delaware limited liability company and an Operating Equity company. Mailing address: [street, city, state, ZIP].</p>
+<!--if address-->
+    <p>FactEngine is operated by Fact Engine LLC, a Delaware limited liability company and an Operating Equity company. Mailing address: {{address}}.</p>
+<!--/if-->
+<!--if !address-->
+    <p>FactEngine is operated by Fact Engine LLC, a Delaware limited liability company and an Operating Equity company.</p>
+<!--/if-->
   </div>
   <p class="plain-back"><a class="btn btn-outline" href="./">Back to FactEngine</a></p>
 </main>
+<footer class="footer">
+  <div class="footer-brand">
+    <a class="footer-site" href="./">FactEngine.com</a>
+    <span class="footer-dot" aria-hidden="true">·</span>
+    <span class="footer-service">A service of <span class="footer-company">Fact Engine LLC,</span> <a class="footer-parent" href="https://operatingequity.ai" target="_blank" rel="noopener"><img src="assets/oe-logo.png" alt="" class="oe-mark" width="44" height="24"><span class="oe-name">an Operating Equity company</span></a></span>
+  </div>
+  <nav class="footer-links" aria-label="FactEngine's pages">
+    <a href="pricing">Pricing</a>
+    <a href="terms">Terms</a>
+    <a href="privacy">Privacy</a>
+    <a href="refunds">Refunds</a>
+    <a href="contact">Contact</a>
+    <span class="footer-copy">© 2026</span>
+  </nav>
+</footer>
 <script type="module" src="js/field.js"></script>
 </body>
 </html>

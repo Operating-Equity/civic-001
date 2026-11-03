@@ -3,7 +3,7 @@
 // November): an amount, then the payment processor's own page and back (?paid=…), a saved card (?card=…) and the
 // automatic top-up the reader turns on with its agreement. Opened in a new tab from the main page, so a run there goes on.
 import * as api from './api.js';
-import { t, setLocale, initLocale, LOCALES, currentLocale } from './i18n.js';
+import { t, setLocale, initLocale, LOCALES, currentLocale, setDefaults } from './i18n.js';
 
 const $ = (sel) => document.querySelector(sel);
 const el = (tag, props = {}, kids = []) => { const n = document.createElement(tag); for (const [k, v] of Object.entries(props)) { if (k === 'text') n.textContent = v; else if (k === 'class') n.className = v; else n.setAttribute(k, v); } for (const k of kids) n.append(k); return n; };
@@ -11,12 +11,12 @@ const el = (tag, props = {}, kids = []) => { const n = document.createElement(ta
 // The version of the automatic top-up's agreement as this page words it (account.topup.agreement, four languages): sent
 // with the reader's consent, kept with it, and refused by the server if its own version is another (a page left open
 // across a change of wording is asked to reload).
-const TOPUP_AGREEMENT = '2026-11-01';
+const TOPUP_AGREEMENT = '2026-11-03';
 
 // state.choice: the amount chosen (cents, or 'other'). payNote, cardNote, topupNote: a sentence about the last payment,
 // card or top-up action, as a function so it is said again in a language chosen afterwards. back: the return from the
 // payment page, read once from the address.
-const state = { account: null, lines: [], before: null, more: false, link: null, choice: null, payNote: null, cardNote: null, topupNote: null, back: null };
+const state = { account: null, lines: [], before: null, more: false, link: null, choice: null, payNote: null, cardNote: null, topupNote: null, back: null, history: [] };
 
 function money(cents) {
   const currency = state.account?.currency || 'USD';
@@ -66,8 +66,10 @@ function render() {
     $('#acct-pw-email').value = a.email;
     $('#acct-delete-email').value = a.email;
     $('#acct-delete-box').hidden = Boolean(a.operator);
+    $('#acct-delete-text').textContent = t('account.page.deleteText', { balance: money(a.balanceCents) });
   }
   renderPayments();
+  renderHistory();
   renderActivity();
   if (state.link?.kind === 'claim') renderClaimAgree();
 }
@@ -98,6 +100,29 @@ function renderActivity() {
   $('#acct-more').hidden = !state.more;
 }
 
+/** The account's payments: each purchase and automatic top-up, its card and status, and the processor's own receipt. */
+function renderHistory() {
+  const box = $('#payment-history');
+  const list = state.history || [];
+  box.hidden = !state.account || (!list.length && !pay().on);
+  if (box.hidden) return;
+  if (!list.length) { $('#acct-history').replaceChildren(el('li', { text: t('account.page.historyNone') })); return; }
+  $('#acct-history').replaceChildren(...list.map((h) => {
+    const what = [t(`account.page.historyVia.${h.via === 'auto' ? 'auto' : 'checkout'}`), h.card ? cardName(h.card) : null].filter(Boolean).join(' · ');
+    const status = t(`account.page.historyStatus.${['paid', 'refunded', 'disputed', 'lost', 'won', 'failed'].includes(h.status) ? h.status : 'paid'}`);
+    const side = [el('span', { class: 'acct-amount', text: money(h.amountCents) }),
+      el('span', { class: 'acct-note', text: h.refundedCents > 0 && h.status !== 'refunded' ? `${status} · ${t('account.page.historyRefunded', { amount: money(h.refundedCents) })}` : status })];
+    if (h.receipt) side.push(el('a', { href: h.receipt, target: '_blank', rel: 'noopener noreferrer', text: t('account.page.receipt') }));
+    return el('li', {}, [el('span', { class: 'acct-history-what' }, [el('time', { datetime: h.at, text: when(h.at) }), document.createTextNode(what)]), el('span', { class: 'acct-history-side' }, side)]);
+  }));
+}
+
+/** A sentence with {terms} and {refunds} in it, each made its link. */
+function withPolicyLinks(text) {
+  const link = (href, key) => el('a', { href, target: '_blank', rel: 'noopener', text: t(key) });
+  return text.split(/(\{terms\}|\{refunds\})/).map((part) => (part === '{terms}' ? link('terms', 'account.termsLink') : part === '{refunds}' ? link('refunds', 'account.refundsLink') : document.createTextNode(part)));
+}
+
 // ---- adding credit: the amounts, the payment page, the saved card and the automatic top-up --------------------------
 const pay = () => state.account?.payments || { on: false };
 const BRANDS = { visa: 'Visa', mastercard: 'Mastercard', amex: 'American Express', discover: 'Discover', jcb: 'JCB', diners: 'Diners Club', unionpay: 'UnionPay', cartes_bancaires: 'Cartes Bancaires', eftpos_au: 'eftpos', interac: 'Interac' };
@@ -108,7 +133,8 @@ function renderPayments() {
   const p = pay();
   const on = Boolean(state.account && p.on);
   $('#acct-add-credit').hidden = on;
-  $('#acct-hold').hidden = !(on && p.hold);
+  $('#acct-hold').hidden = !(state.account && p.hold);   // a dispute's hold is said whether or not credit can be added now
+  $('#acct-test-mode').hidden = !(on && p.mode === 'test');
   $('#acct-buy').hidden = !on || Boolean(p.hold);
   $('#auto-topup').hidden = !on || !p.topup;
   note($('#acct-paid-note'), state.payNote?.text() || '', state.payNote?.bad);
@@ -143,6 +169,7 @@ function renderBuy(p) {
   $('#acct-other').placeholder = other ? (p.minCents / 100).toFixed(2) : '';
   $('#acct-save-field').hidden = !p.topup;
   $('#acct-save-text').textContent = p.card ? t('account.pay.saveReplace', { card: cardName(p.card) }) : t('account.pay.save');
+  $('#acct-buy-terms').replaceChildren(...withPolicyLinks(t('account.pay.terms')));
   syncBuy();
 }
 
@@ -166,7 +193,7 @@ async function buy(e) {
   note($('#acct-buy-note'), '');
   $('#acct-buy-go').disabled = true;
   try {
-    const out = await api.startCheckout({ amountCents: cents, saveCard: !$('#acct-save-field').hidden && $('#acct-save').checked });
+    const out = await api.startCheckout({ amountCents: cents, saveCard: !$('#acct-save-field').hidden && $('#acct-save').checked, lang: currentLocale() });
     if (!out?.url) throw new Error(t('account.pay.unavailable'));
     location.assign(out.url);   // the button stays held while the page moves
   } catch (err) {
@@ -215,6 +242,7 @@ function syncTopUp() {
   $('#acct-topup-agreement').textContent = t('account.topup.agreement', {
     level: money(Number($('#acct-topup-level').value)), amount: money(amount), cap: money(Number(cap.value)),
     card: p.card ? t('account.topup.onCard', { card: cardName(p.card) }) : t('account.topup.yourCard'),
+    merchant: p.merchant ? `, ${p.merchant}` : '',
   });
 }
 
@@ -249,7 +277,7 @@ async function topUpOff() {
 
 async function addCard() {
   try {
-    const out = await api.startCardSetup();
+    const out = await api.startCardSetup({ lang: currentLocale() });
     if (!out?.url) throw new Error(t('account.pay.unavailable'));
     location.assign(out.url);
   } catch (err) {
@@ -332,10 +360,14 @@ async function loadAccount() {
     if (err?.status !== 401) { $('#acct-who').textContent = words(err); }
   }
   // Filled first, then shown: the boxes never appear empty while the activity loads.
-  if (state.account) await loadActivity(true);
+  if (state.account) await Promise.all([loadActivity(true), loadHistory()]);
   render();
   $('#acct-signed-in').hidden = !state.account;
   $('#acct-signed-out').hidden = Boolean(state.account) || Boolean(state.link);
+}
+
+async function loadHistory() {
+  try { state.history = (await api.payments()).payments || []; } catch { /* the list stays as it was */ }
 }
 
 async function loadActivity(fresh = false) {
@@ -447,7 +479,7 @@ async function boot() {
   $('#lang-select').value = currentLocale();
   $('#lang-select').addEventListener('change', () => setLocale($('#lang-select').value));
   document.addEventListener('civic:locale', render);
-  try { const h = await api.health(); state.minChars = h?.access?.minChars; } catch { /* the defaults stand */ }
+  try { const h = await api.health(); state.minChars = h?.access?.minChars; setDefaults({ support: h?.access?.support }); } catch { /* the defaults stand */ }
   state.link = readLink();
   state.back = readReturn();
   wire();

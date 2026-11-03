@@ -5,7 +5,7 @@
 // Mounted at /api (server/index.js), so the path it sees has that prefix taken off and Express's own matching decides
 // what is under /api: the router is case-sensitive there, so /API/extract is nobody's route and reaches no handler
 // (until 30 September it did, and the gate, which compared the path in lower case, let it through unchecked).
-// Open: the health line and the account's own doors (sign up, sign in, sign out, a reset link, the operator's link).
+// Open: the health line, the prices, and the account's own doors (sign up, sign in, sign out, a reset link, the operator's link).
 // Everything else needs a session; /api/operator/* needs the operator's. With CIVIC_ACCOUNTS=off (a laptop, the guard's
 // older checks) the door is open, as it was with no codes set.
 //
@@ -51,7 +51,7 @@ export async function sessionOf(req) {
 /** Whether this session is the operator's: the flag the operator's one-time link set, and nothing else. */
 export const isOperator = (session) => Boolean(session?.user?.operator);
 
-const OPEN = new Set(['/health', '/account/signup', '/account/signin', '/account/signout', '/account/reset', '/account/claim']);
+const OPEN = new Set(['/health', '/prices', '/account/signup', '/account/signin', '/account/signout', '/account/reset', '/account/claim']);
 const SAFE = new Set(['GET', 'HEAD', 'OPTIONS']);
 /** Whether a request says it comes from another site: the browser's Sec-Fetch-Site, or an Origin naming another host (older Safari sends no Sec-Fetch-Site). */
 function fromAnotherSite(req) {

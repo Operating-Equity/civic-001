@@ -4957,21 +4957,21 @@ async function pagesChecks() {
       '');
     const home = await page('/');
     const footer = (home.text.match(/<footer class="footer">[\s\S]*?<\/footer>/) || [''])[0];
-    check('the page\'s footer links Terms, Privacy, Refunds and Contact in a new tab and names Fact Engine LLC, an Operating Equity company',
-      ['terms', 'privacy', 'refunds', 'contact'].every((q) => new RegExp(`<a href="${q}" target="_blank" rel="noopener" data-i18n="footer\\.${q}">`).test(footer)) && /class="footer-company">Fact Engine LLC,</.test(footer) && /data-i18n="footer\.parent">an Operating Equity company</.test(footer) && /aria-label="Terms, privacy, refunds and contact"/.test(footer),
+    check('the page\'s footer links Pricing, Terms, Privacy, Refunds and Contact in a new tab and names Fact Engine LLC, an Operating Equity company',
+      ['pricing', 'terms', 'privacy', 'refunds', 'contact'].every((q) => new RegExp(`<a href="${q}" target="_blank" rel="noopener" data-i18n="footer\\.${q}">`).test(footer)) && /class="footer-company">Fact Engine LLC,</.test(footer) && /data-i18n="footer\.parent">an Operating Equity company</.test(footer) && /aria-label="FactEngine's pages"/.test(footer),
       footer.slice(0, 300));
     check('the page carries the AI disclosure line under the results, translated by key',
       /<p class="score-note" data-i18n="score\.aiLine">Determinations are made by an AI model from the sources it cites and can be wrong; check the sources before relying on one\.<\/p>/.test(home.text), '');
     // Accounts and credit (5 October): the sentences approved with the plan, the account page, and no word of the codes.
     const refunds = await page('/refunds');
-    check('/terms, /privacy and /refunds carry the account and credit sentences of 5 October',
+    check('/terms, /privacy and /refunds carry the account and credit sentences of 5 October, with the words approved on 3 November',
       terms.text.includes('<h2>4. Your account</h2>') && terms.text.includes('You need an account to use the Service. Give an email address you control and keep your password to yourself; you are responsible for everything done through your account until you tell us at <a href="mailto:support@operatingequity.ai">support@operatingequity.ai</a> that it is compromised. One account per person. We may change, limit or withdraw access at any time.')
-        && terms.text.includes('New accounts receive credit for testing claims, in the amount shown when you sign up. Testing a claim draws its price from your credit, and a test that fails is not charged. Credit has no cash value, cannot be transferred or exchanged for money, is not refunded, and may be changed or withdrawn, including from an account used against these Terms.')
+        && terms.text.includes('New accounts receive credit for testing claims, in the amount shown when you sign up. Testing a claim draws its price from your credit, and a test that fails is not charged. Credit has no cash value, cannot be transferred or exchanged for money, and is not refunded. Purchased credit does not expire. Credit we give, such as the credit a new account starts with, may be changed or withdrawn, and any credit may be withdrawn from an account used against these Terms.')
         && privacy.text.includes('Your account: the email address and password you sign up with (the password is kept only as a one-way hash, which cannot be turned back into it), and when you agreed to these terms')
         && privacy.text.includes('Your credit: what was given when your account was made, each test&#39;s price and whether it was charged, and any monthly limit you set')
         && privacy.text.includes('to keep your account&#39;s credit;')
         && privacy.text.includes('the sign-in cookie holds only a random identifier and cannot be read by scripts; passwords are kept only as one-way hashes;')
-        && refunds.text.includes('A test paid with credit is refunded as credit.'),
+        && refunds.text.includes('Tests are paid from your credit, so a fault is made good as credit. A purchase charged in error or twice is refunded to the card it was charged to.'),
       '');
     const accountRes = await fetch(`${base}/account`);
     const account = { status: accountRes.status, cache: accountRes.headers.get('cache-control') || '', text: await accountRes.text() };
@@ -4996,7 +4996,8 @@ async function pagesChecks() {
     for (const code of Object.keys(LINE)) bundles[code] = (await import(pathToFileURL(path.join(root, 'public', 'locales', `${code}.js`)).href)).default;
     const lineOk = Object.entries(LINE).every(([code, words]) => {
       const b = bundles[code];
-      return b.price?.each === words && JSON.stringify(Object.keys(b.price).sort()) === JSON.stringify(['each', 'eachFree_one', 'eachFree_other'])
+      // The one line's words: its price, the document's free ones, and (3 November) how many of them are still free.
+      return b.price?.each === words && JSON.stringify(Object.keys(b.price).sort()) === JSON.stringify(['each', 'eachFree_one', 'eachFree_other', 'leftFree_one', 'leftFree_other'])
         && !('balance' in b.credit) && /\{w\}/.test(b.credit.over_other) && typeof b.credit.overNone === 'string' && !/\{(cost|balance)\}/.test(b.credit.over_other) && typeof b.account?.page?.freeAmount === 'string';
     });
     check('the price is said once: the page carries one line for it above the claims and no price on a claim\'s row, the page\'s script says how many on the button and never what they cost, and the four locales carry the one line ("Each fact-check is {amount}.") and none of the row\'s or the button\'s price words',
@@ -5124,8 +5125,10 @@ async function downloadChecks() {
       if (left.length || visible(sent) !== visible(expected)) styleFaults.push(rel);
     }
     const pageFaults = [];
-    for (const [address, rel] of [['/terms', 'terms.html'], ['/privacy', 'privacy.html'], ['/refunds', 'refunds.html'], ['/contact', 'contact.html'], ['/account', 'account.html'], ['/check', 'check.html']]) {
-      const src = fs.readFileSync(path.join(publicDir, rel), 'utf8');
+    // The business's facts, read into the pages as they are served (3 November), as that server has them.
+    assets.setPageFacts({ email: config.supportEmail, phone: config.supportPhone, address: config.businessAddress, effective: config.termsVersion });
+    for (const [address, rel] of [['/terms', 'terms.html'], ['/privacy', 'privacy.html'], ['/refunds', 'refunds.html'], ['/contact', 'contact.html'], ['/account', 'account.html'], ['/pricing', 'pricing.html'], ['/check', 'check.html']]) {
+      const src = assets.withFacts(fs.readFileSync(path.join(publicDir, rel), 'utf8'));
       const sent = (await raw(PD, address)).text;
       const style = (sent.match(/<style>[\s\S]*?<\/style>/g) || []).join('');
       const expected = src.replace(/<!--[\s\S]*?-->/g, '').replace(/(<style>)([\s\S]*?)(<\/style>)/g, (m, a, css, b) => a + css.replace(/\/\*[\s\S]*?\*\//g, '') + b);
@@ -5144,8 +5147,10 @@ async function downloadChecks() {
     const opHome = (await raw(PA, '/', { cookie: op })).text;
     const onlyOp = [...idsOf(opHome)].filter((id) => !idsOf(readerHome).has(id)).sort();
     const src = fs.readFileSync(path.join(publicDir, 'index.html'), 'utf8');
+    // The business's facts as that server has them (its settings are this guard's defaults).
+    assets.setPageFacts({ email: config.supportEmail, phone: config.supportPhone, address: config.businessAddress, effective: config.termsVersion });
     check('a reader and a visitor receive the page without the operator\'s parts and without a comment; the operator receives it with every part, their tools\' script and style sheet named at the build\'s addresses; the parts are exactly the operator\'s fifteen, and a card\'s boxes of the work behind it (thinking, steps, the entry as written) are the operator\'s while "Sources cited" is everyone\'s',
-      readerHome === visitorHome && readerHome === assets.stampAddresses(assets.stripPage(assets.withoutOperatorParts(src)), build)
+      readerHome === visitorHome && readerHome === assets.stampAddresses(assets.stripPage(assets.withoutOperatorParts(assets.withFacts(src))), build)
         && OPERATOR_IDS.every((id) => !readerHome.includes(`id="${id}"`) && opHome.includes(`id="${id}"`)) && JSON.stringify(onlyOp) === JSON.stringify([...OPERATOR_IDS].sort())
         && !/chip-internal|class="card-cost|class="card-why"|<!--|op\.js|op\.css/.test(readerHome) && /class="card-cost/.test(opHome) && /class="card-why"/.test(opHome) && !opHome.includes('<!--')
         && opHome.includes(`<link rel="stylesheet" href="/b/${build}/css/op.css">`) && opHome.includes(`<link rel="modulepreload" id="ext-script" href="/b/${build}/js/op.js">`)
@@ -5863,7 +5868,7 @@ async function paymentChecks() {
   const STRIPE_KEY = ['rk', 'test', `verify${stamp}`].join('_');
   const LIVE_KEY = ['rk', 'live', `verify${stamp}`].join('_');
   const HOOK_SECRET = ['whsec', `verify${stamp}`].join('_');
-  const AGREEMENT = '2026-11-01';
+  const AGREEMENT = '2026-11-03';
   // A database of their own: CI shares one server across every check and every prompt shape, and these checks add up
   // every payment and every cost in it.
   const admin = new pg.Client({ connectionString: provision.url });
@@ -5979,9 +5984,10 @@ async function paymentChecks() {
         && JSON.stringify(purchases.map((r) => r.amount_cents)) === '[1000,2500,5000,1000]' && rows.every((r, i) => r.status === 'paid' && r.intent_id === purchases[i].ref && r.id === purchases[i].payment_id)
         && (await c.balance(a.cookie)) === balance0 + 9500 && pending.body?.status === 'pending',
       JSON.stringify({ statuses, rows: purchases.map((r) => [r.amount_cents, r.ref]), balance: [balance0, await c.balance(a.cookie)], back: back4.body, pending: pending.body?.status }));
-    check('payments: each payment keeps the processor\'s own fee and net, and the card\'s brand and country, for the books; never the card\'s number',
-      rows.every((r) => Number(r.fee_cents) === fee(Number(r.amount_cents)) && Number(r.net_cents) === Number(r.amount_cents) - fee(Number(r.amount_cents)) && r.card_brand === 'visa' && r.card_country === 'US')
-        && !JSON.stringify(rows).includes('4242'),
+    check('payments: each payment keeps the processor\'s own fee and net, the card\'s brand and country (for the books) and its last four digits with the processor\'s receipt (for the reader\'s history); never the card\'s number',
+      rows.every((r) => Number(r.fee_cents) === fee(Number(r.amount_cents)) && Number(r.net_cents) === Number(r.amount_cents) - fee(Number(r.amount_cents)) && r.card_brand === 'visa' && r.card_country === 'US'
+        && r.card_last4 === '4242' && /\/receipts\/ch_/.test(r.receipt_url || ''))
+        && !/\d{12,19}/.test(JSON.stringify(rows.map(({ id, session_id, intent_id, ...rest }) => rest))),
       JSON.stringify(rows.map((r) => [r.amount_cents, r.fee_cents, r.net_cents, r.card_brand, r.card_country])));
 
     // ---- forged, and another account's ----
@@ -6061,6 +6067,55 @@ async function paymentChecks() {
     check('automatic top-up: one an instance stopped in the middle of does not block the next for ever: it is let go as failed, and the next runs',
       done(f6) && t6 === 1250 && stopped?.status === 'failed' && stopped.failure === 'stopped' && (await autos(t)).filter((r) => r.status === 'paid').length === 4,
       JSON.stringify({ balance: await c.balance(t.cookie), stopped }));
+
+    // ---- 3 November: what the processor is told, the receipts and the payment history, the prices for anyone ----
+    const fr = await c.json('/api/account/checkout', { method: 'POST', cookie: t.cookie, body: { amountCents: 1000, lang: 'fr' } });
+    const lastOf = async (name) => ((await stand('/mock/stats')).last || {})[name] || {};
+    const sentFr = await lastOf('POST /v1/checkout/sessions');
+    const sentCard = (await c.json('/api/account/card', { method: 'POST', cookie: t.cookie, body: { lang: 'de' } })).status === 200 ? await lastOf('POST /v1/checkout/sessions') : {};
+    const sentTopUp = await lastOf('POST /v1/payment_intents');
+    const origin = `http://localhost:${PP}`;
+    check('payments: the processor\'s page is given the reader\'s language and, above its Pay button, that purchased credit does not expire and is not refunded, with the Terms and the refund policy; the card statement reads CREDIT',
+      fr.status === 200 && sentFr.locale === 'fr' && sentFr.custom_text?.submit?.message === `Le crédit acheté n'expire pas et n'est pas remboursé ; un achat débité par erreur ou deux fois est examiné. [Conditions d'utilisation](${origin}/terms) · [Politique de remboursement](${origin}/refunds)`
+        && sentFr.payment_intent_data?.statement_descriptor_suffix === 'CREDIT',
+      JSON.stringify({ locale: sentFr.locale, text: sentFr.custom_text, pid: sentFr.payment_intent_data }));
+    check('payments: saving a card, the processor\'s page says, in the reader\'s language, what the card is kept for and that nothing is charged; an automatic top-up is an unscheduled charge on a stored card, its statement AUTO TOPUP',
+      sentCard.mode === 'setup' && sentCard.locale === 'de' && /^Diese Karte wird für die automatischen Aufladungen gespeichert/.test(sentCard.custom_text?.submit?.message || '') && sentCard.custom_text.submit.message.includes(`(${origin}/terms)`)
+        && sentTopUp.statement_descriptor_suffix === 'AUTO TOPUP' && sentTopUp.payment_method_options?.card?.stored_credential_usage === 'unscheduled' && sentTopUp.off_session === 'true',
+      JSON.stringify({ card: { mode: sentCard.mode, locale: sentCard.locale, text: sentCard.custom_text }, topup: { suffix: sentTopUp.statement_descriptor_suffix, options: sentTopUp.payment_method_options, off: sentTopUp.off_session } }));
+    const histT = (await c.json('/api/account/payments', { cookie: t.cookie })).body?.payments || [];
+    const histA = (await c.json('/api/account/payments', { cookie: a.cookie })).body?.payments || [];
+    const histNone = await c.json('/api/account/payments', {});
+    const receiptOk = histA.length ? (await fetch(histA.find((h) => h.receipt)?.receipt || 'http://localhost:1/')).status : 0;
+    check('payments: each account\'s payment history is its own: its purchases and automatic top-ups, newest first, with the card and the processor\'s receipt; a top-up an instance stopped before asking the card is not one; a stranger is asked to sign in',
+      histT.filter((h) => h.via === 'auto' && h.status === 'paid').length === 4 && histT.every((h) => h.via !== 'auto' || h.status !== 'failed')
+        && histT.every((h) => h.status === 'failed' || (/\/receipts\/ch_/.test(h.receipt || '') && h.card?.last4 === '4242')) && histT.every((x, k) => k === 0 || histT[k - 1].at >= x.at)
+        && histA.length > 0 && histA.every((h) => h.via === 'checkout') && !histA.some((h) => histT.some((x) => x.receipt && x.receipt === h.receipt)) && receiptOk === 200
+        && histNone.status === 401 && JSON.stringify(Object.keys(histT[0] || {}).sort()) === JSON.stringify(['amountCents', 'at', 'card', 'currency', 'receipt', 'refundedCents', 'status', 'via']),
+      JSON.stringify({ t: histT.map((h) => [h.via, h.status, Boolean(h.receipt)]), a: histA.length, none: histNone.status, receiptOk }));
+    const tHealth = (await c.json('/api/health', { cookie: t.cookie })).body?.access;
+    const tLast = (await db.query("SELECT paid_at, amount_cents FROM payments WHERE user_id = $1 AND kind = 'auto' AND status = 'paid' ORDER BY paid_at DESC LIMIT 1", [t.id])).rows[0];
+    check('payments: the main page is told the account\'s latest automatic top-up (its time and amount, nothing else) and the support address',
+      tHealth?.session?.lastTopUp?.amountCents === 1000 && tHealth.session.lastTopUp.at === new Date(tLast.paid_at).toISOString() && JSON.stringify(Object.keys(tHealth.session.lastTopUp).sort()) === '["amountCents","at"]'
+        && tHealth.support === 'support@operatingequity.ai', JSON.stringify(tHealth));
+    const prices = await fetch(`${origin}/api/prices`);
+    const pj = await prices.json();
+    check('the prices, for anyone and only the settings: a fact-check\'s price, the most a document has free, a new account\'s credit, the amounts and the top-up\'s choices, open to every account; no tier, no cost, nothing of an account',
+      prices.status === 200 && JSON.stringify(Object.keys(pj).sort()) === JSON.stringify(['buying', 'currency', 'freeUpTo', 'grantCents', 'ok', 'priceCents']) && pj.priceCents === 125 && pj.freeUpTo === 0 && pj.grantCents === 1000 && pj.currency === 'USD'
+        && JSON.stringify(pj.buying) === JSON.stringify({ open: true, amountsCents: [1000, 2500, 5000], minCents: 500, maxCents: 20000, topup: { levelsCents: [500, 1000], amountsCents: [1000, 2500, 5000], capsCents: [2500, 5000, 10000, 20000] } }),
+      JSON.stringify(pj));
+    // A deleted account's saved card goes from the processor, and its automatic top-up ends.
+    const z = await reader('z');
+    const pz = await buy(z, 1000, true);
+    await stand(`/mock/pay/${pz.session}`, { card: 'visa' });
+    await until(async () => (await view(z))?.payments?.card || null);
+    await topup(z, { levelCents: 500, amountCents: 1000, capCents: 5000 });
+    const zBefore = (await db.query('SELECT card_method, topup_on FROM users WHERE id = $1', [z.id])).rows[0];
+    const zDel = await c.json('/api/account/delete', { method: 'POST', cookie: z.cookie, body: { password: PASSWORD } });
+    const zAfter = (await db.query('SELECT card_method, topup_on, deleted_at FROM users WHERE id = $1', [z.id])).rows[0];
+    check('deleting an account removes its saved card at the processor and turns its automatic top-up off',
+      Boolean(zBefore?.card_method) && zBefore.topup_on === true && zDel.status === 200 && Boolean(zAfter?.deleted_at) && zAfter.card_method === null && zAfter.topup_on === false
+        && (await stand('/mock/stats')).detached.includes(zBefore.card_method), JSON.stringify({ zBefore, del: zDel.status, zAfter }));
 
     const d = await reader('d');
     const pd = await buy(d, 1000, true);
@@ -6168,8 +6223,8 @@ async function paymentChecks() {
     const bk = out?.payments || {};
     const model = (await db.query('SELECT (SELECT COALESCE(sum(cost_usd), 0) FROM determinations) + (SELECT COALESCE(sum(extract_usd), 0) FROM runs) AS usd')).rows[0];
     const modelCents = Math.round(Number(model.usd) * 100);
-    // a: four purchases; t: four top-ups; d: a purchase and a top-up; g: a top-up
-    const collected = 9500 + 4000 + 2000 + 1000, fees = fee(1000) * 2 + fee(2500) + fee(5000) + fee(1000) * 4 + fee(1000) * 2 + fee(1000);
+    // a: four purchases; t: four top-ups; d: a purchase and a top-up; g: a top-up; z: a purchase (its account since deleted)
+    const collected = 9500 + 4000 + 2000 + 1000 + 1000, fees = fee(1000) * 2 + fee(2500) + fee(5000) + fee(1000) * 4 + fee(1000) * 2 + fee(1000) + fee(1000);
     const revenue = collected - 1500 - (6000 - 5000), cost = modelCents + fees + 3000;
     const percent = Math.round(((revenue - cost) / cost) * 1000) / 10;
     check('/check\'s books add up, in the mode the key is in: collected, the processor\'s fees and net, refunds, disputes (won, lost, the funds and their fees), the automatic top-ups, and the margin on all costs (what readers paid and kept paid against the models\' cost of their work and every fee) against the 25% target; the credit line\'s money collected counts no test payment',
@@ -6226,7 +6281,7 @@ async function paymentChecks() {
       JSON.stringify({ status: pl.status, mode: plRow?.mode, crossMode: crossMode.statuses, ignored, payMode: dUser?.pay_mode, paid: (await paymentOf(plSession))?.status, card: dSees?.card, books: liveBooks?.payments?.payments, collected: liveBooks?.totals?.collectedCents }));
 
     // ---- for the operator alone; not ready; off ----
-    const opm = payServer(POP, { ...paying, CIVIC_PAYMENTS: 'operator' });
+    const opm = payServer(POP, { ...paying, CIVIC_PAYMENTS: 'operator', CIVIC_TERMS_VERSION: '2026-11-03', CIVIC_SUPPORT_EMAIL: 'help@example.com', CIVIC_SUPPORT_PHONE: '+1 (415) 555-0100', CIVIC_BUSINESS_ADDRESS: '1 Example Street, Wilmington, DE 19801' });
     procs.push(opm.child);
     const nr = payServer(PNR, { ...base, ...amounts, CIVIC_PAYMENTS: 'on' });
     procs.push(nr.child);
@@ -6243,6 +6298,14 @@ async function paymentChecks() {
     check('payments for the operator alone (the test-mode trial on the live site): a reader is told they are off and cannot buy; the operator can; the start-up line says so',
       JSON.stringify(readerSees) === '{"on":false}' && readerBuys.status === 404 && readerBuys.body?.error?.code === 'payments_off' && opSees?.on === true && opBuys.status === 200 && /for the operator's account alone/.test(opm.output()),
       JSON.stringify({ reader: readerSees, buys: readerBuys.status, op: opSees?.on, opBuys: opBuys.status, line: opm.output().match(/\[payments\][^\n]*/)?.[0] }));
+    const pageOf = async (port, p) => (await fetch(`http://localhost:${port}/${p}`)).text();
+    const [tSet, cSet, rSet, tUnset, cUnset] = [await pageOf(POP, 'terms'), await pageOf(POP, 'contact'), await pageOf(POP, 'refunds'), await pageOf(PP, 'terms'), await pageOf(PP, 'contact')];
+    check('the legal pages are served with the business\'s facts from the settings: the Terms version as the effective date, the support address, the phone and the mailing address; a fact left unset leaves its line out; never a placeholder',
+      tSet.includes('Effective date: 3 November 2026.') && tSet.includes('Fact Engine LLC, 1 Example Street, Wilmington, DE 19801, <a href="mailto:help@example.com">help@example.com</a>.') && tSet.includes('Phone: +1 (415) 555-0100.')
+        && cSet.includes('or call +1 (415) 555-0100.') && cSet.includes('Mailing address: 1 Example Street, Wilmington, DE 19801.') && rSet.includes(', or +1 (415) 555-0100.') && !/support@operatingequity/.test(tSet + cSet + rSet)
+        && tUnset.includes('Effective date: 3 October 2026.') && tUnset.includes('Fact Engine LLC, <a href="mailto:support@operatingequity.ai">') && !tUnset.includes('Phone:') && !cUnset.includes('Mailing address') && !cUnset.includes('or call')
+        && ![tSet, cSet, rSet, tUnset, cUnset].some((h) => /\{\{|\[(date|mailing|street)|<!--/.test(h)),
+      JSON.stringify({ set: [tSet.includes('Effective date: 3 November 2026.'), cSet.includes('Mailing address: 1 Example Street')], unset: [tUnset.includes('Effective date: 3 October 2026.'), cUnset.includes('Mailing address')] }));
     check('payments switched on without the key and the signing secret are not ready: nothing can be bought, and the start-up line names what is missing, never a value',
       /\[payments\] CIVIC_PAYMENTS=on, but not ready \(missing CIVIC_STRIPE_KEY, CIVIC_STRIPE_WEBHOOK_SECRET\): nothing can be bought/.test(nr.output()), nr.output().match(/\[payments\][^\n]*/)?.[0] || '');
     const co = accountClient(`http://localhost:${POFF}`);

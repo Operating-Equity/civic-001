@@ -106,7 +106,7 @@ export function mountAccountRoutes(app, { wrap }) {
   app.post('/api/account/checkout', wrap(async (req, res) => {
     const s = await sessionNeeded(req);
     const b = body(req);
-    res.json({ ok: true, ...(await payments.startCheckout(s.user, { amountCents: b.amountCents, saveCard: b.saveCard === true, origin: origin(req) })) });
+    res.json({ ok: true, ...(await payments.startCheckout(s.user, { amountCents: b.amountCents, saveCard: b.saveCard === true, origin: origin(req), lang: b.lang })) });
   }));
 
   app.get('/api/account/checkout', wrap(async (req, res) => {
@@ -117,7 +117,7 @@ export function mountAccountRoutes(app, { wrap }) {
 
   app.post('/api/account/card', wrap(async (req, res) => {
     const s = await sessionNeeded(req);
-    res.json({ ok: true, ...(await payments.startCardSetup(s.user, { origin: origin(req) })) });
+    res.json({ ok: true, ...(await payments.startCardSetup(s.user, { origin: origin(req), lang: body(req).lang })) });
   }));
 
   app.get('/api/account/card', wrap(async (req, res) => {
@@ -137,6 +137,13 @@ export function mountAccountRoutes(app, { wrap }) {
     const b = body(req);
     await payments.setTopUp(s.user, { on: b.on === true, levelCents: b.levelCents, amountCents: b.amountCents, capCents: b.capCents, agreement: b.agreement });
     res.json({ ok: true, payments: await payments.viewFor(await accounts.userById(s.user.id)) });
+  }));
+
+  // The account's own payments: each purchase and automatic top-up, its status, its card and the processor's receipt.
+  app.get('/api/account/payments', wrap(async (req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    const s = await sessionNeeded(req);
+    res.json({ ok: true, payments: await payments.historyFor(s.user) });
   }));
 
   app.get('/api/account/activity', wrap(async (req, res) => {
@@ -172,6 +179,8 @@ export function mountAccountRoutes(app, { wrap }) {
     const s = await sessionNeeded(req);
     if (s.user.operator) throw expected(new ApiError(409, 'operator_account', 'The operator\'s account cannot be deleted here.'));
     await accounts.signIn({ email: s.user.email, password: body(req).password, address: address(req) });
+    // Its saved card goes from the processor and its automatic top-up turns off, before the account itself goes.
+    await payments.removeCard(s.user).catch((err) => console.error('[payments] a deleted account\'s card could not be removed:', err?.message || err));
     await accounts.deleteAccount(s.user.id);
     clearSessionCookie(req, res);
     res.json({ ok: true });

@@ -1441,6 +1441,38 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
     live stay apart: nothing of the trial (its customer, its card, its payments) is used or counted under live keys.
   - **Proof:** the guard's payment checks against a stand-in for Stripe (`scripts/mock-stripe.js`, which serves
     Stripe's addresses and sends signed notices), and a browser check of the Account page.
+  - **Live** (2 November, 01:52 UTC): PR #103 deployed, payments off, with the amounts set on Render (1000, 2500 and
+    5000 cents, or 500 to 20000; levels 500 and 1000; monthly totals 2000, 5000, 10000 and 20000) and
+    `CIVIC_TERMS_VERSION=2026-11-02`. The Account page and its scripts are the released ones, and no page a reader
+    receives carries a script of Stripe's; Stripe's notices are not found; a stranger asking to buy is asked to sign in;
+    the Terms, the privacy page and the refunds page carry the approved words; the start-up line says nothing can be
+    bought, past the schema step; the record, the standby, the tell words and the readers' model are as before. Live
+    check clean, nothing spent.
+- **3 November: the pages paying readers need.** The operator: "Have the pages been created that are needed in order to
+  support user consumption of the platform, tied to stripe ... the user interface must have all of the components
+  integrated consistently with a good user experience and consistent with the business model." A walk through every
+  page a reader touches, against Stripe's activation and website requirements, the card networks' rules for automatic
+  charges and the billing pages of comparable services, found no public price, unfinished legal pages, words that
+  contradicted each other, no receipts and two wrong figures. The plan was approved; this is it.
+  - **Pricing** (`public/pricing.html`, four languages), from the settings the server charges by (`GET /api/prices`);
+    the price under the main page's lede for a visitor; one header and one footer on every page.
+  - **The legal pages** finished from Render's settings (the effective date, the support address, phone and mailing
+    address, read in as each page is served), with the approved words on credit that does not expire, refunds as
+    credit, disputes on purchases, cancellation of the top-up, delivery, and what is kept.
+  - **The Account page:** a payment history with Stripe's receipts (migration `006-receipts.sql`); the no-refund line,
+    the age and the Terms beside Continue to payment; test mode said; deleting an account removes its saved card and
+    ends its top-up.
+  - **Stripe's page** in the reader's language with the no-refund line above Pay; card statements read
+    `FACTENGINE* CREDIT` or `FACTENGINE* AUTO TOPUP`; a top-up is an unscheduled charge on a stored card; the
+    agreement names the business and says it is asked again if it changes.
+  - **The test page:** the free fact-checks still left; the balance read again when the tab is shown; a line when an
+    automatic top-up has charged the card; refusals with their real figures (they read $0.00), the monthly limit with
+    its link.
+  - **Found and fixed on the way:** two claims refused for short credit at the same moment could each start a top-up,
+    when the second read the balance just before the first one landed; the top-up now reads the balance and the month
+    again once it holds the account's one place. The guard's counts of the processor's calls had read a name the
+    stand-in never wrote, so the checks that the processor is not asked passed whatever happened; they count now.
+  - **Kept as it was:** the price is said once, above the claims, and no button carries it (the operator, 6 October).
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 

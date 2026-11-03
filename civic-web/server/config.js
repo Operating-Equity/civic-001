@@ -337,6 +337,12 @@ export const config = {
   reloadLevelsCents: list('CIVIC_RELOAD_LEVELS_CENTS', '').map((x) => Number.parseInt(x, 10)).filter((x) => Number.isInteger(x) && x > 0),
   reloadCapsCents: list('CIVIC_RELOAD_CAPS_CENTS', '').map((x) => Number.parseInt(x, 10)).filter((x) => Number.isInteger(x) && x > 0),
   marginTargetPercent: num('CIVIC_MARGIN_TARGET_PERCENT', 25),  // "a very comfortable 25% margin on all costs": /check flags the margin below it
+  // What the public pages say of the business (3 November), as the payment processor's review asks: the support address,
+  // a support phone and the business's mailing address, set on Render by the operator. A phone or an address that is
+  // unset, or not of its shape, is left off the pages; the support address keeps the launch text's own.
+  supportEmail: ((v) => (/^[^\s@<>"']+@[^\s@<>"']+\.[a-z]{2,}$/i.test(v) ? v : 'support@operatingequity.ai'))(env('CIVIC_SUPPORT_EMAIL', '').trim()),
+  supportPhone: ((v) => (/^\+?[0-9][0-9 ().-]{5,23}[0-9]$/.test(v) ? v : ''))(env('CIVIC_SUPPORT_PHONE', '').trim()),
+  businessAddress: ((v) => (v.length <= 200 && !/[\r\n<>]/.test(v) ? v : ''))(env('CIVIC_BUSINESS_ADDRESS', '').trim()),
   // The measurement's home: Render's Postgres when DATABASE_URL is set (the rows outlive every
   // deploy); without it, this instance's memory, which a restart empties. Never a CIVIC_ name:
   // DATABASE_URL is what Render itself puts on a service. CIVIC_DATABASE_SSL: auto (verified TLS

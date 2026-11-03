@@ -29,10 +29,26 @@ import { ApiError } from './openai.js';
 import * as credit from './credit.js';
 import * as accounts from './accounts.js';
 import { listPrice } from './economics.js';
+// The words the processor's page shows above its Pay button and on its card-saving form, in the reader's language (the
+// locales the pages use, public/locales/), with the addresses of the Terms and the refund policy.
+import en from '../public/locales/en.js';
+import es from '../public/locales/es.js';
+import fr from '../public/locales/fr.js';
+import de from '../public/locales/de.js';
+
+const WORDS = { en, es, fr, de };
+const langOf = (v) => (Object.hasOwn(WORDS, String(v)) ? String(v) : 'en');
+function pageWords(lang, key, origin) {
+  const text = WORDS[langOf(lang)]?.checkout?.[key] ?? en.checkout[key];
+  return String(text).replace('{terms}', `${origin}/terms`).replace('{refunds}', `${origin}/refunds`);
+}
+// What a card statement shows after the account's own descriptor (FACTENGINE* CREDIT, FACTENGINE* AUTO TOPUP), so a
+// reader knows the charge.
+const SUFFIX = { checkout: 'CREDIT', auto: 'AUTO TOPUP' };
 
 const API_VERSION = '2026-10-28.endive';
 // The version of the automatic top-up's agreement as the Account page words it: kept with each reader's consent.
-export const TOPUP_AGREEMENT = '2026-11-01';
+export const TOPUP_AGREEMENT = '2026-11-03';
 const PAID = ['paid', 'refunded', 'disputed', 'lost', 'won'];
 
 const expected = (err) => Object.assign(err, { expected: true });
@@ -114,7 +130,7 @@ async function topupsThisMonth(userId) {
 
 /** What the Account page is told: whether this account may buy, the amounts, its card (brand, last four, expiry), its top-up. */
 export async function viewFor(user) {
-  if (!openTo(user)) return { on: false };
+  if (!openTo(user)) return { on: false, ...(user?.payHoldAt ? { hold: true } : {}) };
   const r = otherRange();
   const mine = here(user);
   let topup = null;
@@ -129,6 +145,7 @@ export async function viewFor(user) {
   return {
     on: true, mode: mode(), currency: config.currency, amountsCents: config.topupAmountsCents, minCents: r?.min ?? null, maxCents: r?.max ?? null,
     priceCents: listPrice(), hold: Boolean(user.payHoldAt), card: mine && user.cardLast4 ? { brand: user.cardBrand, last4: user.cardLast4, exp: user.cardExp } : null, topup,
+    merchant: config.businessAddress || null,   // the business's address, which the top-up's agreement names
   };
 }
 
@@ -158,7 +175,7 @@ async function customerFor(user) {
 }
 
 /** A purchase: the payment is written first, then the hosted page made; the page moves to the address returned. */
-export async function startCheckout(user, { amountCents, saveCard = false, origin }) {
+export async function startCheckout(user, { amountCents, saveCard = false, origin, lang = 'en' }) {
   refuseUnlessOpen(user);
   const amount = Number(amountCents);
   if (!validAmount(amount)) throw expected(new ApiError(400, 'amount_invalid', 'That amount cannot be bought here.'));
@@ -171,9 +188,10 @@ export async function startCheckout(user, { amountCents, saveCard = false, origi
   const meta = { payment: id, account: String(user.id) };
   try {
     const session = await stripe().checkout.sessions.create({
-      mode: 'payment', customer, client_reference_id: id, metadata: meta,
+      mode: 'payment', customer, client_reference_id: id, metadata: meta, locale: langOf(lang),
       line_items: [{ quantity: 1, price_data: { currency: config.currency.toLowerCase(), unit_amount: amount, product_data: { name: 'FactEngine credit' } } }],
-      payment_intent_data: { metadata: meta, ...(save ? { setup_future_usage: 'off_session' } : {}) },
+      payment_intent_data: { metadata: meta, statement_descriptor_suffix: SUFFIX.checkout, ...(save ? { setup_future_usage: 'off_session' } : {}) },
+      custom_text: { submit: { message: pageWords(lang, save ? 'noteSave' : 'note', origin) } },
       success_url: `${origin}/account?paid={CHECKOUT_SESSION_ID}#add-credit`,
       cancel_url: `${origin}/account?paid=none#add-credit`,
     }, { idempotencyKey: `checkout-${id}` });
@@ -222,9 +240,11 @@ async function creditPayment(paymentId, intentId) {
   const wallet = card?.wallet?.type || (ch?.payment_method_details?.type && ch.payment_method_details.type !== 'card' ? ch.payment_method_details.type : null);
   const userId = Number(row.user_id);
   const done = await tx(async (c) => {
-    const u = await c.query(`UPDATE payments SET status = 'paid', paid_at = $2, intent_id = $3, fee_cents = $4, net_cents = $5, card_brand = $6, card_country = $7, wallet = $8, failure = NULL
+    const u = await c.query(`UPDATE payments SET status = 'paid', paid_at = $2, intent_id = $3, fee_cents = $4, net_cents = $5, card_brand = $6, card_country = $7, wallet = $8, failure = NULL,
+                                 card_last4 = $9, receipt_url = $10
                                WHERE id = $1 AND status IN ('pending', 'failed', 'cancelled') RETURNING kind`,
-    [paymentId, new Date(now()), pi.id, bt?.fee ?? null, bt?.net ?? null, card?.brand ?? null, card?.country ?? null, wallet]);
+    [paymentId, new Date(now()), pi.id, bt?.fee ?? null, bt?.net ?? null, card?.brand ?? null, card?.country ?? null, wallet,
+      /^\d{4}$/.test(String(card?.last4 || '')) ? card.last4 : null, receiptOf(ch)]);
     if (!u.rows[0]) return false;
     await credit.paymentEntry(userId, 'purchase', amount, { paymentId, ref: pi.id, note: u.rows[0].kind }, c);
     return true;
@@ -232,6 +252,9 @@ async function creditPayment(paymentId, intentId) {
   if (done && row.save_card && pi.payment_method) await keepCard(userId, pi.payment_method).catch((err) => fault('a saved card could not be kept', err));
   return done ? 'credited' : 'already';
 }
+
+/** The processor's own receipt for a charge: its address, when it is one of the web's. */
+const receiptOf = (ch) => (typeof ch?.receipt_url === 'string' && /^https?:\/\/[^\s"'<>]+$/.test(ch.receipt_url) ? ch.receipt_url : null);
 
 /** The card the reader saved: its brand, last four digits and expiry, never its number. A new card replaces the old one. */
 async function keepCard(userId, pm) {
@@ -246,14 +269,15 @@ async function keepCard(userId, pm) {
 }
 
 /** "Add a card" or "Replace": the hosted page in its saving form; nothing is charged. */
-export async function startCardSetup(user, { origin }) {
+export async function startCardSetup(user, { origin, lang = 'en' }) {
   refuseUnlessOpen(user);
   if (!topupOffered()) throw expected(new ApiError(404, 'payments_off', 'Automatic top-ups are not offered.'));
   try {
     const customer = await customerFor(user);
     const meta = { account: String(user.id), purpose: 'card' };
     const session = await stripe().checkout.sessions.create({
-      mode: 'setup', customer, currency: config.currency.toLowerCase(), metadata: meta, setup_intent_data: { metadata: meta },
+      mode: 'setup', customer, currency: config.currency.toLowerCase(), metadata: meta, setup_intent_data: { metadata: meta }, locale: langOf(lang),
+      custom_text: { submit: { message: pageWords(lang, 'cardNote', origin) } },
       success_url: `${origin}/account?card={CHECKOUT_SESSION_ID}#auto-topup`, cancel_url: `${origin}/account?card=none#auto-topup`,
     });
     return { url: session.url };
@@ -279,6 +303,43 @@ export async function cardReturn(user, sessionId) {
     fault('a saved card could not be confirmed', err);
   }
   return { state, payments: await viewFor(await accounts.userById(user.id)) };
+}
+
+/**
+ * The account's payments, newest first, for its own Account page: each purchase on the hosted page and each automatic
+ * top-up that was charged (a refused top-up too, as the card was asked; not one an instance stopped before asking), with
+ * its amount, status, card and the
+ * processor's receipt. Those of the key's mode (a test-mode trial's are not money); with no key, the live ones.
+ */
+export async function historyFor(user, { limit = 100 } = {}) {
+  if (!dbOn() || !user) return [];
+  const m = mode() || 'live';
+  const rows = (await query(`SELECT kind, status, amount_cents, currency, created_at, paid_at, card_brand, card_last4, receipt_url, refunded_cents
+                             FROM payments WHERE user_id = $1 AND mode = $2 AND (status IN (${PAID.map((x) => `'${x}'`).join(', ')}) OR (kind = 'auto' AND status = 'failed' AND failure IS DISTINCT FROM 'stopped'))
+                             ORDER BY COALESCE(paid_at, created_at) DESC LIMIT $3`, [user.id, m, limit])).rows;
+  return rows.map((r) => ({
+    at: new Date(r.paid_at || r.created_at).toISOString(), via: r.kind === 'auto' ? 'auto' : 'checkout', status: r.status,
+    amountCents: Number(r.amount_cents), currency: r.currency, refundedCents: Number(r.refunded_cents) || 0,
+    card: r.card_brand ? { brand: r.card_brand, last4: r.card_last4 || null } : null, receipt: receiptOf({ receipt_url: r.receipt_url }),
+  }));
+}
+
+/** The account's latest automatic top-up that was charged, in this mode: its time and amount, for the main page's line. */
+export async function lastTopUp(user) {
+  if (!ready() || !user || !here(user)) return null;
+  const r = (await query(`SELECT paid_at, amount_cents FROM payments WHERE user_id = $1 AND kind = 'auto' AND mode = $2 AND status IN (${PAID.map((x) => `'${x}'`).join(', ')})
+                          ORDER BY paid_at DESC NULLS LAST LIMIT 1`, [user.id, mode()])).rows[0];
+  return r?.paid_at ? { at: new Date(r.paid_at).toISOString(), amountCents: Number(r.amount_cents) } : null;
+}
+
+/** What anyone may read of buying (the Pricing page): whether it is open to every account, the amounts and the top-up's choices. */
+export function publicOffer() {
+  const r = otherRange();
+  if (!amountsSet()) return null;
+  return {
+    open: ready() && config.payments === 'on', amountsCents: config.topupAmountsCents, minCents: r?.min ?? null, maxCents: r?.max ?? null,
+    topup: topupOffered() ? { levelsCents: config.reloadLevelsCents, amountsCents: config.topupAmountsCents, capsCents: config.reloadCapsCents } : null,
+  };
 }
 
 /** "Remove": the card goes from the processor and from the account, and the top-up turns off. */
@@ -384,11 +445,20 @@ export async function topUp(userId, { needCents = 0 } = {}, again = false) {
     if (!again && row && (await settleStale(row)) === 'settled') return topUp(userId, { needCents }, true);
     return { done: false, why: 'running' };
   }
+  // The balance and the month are read again now that this top-up holds the account's one place: one another claim's
+  // top-up finished between the reading above and this row has added its credit by now, and this one is not needed.
+  const enough = (await credit.balanceOf(userId)) >= Math.max(Number(user.topupLevelCents) || 0, Number(needCents) || 0);
+  if (enough || (await topupsThisMonth(userId)) > (Number(user.topupCapCents) || 0)) {
+    await query("DELETE FROM payments WHERE id = $1 AND status = 'pending'", [id]);
+    return { done: false, why: enough ? 'enough' : 'cap' };
+  }
   let pi;
   try {
     pi = await stripe().paymentIntents.create({
       amount, currency: config.currency.toLowerCase(), customer: user.payCustomer, payment_method: user.cardMethod, off_session: true, confirm: true,
       metadata: { payment: id, account: String(userId), kind: 'auto' }, description: 'FactEngine credit, automatic top-up',
+      // An unscheduled charge on a stored card, as the card networks name a top-up the reader agreed to.
+      statement_descriptor_suffix: SUFFIX.auto, payment_method_options: { card: { stored_credential_usage: 'unscheduled' } },
     }, { idempotencyKey: `topup-${id}` });
   } catch (err) {
     const code = codeOf(err);

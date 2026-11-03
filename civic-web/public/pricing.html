@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en" dir="ltr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FactEngine · Pricing</title>
+<meta name="description" content="What FactEngine costs: listing the claims in a document is free; each fact-check is paid from prepaid credit, in US dollars.">
+<link rel="icon" type="image/svg+xml" href="assets/favicon.svg">
+<link rel="icon" type="image/png" href="assets/favicon.png">
+<link rel="stylesheet" href="css/fonts.css">
+<link rel="stylesheet" href="css/civic.css">
+</head>
+<body>
+<!-- The page's mathematical field, held still on the golden rectangle here (js/field.js). -->
+<div class="field" id="field" aria-hidden="true" data-phase="idle" data-field="" data-still="golden">
+  <div class="field-layer" data-slot="a"></div>
+  <div class="field-layer" data-slot="b"></div>
+</div>
+<!-- Pricing (3 November): every figure is read from the server's own settings (GET /api/prices, js/pricing.js), the ones it
+     charges by, so this page and what is charged never differ. In the four languages of the main page. -->
+<main class="plain-page glass">
+  <div class="plain-top">
+    <a class="plain-brand" href="./">FactEngine</a>
+    <label class="lang">
+      <span class="visually-hidden" data-i18n="nav.language">Language</span>
+      <select id="lang-select" class="lang-select"></select>
+    </label>
+  </div>
+  <nav class="plain-nav" aria-label="FactEngine's pages">
+    <a href="pricing" aria-current="page" data-i18n="footer.pricing">Pricing</a> · <a href="terms" data-i18n="footer.terms">Terms</a> · <a href="privacy" data-i18n="footer.privacy">Privacy</a> · <a href="refunds" data-i18n="footer.refunds">Refunds</a> · <a href="contact" data-i18n="footer.contact">Contact</a> · <a href="account" data-i18n="nav.yourAccount">Your account</a>
+  </nav>
+  <h1 class="plain-head" data-i18n="pricing.title">Pricing</h1>
+  <p class="plain-lede" data-i18n="pricing.lede">Listing the claims in a document is free. You pay only for the fact-checks you choose, from prepaid credit.</p>
+  <p class="acct-note is-bad" id="price-unavailable" role="status" hidden></p>
+  <div class="price-cards" id="price-cards" hidden>
+    <div class="price-card">
+      <h2 data-i18n="pricing.listing">Listing the claims</h2>
+      <p class="price-figure" data-i18n="pricing.free">Free</p>
+    </div>
+    <div class="price-card" id="price-each">
+      <h2 data-i18n="pricing.each">Each fact-check</h2>
+      <p class="price-figure" id="price-each-figure"></p>
+      <p class="price-sub" id="price-each-free" hidden></p>
+    </div>
+    <div class="price-card" id="price-grant" hidden>
+      <h2 data-i18n="pricing.grantTitle">A new account</h2>
+      <p class="price-figure" id="price-grant-figure"></p>
+      <p class="price-sub" data-i18n="pricing.grantTerms">Starts with this much credit, for fact-checks only, with no cash value; one account per person.</p>
+    </div>
+  </div>
+  <div class="prose">
+    <section id="price-credit" hidden>
+      <h2 data-i18n="pricing.creditTitle">Credit</h2>
+      <p id="price-credit-soon" hidden></p>
+      <p data-i18n="pricing.creditLede">Buy credit in any of these amounts, on our payment processor's secure page:</p>
+      <ul class="price-amounts" id="price-amounts"></ul>
+      <p id="price-other" hidden></p>
+    </section>
+    <section id="price-topup" hidden>
+      <h2 data-i18n="pricing.topupTitle">Automatic top-up, if you want it</h2>
+      <p id="price-topup-text"></p>
+    </section>
+    <section>
+      <h2 data-i18n="pricing.notesTitle">Good to know</h2>
+      <ul id="price-notes">
+        <li data-i18n="pricing.noExpire">Credit does not expire.</li>
+        <li id="price-refunds">Purchased credit is not refunded. A test that fails is never charged, and faults are reviewed: see the <a href="refunds">Refund Policy</a>.</li>
+        <li data-i18n="pricing.delivery">Credit is added as soon as your payment is confirmed, usually within seconds.</li>
+        <li data-i18n="pricing.statement">Charges appear on your card statement as FACTENGINE* CREDIT, or FACTENGINE* AUTO TOPUP for an automatic top-up.</li>
+        <li data-i18n="pricing.card">Your card number never reaches FactEngine: you pay on our payment processor's secure page.</li>
+        <li id="price-currency" hidden></li>
+      </ul>
+    </section>
+  </div>
+  <p class="plain-back"><a class="btn btn-primary" href="./" data-i18n="pricing.start">Start testing</a></p>
+</main>
+<footer class="footer">
+  <div class="footer-brand">
+    <a class="footer-site" href="./" data-i18n="footer.site">FactEngine.com</a>
+    <span class="footer-dot" aria-hidden="true">·</span>
+    <span class="footer-service"><span data-i18n="footer.service">A service of</span> <span class="footer-company">Fact Engine LLC,</span> <a class="footer-parent" href="https://operatingequity.ai" target="_blank" rel="noopener"><img src="assets/oe-logo.png" alt="" class="oe-mark" width="44" height="24"><span class="oe-name" data-i18n="footer.parent">an Operating Equity company</span></a></span>
+  </div>
+  <nav class="footer-links" aria-label="FactEngine's pages">
+    <a href="pricing" data-i18n="footer.pricing">Pricing</a>
+    <a href="terms" data-i18n="footer.terms">Terms</a>
+    <a href="privacy" data-i18n="footer.privacy">Privacy</a>
+    <a href="refunds" data-i18n="footer.refunds">Refunds</a>
+    <a href="contact" data-i18n="footer.contact">Contact</a>
+    <span class="footer-copy" data-i18n="footer.copyright">© 2026</span>
+  </nav>
+</footer>
+<script type="module" src="js/field.js"></script>
+<script type="module" src="js/pricing.js"></script>
+</body>
+</html>

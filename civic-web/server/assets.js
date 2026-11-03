@@ -246,13 +246,60 @@ export function served(file, rel) {
   const src = fs.readFileSync(file, 'utf8');
   const where = `public/${rel}`;
   const body = kind === 'css' ? stripStyle(src, { where })
-    : kind === 'html' ? stripPage(src, { where })
+    : kind === 'html' ? stripPage(withFacts(src, { where }), { where })
       : stripScript(src, { script: CLASSIC.has(String(rel).toLowerCase()), where });
   const bytes = Buffer.from(body, 'utf8');
   const etag = `"${crypto.createHash('sha256').update(bytes).digest('base64url').slice(0, 27)}"`;
   const entry = { kind, mtimeMs: stat.mtimeMs, size: stat.size, body, bytes, etag };
   cache.set(file, entry);
   return entry;
+}
+
+// What the public pages say of the business (3 November): the support address, the support phone, the mailing address
+// and the Terms' effective date, from the operator's settings (server/config.js), set once at the start. A page names
+// one as {{email}}, {{phone}}, {{address}} or {{effective}}; a line that needs a fact the operator may leave unset stands
+// between "<!--if phone-->" and "<!--/if-->" lines of their own, and goes when it is unset ("<!--if !phone-->": the line
+// for when it is unset). A fact named where it is
+// unset, or a part that never ends, stops the reading, naming the line: no page is ever sent with a fact missing.
+let facts = { email: '', phone: '', address: '', effective: '' };
+const FACT = /\{\{(email|phone|address|effective)\}\}/g;
+const escapeHtml = (v) => String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+/** A date written YYYY-MM-DD, as the Terms say a date ("3 November 2026"); anything else as it is. */
+export function longDate(v) {
+  const m = /^(\d{4})-(\d\d)-(\d\d)$/.exec(String(v || ''));
+  return m && Number(m[2]) >= 1 && Number(m[2]) <= 12 ? `${Number(m[3])} ${MONTHS[Number(m[2]) - 1]} ${m[1]}` : String(v || '');
+}
+export function setPageFacts({ email = '', phone = '', address = '', effective = '' } = {}) {
+  facts = { email: String(email), phone: String(phone), address: String(address), effective: longDate(effective) };
+  cache.clear();
+  pages = null;
+}
+export function withFacts(src, { where = 'a page' } = {}) {
+  const out = [];
+  let open = null;
+  src.split('\n').forEach((line, k) => {
+    const t = line.trim();
+    const m = /^<!--if (!?)(email|phone|address|effective)-->$/.exec(t);
+    if (m) {
+      if (open) throw new Error(`${where}, line ${k + 1}: a part for a fact begins inside the one begun on line ${open.line}`);
+      open = { name: m[2], not: m[1] === '!', line: k + 1 };
+      return;
+    }
+    if (t === '<!--/if-->') {
+      if (!open) throw new Error(`${where}, line ${k + 1}: a part for a fact ends that never began`);
+      open = null;
+      return;
+    }
+    if (/<!--\/?if\b/.test(line)) throw new Error(`${where}, line ${k + 1}: a fact's mark must stand alone on its line`);
+    if (open && Boolean(facts[open.name]) === open.not) return;
+    out.push(line.replace(FACT, (all, name) => {
+      if (!facts[name]) throw new Error(`${where}, line ${k + 1}: {{${name}}} is named, and it is not set`);
+      return escapeHtml(facts[name]);
+    }));
+  });
+  if (open) throw new Error(`${where}, line ${open.line}: a part for a fact never ends`);
+  return out.join('\n');
 }
 
 let pages = null;
@@ -269,10 +316,11 @@ export function indexPage({ publicDir, build, operator }) {
     try {
       const src = fs.readFileSync(file, 'utf8');
       const where = 'public/index.html';
-      const reader = withoutOperatorParts(src, { where });
+      const filled = withFacts(src, { where });
+      const reader = withoutOperatorParts(filled, { where });
       pages = {
         mtimeMs: stat.mtimeMs, size: stat.size,
-        operator: stampAddresses(stripPage(src, { where }), build),
+        operator: stampAddresses(stripPage(filled, { where }), build),
         reader: stampAddresses(stripPage(reader, { where }), build),
       };
     } catch (err) {

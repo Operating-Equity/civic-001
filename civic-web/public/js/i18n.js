@@ -40,9 +40,13 @@ export function t(key, params = {}) {
   return fill(text, params);
 }
 
+// What any sentence may name without being told it each time: the support address, from the server (CIVIC_SUPPORT_EMAIL).
+const defaults = {};
+export function setDefaults(params = {}) { Object.assign(defaults, params); }
+
 /** A sentence with its {param}s filled in: the bundles' own, and the operator's words the operator's page carries. */
 export function fill(text, params = {}) {
-  return String(text).replace(/\{(\w+)\}/g, (m, name) => (params[name] !== undefined ? formatParam(params[name]) : m));
+  return String(text).replace(/\{(\w+)\}/g, (m, name) => (params[name] !== undefined ? formatParam(params[name]) : defaults[name] !== undefined ? formatParam(defaults[name]) : m));
 }
 
 function formatParam(v) {

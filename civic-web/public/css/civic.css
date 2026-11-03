@@ -243,7 +243,7 @@ body {
    the page. "Show the text" opens the text again, read-only, without giving the box its height back. */
 .intake.is-collapsed { padding-block: 16px 14px; }
 .intake.is-collapsed .intake-title { font-size: 24px; margin: 0; }
-.intake.is-collapsed .intake-lede, .intake.is-collapsed .intake-tools, .intake.is-collapsed .intake-go, .intake.is-collapsed .source { display: none; }
+.intake.is-collapsed .intake-lede, .intake.is-collapsed .intake-price, .intake.is-collapsed .intake-tools, .intake.is-collapsed .intake-go, .intake.is-collapsed .source { display: none; }
 .intake.is-collapsed.is-open .source { display: block; margin-block-start: 12px; max-height: 260px; }
 .intake-summary { display: flex; align-items: center; gap: 6px 14px; flex-wrap: wrap; margin-block-start: 6px; font-size: 14.5px; color: var(--ink-2); }
 .intake-summary b { color: var(--ink); font-weight: 600; }
@@ -253,6 +253,11 @@ body {
   margin: 0 0 8px; text-wrap: balance;
 }
 .intake-lede { margin: 0 0 18px; color: var(--ink-2); font-size: 17px; max-width: var(--measure); text-wrap: pretty; }
+/* The header's Pricing, for a visitor: on a phone the price line under the lede carries the link, and the header keeps
+   to the language, Sign in and Sign up. */
+@media (max-width: 480px) { #nav-pricing { display: none; } }
+/* A visitor's line of the price, under the lede (3 November). */
+.intake-price { margin: -8px 0 18px; color: var(--ink-2); font-size: 15px; max-width: var(--measure); text-wrap: pretty; }
 .source { min-height: 210px; resize: vertical; font-size: 16px; line-height: 1.5; }
 .intake-tools { display: flex; justify-content: space-between; align-items: center; gap: 12px 18px; flex-wrap: wrap; margin-block-start: 12px; }
 /* A link a site refused, found elsewhere: the copies to pick from, under the box. */
@@ -518,6 +523,15 @@ body {
 .plain-page .prose h2 { margin-block-start: 26px; }
 .plain-back { margin: 28px 0 0; }
 @media (max-width: 760px) { .plain-page { margin: 16px auto; } }
+/* The Pricing page (3 November): the brand and the language on one line, then three figures, then the prose. */
+.plain-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.price-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr)); gap: 12px; margin: 0 0 8px; }
+.price-card { padding: 16px 18px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: rgba(255, 255, 255, 0.55); display: grid; gap: 6px; align-content: start; }
+.price-card h2 { margin: 0; font-size: 15px; font-weight: 600; color: var(--ink-2); }
+.price-figure { margin: 0; font-family: var(--font-display); font-weight: 700; font-size: 30px; line-height: 1.1; color: var(--ink); font-variant-numeric: tabular-nums; }
+.price-sub { margin: 0; font-size: 14px; color: var(--ink-2); }
+.price-amounts { padding-inline-start: 1.2em; }
+.price-amounts strong { font-variant-numeric: tabular-nums; }
 .oe-mark { height: 24px; width: auto; }
 .oe-name { color: var(--ink); font-weight: 600; }
 

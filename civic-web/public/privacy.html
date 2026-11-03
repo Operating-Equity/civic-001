@@ -16,17 +16,18 @@
   <div class="field-layer" data-slot="a"></div>
   <div class="field-layer" data-slot="b"></div>
 </div>
-<!-- The text is the operator's launch text of 3 October 2026 ("FactEngine: launch texts and checklist"), published for
-     review; what stands in [square brackets] is theirs to fill. Static HTML: nothing here runs at request time. -->
+<!-- The text is the operator's launch text of 3 October 2026 ("FactEngine: launch texts and checklist"), with the words
+     approved since. The effective date, the support address, the phone and the mailing address are the operator's
+     settings, read in as the page is served (server/assets.js); nothing else here runs at request time. -->
 <main class="plain-page glass">
   <a class="plain-brand" href="./">FactEngine</a>
-  <nav class="plain-nav" aria-label="Terms, privacy, refunds and contact">
-    <a href="terms">Terms</a> · <a href="privacy" aria-current="page">Privacy</a> · <a href="refunds">Refunds</a> · <a href="contact">Contact</a>
+  <nav class="plain-nav" aria-label="FactEngine's pages">
+    <a href="pricing">Pricing</a> · <a href="terms">Terms</a> · <a href="privacy" aria-current="page">Privacy</a> · <a href="refunds">Refunds</a> · <a href="contact">Contact</a> · <a href="account">Your account</a>
   </nav>
   <h1 class="plain-head">Privacy Policy</h1>
   <p class="plain-lede">What FactEngine collects when you use it, why, who sees it and what your choices are.</p>
   <div class="prose">
-    <p>Effective date: [date]. This policy explains what Fact Engine LLC (&quot;we&quot;, &quot;us&quot;), the operator of FactEngine at FactEngine.com, collects when you use the Service, why, who sees it and what your choices are. Questions and requests go to <a href="mailto:support@operatingequity.ai">support@operatingequity.ai</a>.</p>
+    <p>Effective date: {{effective}}. This policy explains what Fact Engine LLC (&quot;we&quot;, &quot;us&quot;), the operator of FactEngine at FactEngine.com, collects when you use the Service, why, who sees it and what your choices are. Questions and requests go to <a href="mailto:{{email}}">{{email}}</a>.</p>
     <h2>1. What we collect, and why</h2>
     <table>
     <thead>
@@ -74,7 +75,7 @@
     <td>Card details are held by our payment processor, never by us; we keep the record of the charge</td>
     </tr>
     <tr>
-    <td>Your purchases (amount, date and status), our payment processor&#39;s references, and a saved card&#39;s type, last four digits and expiry; and, if you turn on automatic top-ups, your choices and when you agreed to them</td>
+    <td>Your purchases (amount, date and status), our payment processor&#39;s references, the card&#39;s type and country, and the last four digits of the card, with a saved card&#39;s expiry; and, if you turn on automatic top-ups, your choices and when you agreed to them</td>
     <td>At each purchase, and when you save a card or change automatic top-ups</td>
     <td>To take payment, add your credit, keep the books and answer disputes</td>
     <td>For as long as accounting and tax law require</td>
@@ -82,7 +83,7 @@
     </tbody></table>
     <p>We collect nothing else. In particular, we do not collect your location, device identifiers or browsing history, and we do not place analytics or advertising trackers.</p>
     <h2>2. Cookies and browser storage</h2>
-    <p>The Service sets one cookie, to keep you signed in, and stores one preference in your browser, your chosen language. Neither is used for tracking or advertising, and no third-party cookie is set by our pages. A video you test may play through the video platform&#39;s own embedded player, in its privacy-enhanced mode; the player may set its own cookies when you play the video, under that platform&#39;s privacy policy.</p>
+    <p>The Service sets one cookie, to keep you signed in, and stores one preference in your browser, your chosen language; while you work, the page also keeps the text you are working on in that browser tab, so a reload does not lose it. None of these is used for tracking or advertising, and no third-party cookie is set by our pages. A video you test may play through the video platform&#39;s own embedded player, in its privacy-enhanced mode; the player may set its own cookies when you play the video, under that platform&#39;s privacy policy.</p>
     <h2>3. Who sees your information</h2>
     <p>We share information only with service providers that help us run the Service, each for its part and under its own terms:</p>
     <ul>
@@ -97,11 +98,11 @@
     <h2>4. How we use it</h2>
     <p>To provide and operate the Service; to keep your account&#39;s credit; to measure what the Service costs and earns and to set its prices; to keep the Service secure and find faults; to answer your requests; to send you notices about the Service or your use of it; and to comply with the law. We do not use your documents or claims to train models, and we do not profile you for advertising.</p>
     <h2>5. Retention</h2>
-    <p>Your documents, links and claims are not stored after the run ends. Records of sign-ins, runs and tests are kept for as long as we need them for accounting, the measurement of prices and the operation of the Service. Technical logs are kept for a limited time. When you ask us to delete your information, we delete the records linked to your email address except what we must keep for accounting or legal reasons.</p>
+    <p>Your documents, links and claims are not kept with your account; as the table above says, they are kept apart from any account to test and improve the Service. Records of sign-ins, runs and tests are kept for as long as we need them for accounting, the measurement of prices and the operation of the Service. Technical logs are kept for a limited time. When you ask us to delete your information, we delete the records linked to your email address except what we must keep for accounting or legal reasons.</p>
     <h2>6. Security</h2>
     <p>The Service is served over HTTPS; the sign-in cookie holds only a random identifier and cannot be read by scripts; passwords are kept only as one-way hashes; our servers hold the keys to the services we use and never send them to your browser; access to the operator&#39;s records is limited to the operator. No method of transmission or storage is perfectly secure, and we cannot guarantee absolute security.</p>
     <h2>7. Your rights and choices</h2>
-    <p>You may ask us to tell you what information we hold about you, to correct it, or to delete it, by writing to <a href="mailto:support@operatingequity.ai">support@operatingequity.ai</a> from the email address you use with the Service. We will answer within 30 days. You may stop using the Service at any time.</p>
+    <p>You may ask us to tell you what information we hold about you, to correct it, or to delete it, by writing to <a href="mailto:{{email}}">{{email}}</a> from the email address you use with the Service. We will answer within 30 days. You may stop using the Service at any time.</p>
     <p>If you are in the European Economic Area, the United Kingdom or Switzerland: we process your information to perform our contract with you (providing the Service), for our legitimate interests in operating, securing and pricing the Service, and to comply with the law; you also have the rights to restrict or object to processing, to data portability, and to complain to your supervisory authority. Our servers are in the United States, and our service providers may process information in other countries; by using the Service you understand your information is transferred there, and we rely on the standard contractual clauses or another lawful mechanism for those transfers where required.</p>
     <p>If you are a California resident: you have the rights to know, delete and correct the personal information we hold, and not to be discriminated against for exercising them. We do not sell or share personal information as those terms are defined in California law, and we do not use sensitive personal information for purposes other than providing the Service.</p>
     <h2>8. Children</h2>
@@ -109,10 +110,30 @@
     <h2>9. Changes to this policy</h2>
     <p>We may change this policy. We will post the new version with a new effective date, and give notice on the Service or by email for a material change.</p>
     <h2>10. Contact</h2>
-    <p>Fact Engine LLC, [mailing address], <a href="mailto:support@operatingequity.ai">support@operatingequity.ai</a>.</p>
+<!--if address-->
+    <p>Fact Engine LLC, {{address}}, <a href="mailto:{{email}}">{{email}}</a>.</p>
+<!--/if-->
+<!--if !address-->
+    <p>Fact Engine LLC, <a href="mailto:{{email}}">{{email}}</a>.</p>
+<!--/if-->
   </div>
   <p class="plain-back"><a class="btn btn-outline" href="./">Back to FactEngine</a></p>
 </main>
+<footer class="footer">
+  <div class="footer-brand">
+    <a class="footer-site" href="./">FactEngine.com</a>
+    <span class="footer-dot" aria-hidden="true">·</span>
+    <span class="footer-service">A service of <span class="footer-company">Fact Engine LLC,</span> <a class="footer-parent" href="https://operatingequity.ai" target="_blank" rel="noopener"><img src="assets/oe-logo.png" alt="" class="oe-mark" width="44" height="24"><span class="oe-name">an Operating Equity company</span></a></span>
+  </div>
+  <nav class="footer-links" aria-label="FactEngine's pages">
+    <a href="pricing">Pricing</a>
+    <a href="terms">Terms</a>
+    <a href="privacy">Privacy</a>
+    <a href="refunds">Refunds</a>
+    <a href="contact">Contact</a>
+    <span class="footer-copy">© 2026</span>
+  </nav>
+</footer>
 <script type="module" src="js/field.js"></script>
 </body>
 </html>

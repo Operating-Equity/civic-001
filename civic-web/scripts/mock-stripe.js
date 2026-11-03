@@ -25,7 +25,7 @@ const SECRET = process.env.MOCK_STRIPE_SECRET || '';
 const BASE = `http://localhost:${PORT}`;
 
 const db = { customers: new Map(), sessions: new Map(), intents: new Map(), charges: new Map(), methods: new Map(), setups: new Map(), refunds: [], held: [], n: 0 };
-const stats = { calls: {}, keys: new Set(), events: 0, detached: [] };
+const stats = { calls: {}, keys: new Set(), events: 0, detached: [], last: {} };
 const next = (prefix) => `${prefix}_${(++db.n).toString().padStart(6, '0')}`;
 const nowSec = () => Math.floor(Date.now() / 1000);
 const CARDS = {
@@ -74,6 +74,7 @@ function chargeFor(pi, cardKind) {
     balance_transaction: { id: next('txn'), object: 'balance_transaction', amount: pi.amount, fee, net: pi.amount - fee },
     payment_method_details: { type: 'card', card: { brand: c.brand, country: c.country, last4: c.last4, wallet: null } },
   };
+  ch.receipt_url = `${BASE}/receipts/${ch.id}`;   // the processor's own receipt for the charge
   db.charges.set(ch.id, ch);
   return ch;
 }
@@ -123,8 +124,10 @@ app.use('/v1', (req, res, nextFn) => {
   if (!/^(sk|rk)_(test|live)_/.test(key)) return stripeError(res, 401, { message: 'Invalid API Key provided.' });
   stats.keys.add(key.slice(0, 8));
   req.live = /^(sk|rk)_live_/.test(key);
-  const name = `${req.method} ${req.path.replace(/\/(cus|cs|pi|pm|seti|ch|re)_[A-Za-z0-9_]+/g, '/:id')}`;
+  // Named by the whole address the processor's client asked for (/v1/…), as the guard names the calls it counts.
+  const name = `${req.method} ${(req.baseUrl + req.path).replace(/\/(cus|cs|pi|pm|seti|ch|re)_[A-Za-z0-9_]+/g, '/:id')}`;
   stats.calls[name] = (stats.calls[name] || 0) + 1;
+  if (req.method === 'POST') stats.last[name] = req.body;   // the last request of each kind, as the processor received it
   nextFn();
 });
 
@@ -285,7 +288,13 @@ app.post('/mock/dispute', async (req, res) => {
     balance_transactions: step === 'funds_withdrawn' ? [{ id: next('txn'), amount: -pi.amount, fee: 1500 }] : [] };
   res.json({ dispute: id, statuses: await send(event(`charge.dispute.${step}`, d), { times: Number(req.body.times) || 1 }) });
 });
-app.get('/mock/stats', (req, res) => res.json({ calls: stats.calls, keys: [...stats.keys], events: stats.events, detached: stats.detached, held: db.held.length,
+// The processor's receipt for a charge, as a page of its own (the Account page's Receipt link opens it).
+app.get('/receipts/:id', (req, res) => {
+  const ch = db.charges.get(req.params.id);
+  if (!ch) return res.status(404).type('text/plain').send('No such receipt');
+  res.type('html').send(`<!doctype html><meta charset="utf-8"><title>Receipt</title><h1>Receipt</h1><p>${(ch.amount / 100).toFixed(2)} ${ch.currency.toUpperCase()} · ${ch.payment_method_details.card.brand} ${ch.payment_method_details.card.last4}</p>`);
+});
+app.get('/mock/stats', (req, res) => res.json({ calls: stats.calls, last: stats.last, keys: [...stats.keys], events: stats.events, detached: stats.detached, held: db.held.length,
   methods: [...db.methods.values()].map((m) => ({ id: m.id, kind: m.kind, customer: m.customer, livemode: m.livemode })), customers: db.customers.size,
   liveCustomers: [...db.customers.values()].filter((c) => c.livemode).length }));
 
