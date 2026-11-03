@@ -26,10 +26,18 @@
   --glass-light: radial-gradient(130% 90% at 0% 0%, rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0) 58%);
   --glass-glow: inset 0 0 22px rgba(255, 255, 255, 0.16);
   --field-shine: inset 0 1px 0 rgba(255, 255, 255, 0.85), inset 0 1px 2px rgba(21, 24, 29, 0.05);
-  /* The text box as it is typed in (1 November, after Apple's Liquid Glass, where the glass lights up where it is
-     touched): public/js/app.js sets --glow on it (0 at rest, 1 at its brightest) and the light's place (--gx, --gy, the
-     cursor). A soft light comes up through the glass around the cursor, the blue edge brightens into a fine line of
-     light, and a soft glow rises around the box; a pause lets it settle. Every figure of the light is here: */
+  /* The text box while it is used (3 November, the operator: "the box lights up as the user is inputting data,
+     emphasizing the box being used"; 1 November, after Apple's Liquid Glass, where the glass lights up where it is
+     touched). In the box, the glass brightens, the blue edge becomes a line of light and a soft halo rises around it,
+     eased in and held while the box is in use; typing, pasting or dictating lifts the light further at the cursor, and a
+     pause lets the lift settle back to the lit box; leaving the box lets it settle to rest. public/js/app.js sets --lit
+     (0 at rest, 1 in use), --glow (the lift, 0 to 1) and the lift's place (--gx, --gy, the cursor). Every figure: */
+  --use-glass: 0.94;            /* the glass's white in use (0.66 at rest) */
+  --use-edge-alpha: 0.90;       /* the inner line of light, in use */
+  --use-ring-alpha: 0.24;       /* the blue ring along the edge, in use */
+  --use-halo: 22px;             /* the halo around the box, in use */
+  --use-halo-alpha: 0.26;
+  --use-ease: 250;              /* milliseconds for the box to light, and to go back to rest */
   --type-light: 72 116 228;     /* the light's colour: the page's blue */
   --type-light-size: 150px;     /* how far it reaches around the cursor */
   --type-light-alpha: 0.18;     /* inside the glass, at its brightest */
@@ -179,21 +187,23 @@ body {
   transition: border-color .15s ease, box-shadow .15s ease;
 }
 .input:focus { outline: none; border-color: var(--blue); box-shadow: var(--field-shine), 0 0 0 3px rgba(72, 116, 228, 0.18); }
-/* The text box's light as it is typed in (--glow and its place, --gx and --gy): painted every frame while it moves. */
+/* The text box's light while it is used (--lit), and its lift as it is typed in (--glow, at --gx and --gy): painted every
+   frame while it moves. The device's own text-box style is off, so a phone's or a tablet's browser draws this one. */
 .source {
+  --lit: 0;
   --glow: 0;
   --gx: 32px;
   --gy: 28px;
-  background-color: rgba(255, 255, 255, 0.66);
+  appearance: none; -webkit-appearance: none;
+  background-color: rgb(255 255 255 / calc(0.66 + (var(--use-glass) - 0.66) * var(--lit)));
   background-image: radial-gradient(circle var(--type-light-size) at var(--gx) var(--gy), rgb(var(--type-light) / calc(var(--type-light-alpha) * var(--glow))), rgb(var(--type-light) / 0));
-  box-shadow: var(--field-shine), inset 0 0 0 1px rgb(255 255 255 / calc(var(--type-edge-alpha) * var(--glow))), 0 0 var(--type-halo) rgb(var(--type-light) / calc(var(--type-halo-alpha) * var(--glow)));
+  box-shadow: var(--field-shine),
+    inset 0 0 0 1px rgb(255 255 255 / max(calc(var(--use-edge-alpha) * var(--lit)), calc(var(--type-edge-alpha) * var(--glow)))),
+    0 0 0 3px rgb(var(--type-light) / calc(var(--use-ring-alpha) * var(--lit))),
+    0 0 calc(var(--use-halo) * var(--lit) + var(--type-halo) * var(--glow)) rgb(var(--type-light) / min(1, calc(var(--use-halo-alpha) * var(--lit) + var(--type-halo-alpha) * var(--glow))));
   transition: border-color .15s ease;
 }
-.source:focus {
-  outline: none;
-  border-color: var(--blue);
-  box-shadow: var(--field-shine), inset 0 0 0 1px rgb(255 255 255 / calc(var(--type-edge-alpha) * var(--glow))), 0 0 0 3px rgba(72, 116, 228, 0.18), 0 0 var(--type-halo) rgb(var(--type-light) / calc(var(--type-halo-alpha) * var(--glow)));
-}
+.source:focus { outline: none; border-color: var(--blue); }
 .mono { font-family: var(--font-mono); font-size: 0.93em; }
 /* A form's label and its field. Not `.field`, which is the drawn background (above): sharing it put the background's
    fixed, click-through layer over the sign-in fields from 2 October, so nothing could be typed on a touch screen. */

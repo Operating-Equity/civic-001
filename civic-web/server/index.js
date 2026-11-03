@@ -125,7 +125,9 @@ app.use((req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
   res.setHeader('X-Frame-Options', 'SAMEORIGIN');
-  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+  // The page itself may use the microphone (3 November: voice typing on an iPad's keyboard, in the main box); frames from
+  // other sites (the video player) may not, and camera and location stay off.
+  res.setHeader('Permissions-Policy', 'camera=(), microphone=(self), geolocation=()');
   res.setHeader(
     'Content-Security-Policy',
     "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; " +

@@ -1432,6 +1432,8 @@ async function linkChecks() {
     }
 
     const policy = (await fetch(`${base}/`)).headers.get('content-security-policy') || '';
+    const permits = (await fetch(`${base}/`)).headers.get('permissions-policy') || '';
+    check('the page may use the microphone itself (a device\'s voice typing), and no frame may; camera and location stay off', permits === 'camera=(), microphone=(self), geolocation=()', permits);
     check('the page\'s security policy admits the player and the thumbnails', /frame-src https:\/\/www\.youtube-nocookie\.com/.test(policy) && /img-src[^;]*https:\/\/\*\.ytimg\.com/.test(policy), policy);
     const shell = await read(`http://localhost:${SITE}/shell`);
     check('a page with no paragraph of prose is a shell: named, with what to do',

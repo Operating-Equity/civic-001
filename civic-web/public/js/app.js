@@ -549,6 +549,10 @@ function wireIntake() {
   ui.source.addEventListener('input', updateSourceMeta);
   ui.source.addEventListener('input', hideCopies);   // a list found for a link no longer in the box is stale
   wireGlow(ui.source);
+  // On a touch screen the keyboard's own help (corrections, suggestions and voice typing) is the device's, as in Notes
+  // (3 November: "my microphone on my keypad would not allow me to do voice to text in the main box"); on a desktop the
+  // box keeps spellcheck off, so a pasted article is not underlined in red.
+  if (window.matchMedia?.('(pointer: coarse)').matches) ui.source.removeAttribute('spellcheck');
   ui.showText.addEventListener('click', () => {
     const open = ui.intake.classList.toggle('is-open');
     ui.showText.textContent = t(open ? 'intake.hideText' : 'intake.showText');
@@ -579,13 +583,15 @@ function wireIntake() {
 }
 
 /**
- * The text box lights up as it is typed in (31 October: "As you are typing in the box the box dynamically brightens";
- * 1 November, after Apple's Liquid Glass, where the glass lights up where it is touched): each keystroke or paste lifts
- * the light by a fifth, where the cursor is, and a pause lets it settle back to rest. The light is three CSS variables
- * (--glow, 0 to 1, and its place, --gx and --gy; css/civic.css holds every figure of it, the settle time among them),
- * written at most once a frame and only while it moves, so typing is never slowed. Placing it lays out the text before
- * the cursor once more, out of sight; where that took longer than a frame of the display twice in a row, text that long
- * is lit from the box's bright corner instead. With the system's reduced motion, it steps instead of easing.
+ * The text box lit while it is used (3 November: "the box lights up as the user is inputting data, emphasizing the box
+ * being used"; 31 October: "As you are typing in the box the box dynamically brightens"; 1 November, after Apple's
+ * Liquid Glass, where the glass lights up where it is touched). In the box, it lights (--lit eases to 1 over --use-ease)
+ * and holds; each keystroke, paste or dictated phrase lifts the light by a fifth more, where the cursor is (--glow and
+ * its place, --gx and --gy), and a pause lets the lift settle back to the lit box; leaving the box lets it settle to
+ * rest. css/civic.css holds every figure. The variables are written at most once a frame and only while they move, so
+ * typing is never slowed. Placing the lift lays out the text before the cursor once more, out of sight; where that took
+ * longer than a frame of the display twice in a row, text that long is lit from the box's bright corner instead. With
+ * the system's reduced motion, it steps instead of easing.
  */
 const GLOW_STEP = 0.2;
 // The box's style, copied onto a hidden twin, so the twin lays out the text as the box does and gives the cursor's place;
@@ -594,6 +600,10 @@ const TWIN_STYLE = ['paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft'
   'letterSpacing', 'lineHeight', 'textTransform', 'wordSpacing', 'textIndent', 'tabSize', 'direction', 'wordBreak', 'overflowWrap'];
 function wireGlow(box) {
   let glow = 0;        // as painted
+  let lit = 0;         // the box in use, as painted: 0 at rest, 1 lit
+  let litFrom = 0;
+  let litTo = 0;
+  let litAt = 0;
   let peak = 0;        // where the last keystroke left it
   let lastAt = 0;
   let frame = 0;
@@ -606,6 +616,8 @@ function wireGlow(box) {
   let tooLong = Infinity;   // text before the cursor at least this long is lit from the corner
   const calm = () => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
   const paint = (g) => { glow = g; box.style.setProperty('--glow', g.toFixed(3)); };
+  const paintLit = (v) => { lit = v; box.style.setProperty('--lit', v.toFixed(3)); };
+  const useMs = () => Number.parseFloat(getComputedStyle(box).getPropertyValue('--use-ease')) || 250;
   const corner = () => {   // the box's bright top-left corner (css/civic.css)
     box.style.removeProperty('--gx');
     box.style.removeProperty('--gy');
@@ -644,11 +656,28 @@ function wireGlow(box) {
     if (lastFrame) frameMs = Math.min(frameMs, now - lastFrame);
     lastFrame = now;
     if (placed) { placed = false; place(); }
-    const t = Math.min(1, (now - lastAt) / settleMs);
-    paint(t >= 1 ? 0 : peak * (1 - t * t * (3 - 2 * t)));   // eased: it holds a moment, then lets go
-    if (glow > 0) frame = requestAnimationFrame(settle);
+    if (glow > 0) {
+      const t = Math.min(1, (now - lastAt) / settleMs);
+      paint(t >= 1 ? 0 : peak * (1 - t * t * (3 - 2 * t)));   // eased: it holds a moment, then lets go
+    }
+    if (lit !== litTo) {
+      const u = Math.min(1, (now - litAt) / useMs());
+      paintLit(u >= 1 ? litTo : litFrom + (litTo - litFrom) * u * u * (3 - 2 * u));
+    }
+    if (glow > 0 || lit !== litTo) frame = requestAnimationFrame(settle);
     else lastFrame = 0;
   };
+  /** The box in use or not: it lights, or settles to rest. */
+  const use = (on) => {
+    litTo = on ? 1 : 0;
+    if (calm()) { paintLit(litTo); return; }
+    litFrom = lit;
+    litAt = performance.now();
+    if (!frame) frame = requestAnimationFrame(settle);
+  };
+  box.addEventListener('focus', () => use(true));
+  box.addEventListener('blur', () => use(false));
+  if (document.activeElement === box) { litTo = 1; paintLit(1); }
   box.addEventListener('input', () => {
     settleMs = Number.parseFloat(getComputedStyle(box).getPropertyValue('--type-settle')) || 1000;
     if (calm()) {
