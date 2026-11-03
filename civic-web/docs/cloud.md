@@ -1508,6 +1508,23 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
   - **Not offered:** buy now, pay later (Afterpay prohibits stored value; Affirm restricts it) and bank debits (up to
     four business days to confirm; disputes final).
   - **The guard** checks that both sessions are sent the cards-only list.
+  - **Live** (3 November, 14:42 UTC): PR #106 deployed, payments off. The pages, prices, legal words and start-up lines
+    are as at #105. Live check clean, nothing spent. The cards-only list is first seen at Stripe in the operator's
+    test-mode trial.
+- **3 November, afternoon: a reader's whole selection starts at once.** The operator: "the faster, the better. The more
+  processing, the better"; asked what limits we set and which the vendors set.
+  - **Ours, before:** `CIVIC_EVAL_CONCURRENCY=10`, the claims one page kept in flight (one at a time from 17 September,
+    three and four later in September, ten from 3 October). Nothing of ours capped readers together.
+  - **Now:** unset or 0 is no limit of ours, so every claim a reader chooses starts at once, and a claim chosen during a
+    test starts at once too. A number still caps the page, should the operator want one. `/api/health` says `inFlight` 0.
+  - **The pace that remains is the vendors':**
+    - the key's minute (OpenAI's Grow tier, the highest self-serve one: 40,000,000 tokens and 15,000 requests a
+      minute), shared between readers in turns by the gate;
+    - the search service's 10 searches a second, for the claims that need it.
+  - **The machine:** the server is one Starter instance (0.5 CPU, 512 MB). Standard (1 CPU, 2 GB) is the operator's
+    step before readers arrive. Larger, not more: a running claim lives in one instance's memory.
+  - **The guard:** twelve claims of one request run together, none refused, and the health line reads 0. A setting of 2
+    still runs exactly two.
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 

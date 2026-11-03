@@ -149,20 +149,15 @@ export const config = {
   evalReasoningMode: modeOrNone(env('CIVIC_EVAL_REASONING_MODE', MODE)),
   evalReasoningSummary: env('CIVIC_EVAL_REASONING_SUMMARY', 'auto'),
   webSearch: true, // the fact-checks, always; not an environment setting (the listing has no tool: 24 October)
-  // Ten claims at a time. This one figure paces both the page (which sends one claim per request
-  // and keeps this many in flight, reading it from publicConfig below) and a request that carries
-  // several claims, as the guard's does, so the pace is one setting and never a release. One at a
-  // time was the operator's instruction of 17 September, after twenty at once had failed on the key's
-  // minute limit every time (a running response is charged again inside the minute at each of its
-  // own later calls, after a web search, by 67,000 to 89,000, far above what its admission showed,
-  // so many parallel claims starve one another); two ran whole on the address; on 18 September the
-  // operator chose three on the 500,000-a-minute figure of 16 September, then four once the check
-  // page showed the key's current limit, 2,000,000 a minute; back to three on 22 September when
-  // release M's effort `max` in mode `pro` meant more model work per claim. Ten on 3 October, the
-  // operator's choice: the key's minute now reads 40,000,000 tokens (the check page's pacing row),
-  // twenty times September's, and a reader's whole selection runs at this pace in one batch. The
-  // check page's pacing row, after a run, is the figure to set this by.
-  evalConcurrency: int('CIVIC_EVAL_CONCURRENCY', 10),
+  // A reader's whole selection at once (3 November, the operator: "the faster, the better. The more processing, the
+  // better"). Unset or 0: no limit of ours, so every claim a reader chooses starts together, and the key's minute,
+  // shared between readers in turns by the gate (server/gate.js), is the only pace. A number caps the claims one page
+  // keeps in flight, and a request that carries several claims, as the guard's do; the page reads it from publicConfig
+  // below, so it is one setting and never a release. The history: one at a time on 17 September, after twenty at once
+  // had failed on the key's minute (a running response is charged again inside the minute at each of its later calls);
+  // three and four in September on minutes of 500,000 and 2,000,000 tokens; ten on 3 October, on 40,000,000. The check
+  // page's pacing row, after a run, shows what the minute carried.
+  evalConcurrency: ((v) => (Number.isInteger(v) && v > 0 ? v : 0))(Number.parseInt(env('CIVIC_EVAL_CONCURRENCY', ''), 10)),
   evalRetries: int('CIVIC_EVAL_RETRIES', 8),           // rate limits and 5xx only; never on a model or parameter error
   // The readers' standby (31 October, night; server/standby.js): `model|level`, set on Render and never named here. A
   // reader's claim the readers' model still fails goes once more to it, by itself. Unset, there is none.
@@ -402,7 +397,7 @@ export function publicConfig(promptStatus) {
     maxClaims: config.maxClaims,
     autoTestFirst: config.autoTestFirst,   // the page runs this many without a press; 0 = the reader chooses every one
     findCopies: Boolean(String(config.searchUrl || '').trim() && String(config.searchKey || '').trim()),   // a refused link is looked for elsewhere; never the key itself
-    inFlight: config.evalConcurrency,   // the page paces itself by this, so the operator changes it with one setting
+    inFlight: config.evalConcurrency,   // the page paces itself by this (0: every chosen claim at once), one setting
     maxSourceChars: config.maxSourceChars,
     maxUploadBytes: config.maxUploadBytes,
     heartbeatMs: config.heartbeatMs,   // how often a stream says it is alive: the page counts three silent ones as a cut
