@@ -1508,6 +1508,9 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
   - **Not offered:** buy now, pay later (Afterpay prohibits stored value; Affirm restricts it) and bank debits (up to
     four business days to confirm; disputes final).
   - **The guard** checks that both sessions are sent the cards-only list.
+  - **Live** (3 November, 14:42 UTC): PR #106 deployed, payments off. The pages, prices, legal words and start-up lines
+    are as at #105. Live check clean, nothing spent. The cards-only list is first seen at Stripe in the operator's
+    test-mode trial.
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 
