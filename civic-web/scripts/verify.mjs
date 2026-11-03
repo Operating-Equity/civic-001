@@ -6075,12 +6075,12 @@ async function paymentChecks() {
     const sentCard = (await c.json('/api/account/card', { method: 'POST', cookie: t.cookie, body: { lang: 'de' } })).status === 200 ? await lastOf('POST /v1/checkout/sessions') : {};
     const sentTopUp = await lastOf('POST /v1/payment_intents');
     const origin = `http://localhost:${PP}`;
-    check('payments: the processor\'s page is given the reader\'s language and, above its Pay button, that purchased credit does not expire and is not refunded, with the Terms and the refund policy; the card statement reads CREDIT',
+    check('payments: the processor\'s page offers cards only (the wallets pay by card), is given the reader\'s language and, above its Pay button, that purchased credit does not expire and is not refunded, with the Terms and the refund policy; the card statement reads CREDIT',
       fr.status === 200 && sentFr.locale === 'fr' && sentFr.custom_text?.submit?.message === `Le crédit acheté n'expire pas et n'est pas remboursé ; un achat débité par erreur ou deux fois est examiné. [Conditions d'utilisation](${origin}/terms) · [Politique de remboursement](${origin}/refunds)`
-        && sentFr.payment_intent_data?.statement_descriptor_suffix === 'CREDIT',
-      JSON.stringify({ locale: sentFr.locale, text: sentFr.custom_text, pid: sentFr.payment_intent_data }));
-    check('payments: saving a card, the processor\'s page says, in the reader\'s language, what the card is kept for and that nothing is charged; an automatic top-up is an unscheduled charge on a stored card, its statement AUTO TOPUP',
-      sentCard.mode === 'setup' && sentCard.locale === 'de' && /^Diese Karte wird für die automatischen Aufladungen gespeichert/.test(sentCard.custom_text?.submit?.message || '') && sentCard.custom_text.submit.message.includes(`(${origin}/terms)`)
+        && sentFr.payment_intent_data?.statement_descriptor_suffix === 'CREDIT' && JSON.stringify(sentFr.allowed_payment_method_types) === '["card"]',
+      JSON.stringify({ locale: sentFr.locale, text: sentFr.custom_text, pid: sentFr.payment_intent_data, allowed: sentFr.allowed_payment_method_types }));
+    check('payments: saving a card, the processor\'s page offers cards only and says, in the reader\'s language, what the card is kept for and that nothing is charged; an automatic top-up is an unscheduled charge on a stored card, its statement AUTO TOPUP',
+      sentCard.mode === 'setup' && sentCard.locale === 'de' && JSON.stringify(sentCard.allowed_payment_method_types) === '["card"]' && /^Diese Karte wird für die automatischen Aufladungen gespeichert/.test(sentCard.custom_text?.submit?.message || '') && sentCard.custom_text.submit.message.includes(`(${origin}/terms)`)
         && sentTopUp.statement_descriptor_suffix === 'AUTO TOPUP' && sentTopUp.payment_method_options?.card?.stored_credential_usage === 'unscheduled' && sentTopUp.off_session === 'true',
       JSON.stringify({ card: { mode: sentCard.mode, locale: sentCard.locale, text: sentCard.custom_text }, topup: { suffix: sentTopUp.statement_descriptor_suffix, options: sentTopUp.payment_method_options, off: sentTopUp.off_session } }));
     const histT = (await c.json('/api/account/payments', { cookie: t.cookie })).body?.payments || [];

@@ -296,8 +296,11 @@ adults-only rule. `server/payments.js`, on Stripe's `stripe` package (23.1.0, AP
   automatic top-up below $5 adding $10 is Apple's own example (ElevenLabs: below $10, add $20); each monthly total is a
   whole number of every top-up amount ($20, $50, $100, $200), so none is left unusable.
 - **How they pay:** on Stripe's own hosted page. The server writes the payment, makes Stripe's Checkout Session and
-  answers with its address; the reader's page only moves there, so no key and no script of Stripe's is in it. Apple
-  Pay, Google Pay and Link come from Stripe, and so do the receipts (two switches in Stripe's dashboard). Back on
+  answers with its address; the reader's page only moves there, so no key and no script of Stripe's is in it. Stripe's
+  page offers cards only (`allowed_payment_method_types`), with Apple Pay and Google Pay where the reader's device has
+  them, since those wallets pay by card: the automatic top-up charges a saved card, and every page speaks of one.
+  Other methods switched on in Stripe's dashboard are not offered. The receipts come from Stripe (two switches in
+  Stripe's dashboard). Back on
   /account (`?paid=`), the page says the payment was received, is waiting for Stripe's confirmation (and asks again
   every few seconds), or that no payment was made.
 - **Exactly once.** Stripe's signed notices reach `POST /hooks/stripe`, read as the raw body ahead of every parser and

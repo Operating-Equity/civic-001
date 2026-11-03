@@ -45,6 +45,9 @@ function pageWords(lang, key, origin) {
 // What a card statement shows after the account's own descriptor (FACTENGINE* CREDIT, FACTENGINE* AUTO TOPUP), so a
 // reader knows the charge.
 const SUFFIX = { checkout: 'CREDIT', auto: 'AUTO TOPUP' };
+// What the processor's page offers (3 November): cards, with Apple Pay and Google Pay where the reader's device has them
+// (the wallets pay by card). The automatic top-up charges a saved card, and every page speaks of one.
+const CARDS = ['card'];
 
 const API_VERSION = '2026-10-28.endive';
 // The version of the automatic top-up's agreement as the Account page words it: kept with each reader's consent.
@@ -188,7 +191,7 @@ export async function startCheckout(user, { amountCents, saveCard = false, origi
   const meta = { payment: id, account: String(user.id) };
   try {
     const session = await stripe().checkout.sessions.create({
-      mode: 'payment', customer, client_reference_id: id, metadata: meta, locale: langOf(lang),
+      mode: 'payment', customer, client_reference_id: id, metadata: meta, locale: langOf(lang), allowed_payment_method_types: CARDS,
       line_items: [{ quantity: 1, price_data: { currency: config.currency.toLowerCase(), unit_amount: amount, product_data: { name: 'FactEngine credit' } } }],
       payment_intent_data: { metadata: meta, statement_descriptor_suffix: SUFFIX.checkout, ...(save ? { setup_future_usage: 'off_session' } : {}) },
       custom_text: { submit: { message: pageWords(lang, save ? 'noteSave' : 'note', origin) } },
@@ -276,7 +279,7 @@ export async function startCardSetup(user, { origin, lang = 'en' }) {
     const customer = await customerFor(user);
     const meta = { account: String(user.id), purpose: 'card' };
     const session = await stripe().checkout.sessions.create({
-      mode: 'setup', customer, currency: config.currency.toLowerCase(), metadata: meta, setup_intent_data: { metadata: meta }, locale: langOf(lang),
+      mode: 'setup', customer, currency: config.currency.toLowerCase(), metadata: meta, setup_intent_data: { metadata: meta }, locale: langOf(lang), allowed_payment_method_types: CARDS,
       custom_text: { submit: { message: pageWords(lang, 'cardNote', origin) } },
       success_url: `${origin}/account?card={CHECKOUT_SESSION_ID}#auto-topup`, cancel_url: `${origin}/account?card=none#auto-topup`,
     });
