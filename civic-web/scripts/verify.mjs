@@ -4957,8 +4957,8 @@ async function pagesChecks() {
       '');
     const home = await page('/');
     const footer = (home.text.match(/<footer class="footer">[\s\S]*?<\/footer>/) || [''])[0];
-    check('the page\'s footer links Pricing, Terms, Privacy, Refunds and Contact in a new tab and names Fact Engine LLC, an Operating Equity company',
-      ['pricing', 'terms', 'privacy', 'refunds', 'contact'].every((q) => new RegExp(`<a href="${q}" target="_blank" rel="noopener" data-i18n="footer\\.${q}">`).test(footer)) && /class="footer-company">Fact Engine LLC,</.test(footer) && /data-i18n="footer\.parent">an Operating Equity company</.test(footer) && /aria-label="FactEngine's pages"/.test(footer),
+    check('the page\'s footer links Pricing, Terms, Privacy, Refunds and Contact in a new tab and says an Operating Equity company, naming no kind of company',
+      ['pricing', 'terms', 'privacy', 'refunds', 'contact'].every((q) => new RegExp(`<a href="${q}" target="_blank" rel="noopener" data-i18n="footer\\.${q}">`).test(footer)) && !/footer-company|footer\.service|\bLLC\b/.test(footer) && /data-i18n="footer\.parent">an Operating Equity company</.test(footer) && /aria-label="FactEngine's pages"/.test(footer),
       footer.slice(0, 300));
     check('the page carries the AI disclosure line under the results, translated by key',
       /<p class="score-note" data-i18n="score\.aiLine">Determinations are made by an AI model from the sources it cites and can be wrong; check the sources before relying on one\.<\/p>/.test(home.text), '');
@@ -6281,7 +6281,7 @@ async function paymentChecks() {
       JSON.stringify({ status: pl.status, mode: plRow?.mode, crossMode: crossMode.statuses, ignored, payMode: dUser?.pay_mode, paid: (await paymentOf(plSession))?.status, card: dSees?.card, books: liveBooks?.payments?.payments, collected: liveBooks?.totals?.collectedCents }));
 
     // ---- for the operator alone; not ready; off ----
-    const opm = payServer(POP, { ...paying, CIVIC_PAYMENTS: 'operator', CIVIC_TERMS_VERSION: '2026-11-03', CIVIC_SUPPORT_EMAIL: 'help@example.com', CIVIC_SUPPORT_PHONE: '+1 (415) 555-0100', CIVIC_BUSINESS_ADDRESS: '1 Example Street, Wilmington, DE 19801' });
+    const opm = payServer(POP, { ...paying, CIVIC_PAYMENTS: 'operator', CIVIC_TERMS_VERSION: '2026-11-03', CIVIC_SUPPORT_EMAIL: 'help@example.com', CIVIC_SUPPORT_PHONE: '+1 (415) 555-0100', CIVIC_BUSINESS_ADDRESS: '1 Example Street, Nashville, TN 37201' });
     procs.push(opm.child);
     const nr = payServer(PNR, { ...base, ...amounts, CIVIC_PAYMENTS: 'on' });
     procs.push(nr.child);
@@ -6301,11 +6301,18 @@ async function paymentChecks() {
     const pageOf = async (port, p) => (await fetch(`http://localhost:${port}/${p}`)).text();
     const [tSet, cSet, rSet, tUnset, cUnset] = [await pageOf(POP, 'terms'), await pageOf(POP, 'contact'), await pageOf(POP, 'refunds'), await pageOf(PP, 'terms'), await pageOf(PP, 'contact')];
     check('the legal pages are served with the business\'s facts from the settings: the Terms version as the effective date, the support address, the phone and the mailing address; a fact left unset leaves its line out; never a placeholder',
-      tSet.includes('Effective date: 3 November 2026.') && tSet.includes('Fact Engine LLC, 1 Example Street, Wilmington, DE 19801, <a href="mailto:help@example.com">help@example.com</a>.') && tSet.includes('Phone: +1 (415) 555-0100.')
-        && cSet.includes('or call +1 (415) 555-0100.') && cSet.includes('Mailing address: 1 Example Street, Wilmington, DE 19801.') && rSet.includes(', or +1 (415) 555-0100.') && !/support@operatingequity/.test(tSet + cSet + rSet)
-        && tUnset.includes('Effective date: 3 October 2026.') && tUnset.includes('Fact Engine LLC, <a href="mailto:support@operatingequity.ai">') && !tUnset.includes('Phone:') && !cUnset.includes('Mailing address') && !cUnset.includes('or call')
+      tSet.includes('Effective date: 3 November 2026.') && tSet.includes('FactEngine, 1 Example Street, Nashville, TN 37201, <a href="mailto:help@example.com">help@example.com</a>.') && tSet.includes('Phone: +1 (415) 555-0100.')
+        && cSet.includes('or call +1 (415) 555-0100.') && cSet.includes('FactEngine is an Operating Equity company. Mailing address: 1 Example Street, Nashville, TN 37201.') && rSet.includes(', or +1 (415) 555-0100.') && !/support@operatingequity/.test(tSet + cSet + rSet)
+        && tUnset.includes('Effective date: 3 October 2026.') && tUnset.includes('FactEngine, <a href="mailto:support@operatingequity.ai">') && cUnset.includes('<p>FactEngine is an Operating Equity company.</p>') && !tUnset.includes('Phone:') && !cUnset.includes('Mailing address') && !cUnset.includes('or call')
         && ![tSet, cSet, rSet, tUnset, cUnset].some((h) => /\{\{|\[(date|mailing|street)|<!--/.test(h)),
       JSON.stringify({ set: [tSet.includes('Effective date: 3 November 2026.'), cSet.includes('Mailing address: 1 Example Street')], unset: [tUnset.includes('Effective date: 3 October 2026.'), cUnset.includes('Mailing address')] }));
+    // The business is FactEngine (3 November): no page or language says what kind of company it is; the Terms name
+    // Tennessee's law and courts.
+    const everyPage = await Promise.all(['', 'account', 'pricing', 'terms', 'privacy', 'refunds', 'contact', 'locales/en.js', 'locales/es.js', 'locales/fr.js', 'locales/de.js'].map((p) => pageOf(POP, p)));
+    check('no page and no language names a kind of company: the Terms are between the reader and FactEngine, under the laws and courts of Tennessee',
+      everyPage.every((h) => h.length > 500 && !/\bLLC\b|Delaware|limited liability|propriet(or|ress)ship/i.test(h))
+        && tSet.includes('These Terms are between you and FactEngine (&quot;we&quot;, &quot;us&quot;) and govern') && tSet.includes('governed by the laws of the State of Tennessee') && tSet.includes('courts located in Tennessee'),
+      JSON.stringify(everyPage.map((h) => (h.match(/.{0,40}(\bLLC\b|Delaware|limited liability|propriet(or|ress)ship).{0,40}/i) || [''])[0])));
     check('payments switched on without the key and the signing secret are not ready: nothing can be bought, and the start-up line names what is missing, never a value',
       /\[payments\] CIVIC_PAYMENTS=on, but not ready \(missing CIVIC_STRIPE_KEY, CIVIC_STRIPE_WEBHOOK_SECRET\): nothing can be bought/.test(nr.output()), nr.output().match(/\[payments\][^\n]*/)?.[0] || '');
     const co = accountClient(`http://localhost:${POFF}`);

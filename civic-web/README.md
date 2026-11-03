@@ -72,7 +72,7 @@ rounded, and no corner brackets (the operator's rule of 2 October: the brackets 
 lights up as it is typed in (1 November, after Apple's Liquid Glass, where the glass lights up where it is touched): a
 soft light comes up through the glass at the cursor, its blue edge brightens into a fine line of light and a soft glow
 rises around it, and a pause lets it settle (`css/civic.css`, the `--type-*` figures; `js/app.js`, `wireGlow`).
-The footer names the site and whose service it is ("A service of Fact Engine LLC, an Operating Equity company"), and
+The footer names the site and says "an Operating Equity company" (no page says what kind of business FactEngine is), and
 carries the pages a commercial service owes, Terms, Privacy, Refunds and Contact (`public/terms.html`, `privacy.html`,
 `refunds.html`, `contact.html`: the operator's launch texts of 3 October, in English, static HTML in `.prose` over
 the still field, their placeholders in square brackets theirs to fill), and the year. The four open in a new tab,

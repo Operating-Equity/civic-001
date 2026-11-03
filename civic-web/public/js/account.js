@@ -242,7 +242,7 @@ function syncTopUp() {
   $('#acct-topup-agreement').textContent = t('account.topup.agreement', {
     level: money(Number($('#acct-topup-level').value)), amount: money(amount), cap: money(Number(cap.value)),
     card: p.card ? t('account.topup.onCard', { card: cardName(p.card) }) : t('account.topup.yourCard'),
-    merchant: p.merchant ? `, ${p.merchant}` : '',
+    merchant: p.merchant ? ` ${t('account.topup.merchantAt', { address: p.merchant })}` : '',   // the business's address, when it is set
   });
 }
 

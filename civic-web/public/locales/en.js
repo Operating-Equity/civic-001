@@ -319,7 +319,8 @@ export default {
       cap: 'At most, each month',
       yourCard: 'the card you save',
       onCard: 'your {card}',
-      agreement: 'When your credit falls below {level}, FactEngine charges {amount} to {card} and adds it to your credit, without asking you each time, up to {cap} in each calendar month (UTC). Each charge appears on your card statement as FACTENGINE* AUTO TOPUP, and a receipt is emailed to you. It stays on until you turn it off here, which stops further charges; credit already bought stays in your account and is not refunded. If these terms change, we will ask you to agree again before the next top-up. FactEngine is operated by Fact Engine LLC{merchant}.',
+      agreement: 'When your credit falls below {level}, FactEngine charges {amount} to {card} and adds it to your credit, without asking you each time, up to {cap} in each calendar month (UTC). Each charge appears on your card statement as FACTENGINE* AUTO TOPUP, and a receipt is emailed to you. It stays on until you turn it off here, which stops further charges; credit already bought stays in your account and is not refunded. If these terms change, we will ask you to agree again before the next top-up.{merchant}',
+      merchantAt: 'FactEngine\'s address: {address}.',
       agree: 'Agree and turn on',
       save: 'Agree and save',
       off: 'Turn off',
@@ -373,5 +374,5 @@ export default {
     start: 'Start testing',
     unavailable: 'The prices could not be read just now. Try again shortly.',
   },
-  footer: { pricing: 'Pricing', site: 'FactEngine.com', service: 'A service of', parent: 'an Operating Equity company', terms: 'Terms', privacy: 'Privacy', refunds: 'Refunds', contact: 'Contact', copyright: '© 2026' },
+  footer: { pricing: 'Pricing', site: 'FactEngine.com', parent: 'an Operating Equity company', terms: 'Terms', privacy: 'Privacy', refunds: 'Refunds', contact: 'Contact', copyright: '© 2026' },
 };

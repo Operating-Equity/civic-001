@@ -318,7 +318,8 @@ export default {
       cap: 'Höchstens pro Monat',
       yourCard: 'der Karte, die Sie speichern',
       onCard: 'Ihrer {card}',
-      agreement: 'Fällt Ihr Guthaben unter {level}, bucht FactEngine {amount} von {card} ab und schreibt den Betrag Ihrem Guthaben gut, ohne Sie jedes Mal zu fragen, bis zu {cap} in jedem Kalendermonat (UTC). Jede Abbuchung erscheint auf Ihrer Kartenabrechnung als FACTENGINE* AUTO TOPUP, und Sie erhalten eine Quittung per E-Mail. Das bleibt eingeschaltet, bis Sie es hier ausschalten, was weitere Abbuchungen beendet; bereits gekauftes Guthaben bleibt auf Ihrem Konto und wird nicht erstattet. Ändern sich diese Bedingungen, bitten wir Sie vor der nächsten Aufladung erneut um Ihre Zustimmung. FactEngine wird betrieben von Fact Engine LLC{merchant}.',
+      agreement: 'Fällt Ihr Guthaben unter {level}, bucht FactEngine {amount} von {card} ab und schreibt den Betrag Ihrem Guthaben gut, ohne Sie jedes Mal zu fragen, bis zu {cap} in jedem Kalendermonat (UTC). Jede Abbuchung erscheint auf Ihrer Kartenabrechnung als FACTENGINE* AUTO TOPUP, und Sie erhalten eine Quittung per E-Mail. Das bleibt eingeschaltet, bis Sie es hier ausschalten, was weitere Abbuchungen beendet; bereits gekauftes Guthaben bleibt auf Ihrem Konto und wird nicht erstattet. Ändern sich diese Bedingungen, bitten wir Sie vor der nächsten Aufladung erneut um Ihre Zustimmung.{merchant}',
+      merchantAt: 'Anschrift von FactEngine: {address}.',
       agree: 'Zustimmen und einschalten',
       save: 'Zustimmen und speichern',
       off: 'Ausschalten',
@@ -372,5 +373,5 @@ export default {
     start: 'Mit dem Prüfen beginnen',
     unavailable: 'Die Preise konnten gerade nicht gelesen werden. Versuchen Sie es gleich noch einmal.',
   },
-  footer: { pricing: 'Preise', site: 'FactEngine.com', service: 'Ein Dienst von', parent: 'ein Unternehmen von Operating Equity', terms: 'Nutzungsbedingungen', privacy: 'Datenschutz', refunds: 'Erstattungen', contact: 'Kontakt', copyright: '© 2026' },
+  footer: { pricing: 'Preise', site: 'FactEngine.com', parent: 'ein Unternehmen von Operating Equity', terms: 'Nutzungsbedingungen', privacy: 'Datenschutz', refunds: 'Erstattungen', contact: 'Kontakt', copyright: '© 2026' },
 };

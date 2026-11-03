@@ -1473,6 +1473,24 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
     again once it holds the account's one place. The guard's counts of the processor's calls had read a name the
     stand-in never wrote, so the checks that the processor is not asked passed whatever happened; they count now.
   - **Kept as it was:** the price is said once, above the claims, and no button carries it (the operator, 6 October).
+  - **Live** (3 November, 03:45 UTC): PR #104 deployed, payments off, with `CIVIC_TERMS_VERSION=2026-11-03`. Pricing
+    and the open price read are served with the settings' figures ($1.25 a fact-check, up to two free, $10.00 to start,
+    the amounts and the top-up's choices, buying not open); a visitor's main page has Pricing and the price line; the
+    legal pages carry the effective date 3 November 2026, the support address and the approved words, with no
+    placeholder and one nav and footer; the four languages carry the new words; Stripe's notices are not found; a
+    stranger asking for a payment history is asked to sign in; the start-up line says nothing can be bought, past the
+    schema step; the record, the standby, the tell words and the readers' model are as before. Live check clean,
+    nothing spent.
+- **3 November, later: the pages name FactEngine.** The operator: "The pages do not need to explain what kind of
+  company I am, and it is unusual for a product to tell you how it is organized"; the footer says "an Operating Equity
+  company". No page and no language says what kind of business FactEngine is.
+  - **The Terms** are between the reader and FactEngine ("we", "us"), under the laws of Tennessee and its courts;
+    arbitration is as it was, with hearings where the reader lives.
+  - **Privacy and both contact lines** name FactEngine, with the mailing address when one is set.
+  - **The Contact page** says "FactEngine is an Operating Equity company".
+  - **The footer of every page** reads "FactEngine.com · an Operating Equity company", with the logo and its link.
+  - **The top-up's agreement** ends with FactEngine's address when one is set (`account.topup.merchantAt`).
+  - **The guard** checks that no page and no language names a kind of company.
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 
