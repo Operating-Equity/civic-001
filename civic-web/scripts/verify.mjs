@@ -418,7 +418,9 @@ async function gateChecks() {
   // door or in its stream: the key's minute, through the gate, is the only pace.
   {
     const TWELVE = [...SIX, ...SIX.map((c) => c.replace('for the gate', 'for the gate again'))];
-    const r = await gateRun(3, { MOCK_TPM: '5000000', MOCK_RESERVE: String(reserve), MOCK_CONTINUATION: '90000' }, { claims: TWELVE, serverEnv: { CIVIC_MAX_CLAIMS: '12' } });
+    // Each claim held about three seconds, as a real one lasts minutes: the first two teach the gate (the key's limit, then
+    // the cost of a fact-check, sent into a full minute) and are still running when the other ten go.
+    const r = await gateRun(3, { MOCK_TPM: '5000000', MOCK_RESERVE: String(reserve), MOCK_CONTINUATION: '90000', MOCK_EVAL_HOLD_MS: '15000' }, { claims: TWELVE, serverEnv: { CIVIC_MAX_CLAIMS: '12' } });
     check('every chosen claim runs at once: twelve determinations run together, with no limit of ours, and none is refused at the door or in its stream',
       !r.failure && r.stats?.maxInFlight === 12 && r.stats?.refused === 0 && r.stats?.refusedInStream === 0 && done(r) === 12, `${r.failure} maxInFlight=${r.stats?.maxInFlight} refused=${r.stats?.refused} inStream=${r.stats?.refusedInStream} done=${done(r)}`);
     check('the database pool is a setting with its wait: ten connections and a thirty-second wait unless set (CIVIC_DATABASE_POOL, CIVIC_DATABASE_WAIT_MS)', config.databasePool === 10 && config.databaseWaitMs === 30000, `${config.databasePool} ${config.databaseWaitMs}`);
