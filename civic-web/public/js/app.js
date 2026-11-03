@@ -14,7 +14,6 @@ import { $, $$, el, renderMarkdown, renderMath, setBar, toast, easeChars, easeTi
 import { field } from './field.js';   // the mathematics behind the glass follows the run's phase
 
 const MAX_CLAIMS = 10; // the most one request carries (the page sends one claim per request, so this bounds nothing it does); how many run without a press is the server's figure (autoFirst)
-const IN_FLIGHT = 10; // claims in flight at once when no server answers; the server's own figure wins (see inFlight below)
 // What a claim's research did, counted from each step's plain word (server/view.js): searches, and pages read.
 const workOf = (trail) => {
   let searches = 0;
@@ -107,9 +106,10 @@ function cacheElements() {
   });
 }
 
-/** Claims at a time: the server's figure, or the constant when no server answered. */
+/** Claims at a time: the server's figure; 0 or none, every chosen claim at once (the key's minute is the only pace). */
 function paceNow() {
-  return Math.max(1, Number(state.server?.inFlight) || IN_FLIGHT);
+  const n = Number(state.server?.inFlight);
+  return Number.isInteger(n) && n > 0 ? n : Infinity;
 }
 
 /** Claims that run without a press: the server's figure (CIVIC_AUTO_TEST_FIRST); 0 = the reader chooses every one. */
@@ -1518,9 +1518,9 @@ async function testSelected() {
   const chosenRuns = ext.choices();
   if (chosenRuns && !chosenRuns.length) return;
   state.creditStop = null;   // a new choice, perhaps after credit was added: tried again from the start
-  // The selection runs at the server's pace (one claim per request, `inFlight` of them at once, the next starting as
-  // one ends): thirty chosen claims run ten at a time with no pause between tens. Until 3 October they ran in batches of
-  // ten. Chosen while others run (26 October), they join the test under way and start as places free up.
+  // The selection runs at the server's pace, one claim per request: every chosen claim at once (3 November), or
+  // `inFlight` at a time when the operator sets a number, the next starting as one ends. Chosen while others run
+  // (26 October), they join the test under way and start at once, or as places free up under a number.
   const runs = [];
   const nodes = [];
   const ran = [];
@@ -1590,8 +1590,8 @@ async function runBatch(claims, nodes, { claims: chosen = null, tags = [] } = {}
   // gate goes on pacing OpenAI across requests). A response then lasts one claim, never a batch, well
   // inside what a host allows, and a cut costs one claim's attempt, which is requested again.
   // The figure is the server's `inFlight` (CIVIC_EVAL_CONCURRENCY), so the operator changes the pace
-  // with one setting and no release; IN_FLIGHT stands in only when no server answered. Math.max(1, …)
-  // stops a missing or zero value running nothing at all, and no ceiling is invented: a setting of
+  // with one setting and no release. 0 or none means no limit of ours (paceNow): every chosen claim
+  // starts now, and the server's gate shares the key's minute between readers in turns. A setting of
   // twenty means twenty.
   const inFlight = paceNow();
   const signal = state.abort.signal;

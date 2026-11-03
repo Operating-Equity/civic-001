@@ -1,5 +1,5 @@
 // Step 2 — each claim is tested by the protected evaluation prompt, sent verbatim.
-// Ten claims at a time (config.evalConcurrency). What is tested is the claim alone, as the page sends
+// A request's claims run together, or config.evalConcurrency at a time when one is set. What is tested is the claim alone, as the page sends
 // it: nothing else the listing wrote goes with it (the operator, 24 October: "I don't want the
 // extraction to affect downstream processing in any way"). The source goes ahead of the prompt as
 // its own message, with what FactEngine knows of who produced it and when, as the conversation
@@ -1137,7 +1137,7 @@ export async function runEvaluation({ apiKey, claims, document = '', send, signa
 
   const run = onDeepSeek ? evaluateOnDeepSeek : onGemini ? evaluateOnGemini : onAnthropic ? evaluateOnAnthropic : evaluateOne;
   const queue = claims.map((c, i) => [c, i]);
-  const workers = Array.from({ length: Math.min(config.evalConcurrency, total) }, async () => {
+  const workers = Array.from({ length: config.evalConcurrency > 0 ? Math.min(config.evalConcurrency, total) : total }, async () => {
     while (queue.length && !signal.aborted) {
       const [claim, i] = queue.shift();
       await run(claim, i);

@@ -414,15 +414,16 @@ async function gateChecks() {
   const starts = (r) => { const d = (r.stats?.timeline || []).filter((e) => e.kind === 'determination'); return d.map((e) => e.at - d[0].at); };
   const twenty = { CIVIC_EVAL_CONCURRENCY: '20' };   // the gate's pacing is proved with claims allowed to run together
 
-  // 0. The rule that runs: ten claims at a time, never more, and none refused at the door or in its stream.
+  // 0. The rule that runs (3 November): a reader's whole selection at once, no limit of ours, and none refused at the
+  // door or in its stream: the key's minute, through the gate, is the only pace.
   {
     const TWELVE = [...SIX, ...SIX.map((c) => c.replace('for the gate', 'for the gate again'))];
     const r = await gateRun(3, { MOCK_TPM: '5000000', MOCK_RESERVE: String(reserve), MOCK_CONTINUATION: '90000' }, { claims: TWELVE, serverEnv: { CIVIC_MAX_CLAIMS: '12' } });
-    check('claims run ten at a time: ten determinations run together and never an eleventh, and none is refused at the door or in its stream',
-      !r.failure && r.stats?.maxInFlight === 10 && r.stats?.refused === 0 && r.stats?.refusedInStream === 0 && done(r) === 12, `${r.failure} maxInFlight=${r.stats?.maxInFlight} refused=${r.stats?.refused} inStream=${r.stats?.refusedInStream} done=${done(r)}`);
+    check('every chosen claim runs at once: twelve determinations run together, with no limit of ours, and none is refused at the door or in its stream',
+      !r.failure && r.stats?.maxInFlight === 12 && r.stats?.refused === 0 && r.stats?.refusedInStream === 0 && done(r) === 12, `${r.failure} maxInFlight=${r.stats?.maxInFlight} refused=${r.stats?.refused} inStream=${r.stats?.refusedInStream} done=${done(r)}`);
     check('the database pool is a setting with its wait: ten connections and a thirty-second wait unless set (CIVIC_DATABASE_POOL, CIVIC_DATABASE_WAIT_MS)', config.databasePool === 10 && config.databaseWaitMs === 30000, `${config.databasePool} ${config.databaseWaitMs}`);
-  check('the page is told the same figure it is paced by: /api/health carries inFlight equal to the configured concurrency',
-      r.health?.inFlight === config.evalConcurrency && r.health?.inFlight === r.stats?.maxInFlight, `inFlight=${r.health?.inFlight} configured=${config.evalConcurrency} maxInFlight=${r.stats?.maxInFlight}`);
+  check('the page is told there is no limit of ours: /api/health carries inFlight 0, the setting unset, and all twelve ran together',
+      config.evalConcurrency === 0 && r.health?.inFlight === 0 && r.stats?.maxInFlight === 12, `inFlight=${r.health?.inFlight} configured=${config.evalConcurrency} maxInFlight=${r.stats?.maxInFlight}`);
   }
 
   // 0b. The pace is a setting, not a release: one value moves both the number the page reads and the
