@@ -1525,6 +1525,10 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
     step before readers arrive. Larger, not more: a running claim lives in one instance's memory.
   - **The guard:** twelve claims of one request run together, none refused, and the health line reads 0. A setting of 2
     still runs exactly two.
+  - **Live** (3 November, 19:00 UTC): PR #107 deployed, payments off, `CIVIC_EVAL_CONCURRENCY` removed from Render just
+    before the merge. The health line reads `inFlight` 0. The pages, prices, legal words and start-up lines are as at
+    #106. Live check clean, nothing spent. Render's server accepts HTTP/2, so a reader's browser carries every claim's
+    stream over one connection, with none of HTTP/1.1's six.
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 
