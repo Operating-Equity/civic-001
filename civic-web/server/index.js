@@ -70,6 +70,8 @@ const BUILD = buildStamp();
 let pageFiles;
 let tells;
 try {
+  // What the public pages say of the business: the operator's settings, read into the pages as they are prepared.
+  assets.setPageFacts({ email: config.supportEmail, phone: config.supportPhone, address: config.businessAddress, effective: config.termsVersion });
   pageFiles = assets.prepare({ publicDir, build: BUILD, nodeModules });
   tells = loadTells();   // the operator's tell words (server/tells.js); a list that cannot be read stops the start
   loadStandby();         // the readers' standby (server/standby.js); a setting that cannot be read stops the start
@@ -208,14 +210,16 @@ const buying = (user) => (payments.openTo(user) ? { addCredit: true, ...(user.to
 app.get('/api/health', wrap(async (req, res) => {
   const session = signinRequired() ? req.account || null : null;
   const balanceCents = session ? await credit.balanceOf(session.user.id).catch(() => null) : null;
+  // The account's latest automatic top-up, so the main page can say it happened (its time and amount, nothing else).
+  const topped = session ? await payments.lastTopUp(session.user).catch(() => null) : null;
   // What the page shows of the prices (server/economics.js): the tier, the free count, the price and
   // the operator's note. Never a cost. Null when pricing is off, or when it cannot be read just now.
   const pricing = await economics.publicState().catch((err) => { console.error('[economics] the price could not be read:', err.message); return null; });
   const all = !signinRequired() || isOperator(session);
   const access = {
     required: signinRequired(),
-    session: session ? { email: session.user.email, operator: isOperator(session), balanceCents, monthlyLimitCents: session.user.monthlyLimitCents, ...buying(session.user) } : null,
-    grantCents: config.signupGrantCents, minChars: config.passwordMinChars, currency: config.currency,
+    session: session ? { email: session.user.email, operator: isOperator(session), balanceCents, monthlyLimitCents: session.user.monthlyLimitCents, ...buying(session.user), ...(topped ? { lastTopUp: topped } : {}) } : null,
+    grantCents: config.signupGrantCents, minChars: config.passwordMinChars, currency: config.currency, support: config.supportEmail,
   };
   const active = jobs.active();   // runs in flight right now, whatever their connections are doing; an update waits for zero
   // Anyone but the operator is told what the page reads and nothing else (31 October, night): its build, its pace, whether
@@ -225,7 +229,7 @@ app.get('/api/health', wrap(async (req, res) => {
     const p = promptStatus();
     res.json({
       build: BUILD, ...pick(publicConfig(p), ['autoTestFirst', 'inFlight', 'heartbeatMs', 'findCopies']), ready: Boolean(p.extract && p.evaluate),
-      access: { ...access, session: session ? { balanceCents, ...buying(session.user) } : null },
+      access: { ...access, session: session ? { balanceCents, ...buying(session.user), ...(topped ? { lastTopUp: topped } : {}) } : null },
       ...(checkKeyGiven(req) ? { active } : {}),
     });
     return;
@@ -241,6 +245,17 @@ app.get('/api/health', wrap(async (req, res) => {
     // The class their entries write the inspector's name in (server/names.js), so their page can show it (31 October,
     // evening: highlighted). Nobody else's. A plain key, as the page that reads it is everyone's.
     hl: names.nameClass || null,
+  });
+}));
+
+// The prices, for anyone (3 November): what the Pricing page and a visitor's line say, read from the same settings the
+// server charges by. Never a cost, a tier or anything of an account.
+app.get('/api/prices', wrap(async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  const p = await economics.publicState().catch((err) => { console.error('[economics] the price could not be read:', err.message); return null; });
+  res.json({
+    ok: true, currency: config.currency, priceCents: p ? p.priceCents : null, freeUpTo: p ? economics.freeUpTo() : 0,
+    grantCents: config.signupGrantCents, buying: payments.publicOffer(),
   });
 }));
 

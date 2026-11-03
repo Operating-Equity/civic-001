@@ -283,8 +283,8 @@ data and Stripe's part theirs to approve, "with the idea that this service runs 
 all costs"; the automatic top-up, the reader opting in; purchased credit not refundable; the Terms enough for the
 adults-only rule. `server/payments.js`, on Stripe's `stripe` package (23.1.0, API version `2026-10-28.endive`).
 
-- **Off until switched on.** `CIVIC_PAYMENTS` is `off` (nothing can be bought, the Account page says Add credit opens
-  with payments), `operator` (the operator's account alone, for a trial in Stripe's test mode on the live site) or `on`.
+- **Off until switched on.** `CIVIC_PAYMENTS` is `off` (nothing can be bought, the Account page says adding credit is
+  not open yet), `operator` (the operator's account alone, for a trial in Stripe's test mode on the live site) or `on`.
   It needs `DATABASE_URL`, `CIVIC_STRIPE_KEY` (a restricted key) and `CIVIC_STRIPE_WEBHOOK_SECRET` (the notices'
   signing secret), both set in Render's dashboard and never anywhere else, and the amounts. The start-up line says
   which, naming what is missing and never a value; test or live is read from the key's own prefix.
@@ -336,10 +336,39 @@ adults-only rule. `server/payments.js`, on Stripe's `stripe` package (23.1.0, AP
   on, paused), and the margin on all costs since the first payment (what readers paid and kept paid, against the
   models' cost of every reader's work, free and paid, plus Stripe's and the disputes' fees), marked when it is below
   `CIVIC_MARGIN_TARGET_PERCENT` (25).
-- **Kept** (migration `005-payments.sql`): each payment (the account, on Stripe's page or automatic, the amount, its
-  status, Stripe's ids, the fee and the net, the card's brand and country, a wallet, a failure's code); each notice's
-  id; on each account, Stripe's customer id, the saved card's brand, last four and expiry, the top-up's choices, its
-  consent and whether it is paused, and a dispute's hold.
+- **Kept** (migrations `005-payments.sql` and `006-receipts.sql`): each payment (the account, on Stripe's page or
+  automatic, the amount, its status, Stripe's ids, the fee and the net, the card's brand, country and last four digits,
+  a wallet, a failure's code, and the address of Stripe's receipt); each notice's id; on each account, Stripe's customer
+  id, the saved card's brand, last four and expiry, the top-up's choices, its consent and whether it is paused, and a
+  dispute's hold.
+
+### What a paying reader sees (3 November)
+
+What Stripe's review asks a site to show, and what the billing pages of comparable services (OpenAI, Anthropic,
+ElevenLabs, Perplexity, OpenRouter) give their readers:
+
+- **Pricing** (`/pricing`, four languages): listing is free; a fact-check's price, and the most a document can have
+  free; a new account's credit and its conditions; the amounts credit comes in, with about how many fact-checks each
+  buys; the automatic top-up's choices; that credit does not expire and is not refunded, failed tests are never
+  charged and faults are reviewed; delivery; the card statement's words; that the card number never reaches
+  FactEngine; the currency. Every figure is read from the settings the server charges by (`GET /api/prices`, open to
+  anyone). A visitor sees the price under the main page's lede, and Pricing in its header; the sign-up box links to it.
+- **One header and one footer:** Pricing, Terms, Privacy, Refunds, Contact and the account, on every page.
+- **The legal pages' facts** come from Render: the effective date is `CIVIC_TERMS_VERSION`, and `CIVIC_SUPPORT_EMAIL`,
+  `CIVIC_SUPPORT_PHONE` and `CIVIC_BUSINESS_ADDRESS` are read into the pages as they are served (`server/assets.js`);
+  an unset phone or address leaves its line out. The same support address is the one the pages' sentences name.
+- **The Account page:** a payment history (each purchase and automatic top-up, its card, its status and Stripe's own
+  receipt); under Continue to payment, that purchased credit does not expire and is not refunded, the age, and the
+  Terms and the refund policy; "Test mode" while the key is a test key; deleting the account names the credit that
+  goes with it, removes the saved card at Stripe and ends the automatic top-up.
+- **Stripe's page:** in the reader's language, with the same no-refund line above its Pay button (Visa's place for it)
+  and the Terms and refund policy linked. Card statements read `FACTENGINE* CREDIT`, and `FACTENGINE* AUTO TOPUP` for
+  an automatic top-up, which is sent as an unscheduled charge on a stored card. The top-up's agreement names the
+  business and its address, and says it is asked again if its terms change.
+- **The test page:** the free fact-checks still left on the document; the balance read again whenever the tab is shown
+  again (so credit bought in the Account page's tab shows at once); a line when an automatic top-up has charged the
+  card; a refusal for short credit or the monthly limit says the real figures, the limit with its place on the Account
+  page.
 
 ## Reading a link
 

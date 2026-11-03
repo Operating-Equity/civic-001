@@ -116,6 +116,15 @@ services:
         value: "2000,5000,10000,20000"
       - key: CIVIC_MARGIN_TARGET_PERCENT
         value: "25"
+      # What the public pages say of the business (3 November), as the payment processor's review asks: the support
+      # address, a support phone and the mailing address, set in Render by the operator. Unset, a page leaves the phone
+      # and the address out, and the support address is the launch text's.
+      - key: CIVIC_SUPPORT_EMAIL
+        sync: false
+      - key: CIVIC_SUPPORT_PHONE
+        sync: false
+      - key: CIVIC_BUSINESS_ADDRESS
+        sync: false
       # The measurement of every run and determination (server/economics.js), and the accounts, their
       # sessions and their credit (server/accounts.js, server/credit.js), live in the Render Postgres named
       # CIVIC; its internal connection string is set on the service in Render as DATABASE_URL (Render's own

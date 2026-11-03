@@ -50,6 +50,10 @@
     .acct-amounts { grid-template-columns: minmax(0, 1fr); }
     .acct-choice { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; column-gap: 12px; row-gap: 2px; }
   }
+  .acct-test { color: var(--ink); font-weight: 600; padding: 8px 12px; border: 1px dashed var(--line); border-radius: var(--radius-sm); }
+  .acct-history-what { display: grid; gap: 2px; }
+  .acct-history-side { display: grid; justify-items: end; gap: 2px; text-align: end; }
+  .acct-history-side a { font-size: 13.5px; }
   .acct-agreement { font-size: 14.5px; line-height: 1.55; color: var(--ink); padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: rgba(255, 255, 255, 0.5); }
 </style>
 </head>
@@ -108,9 +112,10 @@
          to; no key and no script of the processor's is here. Built from the account's payments (js/account.js). -->
     <section class="acct-box glass" id="add-credit">
       <h2 data-i18n="account.page.addCredit">Add credit</h2>
+      <p class="acct-note acct-test" id="acct-test-mode" data-i18n="account.pay.testMode" hidden>Test mode: these payments are not real, and no card is charged.</p>
       <p class="acct-note" id="acct-paid-note" role="status" hidden></p>
-      <p class="acct-note" id="acct-add-credit" data-i18n="account.page.addCreditSoon">Adding credit opens with payments.</p>
-      <p class="acct-note is-bad" id="acct-hold" data-i18n="account.pay.hold" hidden>This account is paused while a payment dispute is open: testing, adding credit and automatic top-up resume once it is settled. Write to support@operatingequity.ai.</p>
+      <p class="acct-note" id="acct-add-credit" data-i18n="account.page.addCreditSoon">Adding credit is not open yet.</p>
+      <p class="acct-note is-bad" id="acct-hold" data-i18n="account.pay.hold" hidden>This account is paused while a payment dispute is open: testing, adding credit and automatic top-up resume once it is settled. Write to {{email}}.</p>
       <form class="acct-buy" id="acct-buy" novalidate hidden>
         <fieldset class="acct-amounts" id="acct-amounts">
           <legend class="visually-hidden" data-i18n="account.pay.choose">Choose an amount</legend>
@@ -126,7 +131,8 @@
         </label>
         <p class="acct-note is-bad" id="acct-buy-note" hidden></p>
         <p><button type="submit" class="btn btn-primary" id="acct-buy-go" data-i18n="account.pay.continue">Continue to payment</button></p>
-        <p class="acct-note" data-i18n="account.pay.where">You pay on a secure payment page, then come back here. Purchased credit does not expire and is not refunded.</p>
+        <p class="acct-note" data-i18n="account.pay.where">You pay on a secure payment page, then come back here. Your card number never reaches FactEngine.</p>
+        <p class="acct-note" id="acct-buy-terms"></p>
       </form>
     </section>
 
@@ -151,7 +157,13 @@
       </form>
     </section>
 
-    <section class="acct-box glass">
+    <!-- Each purchase and automatic top-up, with the payment processor's own receipt (3 November). -->
+    <section class="acct-box glass" id="payment-history" hidden>
+      <h2 data-i18n="account.page.history">Payment history</h2>
+      <ul class="acct-activity" id="acct-history"></ul>
+    </section>
+
+    <section class="acct-box glass" id="limit">
       <h2 data-i18n="account.page.limit">Monthly limit</h2>
       <p class="acct-note" data-i18n="account.page.limitLede">Stop testing when this month's tests reach this amount.</p>
       <div class="acct-row">
@@ -188,7 +200,7 @@
       <details class="acct-danger" id="acct-delete-box">
         <summary data-i18n="account.page.deleteTitle">Delete account</summary>
         <form class="acct-form" id="acct-delete-form" novalidate>
-          <p class="acct-note" data-i18n="account.page.deleteText">This deletes your account and its credit, and cannot be undone. Enter your password to confirm.</p>
+          <p class="acct-note" id="acct-delete-text"></p>
           <input type="email" name="email" id="acct-delete-email" autocomplete="username" hidden>
           <input class="input" type="password" id="acct-delete-password" autocomplete="current-password" autocapitalize="off" spellcheck="false">
           <p class="acct-note is-bad" id="acct-delete-note" hidden></p>
@@ -200,6 +212,21 @@
 
   <p><a class="btn btn-outline" href="./" data-i18n="account.page.back">Back to FactEngine</a></p>
 </main>
+<footer class="footer">
+  <div class="footer-brand">
+    <a class="footer-site" href="./" data-i18n="footer.site">FactEngine.com</a>
+    <span class="footer-dot" aria-hidden="true">·</span>
+    <span class="footer-service"><span data-i18n="footer.service">A service of</span> <span class="footer-company">Fact Engine LLC,</span> <a class="footer-parent" href="https://operatingequity.ai" target="_blank" rel="noopener"><img src="assets/oe-logo.png" alt="" class="oe-mark" width="44" height="24"><span class="oe-name" data-i18n="footer.parent">an Operating Equity company</span></a></span>
+  </div>
+  <nav class="footer-links" aria-label="FactEngine's pages">
+    <a href="pricing" data-i18n="footer.pricing">Pricing</a>
+    <a href="terms" data-i18n="footer.terms">Terms</a>
+    <a href="privacy" data-i18n="footer.privacy">Privacy</a>
+    <a href="refunds" data-i18n="footer.refunds">Refunds</a>
+    <a href="contact" data-i18n="footer.contact">Contact</a>
+    <span class="footer-copy" data-i18n="footer.copyright">© 2026</span>
+  </nav>
+</footer>
 <script type="module" src="js/field.js"></script>
 <script type="module" src="js/account.js"></script>
 </body>

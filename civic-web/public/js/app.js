@@ -8,7 +8,7 @@
 //      the listing as written) is on the operator's page alone (1 November; public/js/op.js). When
 //      the verdict cannot be read from the model's own Conclusion, the card says so instead of
 //      guessing.
-import { t, fill, setLocale, initLocale, LOCALES, currentLocale, fmtNumber, fmtSeconds, fmtClock, fmtUsd, numberWord } from './i18n.js';
+import { t, fill, setLocale, initLocale, LOCALES, currentLocale, fmtNumber, fmtSeconds, fmtClock, fmtUsd, numberWord, setDefaults } from './i18n.js';
 import * as api from './api.js';
 import { $, $$, el, renderMarkdown, renderMath, setBar, toast, easeChars, easeTime, bump, copyText } from './render.js';
 import { field } from './field.js';   // the mathematics behind the glass follows the run's phase
@@ -98,7 +98,7 @@ function cacheElements() {
     buildStamp: $('#build-stamp'),
     results: $('#results'), resetTop: $('#btn-reset-top'), reset: $('#btn-reset'),
     langSelect: $('#lang-select'), signin: $('#btn-signin'), signup: $('#btn-signup'), signout: $('#btn-signout'),
-    navBalance: $('#nav-balance'), navAccount: $('#nav-account'), balanceLine: $('#balance-line'), priceLine: $('#price-line'),
+    navBalance: $('#nav-balance'), navAccount: $('#nav-account'), navPricing: $('#nav-pricing'), balanceLine: $('#balance-line'), priceLine: $('#price-line'), visitorPrice: $('#visitor-price'),
     accountBox: $('#account-box'), accountLede: $('#account-box-lede'), tabSignup: $('#tab-signup'), tabSignin: $('#tab-signin'),
     formSignup: $('#form-signup'), signupEmail: $('#signup-email'), signupPassword: $('#signup-password'), signupPasswordHint: $('#signup-password-hint'),
     signupAgree: $('#signup-agree'), signupAgreeText: $('#signup-agree-text'), signupNote: $('#signup-note'), signupSubmit: $('#signup-submit'),
@@ -183,6 +183,7 @@ async function boot() {
   window.addEventListener('pagehide', () => { if (state.jobs.size) api.cancel([...state.jobs], { beacon: true }); });
   // Coming back to the page (from another tab or app, the screen unlocked, or from the browser's back-forward cache): a
   // new version of FactEngine is looked for (followBuild).
+  // The account's balance and automatic top-up are read again then too: credit bought in the Account page's tab shows here.
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') followBuild(); });
   window.addEventListener('pageshow', (e) => { if (e.persisted) followBuild(); });
 
@@ -196,6 +197,8 @@ async function boot() {
     state.server = await api.health();
     if (ui.buildStamp && state.server?.build) ui.buildStamp.textContent = `build ${state.server.build}`;
     state.session = state.server.access?.session || null;
+    setDefaults({ support: state.server.access?.support });
+    topupSeen = state.session?.lastTopUp?.at || '';
     pageBuild = OWN_BUILD || state.server?.build || null;
     if (noteBuild(state.server, { atLoad: true })) return;
   } catch {
@@ -203,6 +206,45 @@ async function boot() {
   }
   setRunWording();           // again, now with the server's own figures
   renderNav();
+  loadVisitorPrice();
+}
+
+// ---------- what a visitor is told of the price (3 November) -------------------------------------------------------
+// Before any account: listing is free, a fact-check's price, a new account's credit, and the Pricing page, from the
+// server's own settings (GET /api/prices).
+let visitorPrices = null;
+async function loadVisitorPrice() {
+  try { visitorPrices = await api.prices(); } catch { visitorPrices = null; }
+  renderVisitorPrice();
+}
+function renderVisitorPrice() {
+  const p = visitorPrices;
+  const show = required() && !state.session && p && Number.isInteger(p.priceCents) && p.priceCents > 0;
+  ui.visitorPrice.hidden = !show;
+  if (!show) { ui.visitorPrice.replaceChildren(); return; }
+  const parts = [t('intake.visitorPrice', { price: fmtMoney(p.priceCents, p.currency) })];
+  if (Number(p.grantCents) > 0) parts.push(t('intake.visitorGrant', { grant: fmtMoney(p.grantCents, p.currency) }));
+  ui.visitorPrice.replaceChildren(document.createTextNode(`${parts.join(' ')} `), el('a', { href: 'pricing', target: '_blank', rel: 'noopener', text: t('intake.seePricing') }));
+}
+
+// ---------- the account's automatic top-up, told when it happens (3 November) ----------------------------------------
+// The latest top-up the server names for this account; one later than the last seen here is said once, so a reader
+// knows their card was charged. '' before any; null until the page has read it.
+let topupSeen = null;
+function noteTopUp(last) {
+  if (topupSeen === null) { topupSeen = last?.at || ''; return; }
+  if (!last?.at || last.at <= topupSeen) return;
+  topupSeen = last.at;
+  toast(t('credit.topupDone', { amount: fmtMoney(last.amountCents, state.server?.access?.currency) }), { ms: 9000 });
+}
+/** The account as the health line says it now: its balance, whether it can add credit, its top-up. */
+function noteSession(h) {
+  const s = h?.access?.session;
+  if (!state.session || !s) return;
+  state.session.addCredit = Boolean(s.addCredit);
+  state.session.topupPaused = Boolean(s.topupPaused);
+  noteTopUp(s.lastTopUp);
+  if (Number.isFinite(s.balanceCents)) setBalance(s.balanceCents);
 }
 
 // ---------- the account (5 October) -------------------------------------------------------------------
@@ -239,7 +281,10 @@ function renderAccountWords() {
   ui.signupAgreeText.replaceChildren(...parts.map((part) => (part === '{terms}' ? link('terms', 'account.terms') : part === '{privacy}' ? link('privacy', 'account.privacy') : document.createTextNode(part))));
   ui.signupPasswordHint.textContent = t('account.passwordHint', { n: minChars() });
   ui.signupPassword.minLength = minChars();
-  if (!ui.accountBox.hidden) ui.accountLede.textContent = t(ui.accountBox.dataset.reason === 'run' ? 'account.ledeRun' : 'account.lede', { amount: fmtMoney(grantCents()) });
+  if (!ui.accountBox.hidden) {
+    ui.accountLede.replaceChildren(document.createTextNode(`${t(ui.accountBox.dataset.reason === 'run' ? 'account.ledeRun' : 'account.lede', { amount: fmtMoney(grantCents()) })} `),
+      el('a', { href: 'pricing', target: '_blank', rel: 'noopener', text: t('intake.seePricing') }));
+  }
 }
 
 function showAccountTab(tab) {
@@ -380,6 +425,7 @@ async function signedIn(session) {
     const h = await api.health();
     state.server = h;
     state.session = h.access?.session || state.session;
+    topupSeen = state.session?.lastTopUp?.at || '';
   } catch { /* the session stands; the line is read again later */ }
   renderNav();
   renderBeyondTools();
@@ -449,7 +495,7 @@ function noteBuild(h, { atLoad = false } = {}) {
 }
 let looking = null;
 function followBuild() {
-  looking ??= api.health().then((h) => noteBuild(h), () => false).finally(() => { looking = null; });
+  looking ??= api.health().then((h) => { noteSession(h); return noteBuild(h); }, () => false).finally(() => { looking = null; });
   return looking;
 }
 function followAccount({ now }) {
@@ -474,7 +520,7 @@ function refreshBalance() {
   if (!state.session) return;
   clearTimeout(balanceTimer);
   balanceTimer = setTimeout(async () => {
-    try { const out = await api.account(); noteBuying(out?.account?.payments); setBalance(out?.account?.balanceCents); } catch { /* the next one will */ }
+    try { noteSession(await api.health()); } catch { /* the next one will */ }
   }, 400);
 }
 
@@ -485,10 +531,12 @@ function renderNav() {
   ui.signup.hidden = !required() || signedInNow;
   ui.signout.hidden = !signedInNow;
   ui.navAccount.hidden = !signedInNow;
+  ui.navPricing.hidden = signedInNow;   // a visitor's way to the prices; signed in, the footer has it
   const bal = state.session?.balanceCents;
   ui.navBalance.hidden = !signedInNow || !Number.isFinite(bal);
   ui.navBalance.textContent = Number.isFinite(bal) ? fmtMoney(bal, state.server?.access?.currency) : '';
   ui.navBalance.title = t('account.balanceTitle');
+  renderVisitorPrice();
 }
 
 // ---------- access -------------------------------------------------------------------------
@@ -1379,9 +1427,10 @@ function renderPriceLine() {
   ui.priceLine.hidden = !price;
   if (!price) { ui.priceLine.textContent = ''; return; }
   const free = Number(price.freeFacts) || 0;
+  const left = freeRemaining();   // once some are taken: how many are still free on this document
   ui.priceLine.textContent = [
     t('price.each', { amount: fmtMoney(price.priceCents, price.currency) }),
-    free > 0 ? t('price.eachFree', { n: free, w: numberWord(free) }) : '',
+    free > 0 && left === free ? t('price.eachFree', { n: free, w: numberWord(free) }) : left > 0 ? t('price.leftFree', { n: left, w: numberWord(left) }) : '',
     price.note || '',
   ].filter(Boolean).join(' ');
 }
@@ -1400,10 +1449,13 @@ function renderBalanceLine(selected) {
     const s = state.creditStop;
     ui.balanceLine.hidden = false;
     ui.balanceLine.classList.add('is-over');
-    ui.balanceLine.textContent = s.code === 'month_limit'
-      ? t('credit.stoppedLimit', { limit: fmtMoney(s.limitCents) })
-      : t('credit.stopped', { balance: fmtMoney(s.balanceCents), price: fmtMoney(s.priceCents) });
-    if (s.code !== 'month_limit') addCreditTail();
+    ui.balanceLine.textContent = s.code === 'account_hold' ? t('errors.hold')
+      : s.code === 'month_limit' ? t('credit.stoppedLimit', { limit: fmtMoney(s.limitCents) })
+        : t('credit.stopped', { balance: fmtMoney(s.balanceCents), price: fmtMoney(s.priceCents) });
+    // The way on: the limit and the hold are the Account page's, at their places; short credit is added there.
+    if (s.code === 'month_limit') ui.balanceLine.append(' ', el('a', { href: 'account#limit', target: '_blank', rel: 'noopener', text: t('credit.limitLink') }));
+    else if (s.code === 'account_hold') ui.balanceLine.append(' ', el('a', { href: 'account#add-credit', target: '_blank', rel: 'noopener', text: t('credit.accountLink') }));
+    else addCreditTail();
     return;
   }
   // Runs the hooks choose are never charged, so the balance holds nothing back.
@@ -1425,13 +1477,6 @@ function addCreditTail() {
   if (!state.session?.addCredit) return;
   if (state.session.topupPaused) ui.balanceLine.append(' ', t('credit.topupPaused'));
   ui.balanceLine.append(' ', el('a', { href: 'account#add-credit', target: '_blank', rel: 'noopener', text: t('credit.addCredit') }));
-}
-
-/** What the account's own page says of buying (its payments), for the line above: whether it can add credit, and a paused top-up. */
-function noteBuying(p) {
-  if (!state.session || !p) return;
-  state.session.addCredit = Boolean(p.on);
-  state.session.topupPaused = Boolean(p.topup?.on && p.topup?.paused);
 }
 
 // ---------- prices: what the server said this run's claims cost ---------------------------------------
@@ -1710,7 +1755,7 @@ function failRun(err) {
   if (code === 'unavailable') message = t(state.phase === 'extracting' ? 'errors.unavailableListing' : 'errors.unavailable');
   else if (code === 'source_too_long') message = `${t('errors.sourceTooLong')} ${err?.message || ''}`;
   else if (code === 'signin_required') message = t('account.cookies');   // signed in, and still refused: the browser kept no cookie
-  else if (code === 'account_hold') message = t('errors.hold');   // a payment dispute is open on this account (server/payments.js)
+  else if (code === 'account_hold') { message = t('errors.hold'); state.creditStop = { code }; }   // a payment dispute is open on this account (server/payments.js); said under the claims too
   // A rejected key, or a provider's account that can no longer pay (402): the operator's to look at; the page names neither.
   else if (err?.status === 401 || err?.status === 402 || code === 'invalid_key' || code === 'missing_key' || code === 'balance_exhausted') message = t('errors.key');
   else if (code === 'key_not_sendable') message = t('errors.keyUnusable');

@@ -13,16 +13,19 @@ export class ApiError extends Error {
 // a key, sends one, or asks for one.
 
 /** The server's refusal, as the server wrote it: its status, its code and its message. */
-async function throwFromResponse(res) {
-  let body = null;
-  try { body = await res.json(); } catch { /* not JSON */ }
+function refusal(status, body) {
   const e = body?.error || {};
-  const err = new ApiError(res.status, e.code || `http_${res.status}`, e.message || `The server answered ${res.status}.`);
+  const err = new ApiError(status, e.code || `http_${status}`, e.message || `The server answered ${status}.`);
   if (e.site) err.site = e.site; // the site a link led to, for the page's own sentence about it
   // The figures of a refusal the reader is expected to meet (a balance, a price, a limit, a wait), so the page can say
   // them in the reader's own language.
   for (const k of ['balanceCents', 'priceCents', 'limitCents', 'spentCents', 'waitSeconds']) if (Number.isFinite(e[k])) err[k] = e[k];
-  throw err;
+  return err;
+}
+async function throwFromResponse(res) {
+  let body = null;
+  try { body = await res.json(); } catch { /* not JSON */ }
+  throw refusal(res.status, body);
 }
 
 // Sign-in. When the server refuses a request for want of a sign-in (401, signin_required), the
@@ -82,12 +85,15 @@ export const changePassword = ({ current, next }) => post('api/account/password'
 export const deleteAccount = ({ password }) => post('api/account/delete', { password });
 // Buying credit (1 November): the server makes the payment and answers with the payment page's address, which the page
 // moves to; back from it, the page asks how the payment or the saved card stands. No key or script of the processor's here.
-export const startCheckout = ({ amountCents, saveCard }) => post('api/account/checkout', { amountCents, saveCard });
+export const startCheckout = ({ amountCents, saveCard, lang }) => post('api/account/checkout', { amountCents, saveCard, lang });
 export const checkoutReturn = (session) => get(`api/account/checkout?session=${encodeURIComponent(session)}`);
-export const startCardSetup = () => post('api/account/card', {});
+export const startCardSetup = ({ lang } = {}) => post('api/account/card', { lang });
 export const cardReturn = (session) => get(`api/account/card?session=${encodeURIComponent(session)}`);
 export const removeCard = () => post('api/account/card/remove', {});
 export const setTopUp = ({ on, levelCents, amountCents, capCents, agreement }) => post('api/account/topup', { on, levelCents, amountCents, capCents, agreement });
+// The account's own payments, each with the processor's receipt; and the prices, which anyone may read.
+export const payments = () => get('api/account/payments');
+export const prices = () => get('api/prices');
 
 export async function health() {
   const res = await fetch('api/health', { cache: 'no-store' });
@@ -208,7 +214,7 @@ export async function streamNdjson(url, body, { signal, onEvent, isEnd = () => f
         // CIVIC is the way to it (a proxy, a deploy switching over), not CIVIC: the job may well be
         // running, so this is a cut like any other, and the connection is opened again.
         const body = await res.json().catch(() => null);
-        if (body?.error || res.status < 500) throw new ApiError(res.status, body?.error?.code || `http_${res.status}`, body?.error?.message || `The server answered ${res.status}.`);
+        if (body?.error || res.status < 500) throw refusal(res.status, body);
         continue;
       }
       const reader = res.body.getReader();

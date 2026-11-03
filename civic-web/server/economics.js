@@ -63,6 +63,11 @@ export function tierAt(ms, { hours = config.tierHours, order = config.tierOrder,
 
 /** Claims the reader may test free on one document under a tier: tier 1 none, tier 2 one, tier 3 two (and a tier 4 three). */
 export function freeFor(tier) { return Math.max(0, (Number.parseInt(tier, 10) || 1) - 1); }
+/** The most claims a document can have free, under the tiers the operator has set (the fixed one, or the rotation's). */
+export function freeUpTo() {
+  const tiers = Number.isInteger(config.tierFixed) ? [config.tierFixed] : config.tierOrder;
+  return tiers.length ? Math.max(...tiers.map(freeFor)) : 0;
+}
 
 /** The list price, in cents, or null when the operator has set none (then nothing is priced). */
 export function listPrice() { return Number.isInteger(config.listPriceCents) && config.listPriceCents >= 0 ? config.listPriceCents : null; }

@@ -138,6 +138,9 @@ export async function servedChecks({ tells = loadTells() } = {}) {
   if (!words.length && !needles.size) return [{ name: 'served: no tell words and no prompts here, so nothing to look for', ok: false, detail: 'Set CIVIC_TELL_WORDS (or CIVIC_TELL_WORDS_FILE) or install the prompts, then run it again.' }];
   const assets = await import('../server/assets.js');
   const { buildStamp } = await import('../server/build.js');
+  // The business's facts as the server reads them into the pages (the support address, the phone, the address, the date).
+  const { config } = await import('../server/config.js');
+  assets.setPageFacts({ email: config.supportEmail, phone: config.supportPhone, address: config.businessAddress, effective: config.termsVersion });
   const pairs = assets.readerTexts({ publicDir: path.join(root, 'public'), build: buildStamp() }).map(([label, text]) => [label, text.replace(/\s+/g, ' ')]);
   const hits = [];
   if (words.length) {
