@@ -1491,6 +1491,12 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
   - **The footer of every page** reads "FactEngine.com · an Operating Equity company", with the logo and its link.
   - **The top-up's agreement** ends with FactEngine's address when one is set (`account.topup.merchantAt`).
   - **The guard** checks that no page and no language names a kind of company.
+  - **Live** (3 November, 13:39 UTC): PR #105 deployed, payments off, `CIVIC_TERMS_VERSION=2026-11-03` as before. No
+    page or language served names a kind of company; every footer reads "an Operating Equity company"; the Terms are
+    with FactEngine under Tennessee's laws and courts, and Privacy and Contact name FactEngine; the four languages carry
+    the agreement's address sentence; the prices, Pricing, the legal pages' facts and the approved words are as at #104;
+    the start-up lines, the record, the standby, the tell words and the readers' model are as before. Live check clean,
+    nothing spent.
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 
