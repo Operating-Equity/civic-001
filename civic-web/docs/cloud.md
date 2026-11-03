@@ -1497,6 +1497,17 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
     the agreement's address sentence; the prices, Pricing, the legal pages' facts and the approved words are as at #104;
     the start-up lines, the record, the standby, the tell words and the readers' model are as before. Live check clean,
     nothing spent.
+- **3 November, afternoon: Stripe's page offers cards only.** The operator asked which payment methods Stripe offers
+  and on what conditions. With none named by the server, Stripe's page offers whatever is switched on in its dashboard
+  and fits the purchase (currency, amount, the reader's country and device, a card being saved). Stripe turns some on by
+  default.
+  - **Now:** both Checkout Sessions, the purchase and the card saving, offer cards only (`allowed_payment_method_types:
+    ['card']`), with Apple Pay and Google Pay where the reader's device has them, since those wallets pay by card.
+  - **Why:** the automatic top-up keeps and charges a saved card, and the pages, receipts and agreement all speak of
+    one. A reader who saved a bank account or another method would have got no saved method, and no word why.
+  - **Not offered:** buy now, pay later (Afterpay prohibits stored value; Affirm restricts it) and bank debits (up to
+    four business days to confirm; disputes final).
+  - **The guard** checks that both sessions are sent the cards-only list.
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 
