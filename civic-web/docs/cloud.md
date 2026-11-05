@@ -1552,6 +1552,11 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
     text-box style is off, so a tablet draws the page's box.
   - **The guard** checks the permissions policy, and that the light is served from the page's own address as an AVIF
     image tagged BT.2020 and HLG, with its transparency.
+  - **Live** (5 November, 17:05 UTC): PR #108 deployed, payments off. Measured live: the permissions policy reads
+    `microphone=(self)`; the page has the box in its frame with the light under it; the served style hides the light
+    where no HDR is reported and gives the box no blue of its own; `/assets/light.avif` is served as `image/avif`,
+    tagged BT.2020 and HLG, with its transparency. The pages, prices, legal words and start-up lines are as at #107.
+    Live check clean, nothing spent.
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 
