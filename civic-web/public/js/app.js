@@ -549,6 +549,10 @@ function wireIntake() {
   ui.source.addEventListener('input', updateSourceMeta);
   ui.source.addEventListener('input', hideCopies);   // a list found for a link no longer in the box is stale
   wireGlow(ui.source);
+  // On a touch screen the keyboard's own help (corrections, suggestions and voice typing) is the device's, as in Notes
+  // (3 November: "my microphone on my keypad would not allow me to do voice to text in the main box"); on a desktop the
+  // box keeps spellcheck off, so a pasted article is not underlined in red.
+  if (window.matchMedia?.('(pointer: coarse)').matches) ui.source.removeAttribute('spellcheck');
   ui.showText.addEventListener('click', () => {
     const open = ui.intake.classList.toggle('is-open');
     ui.showText.textContent = t(open ? 'intake.hideText' : 'intake.showText');
@@ -579,13 +583,16 @@ function wireIntake() {
 }
 
 /**
- * The text box lights up as it is typed in (31 October: "As you are typing in the box the box dynamically brightens";
- * 1 November, after Apple's Liquid Glass, where the glass lights up where it is touched): each keystroke or paste lifts
- * the light by a fifth, where the cursor is, and a pause lets it settle back to rest. The light is three CSS variables
- * (--glow, 0 to 1, and its place, --gx and --gy; css/civic.css holds every figure of it, the settle time among them),
- * written at most once a frame and only while it moves, so typing is never slowed. Placing it lays out the text before
- * the cursor once more, out of sight; where that took longer than a frame of the display twice in a row, text that long
- * is lit from the box's bright corner instead. With the system's reduced motion, it steps instead of easing.
+ * The light under the letters as they are typed (5 November, the operator: "like a flashlight being turned on behind the
+ * glass … lighting up the space in which the text is being entered, therefore creating greater contrast"; earlier, 31
+ * October to 3 November, the box brightening as it is typed in). Each keystroke, paste or dictated phrase brings the
+ * light up by a fifth more, centred where the cursor is, and a pause lets it ease out; the box itself does not change.
+ * The light is an image on the box's glass, under the letters (assets/light.avif, brighter than white on a screen that
+ * shows it; css/civic.css holds every figure). Only its place (a transform) and its strength (--glow, its opacity) change,
+ * at most once a frame and only while they move, so typing is never slowed. Placing it lays out the text before the
+ * cursor once more, out of sight; where that took longer than a frame of the display twice in a row, text that long is
+ * lit from the box's corner instead, until the reader comes back to the box or empties it. With the system's reduced
+ * motion, it steps instead of easing.
  */
 const GLOW_STEP = 0.2;
 // The box's style, copied onto a hidden twin, so the twin lays out the text as the box does and gives the cursor's place;
@@ -593,6 +600,9 @@ const GLOW_STEP = 0.2;
 const TWIN_STYLE = ['paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft', 'fontFamily', 'fontSize', 'fontWeight', 'fontStyle',
   'letterSpacing', 'lineHeight', 'textTransform', 'wordSpacing', 'textIndent', 'tabSize', 'direction', 'wordBreak', 'overflowWrap'];
 function wireGlow(box) {
+  const frameEl = box.parentElement;
+  const light = frameEl?.querySelector('.source-light');
+  if (!light) return;
   let glow = 0;        // as painted
   let peak = 0;        // where the last keystroke left it
   let lastAt = 0;
@@ -605,12 +615,9 @@ function wireGlow(box) {
   let slow = 0;             // placings in a row that took longer than a frame
   let tooLong = Infinity;   // text before the cursor at least this long is lit from the corner
   const calm = () => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
-  const paint = (g) => { glow = g; box.style.setProperty('--glow', g.toFixed(3)); };
-  const corner = () => {   // the box's bright top-left corner (css/civic.css)
-    box.style.removeProperty('--gx');
-    box.style.removeProperty('--gy');
-  };
-  /** The cursor's place inside the box, as the box shows it now; the box's bright corner when it cannot be read. */
+  const paint = (g) => { glow = g; frameEl.style.setProperty('--glow', g.toFixed(3)); };
+  const corner = () => light.style.removeProperty('transform');   // the box's corner (css/civic.css)
+  /** The light centred on the cursor, as the box shows it now; the box's corner when the place cannot be read. */
   const place = () => {
     const at = box.selectionEnd ?? box.value.length;
     if (at >= tooLong) return corner();
@@ -631,8 +638,11 @@ function wireGlow(box) {
       const y = mark.offsetTop + mark.offsetHeight / 2 - box.scrollTop;
       twin.remove();
       if (!Number.isFinite(x) || !Number.isFinite(y)) throw new Error('no place');
-      box.style.setProperty('--gx', `${Math.round(Math.max(0, Math.min(x, box.clientWidth)))}px`);
-      box.style.setProperty('--gy', `${Math.round(Math.max(0, Math.min(y, box.clientHeight)))}px`);
+      // The twin's place is inside the box's border; the light's is inside its frame, which the border edges.
+      const left = Math.max(0, Math.min(x, box.clientWidth)) + box.clientLeft;
+      const top = Math.max(0, Math.min(y, box.clientHeight)) + box.clientTop;
+      const reach = Number.parseFloat(getComputedStyle(frameEl).getPropertyValue('--type-light-reach')) || 200;
+      light.style.transform = `translate(${Math.round(left - reach)}px, ${Math.round(top - reach)}px)`;
     } catch {
       corner();
     }
@@ -644,13 +654,19 @@ function wireGlow(box) {
     if (lastFrame) frameMs = Math.min(frameMs, now - lastFrame);
     lastFrame = now;
     if (placed) { placed = false; place(); }
-    const t = Math.min(1, (now - lastAt) / settleMs);
-    paint(t >= 1 ? 0 : peak * (1 - t * t * (3 - 2 * t)));   // eased: it holds a moment, then lets go
+    if (glow > 0) {
+      const t = Math.min(1, (now - lastAt) / settleMs);
+      paint(t >= 1 ? 0 : peak * (1 - t * t * (3 - 2 * t)));   // eased: it holds a moment, then lets go
+    }
     if (glow > 0) frame = requestAnimationFrame(settle);
     else lastFrame = 0;
   };
+  // Each time the reader comes back to the box, or empties it, the light follows the cursor again: one slow moment (the
+  // device busy elsewhere) lights the corner only until then.
+  box.addEventListener('focus', () => { tooLong = Infinity; slow = 0; });
   box.addEventListener('input', () => {
-    settleMs = Number.parseFloat(getComputedStyle(box).getPropertyValue('--type-settle')) || 1000;
+    if (!box.value) { tooLong = Infinity; slow = 0; }
+    settleMs = Number.parseFloat(getComputedStyle(frameEl).getPropertyValue('--type-settle')) || 1000;
     if (calm()) {
       place();
       paint(1);

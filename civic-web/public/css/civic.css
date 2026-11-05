@@ -26,17 +26,14 @@
   --glass-light: radial-gradient(130% 90% at 0% 0%, rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0) 58%);
   --glass-glow: inset 0 0 22px rgba(255, 255, 255, 0.16);
   --field-shine: inset 0 1px 0 rgba(255, 255, 255, 0.85), inset 0 1px 2px rgba(21, 24, 29, 0.05);
-  /* The text box as it is typed in (1 November, after Apple's Liquid Glass, where the glass lights up where it is
-     touched): public/js/app.js sets --glow on it (0 at rest, 1 at its brightest) and the light's place (--gx, --gy, the
-     cursor). A soft light comes up through the glass around the cursor, the blue edge brightens into a fine line of
-     light, and a soft glow rises around the box; a pause lets it settle. Every figure of the light is here: */
-  --type-light: 72 116 228;     /* the light's colour: the page's blue */
-  --type-light-size: 150px;     /* how far it reaches around the cursor */
-  --type-light-alpha: 0.18;     /* inside the glass, at its brightest */
-  --type-edge-alpha: 0.95;      /* the edge's line of light, at its brightest */
-  --type-halo: 24px;            /* the glow around the box */
-  --type-halo-alpha: 0.30;
-  --type-settle: 1000;          /* milliseconds for the light to settle after a pause */
+  /* The light under the text box's letters as they are typed (5 November, the operator: "like a flashlight being turned
+     on behind the glass … lighting up the space in which the text is being entered, therefore creating greater
+     contrast"). assets/light.avif, made by scripts/make-light.mjs: brighter than the page's white on a screen that shows
+     it (the strength the operator chose on an iPad Pro, 5 November: its brightest at the centre); not shown on a screen
+     that does not. public/js/app.js places it under the cursor and sets --glow (0 to 1). Every figure: */
+  --type-light-reach: 200px;    /* from the cursor to the light's edge */
+  --type-light-strength: 1;     /* the light at its brightest, as the image is */
+  --type-settle: 1000;          /* milliseconds for the light to ease out after a pause */
   --gold-ink: #b8860b;
   --green-ink: #2f9a64;
   --blue: #4874e4;
@@ -179,21 +176,28 @@ body {
   transition: border-color .15s ease, box-shadow .15s ease;
 }
 .input:focus { outline: none; border-color: var(--blue); box-shadow: var(--field-shine), 0 0 0 3px rgba(72, 116, 228, 0.18); }
-/* The text box's light as it is typed in (--glow and its place, --gx and --gy): painted every frame while it moves. */
-.source {
-  --glow: 0;
-  --gx: 32px;
-  --gy: 28px;
-  background-color: rgba(255, 255, 255, 0.66);
-  background-image: radial-gradient(circle var(--type-light-size) at var(--gx) var(--gy), rgb(var(--type-light) / calc(var(--type-light-alpha) * var(--glow))), rgb(var(--type-light) / 0));
-  box-shadow: var(--field-shine), inset 0 0 0 1px rgb(255 255 255 / calc(var(--type-edge-alpha) * var(--glow))), 0 0 var(--type-halo) rgb(var(--type-light) / calc(var(--type-halo-alpha) * var(--glow)));
-  transition: border-color .15s ease;
+/* The text box looks the same at rest, in use and filled: no border, ring or tint of its own when it is used. Its glass,
+   edge and shine are its frame's (.source-box, set in the line as the box was, so nothing around it moves), so the light
+   lies on the glass, under the letters; the box itself is clear. The device's own text-box style is off, so a phone's
+   or a tablet's browser draws this one. */
+.source-box {
+  --glow: 0; display: inline-block; width: 100%; vertical-align: baseline; position: relative; contain: layout;
+  background: rgba(255, 255, 255, 0.66); border: 1px solid var(--line); border-radius: var(--radius-sm); box-shadow: var(--field-shine);
 }
-.source:focus {
-  outline: none;
-  border-color: var(--blue);
-  box-shadow: var(--field-shine), inset 0 0 0 1px rgb(255 255 255 / calc(var(--type-edge-alpha) * var(--glow))), 0 0 0 3px rgba(72, 116, 228, 0.18), 0 0 var(--type-halo) rgb(var(--type-light) / calc(var(--type-halo-alpha) * var(--glow)));
+/* The light's layer: on the glass, inside the edge, under the letters, rounded as the box is (the frame's layout
+   containment makes it the layer's stacking context, so -1 is above the glass and below the box). */
+.source-glass { position: absolute; inset: 0; z-index: -1; overflow: hidden; border-radius: calc(var(--radius-sm) - 1px); pointer-events: none; }
+.source { display: block; background: transparent; border: 0; box-shadow: none; border-radius: calc(var(--radius-sm) - 1px); appearance: none; -webkit-appearance: none; }
+.source:focus { outline: none; }
+.source-light {
+  position: absolute; left: 0; top: 0; max-width: none;
+  width: calc(2 * var(--type-light-reach)); height: calc(2 * var(--type-light-reach));
+  transform: translate(calc(32px - var(--type-light-reach)), calc(28px - var(--type-light-reach)));
+  opacity: calc(var(--type-light-strength) * var(--glow));
+  will-change: opacity, transform;
+  dynamic-range-limit: no-limit;
 }
+@media not (dynamic-range: high) { .source-light { display: none; } }
 .mono { font-family: var(--font-mono); font-size: 0.93em; }
 /* A form's label and its field. Not `.field`, which is the drawn background (above): sharing it put the background's
    fixed, click-through layer over the sign-in fields from 2 October, so nothing could be typed on a touch screen. */
@@ -243,8 +247,9 @@ body {
    the page. "Show the text" opens the text again, read-only, without giving the box its height back. */
 .intake.is-collapsed { padding-block: 16px 14px; }
 .intake.is-collapsed .intake-title { font-size: 24px; margin: 0; }
-.intake.is-collapsed .intake-lede, .intake.is-collapsed .intake-price, .intake.is-collapsed .intake-tools, .intake.is-collapsed .intake-go, .intake.is-collapsed .source { display: none; }
-.intake.is-collapsed.is-open .source { display: block; margin-block-start: 12px; max-height: 260px; }
+.intake.is-collapsed .intake-lede, .intake.is-collapsed .intake-price, .intake.is-collapsed .intake-tools, .intake.is-collapsed .intake-go, .intake.is-collapsed .source-box { display: none; }
+.intake.is-collapsed.is-open .source-box { display: block; margin-block-start: 12px; }
+.intake.is-collapsed.is-open .source { max-height: 258px; }   /* 260px with its frame's edge */
 .intake-summary { display: flex; align-items: center; gap: 6px 14px; flex-wrap: wrap; margin-block-start: 6px; font-size: 14.5px; color: var(--ink-2); }
 .intake-summary b { color: var(--ink); font-weight: 600; }
 .intake { padding: clamp(22px, 4vw, 38px) clamp(18px, 4vw, 40px) clamp(22px, 3vw, 30px); background: var(--glass-light), var(--glass-sheen), var(--glass-strong); }
@@ -258,7 +263,7 @@ body {
 @media (max-width: 480px) { #nav-pricing { display: none; } }
 /* A visitor's line of the price, under the lede (3 November). */
 .intake-price { margin: -8px 0 18px; color: var(--ink-2); font-size: 15px; max-width: var(--measure); text-wrap: pretty; }
-.source { min-height: 210px; resize: vertical; font-size: 16px; line-height: 1.5; }
+.source { min-height: 208px; resize: vertical; font-size: 16px; line-height: 1.5; }   /* 210px with its frame's edge */
 .intake-tools { display: flex; justify-content: space-between; align-items: center; gap: 12px 18px; flex-wrap: wrap; margin-block-start: 12px; }
 /* A link a site refused, found elsewhere: the copies to pick from, under the box. */
 .copies { margin-block-start: 12px; }
