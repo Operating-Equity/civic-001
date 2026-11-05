@@ -69,9 +69,12 @@ colours on every surface: true green, false red, unverified grey (the grey zone:
 nothing dirty about it, the operator's rule of 2 October); a verdict the page could not read is dashed and hollow,
 a different thing. The amber is for cautions only (a card's note, the check page's warning mark). There is one box type,
 rounded, and no corner brackets (the operator's rule of 2 October: the brackets made the page busy). The text box
-lights up as it is typed in (1 November, after Apple's Liquid Glass, where the glass lights up where it is touched): a
-soft light comes up through the glass at the cursor, its blue edge brightens into a fine line of light and a soft glow
-rises around it, and a pause lets it settle (`css/civic.css`, the `--type-*` figures; `js/app.js`, `wireGlow`).
+looks the same at rest, in use and filled; as it is typed in, pasted or dictated into, a light comes up on its glass
+under the letters, centred where the cursor is, and a pause lets it ease out (5 November, the operator: "like a
+flashlight being turned on behind the glass"). On a screen that shows light brighter than white it is brighter than the
+page's white, so the letters stand out more there; on one that does not, nothing changes (`assets/light.avif`, made by
+`scripts/make-light.mjs`; `css/civic.css`, the `--type-*` figures; `js/app.js`, `wireGlow`). On a phone or a tablet the
+box leaves the keyboard's text help and its microphone key to the device, so text can be dictated into it.
 The footer names the site and says "an Operating Equity company" (no page says what kind of business FactEngine is), and
 carries the pages a commercial service owes, Terms, Privacy, Refunds and Contact (`public/terms.html`, `privacy.html`,
 `refunds.html`, `contact.html`: the operator's launch texts of 3 October, in English, static HTML in `.prose` over

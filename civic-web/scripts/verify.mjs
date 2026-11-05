@@ -1435,6 +1435,19 @@ async function linkChecks() {
     const permits = (await fetch(`${base}/`)).headers.get('permissions-policy') || '';
     check('the page may use the microphone itself (a device\'s voice typing), and no frame may; camera and location stay off', permits === 'camera=(), microphone=(self), geolocation=()', permits);
     check('the page\'s security policy admits the player and the thumbnails', /frame-src https:\/\/www\.youtube-nocookie\.com/.test(policy) && /img-src[^;]*https:\/\/\*\.ytimg\.com/.test(policy), policy);
+    // The light under the text box's letters as they are typed: an HDR image on the HLG curve (brighter than white on a
+    // screen that shows it), BT.2020, with its transparency, served from the page's own address.
+    {
+      const page = await (await fetch(`${base}/`)).text();
+      const lit = await fetch(`${base}/assets/light.avif`);
+      const bytes = Buffer.from(await lit.arrayBuffer());
+      const at = bytes.indexOf('nclx');
+      const tags = at >= 0 ? [bytes.readUInt16BE(at + 4), bytes.readUInt16BE(at + 6), bytes.readUInt16BE(at + 8)] : [];
+      check('the text box\'s light is served as an image of the page\'s own: AVIF, BT.2020 on the HLG curve, with its transparency',
+        /<img class="source-light"[^>]*src="assets\/light\.avif"/.test(page) && lit.status === 200 && lit.headers.get('content-type') === 'image/avif'
+          && JSON.stringify(tags) === '[9,18,9]' && bytes.includes('urn:mpeg:mpegB:cicp:systems:auxiliary:alpha') && /img-src 'self'/.test(policy),
+        JSON.stringify({ status: lit.status, type: lit.headers.get('content-type'), tags }));
+    }
     const shell = await read(`http://localhost:${SITE}/shell`);
     check('a page with no paragraph of prose is a shell: named, with what to do',
       shell.status === 400 && shell.body?.error?.code === 'url_shell' && /builds this page in the browser/.test(shell.body?.error?.message || ''), JSON.stringify(shell.body));

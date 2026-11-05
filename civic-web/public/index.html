@@ -62,7 +62,11 @@
          the Pricing page, from the server's settings (js/app.js, renderVisitorPrice). -->
     <p class="intake-price" id="visitor-price" hidden></p>
     <label class="visually-hidden" for="source-text" data-i18n="intake.title">FactEngine tests the facts.</label>
-    <textarea id="source-text" class="source" rows="9" placeholder="Paste text, or a link to an article, a PDF or a YouTube video…" data-i18n-placeholder="intake.placeholder" spellcheck="false"></textarea>
+    <!-- The box's glass, and the light that comes up on it under the letters as they are typed (js/app.js, wireGlow). -->
+    <div class="source-box" id="source-box">
+      <span class="source-glass" aria-hidden="true"><img class="source-light" id="source-light" src="assets/light.avif" alt="" decoding="async" width="400" height="400"></span>
+      <textarea id="source-text" class="source" rows="9" placeholder="Paste text, or a link to an article, a PDF or a YouTube video…" data-i18n-placeholder="intake.placeholder" spellcheck="false"></textarea>
+    </div>
     <div class="intake-tools">
       <div class="intake-left">
         <label class="btn btn-outline btn-small file-btn">

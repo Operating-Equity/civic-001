@@ -1529,6 +1529,29 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
     before the merge. The health line reads `inFlight` 0. The pages, prices, legal words and start-up lines are as at
     #106. Live check clean, nothing spent. Render's server accepts HTTP/2, so a reader's browser carries every claim's
     stream over one connection, with none of HTTP/1.1's six.
+- **5 November: the text box lit from behind as it is typed in; voice typing on a phone or a tablet.** The operator, 3
+  November: the box should light up as it is used, and the iPad's microphone key would not dictate into it. After two
+  tries that changed the box itself (a blue light, then a grey box lit to white), the operator: "like a flashlight being
+  turned on behind the glass … lighting up the space in which the text is being entered, therefore creating greater
+  contrast"; no blue border and no bluish tone.
+  - **The box** looks the same at rest, in use and filled: no border, ring, tint or fill of its own when it is used. Its
+    glass, edge and shine are drawn by a frame around it, so the light lies on the glass, under the letters. Measured
+    against #107's box at rest, with the device's own text-box style off: identical, pixel for pixel, at rest and in use,
+    on a desktop and an iPad-size screen.
+  - **The light:** each keystroke, paste or dictated phrase brings it up by a fifth more, centred where the cursor is and
+    reaching 200 px around it, and a pause lets it ease out over a second. It is an HDR image (`assets/light.avif`, made
+    by `scripts/make-light.mjs`: the HLG curve at full signal, BT.2020, 10-bit, its transparency fading to the edge).
+    - On a screen that shows light brighter than white it is as bright as that screen allows at its centre. The operator
+      chose this strength on an iPad Pro, comparing it with the same light as a still image (A) and as a video (C, "like
+      a military searchlight … too bright").
+    - On a screen that reports no HDR it is not shown, so nothing changes there.
+    - Measured in the time a 2 MB document takes to type into: as fast as #107's box.
+  - **Voice typing:** the server's permissions policy lets the page itself use the microphone (`microphone=(self)`;
+    frames from other sites, camera and location stay off). On a touch screen the box leaves the keyboard's text help
+    (`spellcheck`) to the device; on a computer it stays off, so a pasted article is not underlined. The device's own
+    text-box style is off, so a tablet draws the page's box.
+  - **The guard** checks the permissions policy, and that the light is served from the page's own address as an AVIF
+    image tagged BT.2020 and HLG, with its transparency.
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 
