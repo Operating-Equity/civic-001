@@ -28,10 +28,7 @@ const DEFAULTS = {
   nameClass: null,
   verdicts: { true: ['true'], false: ['false'], unverified: ['uncertain', 'unverified', 'unverifiable', 'indeterminate', 'inconclusive'] },
   verdictTags: ['verdict', 'determination'],
-  // The mark a reader sees for the one who reviewed the claim (6 November, the operator: "Reviewer"): its word, and the
-  // letter after the first letter of the name the entry gives (server/verdict.js). Its word is also the one a reader's
-  // copy of an entry uses wherever the entry wrote the old one (server/verdict.js, readerWords).
-  inspector: 'Reviewer {initial}',
+  inspector: 'Inspector {initial}',
   titles: [],
   claim: ['Claim'],
   // The labels of the other fields the listing writes with each claim (24 October), besides its role: the claim is what

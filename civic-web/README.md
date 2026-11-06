@@ -965,29 +965,25 @@ When accounts arrive, the prompts should move to a secrets manager rather than f
 of a run as it is made. Anyone else receives every output of their run, under the operator's names, through one view
 applied where the job records each event, so a page that reconnects or reads a finished run again receives the same: the
 listing's claims; for each claim, the entry, the verdict, the confidence, the conclusion and the sources cited; and a
-work log counted in plain words ("4 searches · 2 pages read · 2 sources cited"). The one who reviewed a claim is its
-mark ("Reviewer B" for an Albert: the letter after the first letter of the name the entry gives), and a reader's copy
-says "reviewer" wherever the entry wrote "inspector", its line's label included, unless the claim or the document itself
-writes that word (6 November); no field, working stage or file a reader receives is named by it. The work behind the
-outputs is the operator's alone (31 October: "We are not going to have the boxes on the user interface that allow people
-to see how the system is running underneath"; 1 November): no thinking summary, no research step's question or address,
-no listing as written, and no note about any of them reaches a reader, and the boxes that show them are on the
-operator's page alone. `/api/health` tells anyone but the operator only what the page reads: its build, its pace,
-whether it is ready, and their own balance; the runs in flight go to the operator, or to a request carrying a private
-check key whose SHA-256 is `CIVIC_CHECK_KEY_SHA256`. A failure a reader can act on (the document, the credit, a link, a
-file, the account) is told as it is; any other is one plain sentence, "This claim could not be tested just now. Try
-again shortly.", or its like for the listing, and the true one stays on the operator's page and `/check`. Nothing of
-what FactEngine works around on its way reaches a reader (31 October, night: "it does not help you or the service to
-show that it is struggling"): no wait, retry or figure of their turn is sent to them, and their page says only the work
-going on. A claim held for its turn says "Starting…", one waiting to go again or reconnecting goes on saying what it was
-doing, and a bar never goes back; the operator's page says what is really happening. The operator's addresses
-(`/api/selftest`, `/api/illustrate`, `/api/operator/…`) answer anyone else as an address that does not exist. The names,
-and the headings an entry is read by, are kept with the prompts (`CIVIC_OUTPUT_NAMES`, or `CIVIC_OUTPUT_NAMES_FILE`;
-`server/names.js`), FactEngine's own words unless set; a list that cannot be read stops the start, naming the key and
-never a word of it, and `/check` names the list by its fingerprint. When the entry writes the inspector's name in a
-class of the operator's (the list's `nameClass`), a reader's copy has each of its spans made the mark, and the name in
-full wherever the entry left it outside the class; `/check` counts both. The leak check reports what it finds by
-fingerprint, never by its text.
+work log counted in plain words ("4 searches · 2 pages read · 2 sources cited"). The work behind the outputs is the
+operator's alone (31 October: "We are not going to have the boxes on the user interface that allow people to see how
+the system is running underneath"; 1 November): no thinking summary, no research step's question or address, no
+listing as written, and no note about any of them reaches a reader, and the boxes that show them are on the operator's
+page alone. `/api/health` tells anyone but the operator only what the page reads: its build, its pace, whether it is ready,
+and their own balance; the runs in flight go to the operator, or to a request carrying a private check key whose SHA-256
+is `CIVIC_CHECK_KEY_SHA256`. A failure a reader can act on (the document, the credit, a link, a file, the account) is
+told as it is; any other is one plain sentence, "This claim could not be tested just now. Try again shortly.", or its
+like for the listing, and the true one stays on the operator's page and `/check`. Nothing of what FactEngine works
+around on its way reaches a reader (31 October, night: "it does not help you or the service to show that it is
+struggling"): no wait, retry or figure of their turn is sent to them, and their page says only the work going on. A
+claim held for its turn says "Starting…", one waiting to go again or reconnecting goes on saying what it was doing, and
+a bar never goes back; the operator's page says what is really happening. The operator's addresses (`/api/selftest`,
+`/api/illustrate`, `/api/operator/…`) answer anyone else as an address that does not exist. The names, and the headings
+an entry is read by, are kept with the prompts (`CIVIC_OUTPUT_NAMES`, or `CIVIC_OUTPUT_NAMES_FILE`; `server/names.js`),
+FactEngine's own words unless set; a list that cannot be read stops the start, naming the key and never a word of it,
+and `/check` names the list by its fingerprint. When the entry writes the inspector's name in a class of the operator's
+(the list's `nameClass`), a reader's copy has each of its spans made the mark, and the name in full wherever the entry
+left it outside the class; `/check` counts both. The leak check reports what it finds by fingerprint, never by its text.
 
 **The record** (`server/record.js`, 1 November). The operator: "have you made any provisions for saving the users'
 outputs and the questions, not any user information … it's just real world usage and answers and provides valuable data

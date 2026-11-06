@@ -3,12 +3,10 @@
 // event as it is made; anyone else receives each event through readerView:
 // - every output, whole: the listing's claims; for each claim, the entry, its verdict, its confidence, its conclusion and
 //   the sources it cites (1 November: "Sources cited in reading the article should remain");
-// - the reviewer's name is its mark ("Reviewer B" for an Albert, server/verdict.js) wherever it stands for the
-//   reviewer: on the card, in the entry and in its conclusion (31 October). An entry that writes the operator's class
-//   for the name is read by it (31 October, evening), and no span's markup reaches a reader. The entry's old word for
-//   the reviewer is the mark's word (6 November), and nothing a reader receives is named by the old word: the card's
-//   field is `reviewerMark`, its working stage `reviewing`. The entry comes whole with the finished claim; as it is
-//   written, a reader receives only how much there is of it;
+// - the inspector's name is its mark ("Inspector B" for an Albert, server/verdict.js) wherever it stands for the
+//   inspector: on the card, in the entry and in its conclusion (31 October). An entry that writes the operator's class
+//   for the name is read by it (31 October, evening), and no span's markup reaches a reader. The entry comes whole with
+//   the finished claim; as it is written, a reader receives only how much there is of it;
 // - the work behind the outputs is the operator's alone (31 October: "We are not going to have the boxes on the user
 //   interface that allow people to see how the system is running underneath"; 1 November: "the actual processes that
 //   are at the very end"): no thinking summary, no research step's question or address, no listing as the model wrote
@@ -27,7 +25,7 @@
 //
 // The view is applied where the job records each event (server/jobs.js), so a page that comes back after a cut connection,
 // or reads a finished run again, receives exactly what it would have received.
-import { classForms, inspectorMark, keptWords, maskClassed, maskEntry, maskName, readerWords, withoutSpans } from './verdict.js';
+import { classForms, inspectorMark, keptWords, maskClassed, maskEntry, maskName, withoutSpans } from './verdict.js';
 import { verbOf } from './tools/request.js';
 
 const pick = (ev, keys) => {
@@ -104,8 +102,8 @@ function readerRanking(r) {
 /**
  * A reader's view of one job: a function from each event the job makes to what the reader receives of it (an event, a
  * list of events, or nothing). As a claim's entry is written, a reader receives only how much of it there is (the card's
- * bar); the entry itself arrives with the finished claim, the reviewer's name made the mark wherever it stands for the
- * reviewer, but in the words the reader gave (`keep`: the claims and the document).
+ * bar); the entry itself arrives with the finished claim, the inspector's name made the mark wherever it stands for the
+ * inspector, but in the words the reader gave (`keep`: the claims and the document).
  */
 export function readerView({ keep = [], what = 'other' } = {}) {
   // Read when a claim finishes, once for the run, so a long document is read once and not for every text masked.
@@ -136,11 +134,11 @@ export function readerView({ keep = [], what = 'other' } = {}) {
       }
       case 'reasoning':
         // Thinking is the work behind the outputs, the operator's alone: the listing's is not sent; a claim's first piece
-        // tells the reader's card that its reviewer is at work, and nothing of what it thought.
+        // tells the reader's card that its inspector is at work, and nothing of what it thought.
         if (ev.i === undefined) return null;
         if (thinking.has(ev.i)) return null;
         thinking.add(ev.i);
-        return { t: 'phase', i: ev.i, phase: 'reviewing' };
+        return { t: 'phase', i: ev.i, phase: 'inspecting' };
       case 'phase':
         if (ev.phase === 'incomplete') return pick(ev, ['t', 'i', 'phase', 'reason']);
         if (ev.phase === 'queued') return pick(ev, ['t', 'i', 'phase']);   // its turn, without its figures
@@ -166,15 +164,15 @@ export function readerView({ keep = [], what = 'other' } = {}) {
             ...(ev.ranking !== undefined ? { ranking: readerRanking(ev.ranking) } : {}),
           };
         } else {
-          const name = ev.reviewer || null;
+          const name = ev.inspector || null;
           const kept = keptOf();
           // The conclusion is the entry's own words: read by the class when the entry writes it (31 October, evening).
           const classed = classForms(ev.text || '').length > 0;
-          const concluded = (x) => readerWords(withoutSpans(classed ? maskClassed(x, name, kept) : maskName(x, name, kept)), kept);
+          const concluded = (x) => withoutSpans(classed ? maskClassed(x, name, kept) : maskName(x, name, kept));
           return {
             ...pick(ev, ['t', 'i', 'verdict', 'confidence', 'searches', 'ms']),
             ...(Array.isArray(ev.sources) ? { sources: ev.sources.map(readerSource) } : {}),
-            reviewerMark: name ? inspectorMark(name) : null,
+            inspectorMark: name ? inspectorMark(name) : null,
             conclusion: ev.conclusion ? concluded(ev.conclusion) : ev.conclusion ?? null,
             text: maskEntry(ev.text || '', { name, keep: kept }),
             incomplete: ev.incomplete || null,
