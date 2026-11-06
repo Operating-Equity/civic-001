@@ -196,7 +196,8 @@ statement ... each fact-check is $1.25", and "The formula is going to test and r
   `CIVIC_PRICING_NOTE` when set. No claim's row carries a price or a Free mark, and the button says how many
   ("Test 3 selected claims"), never what they cost. A selection the balance cannot cover holds the button back with
   "Your balance covers three fact-checks. Choose three or fewer." (the document's free ones and as many as the
-  balance pays for; never a total). The balance itself is in the menu bar. The server decides what is free, never
+  balance pays for; never a total), except while the reader's automatic top-up can still add credit this month: then
+  nothing is held back, since a claim short of credit has the top-up run first. The balance itself is in the menu bar. The server decides what is free, never
   the page: each determination is told its quote before the model is asked. A reader is told the tier, the free
   count and the price, and never a cost.
 - **The measurement** lives in Render's Postgres (`DATABASE_URL`, Render's own name; `server/db.js`,
@@ -323,7 +324,10 @@ adults-only rule. `server/payments.js`, on Stripe's `stripe` package (23.1.0, AP
   monthly total, the card, how to stop); the time and the version of that wording are kept with the account. It runs
   before a test would be refused for short credit (the test then goes on) and after a charge leaves the credit below
   the level; one at a time per account (a unique index on its pending top-up), and never past the month's total. Claims
-  refused for short credit at the same moment (the page runs several at once) wait on the one top-up and go on. A
+  refused for short credit at the same moment (the page runs several at once) wait on the one top-up and go on. While
+  it is on, with a card, unpaused and with room for one more in the month's total, the test page holds back no
+  selection for the balance alone (the health line's `topupReady`); a claim the total then stops is refused in the
+  page's words for short credit. A
   top-up an instance stopped in the middle of (a deploy) is settled from Stripe's record once it is older than the
   client's longest request (80 s, tried three times, at most 5 s apart), so it never blocks the next. A card
   the bank refuses (declined, or asking the reader to confirm) pauses it; the Account page and the line under the

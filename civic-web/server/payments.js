@@ -422,6 +422,20 @@ export async function awaitTopUp(userId) {
   }
 }
 
+/** The automatic top-up can charge this account: on, a card saved in this mode, neither paused nor held, an amount set. */
+const canCharge = (user) => ready() && openTo(user) && topupOffered() && Boolean(user.topupOn) && !user.topupPausedAt && !user.payHoldAt
+  && Boolean(user.cardMethod) && here(user) && Number(user.topupAmountCents) > 0;
+
+/**
+ * Whether this account's automatic top-up would add credit now if a test were short of it: it can charge, and one more
+ * of its amount stays within this month's total. The main page then holds back no selection for the balance alone,
+ * since a claim short of credit has its top-up run first (topUp below, before the claim is refused).
+ */
+export async function topupReady(user) {
+  if (!user || !canCharge(user)) return false;
+  return (await topupsThisMonth(user.id)) + Number(user.topupAmountCents) <= (Number(user.topupCapCents) || 0);
+}
+
 /**
  * The automatic top-up, when the reader has turned it on and the balance is below their level (or below `needCents`,
  * the price of a test about to be refused): their amount, on their saved card, never past their monthly total, one at
@@ -431,9 +445,8 @@ export async function awaitTopUp(userId) {
 export async function topUp(userId, { needCents = 0 } = {}, again = false) {
   if (!ready()) return { done: false, why: 'off' };
   const user = await accounts.userById(userId);
-  if (!openTo(user) || !topupOffered() || !user.topupOn || user.topupPausedAt || user.payHoldAt || !user.cardMethod || !here(user)) return { done: false, why: 'off' };
+  if (!canCharge(user)) return { done: false, why: 'off' };
   const amount = Number(user.topupAmountCents);
-  if (!(amount > 0)) return { done: false, why: 'off' };
   const balance = await credit.balanceOf(userId);
   if (balance >= Math.max(Number(user.topupLevelCents) || 0, Number(needCents) || 0)) return { done: false, why: 'enough' };
   if ((await topupsThisMonth(userId)) + amount > (Number(user.topupCapCents) || 0)) return { done: false, why: 'cap' };

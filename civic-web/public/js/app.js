@@ -243,6 +243,7 @@ function noteSession(h) {
   if (!state.session || !s) return;
   state.session.addCredit = Boolean(s.addCredit);
   state.session.topupPaused = Boolean(s.topupPaused);
+  state.session.topupReady = Boolean(s.topupReady);
   noteTopUp(s.lastTopUp);
   if (Number.isFinite(s.balanceCents)) setBalance(s.balanceCents);
 }
@@ -1474,8 +1475,11 @@ function renderBalanceLine(selected) {
     else addCreditTail();
     return;
   }
-  // Runs the hooks choose are never charged, so the balance holds nothing back.
-  const covers = Number.isFinite(bal) && price && !ext.choices()?.length ? freeRemaining() + Math.floor(Math.max(0, bal) / price.priceCents) : null;
+  // Runs the hooks choose are never charged, so the balance holds nothing back. Nor does it while the account's automatic
+  // top-up can still add credit this month (topupReady): a claim short of credit has the top-up run first, on the server,
+  // and one its monthly total stops is refused in the sentence above.
+  const covers = Number.isFinite(bal) && price && !ext.choices()?.length && !state.session?.topupReady
+    ? freeRemaining() + Math.floor(Math.max(0, bal) / price.priceCents) : null;
   if (covers !== null && selected > covers) {
     ui.testSelected.disabled = true;
     ui.balanceLine.hidden = false;

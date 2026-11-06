@@ -206,21 +206,25 @@ function checkKeyGiven(req) {
 }
 
 // Whether this account can add credit (server/payments.js), and whether its automatic top-up is paused: the main page's
-// Add credit link when a test is refused for credit. Nothing else of payments reaches the main page.
-const buying = (user) => (payments.openTo(user) ? { addCredit: true, ...(user.topupOn && user.topupPausedAt ? { topupPaused: true } : {}) } : {});
+// Add credit link when a test is refused for credit. And whether that top-up would add credit to a test short of it
+// (`ready`, payments.topupReady), so the page holds back no selection for the balance alone. Nothing else of payments
+// reaches the main page.
+const buying = (user, ready = false) => (payments.openTo(user)
+  ? { addCredit: true, ...(user.topupOn && user.topupPausedAt ? { topupPaused: true } : {}), ...(ready ? { topupReady: true } : {}) } : {});
 
 app.get('/api/health', wrap(async (req, res) => {
   const session = signinRequired() ? req.account || null : null;
   const balanceCents = session ? await credit.balanceOf(session.user.id).catch(() => null) : null;
   // The account's latest automatic top-up, so the main page can say it happened (its time and amount, nothing else).
   const topped = session ? await payments.lastTopUp(session.user).catch(() => null) : null;
+  const topupReady = session ? await payments.topupReady(session.user).catch(() => false) : false;
   // What the page shows of the prices (server/economics.js): the tier, the free count, the price and
   // the operator's note. Never a cost. Null when pricing is off, or when it cannot be read just now.
   const pricing = await economics.publicState().catch((err) => { console.error('[economics] the price could not be read:', err.message); return null; });
   const all = !signinRequired() || isOperator(session);
   const access = {
     required: signinRequired(),
-    session: session ? { email: session.user.email, operator: isOperator(session), balanceCents, monthlyLimitCents: session.user.monthlyLimitCents, ...buying(session.user), ...(topped ? { lastTopUp: topped } : {}) } : null,
+    session: session ? { email: session.user.email, operator: isOperator(session), balanceCents, monthlyLimitCents: session.user.monthlyLimitCents, ...buying(session.user, topupReady), ...(topped ? { lastTopUp: topped } : {}) } : null,
     grantCents: config.signupGrantCents, minChars: config.passwordMinChars, currency: config.currency, support: config.supportEmail,
   };
   const active = jobs.active();   // runs in flight right now, whatever their connections are doing; an update waits for zero
@@ -231,7 +235,7 @@ app.get('/api/health', wrap(async (req, res) => {
     const p = promptStatus();
     res.json({
       build: BUILD, ...pick(publicConfig(p), ['autoTestFirst', 'inFlight', 'heartbeatMs', 'findCopies']), ready: Boolean(p.extract && p.evaluate),
-      access: { ...access, session: session ? { balanceCents, ...buying(session.user), ...(topped ? { lastTopUp: topped } : {}) } : null },
+      access: { ...access, session: session ? { balanceCents, ...buying(session.user, topupReady), ...(topped ? { lastTopUp: topped } : {}) } : null },
       ...(checkKeyGiven(req) ? { active } : {}),
     });
     return;
