@@ -1557,6 +1557,22 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
     where no HDR is reported and gives the box no blue of its own; `/assets/light.avif` is served as `image/avif`,
     tagged BT.2020 and HLG, with its transparency. The pages, prices, legal words and start-up lines are as at #107.
     Live check clean, nothing spent.
+- **6 November: a reader sees a reviewer.** The operator: another word than "Inspector" for readers, "Reviewer", and no
+  trace of the old word in the page's code and data either.
+  - **The mark** is "Reviewer B" for an Albert (`server/names.js`, the default; no output-names list is set).
+  - **A reader's copy of an entry and its conclusion** (`readerWords`, `server/verdict.js`): the old word, in any capitals
+    and in the plural, becomes "reviewer", with "an" made "a". The reviewer's line's label always does; the body does
+    unless the claim or the document itself writes the old word, so a claim about a building inspector reads as written.
+    The operator's page keeps the entry as the model wrote it.
+  - **What every page carries:** the card's class `card-reviewer`, the fields `reviewer` and `reviewerMark`, the working
+    stage `reviewing`. The record, the log and `/check` keep their own words, being the operator's.
+  - **The working lines:** "Assigning a reviewer…" and "Reviewing…"; "Asignando un revisor…" and "Revisando…";
+    "Désignation d'un relecteur…" and "Examen…"; the German lines already said "Prüfer".
+  - **The tell words** gain a "served" list on Render: the old word and its forms, allowed in the server's code and
+    never in what a reader receives; the start-up line names any that comes back, by fingerprint.
+  - **The guard** checks the mark, the word in a reader's copy (the claim's own word kept), a reader's stream with no
+    trace of the old word, and the files everyone downloads; its example of the operator's own headings is in neutral
+    words.
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 

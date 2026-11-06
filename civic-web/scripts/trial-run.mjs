@@ -82,7 +82,7 @@ await stream('/api/evaluate', { claims }, (ev) => {
   if (ev.t === 'done') {
     rows.push(ev);
     const verdict = (ev.verdict || 'UNREAD').toUpperCase();
-    console.log(`  [${ev.i + 1}] ${verdict.padEnd(10)} conf ${String(ev.confidence ?? '?').padStart(3)}%  ${secs(ev.ms).padStart(7)}  searches ${ev.searches}  sources ${ev.sources?.length || 0}  est ${usd(ev.cost?.usd)}${ev.incomplete ? '  ENDED EARLY: ' + ev.incomplete : ''}  · ${ev.inspector || ''}`);
+    console.log(`  [${ev.i + 1}] ${verdict.padEnd(10)} conf ${String(ev.confidence ?? '?').padStart(3)}%  ${secs(ev.ms).padStart(7)}  searches ${ev.searches}  sources ${ev.sources?.length || 0}  est ${usd(ev.cost?.usd)}${ev.incomplete ? '  ENDED EARLY: ' + ev.incomplete : ''}  · ${ev.reviewer || ''}`);
   }
   if (ev.t === 'error') console.log(`  [${(ev.i ?? -1) + 1}] ERROR ${ev.code}: ${ev.message}`);
   if (ev.t === 'complete') console.log(`\nall ${ev.completed}/${ev.total} finished in ${secs(ev.ms)}`);
@@ -130,7 +130,7 @@ const md = [
   '## Determinations', '',
   ...rows.flatMap((r) => [
     `### ${r.i + 1}. ${claims[r.i]}`, '',
-    `**Verdict:** ${r.verdict || 'not readable'}${r.confidence != null ? ` · ${r.confidence}%` : ''}${r.inspector ? ` · ${r.inspector}` : ''}`, '',
+    `**Verdict:** ${r.verdict || 'not readable'}${r.confidence != null ? ` · ${r.confidence}%` : ''}${r.reviewer ? ` · ${r.reviewer}` : ''}`, '',
     ...(r.incomplete ? [`> Output ended early: ${r.incomplete}`, ''] : []),
     r.text, '',
     ...(r.reasoning ? ['#### Reasoning summary', '', r.reasoning, ''] : []),

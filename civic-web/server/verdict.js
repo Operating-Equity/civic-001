@@ -9,9 +9,10 @@
 // that states no verdict at all is Unverified by the operator's ruling of 17 September, with its source marked 'unread'
 // so the ledger and /check can tell it apart.
 //
-// A reader sees the inspector by its mark alone ("Inspector A": the first letter of the name the entry gives, the
-// operator's rule of 19 October), on the card and on the entry's own line (maskEntry, NameMasker); the operator sees the
-// entry as written.
+// A reader sees the one who reviewed the claim by its mark alone ("Reviewer B": the letter after the first letter of the
+// name the entry gives, the operator's rules of 19 and 31 October and 6 November), on the card and on the entry's own
+// line (maskEntry, NameMasker), and the mark's word wherever the entry wrote the old one (readerWords); the operator sees
+// the entry as written.
 import { names, anyOf as any } from './names.js';
 
 export const VERDICTS = ['true', 'false', 'unverified'];
@@ -20,6 +21,38 @@ const esc = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 // Word edges that hold for every alphabet, and for a heading that ends in a question mark.
 const EDGE0 = '(?<![\\p{L}\\p{N}])';
 const EDGE1 = '(?![\\p{L}\\p{N}])';
+
+// The word a reader sees for the one who reviewed the claim (6 November, the operator: "Reviewer", where the entry and
+// the page said "inspector"): the mark's own word, so the two always agree.
+export const READER_WORD = names.inspector.replace('{initial}', '').replace(/\s+/g, ' ').trim();
+// The old word, alone or in the plural, with the article before it when there is one.
+const OLD_WORD = new RegExp(`${EDGE0}(?:(an?)([ \\t]+))?(inspector)(s?)${EDGE1}`, 'giu');
+/** The word in the capitals of the one it replaces: all capitals, a capital first, or none. */
+const capsLike = (model, word) => {
+  if (model.length > 1 && model === model.toUpperCase()) return word.toUpperCase();
+  if (model[0] === model[0].toUpperCase()) return word[0].toUpperCase() + word.slice(1);
+  return word.toLowerCase();
+};
+/** The old word made the reader's, its article ("an inspector", "a reviewer") and its plural with it. */
+const toReaderWord = (s) => (!READER_WORD ? s : s.replace(OLD_WORD, (all, article, gap, word, plural) => {
+  const said = capsLike(word, READER_WORD) + (plural ? capsLike(word, 's') : '');
+  if (!article) return said;
+  return capsLike(article, /^[aeiou]/i.test(READER_WORD) ? 'an' : 'a') + gap + said;
+}));
+
+/**
+ * Text a reader receives of an entry, with the old word for its reviewer made the reader's (6 November): "the
+ * inspector" becomes "the reviewer", in the plural and in any capitals. Not where the claim or the document itself
+ * writes the old word (`keep`), so a claim about a building inspector reads as written. The reviewer's own line is
+ * relabelled whatever the claim says (NameMasker).
+ */
+export function readerWords(text, keep = '') {
+  const s = String(text ?? '');
+  if (!READER_WORD || !/inspector/i.test(s)) return s;
+  const kept = keptWords(keep);
+  kept.oldWord ??= [...kept.words].some((w) => w.includes('inspector'));
+  return kept.oldWord ? s : toReaderWord(s);
+}
 
 const VERDICT_WORDS = {};
 for (const [verdict, list] of Object.entries(names.verdicts)) for (const w of list) VERDICT_WORDS[w.toLowerCase()] = verdict;
@@ -181,15 +214,15 @@ export function inspectorOf(text) {
   return forms.length ? forms.reduce((a, b) => (b.split(' ').length > a.split(' ').length ? b : a)) : null;
 }
 
-// Words that come before a name and are not it, so "Sir Isaac Newton" is Inspector J and "Dr. Ada Lovelace" Inspector B.
+// Words that come before a name and are not it, so "Sir Isaac Newton" is Reviewer J and "Dr. Ada Lovelace" Reviewer B.
 const TITLES = new Set(['dr', 'doctor', 'prof', 'professor', 'sir', 'dame', 'lord', 'lady', 'mr', 'mrs', 'ms', 'mx', 'miss',
   'rev', 'reverend', 'fr', 'father', 'st', 'saint', 'hon', 'judge', 'justice', 'capt', 'captain', 'gen', 'general', 'col',
   'colonel', 'president', 'king', 'queen', 'prince', 'princess', 'inspector', ...names.titles.map((w) => w.toLowerCase())]);
 const MARK = new RegExp(`^${esc(names.inspector).replace('\\{initial\\}', '\\p{L}')}$`, 'u');
 
 /**
- * The letter a reader sees for an inspector (31 October: "the 1st letter of their 1st name plus one letter and if the
- * letter is Z, it goes to a"), so the letter never matches the name it stands for: Albert Einstein is Inspector B. An
+ * The letter a reader sees for the reviewer (31 October: "the 1st letter of their 1st name plus one letter and if the
+ * letter is Z, it goes to a"), so the letter never matches the name it stands for: Albert Einstein is Reviewer B. An
  * accented letter counts as its plain letter (É is E, so F); a name with no Latin letter has none.
  */
 export function markLetter(initial) {
@@ -340,7 +373,8 @@ function maskValue(value) {
 }
 
 /**
- * An entry for a reader, as it streams: every inspector line's name made the mark, nothing else changed. A line is held
+ * An entry for a reader, as it streams: every inspector line's name made the mark and its label the reader's word
+ * (readerWords), nothing else changed. A line is held
  * only while it could still be an inspector line (its first few characters, or a whole inspector line until it ends);
  * every other line passes as it comes. The text out, put together, is the same however the entry was cut into pieces.
  */
@@ -389,8 +423,9 @@ export class NameMasker {
     }
     const m = body.match(LABEL_LINE);
     if (!m) return text;
-    if (!cleanName(m[2])) { this.bare = true; return text; }
-    return `${m[1]}${maskValue(m[2])}${cr}`;
+    // The line's label in the reader's word, whatever the claim says (6 November): the label is the entry's, not the claim's.
+    if (!cleanName(m[2])) { this.bare = true; return `${toReaderWord(m[1])}${m[2]}${cr}`; }
+    return `${toReaderWord(m[1])}${maskValue(m[2])}${cr}`;
   }
 
   couldBeName(partial) {
@@ -409,14 +444,15 @@ export class NameMasker {
  * A whole entry for a reader: every inspector line's name made the mark (as its pieces through a NameMasker), then the
  * name made the mark wherever else the entry writes it (maskName), but in the words of the claim or the document
  * (`keep`). An entry that writes the class is read by the class instead (maskClassed), and its inspector line after it.
- * The name is the one given (`name`), or the one the entry names (inspectorOf). No span's markup is left in it.
+ * The name is the one given (`name`), or the one the entry names (inspectorOf). No span's markup is left in it, and the
+ * old word for the reviewer is the reader's (readerWords).
  */
 export function maskEntry(text, { name = null, keep = '' } = {}) {
   const who = name || inspectorOf(text);
   const m = new NameMasker();
-  if (classForms(text).length) return withoutSpans(m.push(maskClassed(text, who, keep)) + m.flush());
+  if (classForms(text).length) return readerWords(withoutSpans(m.push(maskClassed(text, who, keep)) + m.flush()), keep);
   const lines = m.push(text) + m.flush();
-  return withoutSpans(who ? maskName(lines, who, keep) : lines);
+  return readerWords(withoutSpans(who ? maskName(lines, who, keep) : lines), keep);
 }
 
 /** The entry around its last verdict heading, for the record of a verdict that could not be read. */

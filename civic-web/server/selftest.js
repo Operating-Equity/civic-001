@@ -282,8 +282,8 @@ export async function selftest({ apiKey, build, operator = true }) {
   // The words the entries are read by (server/names.js): FactEngine's own, or the operator's list from the vault, by its
   // fingerprint and never its words.
   checks.push(ok('The entries are read by their headings', names.installed
-    ? `By your own list (#${names.installed}, ${names.keys} name${names.keys === 1 ? '' : 's'} set), kept beside the prompts. A reader sees each inspector as ${names.inspector.replace('{initial}', 'B')} for an Albert: the letter after the name's first letter, Z going to A.`
-    : `By FactEngine's own words: no list is set (CIVIC_OUTPUT_NAMES or CIVIC_OUTPUT_NAMES_FILE). A reader sees each inspector as ${names.inspector.replace('{initial}', 'B')} for an Albert: the letter after the name's first letter, Z going to A.`));
+    ? `By your own list (#${names.installed}, ${names.keys} name${names.keys === 1 ? '' : 's'} set), kept beside the prompts. A reader sees each reviewer as ${names.inspector.replace('{initial}', 'B')} for an Albert: the letter after the name's first letter, Z going to A.`
+    : `By FactEngine's own words: no list is set (CIVIC_OUTPUT_NAMES or CIVIC_OUTPUT_NAMES_FILE). A reader sees each reviewer as ${names.inspector.replace('{initial}', 'B')} for an Albert: the letter after the name's first letter, Z going to A.`));
   // The class the entries write the inspector's name in (server/names.js, nameClass; 31 October, evening): whether it is
   // set, and what the finished entries did with it since this start. Never its word.
   const ct = classTally();

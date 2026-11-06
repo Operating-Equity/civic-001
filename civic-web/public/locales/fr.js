@@ -94,9 +94,9 @@ export default {
   card: {
     pending: 'En file',
     headline: 'Titre',
-    starting: 'Désignation d\'un inspecteur…',
+    starting: 'Désignation d\'un relecteur…',
     begin: 'Démarrage…',
-    reasoning: 'Inspection…',
+    reasoning: 'Examen…',
     searching: 'Vérification des sources…',
     reading: 'Lecture de la source…',
     writing: 'Rédaction de l\'entrée…',

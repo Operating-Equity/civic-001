@@ -94,9 +94,9 @@ export default {
   card: {
     pending: 'En cola',
     headline: 'Titular',
-    starting: 'Asignando un inspector…',
+    starting: 'Asignando un revisor…',
     begin: 'Comenzando…',
-    reasoning: 'Inspeccionando…',
+    reasoning: 'Revisando…',
     searching: 'Consultando fuentes…',
     reading: 'Leyendo una fuente…',
     writing: 'Redactando la entrada…',

@@ -940,7 +940,7 @@ async function startRun() {
 function newResult() {
   return {
     status: 'pending', phase: 'pending', text: '', reasoning: '', chars: 0, startedAt: 0,
-    verdict: null, verdictSource: 'none', confidence: null, inspector: null, inspectorMark: null,
+    verdict: null, verdictSource: 'none', confidence: null, reviewer: null, reviewerMark: null,
     ms: null, trail: [], sources: [], incomplete: null,
     jobId: null, cutFrom: null,   // the claim's job at the server, and what the row said before its connection was cut
     free: null, priceCents: null, // what the server said this one costs: one of the document's free ones, or the price
@@ -1661,7 +1661,7 @@ async function runClaim(i, signal, { keepGoing = () => true, onSettled = () => {
         jobId: job, claims: [claim.text], text: state.source, source: state.sourceMeta, signal, onEvent,
         extra: ext.ask(claim),   // what the hooks ask of the run; the server reads it from no one else
         runId: state.extractJob, n: Number.isInteger(claim.n) ? claim.n : i + 1,   // the run is its extraction's job at the server, which is what the row is filed under; so the server can say whether this one is free
-        // Whatever the row was saying (queued at the gate, inspecting, writing), it says the connection
+        // Whatever the row was saying (queued at the gate, reviewing, writing), it says the connection
         // was cut until a new one is open, then goes back to what it was saying.
         onCut: () => { if (!settled && r.phase !== 'reconnecting') { r.cutFrom = r.phase; r.phase = 'reconnecting'; renderCardStatus(i); } },
         onAttached: (ev) => {
@@ -1921,9 +1921,9 @@ function setCardState(i, stateName) {
 }
 
 // The words of the work a claim is doing.
-const CARD_WORDS = { pending: 'card.pending', starting: 'card.starting', reasoning: 'card.reasoning', inspecting: 'card.reasoning', searching: 'card.searching', reading: 'card.reading', writing: 'card.writing', error: 'card.error' };
+const CARD_WORDS = { pending: 'card.pending', starting: 'card.starting', reasoning: 'card.reasoning', reviewing: 'card.reasoning', searching: 'card.searching', reading: 'card.reading', writing: 'card.writing', error: 'card.error' };
 // The work itself, as against what FactEngine works around on its way (its turn, a wait, a retry, a cut connection).
-const WORKING = new Set(['starting', 'reasoning', 'inspecting', 'searching', 'reading', 'writing']);
+const WORKING = new Set(['starting', 'reasoning', 'reviewing', 'searching', 'reading', 'writing']);
 
 /**
  * A card's status: the work it is doing, and nothing of what FactEngine works around on its way (31 October, night: "it
@@ -1963,7 +1963,7 @@ function finalizeCard(i, ev) {
     text: ev.text || r.text,
     reasoning: ev.reasoning || r.reasoning || '',
     verdict: ev.verdict || null, verdictSource: ev.verdictSource || 'none',
-    confidence: ev.confidence ?? null, inspector: ev.inspector || null, inspectorMark: ev.inspectorMark || null, conclusion: ev.conclusion || null,
+    confidence: ev.confidence ?? null, reviewer: ev.reviewer || null, reviewerMark: ev.reviewerMark || null, conclusion: ev.conclusion || null,
     ms: ev.ms ?? null,
     trail: ev.trail?.length ? ev.trail : r.trail, sources: ev.sources?.length ? ev.sources : r.sources,
     incomplete: ev.incomplete || r.incomplete || null,
@@ -2039,11 +2039,11 @@ function renderCardFoot(i) {
   const card = cardOf(i);
   const foot = $('.card-foot', card);
   foot.hidden = false;
-  const insp = $('.card-inspector', card);
-  insp.replaceChildren();
-  // The inspector's mark ("Inspector A", server/view.js), or the hooks' words for the name the entry gives.
-  if (r.inspectorMark) insp.append(el('b', { text: r.inspectorMark }));
-  else if (r.inspector) insp.append(...ext.named(r.inspector));
+  const who = $('.card-reviewer', card);
+  who.replaceChildren();
+  // The reviewer's mark ("Reviewer B", server/view.js), or the hooks' words for the name the entry gives.
+  if (r.reviewerMark) who.append(el('b', { text: r.reviewerMark }));
+  else if (r.reviewer) who.append(...ext.named(r.reviewer));
   // The work log: what the research did, counted, and how long it took.
   const log = $('.card-log', card);
   if (log) {

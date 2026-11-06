@@ -95,9 +95,9 @@ export default {
   card: {
     pending: 'Queued',
     headline: 'Headline',
-    starting: 'Assigning an inspector…',
+    starting: 'Assigning a reviewer…',
     begin: 'Starting…',
-    reasoning: 'Inspecting…',
+    reasoning: 'Reviewing…',
     searching: 'Checking sources…',
     reading: 'Reading a source…',
     writing: 'Writing the entry…',

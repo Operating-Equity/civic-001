@@ -392,7 +392,7 @@ export async function runEvaluation({ apiKey, claims, document = '', send, signa
     completed++;
     send({
       t: 'done', i,
-      verdict: parsed.verdict, verdictSource: parsed.verdictSource, confidence: parsed.confidence, inspector: parsed.inspector,
+      verdict: parsed.verdict, verdictSource: parsed.verdictSource, confidence: parsed.confidence, reviewer: parsed.inspector,
       conclusion: parsed.conclusion, // the Conclusion section, for the closed row
       text: parsed.text,            // complete, unmodified
       reasoning: reasoning.trim() || null,
@@ -580,7 +580,7 @@ export async function runEvaluation({ apiKey, claims, document = '', send, signa
     completed++;
     send({
       t: 'done', i,
-      verdict: parsed.verdict, verdictSource: parsed.verdictSource, confidence: parsed.confidence, inspector: parsed.inspector,
+      verdict: parsed.verdict, verdictSource: parsed.verdictSource, confidence: parsed.confidence, reviewer: parsed.inspector,
       conclusion: parsed.conclusion,
       text: parsed.text,
       reasoning: null,   // DeepSeek makes no summary, and its chain of thought stays off the page
@@ -825,7 +825,7 @@ export async function runEvaluation({ apiKey, claims, document = '', send, signa
     completed++;
     send({
       t: 'done', i,
-      verdict: parsed.verdict, verdictSource: parsed.verdictSource, confidence: parsed.confidence, inspector: parsed.inspector,
+      verdict: parsed.verdict, verdictSource: parsed.verdictSource, confidence: parsed.confidence, reviewer: parsed.inspector,
       conclusion: parsed.conclusion,
       text: parsed.text,
       reasoning: reasoning.trim() || null,   // Gemini's own summary of its thinking, as the readers' model's
@@ -1122,7 +1122,7 @@ export async function runEvaluation({ apiKey, claims, document = '', send, signa
     completed++;
     send({
       t: 'done', i,
-      verdict: parsed.verdict, verdictSource: parsed.verdictSource, confidence: parsed.confidence, inspector: parsed.inspector,
+      verdict: parsed.verdict, verdictSource: parsed.verdictSource, confidence: parsed.confidence, reviewer: parsed.inspector,
       conclusion: parsed.conclusion,
       text: parsed.text,
       reasoning: reasoning.trim() || null,   // Claude's own summary of its thinking, as the readers' model's
