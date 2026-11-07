@@ -1585,6 +1585,9 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
     setting is not one of the totals.
   - **The guard** checks the Account page is told the default. The buying browser check: the boxes 18 px apart, the
     agreement opening at "up to $100.00", and a saved choice opening as saved.
+  - **Live** (7 November, 01:08 UTC): PR #110 deployed with `CIVIC_RELOAD_CAP_DEFAULT_CENTS=10000` on Render, payments
+    off. Live check 19/19, nothing spent: a new build (5c87bcd1b9ef); the Account page served with its boxes' gap; the
+    scripts and style sheet served are the released ones; the start-up lines as before.
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 
