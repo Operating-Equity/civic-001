@@ -1571,6 +1571,9 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
     month's total or paused. The buying browser check gains a step: the top-up on and $1.00 left with three claims
     chosen, Test is not held; the top-up runs first, the three are delivered and charged, and the page says the top-up
     happened.
+  - **Live** (7 November, 00:18 UTC): PR #109 deployed, payments off. Live check 19/19, nothing spent: a new build
+    (70b618748864); the scripts and style sheet served are the released ones; the prices, the Pricing page and the
+    legal pages as at #108; payments off, the processor's notices not found; the start-up lines as before.
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 
