@@ -1574,6 +1574,17 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
   - **Live** (7 November, 00:18 UTC): PR #109 deployed, payments off. Live check 19/19, nothing spent: a new build
     (70b618748864); the scripts and style sheet served are the released ones; the prices, the Pricing page and the
     legal pages as at #108; payments off, the processor's notices not found; the start-up lines as before.
+- **7 November: the Account page's boxes stand apart; the monthly total opens at $100.** The operator: "provide some
+  padding between each of the boxes so they don't look so crowded together", and "I would set the maximum at $100 each
+  month, not $50. People can always reduce it, but you want the default to be higher."
+  - **The boxes:** a signed-in reader's boxes (balance, Add credit, automatic top-up, payment history, monthly limit,
+    activity, sign-in) sit 18 px apart, as the page's other boxes always did.
+  - **The default:** the automatic top-up's monthly total opens at `CIVIC_RELOAD_CAP_DEFAULT_CENTS` (on Render, 10000)
+    until the reader chooses one; a reader's own choice opens as they saved it. Unset, or not one of
+    `CIVIC_RELOAD_CAPS_CENTS`, it opens on the first. The start-up line names it ("opening at …"), and says so when the
+    setting is not one of the totals.
+  - **The guard** checks the Account page is told the default. The buying browser check: the boxes 18 px apart, the
+    agreement opening at "up to $100.00", and a saved choice opening as saved.
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 

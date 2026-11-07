@@ -92,6 +92,8 @@ const otherRange = () => (Number.isInteger(config.topupMinCents) && Number.isInt
   && config.topupMinCents > 0 && config.topupMaxCents >= config.topupMinCents ? { min: config.topupMinCents, max: config.topupMaxCents } : null);
 const amountsSet = () => config.topupAmountsCents.length > 0 || Boolean(otherRange());
 const topupOffered = () => config.reloadLevelsCents.length > 0 && config.reloadCapsCents.length > 0 && config.topupAmountsCents.length > 0;
+/** The monthly total the Account page opens on while a reader has chosen none: the operator's default if it is one of the totals, else the first. */
+const capDefault = () => (config.reloadCapsCents.includes(config.reloadCapDefaultCents) ? config.reloadCapDefaultCents : config.reloadCapsCents[0]);
 function missing() {
   const out = [];
   if (!config.stripeKey) out.push('CIVIC_STRIPE_KEY');
@@ -116,7 +118,8 @@ export function bootLine() {
   const r = otherRange();
   const amounts = [config.topupAmountsCents.length ? config.topupAmountsCents.map(money).join(', ') : null, r ? `any amount from ${money(r.min)} to ${money(r.max)}` : null].filter(Boolean).join('; or ');
   const topup = topupOffered()
-    ? `; automatic top-ups, the reader's choice: below ${config.reloadLevelsCents.map(money).join(' or ')}, add ${config.topupAmountsCents.map(money).join(', ')}, at most ${config.reloadCapsCents.map(money).join(', ')} a month`
+    ? `; automatic top-ups, the reader's choice: below ${config.reloadLevelsCents.map(money).join(' or ')}, add ${config.topupAmountsCents.map(money).join(', ')}, at most ${config.reloadCapsCents.map(money).join(', ')} a month, opening at ${money(capDefault())}${
+      Number.isInteger(config.reloadCapDefaultCents) && config.reloadCapDefaultCents !== capDefault() ? ' (CIVIC_RELOAD_CAP_DEFAULT_CENTS is not one of the monthly totals)' : ''}`
     : '; no automatic top-ups (CIVIC_RELOAD_LEVELS_CENTS and CIVIC_RELOAD_CAPS_CENTS unset)';
   return `[payments] on, ${mode() || 'unknown'} mode, ${config.payments === 'on' ? 'for every account' : "for the operator's account alone"}: ${amounts}${topup}`;
 }
@@ -139,7 +142,7 @@ export async function viewFor(user) {
   let topup = null;
   if (topupOffered()) {
     topup = {
-      levelsCents: config.reloadLevelsCents, amountsCents: config.topupAmountsCents, capsCents: config.reloadCapsCents, agreement: TOPUP_AGREEMENT,
+      levelsCents: config.reloadLevelsCents, amountsCents: config.topupAmountsCents, capsCents: config.reloadCapsCents, capDefaultCents: capDefault(), agreement: TOPUP_AGREEMENT,
       on: mine && user.topupOn, levelCents: user.topupLevelCents, amountCents: user.topupAmountCents, capCents: user.topupCapCents,
       paused: mine && user.topupOn && user.topupPausedAt ? (user.topupPausedReason || 'declined') : null, monthCents: await topupsThisMonth(user.id),
     };
