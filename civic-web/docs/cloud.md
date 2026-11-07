@@ -1552,6 +1552,25 @@ nothing of the model's output withheld, no arbitrary limits, prompts sent byte f
     text-box style is off, so a tablet draws the page's box.
   - **The guard** checks the permissions policy, and that the light is served from the page's own address as an AVIF
     image tagged BT.2020 and HLG, with its transparency.
+  - **Live** (5 November, 17:05 UTC): PR #108 deployed, payments off. Measured live: the permissions policy reads
+    `microphone=(self)`; the page has the box in its frame with the light under it; the served style hides the light
+    where no HDR is reported and gives the box no blue of its own; `/assets/light.avif` is served as `image/avif`,
+    tagged BT.2020 and HLG, with its transparency. The pages, prices, legal words and start-up lines are as at #107.
+    Live check clean, nothing spent.
+- **6 November: with the automatic top-up on, the test page lets its top-up run first.** Found walking the payment
+  experience as a reader, before Stripe is connected: with the top-up on and the balance short of the claims chosen, the
+  test page held the Test button back ("Your balance covers …"), so the top-up the server runs before refusing a claim
+  for credit was never reached from the page.
+  - **The health line** tells a signed-in reader's page `topupReady` while their automatic top-up would add credit to a
+    test short of it: on, with a card saved in the key's mode, neither paused nor held, and one more of its amount within
+    the month's total (`server/payments.js` `topupReady`, the same rule the top-up itself keeps).
+  - **The test page** then holds back no selection for the balance alone. Each claim short of credit has the top-up run
+    first and goes on; one the month's total stops is refused in the page's words for short credit. With the top-up off,
+    paused, without a card or at its total, the page holds the button back as before.
+  - **The guard** checks that the page is told `topupReady` only while the top-up would run: not with no card, at the
+    month's total or paused. The buying browser check gains a step: the top-up on and $1.00 left with three claims
+    chosen, Test is not held; the top-up runs first, the three are delivered and charged, and the page says the top-up
+    happened.
 - **Then stage 3:** the Mac copy is closed and the URL bookmarked; both copies share one key's
   minute budget, so they never run at once.
 

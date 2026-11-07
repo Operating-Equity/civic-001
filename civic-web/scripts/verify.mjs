@@ -4674,7 +4674,7 @@ async function readerViewChecks() {
       (st?.checks || []).some((c) => c.title === 'The entries are read by their headings' && /FactEngine's own words/.test(c.detail) && /Inspector B for an Albert/.test(c.detail)), '');
 
     // The operator's own headings, from the vault: a stand-in writing them, a server reading by them.
-    const NAMES = { conclusion: ['Did the dog chase the cat?'], confidence: ['LLR confidence'], name: ['Inspector'], verdicts: { true: ['holds'], false: ['fails'], unverified: ['open'] } };
+    const NAMES = { conclusion: ['Is the record settled?'], confidence: ['LLR confidence'], name: ['Inspector'], verdicts: { true: ['holds'], false: ['fails'], unverified: ['open'] } };
     const mockN = start([path.join(root, 'scripts', 'mock-openai.js')], { MOCK_PORT: String(MOCKN), MOCK_SPEED: '0.2', MOCK_OUTPUT_NAMES: JSON.stringify(NAMES), MOCK_INSPECTOR: 'Ada Lovelace', MOCK_EVAL_MARK: process.env.MOCK_EVAL_MARK_FOR_GATE || '' });
     procs.push(mockN);
     await wait(`http://localhost:${MOCKN}/v1/mock/stats`, 15000, { anyResponse: true });
@@ -4689,7 +4689,7 @@ async function readerViewChecks() {
     const stN = await (await fetch(`http://localhost:${PN}/api/selftest`)).json();
     check('with the operator\'s list set, an entry is read by its headings: the verdict under a renamed heading in the list\'s own words, the renamed confidence, the inspector under a renamed label; /check names the list by its fingerprint alone',
       named.every((d) => d?.verdictSource === 'conclusion' && ['true', 'false', 'unverified'].includes(d.verdict) && Number.isFinite(d.confidence) && d.inspector === 'Ada Lovelace')
-        && (stN.checks || []).some((c) => c.title === 'The entries are read by their headings' && /your own list \(#[0-9a-f]{8}, 4 names set\)/.test(c.detail) && !/dog|LLR|holds/.test(c.detail)),
+        && (stN.checks || []).some((c) => c.title === 'The entries are read by their headings' && /your own list \(#[0-9a-f]{8}, 4 names set\)/.test(c.detail) && !/settled|LLR|holds/.test(c.detail)),
       JSON.stringify(named.map((d) => [d?.verdict, d?.verdictSource, d?.confidence, d?.inspector])));
     const bad = spawnSync(process.execPath, [path.join(root, 'server', 'index.js')], { cwd: root, timeout: 20000, encoding: 'utf8', env: { ...process.env, ...ACCOUNTS_OFF, PORT: String(PORT + 106), OPENAI_API_KEY: KEY, CIVIC_OUTPUT_NAMES: '{"conclusion":["", "VAULTWORD-7"]}' } });
     check('a list that cannot be read stops the start, naming the key and never a word of the list',
@@ -6046,6 +6046,7 @@ async function paymentChecks() {
       bad.every((st) => st === 400) && stale.status === 409 && stale.body?.error?.code === 'agreement_changed' && on.status === 200 && on.body?.payments?.topup?.on === true
         && on.body.payments.topup.levelCents === 1000 && on.body.payments.topup.amountCents === 1000 && on.body.payments.topup.capCents === 2500 && consent?.topup_consent_version === AGREEMENT && consent.topup_consent_at instanceof Date,
       JSON.stringify({ bad, stale: stale.status, on: on.body?.payments?.topup, consent }));
+    const hOn = (await c.json('/api/health', { cookie: t.cookie })).body?.access?.session;   // on, a card, the month's total untouched
     const f1 = await factCheck(t);   // 1000 − 125 = 875, below the level: the top-up follows the charge
     const t1 = await until(async () => ((await c.balance(t.cookie)) === 1875 ? 1875 : null), 80);
     const a1 = await autos(t);
@@ -6063,6 +6064,7 @@ async function paymentChecks() {
     check('automatic top-up: never past the reader\'s monthly total: the second of the month runs, a third that would pass it is not asked of the processor',
       done(f2) && t2 === 1750 && done(f3) && (await c.balance(t.cookie)) === 625 && intentsAfter === intentsBefore && (await autos(t)).length === 2,
       JSON.stringify({ balance: await c.balance(t.cookie), autos: (await autos(t)).length, intents: [intentsBefore, intentsAfter] }));
+    const hCap = (await c.json('/api/health', { cookie: t.cookie })).body?.access?.session;   // 2000 of 2500: one more of 1000 would pass it
     await topup(t, { levelCents: 1000, amountCents: 1000, capCents: 10000 });
     await db.query("INSERT INTO payments (id, user_id, kind, mode, amount_cents, currency, status, created_at) VALUES ($1, $2, 'auto', 'test', 1000, 'USD', 'pending', $3)", [`guard-${stamp}`, t.id, clockNow()]);
     const intentsBefore2 = await calls('POST /v1/payment_intents');
@@ -6176,6 +6178,10 @@ async function paymentChecks() {
       fe.status === 402 && fe.body?.error?.code === 'credit_short' && (await c.balance(e.cookie)) === 50 && ae.length === 1 && ae[0].status === 'failed' && ae[0].failure === 'generic_decline'
         && ve?.payments?.topup?.paused === 'declined' && ve.payments.topup.on === true && he?.topupPaused === true && fe2.status === 402 && intentsAfter3 === intentsBefore3,
       JSON.stringify({ status: fe.status, autos: ae.map((r) => [r.status, r.failure]), paused: ve?.payments?.topup?.paused, session: he, intents: [intentsBefore3, intentsAfter3] }));
+    // The main page holds back a selection the balance cannot cover unless the top-up would run first (6 November).
+    check('automatic top-up: the main page is told it would add credit to a test short of it only while it is on, with a card, unpaused, and one more of its amount within the month\'s total; with no card, at the total or paused, it is not',
+      ha && !('topupReady' in ha) && hOn?.topupReady === true && hCap?.addCredit === true && !('topupReady' in hCap) && he?.topupPaused === true && !('topupReady' in he),
+      JSON.stringify({ noCard: ha, on: hOn, atTotal: hCap, paused: he }));
     const declinedPm = (await db.query('SELECT card_method FROM users WHERE id = $1', [e.id])).rows[0].card_method;
     const replaced = await saveCard(e, 'auth');   // a new card un-pauses it; this one's bank asks to confirm, which an automatic charge cannot do
     const unpaused = replaced.back.body?.payments?.topup?.paused;
