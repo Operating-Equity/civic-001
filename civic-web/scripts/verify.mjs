@@ -5913,7 +5913,7 @@ async function paymentChecks() {
     await wait(`http://localhost:${STRIPE}/mock/stats`, 15000, { anyResponse: true });
     const base = { DATABASE_URL: DB_URL, CIVIC_OPERATOR_EMAILS: 'op@example.com', CIVIC_OPERATOR_CLAIM: claimHash(), CIVIC_LIST_PRICE_CENTS: '125', CIVIC_TIER_ORDER: '1', CIVIC_SIGNUP_GRANT_CENTS: '1000', CIVIC_CURRENCY: 'USD',
       CIVIC_LEDGER_FILE: path.join(os.tmpdir(), `civic-verify-payments-ledger-${stamp}.jsonl`) };
-    const amounts = { CIVIC_TOPUP_AMOUNTS_CENTS: '1000,2500,5000', CIVIC_TOPUP_MIN_CENTS: '500', CIVIC_TOPUP_MAX_CENTS: '20000', CIVIC_RELOAD_LEVELS_CENTS: '500,1000', CIVIC_RELOAD_CAPS_CENTS: '2500,5000,10000,20000' };
+    const amounts = { CIVIC_TOPUP_AMOUNTS_CENTS: '1000,2500,5000', CIVIC_TOPUP_MIN_CENTS: '500', CIVIC_TOPUP_MAX_CENTS: '20000', CIVIC_RELOAD_LEVELS_CENTS: '500,1000', CIVIC_RELOAD_CAPS_CENTS: '2500,5000,10000,20000', CIVIC_RELOAD_CAP_DEFAULT_CENTS: '10000' };
     const paying = { ...base, ...amounts, CIVIC_PAYMENTS: 'on', CIVIC_STRIPE_KEY: STRIPE_KEY, CIVIC_STRIPE_WEBHOOK_SECRET: HOOK_SECRET, CIVIC_STRIPE_API: `http://localhost:${STRIPE}` };
     const srv = payServer(PP, paying);
     procs.push(srv.child);
@@ -5953,7 +5953,7 @@ async function paymentChecks() {
     // ---- on: the start-up line, what the pages are told ----
     const boot = srv.output().match(/\[payments\][^\n]*/)?.[0] || '';
     check('payments: the start-up line says on, test mode, for every account, with the amounts and the automatic top-up\'s choices, and never the key or the signing secret',
-      boot === '[payments] on, test mode, for every account: 10.00 USD, 25.00 USD, 50.00 USD; or any amount from 5.00 USD to 200.00 USD; automatic top-ups, the reader\'s choice: below 5.00 USD or 10.00 USD, add 10.00 USD, 25.00 USD, 50.00 USD, at most 25.00 USD, 50.00 USD, 100.00 USD, 200.00 USD a month'
+      boot === '[payments] on, test mode, for every account: 10.00 USD, 25.00 USD, 50.00 USD; or any amount from 5.00 USD to 200.00 USD; automatic top-ups, the reader\'s choice: below 5.00 USD or 10.00 USD, add 10.00 USD, 25.00 USD, 50.00 USD, at most 25.00 USD, 50.00 USD, 100.00 USD, 200.00 USD a month, opening at 100.00 USD'
         && !srv.output().includes(STRIPE_KEY) && !srv.output().includes(HOOK_SECRET), boot);
     const a = await reader('a');
     const va = await view(a);
@@ -5964,6 +5964,9 @@ async function paymentChecks() {
         && JSON.stringify(va.payments.topup?.capsCents) === '[2500,5000,10000,20000]' && va.payments.topup.on === false && va.payments.topup.paused === null && va.payments.topup.agreement === AGREEMENT
         && ha?.addCredit === true && !('topupPaused' in ha),
       JSON.stringify({ payments: va?.payments, session: ha }));
+    // The monthly total the Account page opens on until the reader chooses one (7 November): the operator's default.
+    check('payments: the Account page is told the monthly total to open on until the reader chooses one, the operator\'s default (CIVIC_RELOAD_CAP_DEFAULT_CENTS), and the reader has chosen none',
+      va?.payments?.topup?.capDefaultCents === 10000 && (va.payments.topup.capCents ?? null) === null, JSON.stringify(va?.payments?.topup));
     const pageAgreement = (fs.readFileSync(path.join(root, 'public', 'js', 'account.js'), 'utf8').match(/const TOPUP_AGREEMENT = '([^']+)'/) || [])[1];
     check('payments: the Account page words the automatic top-up\'s agreement at the version the server keeps with each consent', pageAgreement === AGREEMENT && va?.payments?.topup?.agreement === AGREEMENT, String(pageAgreement));
 

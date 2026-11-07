@@ -114,6 +114,8 @@ services:
         value: "500,1000"
       - key: CIVIC_RELOAD_CAPS_CENTS
         value: "2000,5000,10000,20000"
+      - key: CIVIC_RELOAD_CAP_DEFAULT_CENTS
+        value: "10000"
       - key: CIVIC_MARGIN_TARGET_PERCENT
         value: "25"
       # What the public pages say of the business (3 November), as the payment processor's review asks: the support

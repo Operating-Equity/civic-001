@@ -331,6 +331,9 @@ export const config = {
   topupMaxCents: optInt('CIVIC_TOPUP_MAX_CENTS'),
   reloadLevelsCents: list('CIVIC_RELOAD_LEVELS_CENTS', '').map((x) => Number.parseInt(x, 10)).filter((x) => Number.isInteger(x) && x > 0),
   reloadCapsCents: list('CIVIC_RELOAD_CAPS_CENTS', '').map((x) => Number.parseInt(x, 10)).filter((x) => Number.isInteger(x) && x > 0),
+  // The monthly total the Account page opens on while a reader has chosen none (7 November, the operator: "you want the
+  // default to be higher"): one of CIVIC_RELOAD_CAPS_CENTS. Unset, or not one of them, it opens on the first.
+  reloadCapDefaultCents: optInt('CIVIC_RELOAD_CAP_DEFAULT_CENTS'),
   marginTargetPercent: num('CIVIC_MARGIN_TARGET_PERCENT', 25),  // "a very comfortable 25% margin on all costs": /check flags the margin below it
   // What the public pages say of the business (3 November), as the payment processor's review asks: the support address,
   // a support phone and the business's mailing address, set on Render by the operator. A phone or an address that is

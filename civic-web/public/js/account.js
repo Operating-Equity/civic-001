@@ -223,7 +223,7 @@ function renderTopUp(p) {
   };
   fill('#acct-topup-level', tu.levelsCents, tu.levelCents);
   fill('#acct-topup-amount', tu.amountsCents, tu.amountCents);
-  fill('#acct-topup-cap', tu.capsCents, tu.capCents);
+  fill('#acct-topup-cap', tu.capsCents, tu.capCents ?? tu.capDefaultCents);   // until the reader chooses, the operator's default
   syncTopUp();
   $('#acct-topup-on').textContent = tu.on && !tu.paused ? t('account.topup.save') : t('account.topup.agree');
   $('#acct-topup-on').disabled = !p.card;

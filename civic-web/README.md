@@ -319,8 +319,9 @@ adults-only rule. `server/payments.js`, on Stripe's `stripe` package (23.1.0, AP
   charge a test card (the account is made a live customer at its next purchase), /check's books count the key's own
   mode alone, and a test-mode notice reaching the live endpoint is acknowledged and nothing more.
 - **The automatic top-up**, off until the reader turns it on: "when my credit falls below $5 (or $10), add $10 (or $25
-  or $50), at most $20 (or $50, $100, $200) a month", from `CIVIC_RELOAD_LEVELS_CENTS`, `CIVIC_TOPUP_AMOUNTS_CENTS` and
-  `CIVIC_RELOAD_CAPS_CENTS`. The reader agrees to it in plain words beside the switch (the amount, the trigger, the
+  or $50), at most $100 (or $20, $50, $200) a month", from `CIVIC_RELOAD_LEVELS_CENTS`, `CIVIC_TOPUP_AMOUNTS_CENTS` and
+  `CIVIC_RELOAD_CAPS_CENTS`; the monthly total opens on `CIVIC_RELOAD_CAP_DEFAULT_CENTS` until the reader chooses one
+  (unset, on the first). The reader agrees to it in plain words beside the switch (the amount, the trigger, the
   monthly total, the card, how to stop); the time and the version of that wording are kept with the account. It runs
   before a test would be refused for short credit (the test then goes on) and after a charge leaves the credit below
   the level; one at a time per account (a unique index on its pending top-up), and never past the month's total. Claims
